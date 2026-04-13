@@ -4,8 +4,8 @@ import { imessage } from "spectrum-ts/providers/imessage";
 // import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum(
-  "7ad396a0-c94b-4bd5-9764-8f867a5c9421",
-  "fxO-MUFIXHKVhcwIqhvC9mbVAPFQa4Pbyuxr6JMZSn0",
+  "project-id",
+  "project-secret",
   {
     providers: [
       imessage.config({

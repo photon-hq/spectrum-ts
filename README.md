@@ -1,4 +1,4 @@
-# specturm-ts
+# spectrum-ts
 
 To install dependencies:
 
@@ -6,10 +6,20 @@ To install dependencies:
 bun install
 ```
 
-To run:
+To build:
 
 ```bash
-bun run src/index.ts
+bun run build
 ```
 
-This project was created using `bun init` in bun v1.2.21. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+To develop with watch mode:
+
+```bash
+bun run dev
+```
+
+To run the basic example:
+
+```bash
+bun run examples/basic/index.ts
+```

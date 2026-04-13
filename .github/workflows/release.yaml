@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true
     uses: photon-hq/buildspace/.github/workflows/typescript-service-release.yaml@main
     with:
       service-name: spectrum-ts

@@ -16,6 +16,6 @@ jobs:
     with:
       service-name: spectrum-ts
       working-directory: packages/spectrum-ts
-      build-command: "echo 'No build step'"
+      build-command: "bun run build"
       dry-run: true
     secrets: inherit

@@ -11,6 +11,8 @@
     "ultracite": "7.4.3"
   },
   "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
     "check": "ultracite check",
     "fix": "ultracite fix"
   }

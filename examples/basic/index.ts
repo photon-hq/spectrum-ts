@@ -3,18 +3,14 @@ import { imessage } from "spectrum-ts/providers/imessage";
 
 // import { terminal } from "spectrum-ts/providers/terminal";
 
-const app = await Spectrum(
-  "project-id",
-  "project-secret",
-  {
-    providers: [
-      imessage.config({
-        // local: true,
-      }),
-      // terminal.config({}),
-    ],
-  }
-);
+const app = await Spectrum("project-id", "project-secret", {
+  providers: [
+    imessage.config({
+      // local: true,
+    }),
+    // terminal.config({}),
+  ],
+});
 
 for await (const [space, message] of app.messages) {
   const incoming = message.content

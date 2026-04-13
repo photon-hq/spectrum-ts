@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    uses: photon-hq/buildspace/.github/workflows/typescript-service-release.yaml@v1
+    with:
+      service-name: spectrum-ts
+      working-directory: packages/spectrum-ts
+      build-command: "echo 'No build step'"
+      dry-run: true
+    secrets: inherit

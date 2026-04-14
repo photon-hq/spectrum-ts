@@ -32,7 +32,7 @@ for await (const [space, message] of app.messages) {
 
 - [Installation](#installation)
 - [Core Concepts](#core-concepts)
-- [Getting Started](#getting-started)
+- [Quickstart](#quickstart)
 - [Messages](#messages)
 - [Content](#content)
 - [Spaces](#spaces)
@@ -80,47 +80,70 @@ Every message arrives as a `[Space, Message]` tuple. The space gives you the abi
 
 ---
 
-## Getting Started
+## Quickstart
 
-### 1. Create a Spectrum instance
+Send and receive messages across platforms in a few lines.
 
-The `Spectrum()` factory initializes all platform providers, authenticates with any remote services, and returns a fully typed instance.
+### Get your credentials
+
+Find your `PROJECT_ID` and `SECRET_KEY` in your project **Settings** on the [dashboard](http://app.photon.codes/)
+
+### Run your first app
 
 ```typescript
-import { Spectrum } from "spectrum-ts";
+import { Spectrum, text } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
+async function main() {
+  const app = await Spectrum("YOUR_PROJECT_ID", "YOUR_SECRET_KEY", {
+    providers: [
+      imessage.config({ local: false }),
+    ],
+  });
+
+  for await (const [space, message] of app.messages) {
+    const incoming = message.content
+      .filter((c) => c.type === "plain_text")
+      .map((c) => c.text)
+      .join(" ");
+
+    console.log(`[${message.platform}] ${message.sender.id}: ${incoming}`);
+
+    await space.send(text("hello world"));
+  }
+}
+
+main();
+```
+
+
+## How it works
+
+### Initialize
+
+```typescript
 const app = await Spectrum("your-project-id", "your-project-secret", {
-  providers: [
-    imessage.config({ local: true }),
-  ],
+  providers: [imessage.config({ local: false })],
 });
 ```
+Creates your app and connects providers.
 
-The returned `app` is an `AsyncIterable` message source and the primary interface for all interactions.
-
-### 2. Listen for messages
-
+### Receive messages
 ```typescript
 for await (const [space, message] of app.messages) {
-  const incoming = message.content
-    .filter((c) => c.type === "plain_text")
-    .map((c) => c.text)
-    .join(" ");
-
-  console.log(`[${message.platform}] ${message.sender.id}: ${incoming}`);
+  // handle message
 }
 ```
+Streams messages from all platforms in real time.
 
-`app.messages` merges streams from every registered platform provider into a single async iterable. Messages arrive in real time as they're received across all platforms.
-
-### 3. Send a response
-
+### Send replies
 ```typescript
-import { text } from "spectrum-ts";
-
-await space.send(text("Got it."));
+await space.send(text("hello world"));
 ```
+Respond directly to the conversation.
+
+
+
 
 ---
 

@@ -15,5 +15,5 @@ jobs:
       service-name: spectrum-ts
       working-directory: packages/spectrum-ts
       build-command: "bun run build"
-      dry-run: true
+      dry-run: false
     secrets: inherit

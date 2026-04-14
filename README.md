@@ -540,7 +540,7 @@ export const myPlatform = definePlatform("my-platform", {
 | `space.resolve` | Yes | Resolves or creates a conversation. Receives an array of users and optional params. |
 | `space.schema` | No | A Zod schema for validating and typing the resolved space. |
 | `space.params` | No | A Zod schema for additional space creation parameters. |
-| `lifecycle.createClient` | Yes | Creates the platform client. Receives config and optionally project ID and secret (`string \| undefined`). |
+| `lifecycle.createClient` | Yes | Creates the platform client. Receives config and optionally project ID and secret (`string` \| `undefined`). |
 | `lifecycle.destroyClient` | Yes | Tears down the client on shutdown. |
 | `events.messages` | Yes | An async generator that yields incoming messages. |
 | `events.[custom]` | No | Additional async generators for platform-specific events. |

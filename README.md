@@ -97,7 +97,7 @@ import { imessage } from "spectrum-ts/providers/imessage";
 async function main() {
   const app = await Spectrum("YOUR_PROJECT_ID", "YOUR_SECRET_KEY", {
     providers: [
-      imessage.config({}),
+      imessage.config(),
     ],
   });
 
@@ -123,7 +123,7 @@ main();
 
 ```typescript
 const app = await Spectrum("your-project-id", "your-project-secret", {
-  providers: [imessage.config({ })],
+  providers: [imessage.config()],
 });
 ```
 Creates your app and connects providers.

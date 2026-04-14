@@ -12,7 +12,7 @@ import { Spectrum, text } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 import { terminal } from "spectrum-ts/providers/terminal";
 
-const app = await Spectrum("project-id", "project-secret", {
+const app = await Spectrum({
   providers: [
     imessage.config({ local: true }),
     terminal.config(),
@@ -90,7 +90,7 @@ The `Spectrum()` factory initializes all platform providers, authenticates with 
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
-const app = await Spectrum("your-project-id", "your-project-secret", {
+const app = await Spectrum({
   providers: [
     imessage.config({ local: true }),
   ],
@@ -540,7 +540,7 @@ export const myPlatform = definePlatform("my-platform", {
 | `space.resolve` | Yes | Resolves or creates a conversation. Receives an array of users and optional params. |
 | `space.schema` | No | A Zod schema for validating and typing the resolved space. |
 | `space.params` | No | A Zod schema for additional space creation parameters. |
-| `lifecycle.createClient` | Yes | Creates the platform client. Receives config, project ID, and project secret. |
+| `lifecycle.createClient` | Yes | Creates the platform client. Receives config and optionally project ID and secret (`string \| undefined`). |
 | `lifecycle.destroyClient` | Yes | Tears down the client on shutdown. |
 | `events.messages` | Yes | An async generator that yields incoming messages. |
 | `events.[custom]` | No | Additional async generators for platform-specific events. |

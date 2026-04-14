@@ -87,6 +87,14 @@ export const imessage = definePlatform("iMessage", {
         );
       }
 
+      if (!(projectId && projectSecret)) {
+        throw new Error(
+          "iMessage requires projectId and projectSecret. " +
+            "Either pass credentials to Spectrum(), use local mode: imessage.config({ local: true }), " +
+            "or provide explicit client config: imessage.config({ clients: [...] })"
+        );
+      }
+
       return await createCloudClients(projectId, projectSecret);
     },
 

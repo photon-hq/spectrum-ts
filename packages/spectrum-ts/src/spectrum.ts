@@ -47,11 +47,18 @@ export type SpectrumInstance<
 // Config validation
 // ---------------------------------------------------------------------------
 
-const spectrumConfigSchema = z.object({
-  projectId: z.string().min(1),
-  projectSecret: z.string().min(1),
-  providers: z.array(z.custom<PlatformProviderConfig>()),
-});
+const spectrumConfigSchema = z.union([
+  z.object({
+    projectId: z.string().min(1),
+    projectSecret: z.string().min(1),
+    providers: z.array(z.custom<PlatformProviderConfig>()),
+  }),
+  z.object({
+    projectId: z.undefined().optional(),
+    projectSecret: z.undefined().optional(),
+    providers: z.array(z.custom<PlatformProviderConfig>()),
+  }),
+]);
 
 // ---------------------------------------------------------------------------
 // Spectrum() factory
@@ -60,15 +67,21 @@ const spectrumConfigSchema = z.object({
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
 >(
-  projectId: string,
-  projectSecret: string,
-  options: { providers: [...Providers] }
+  options:
+    | {
+        projectId: string;
+        projectSecret: string;
+        providers: [...Providers];
+      }
+    | {
+        projectId?: never;
+        projectSecret?: never;
+        providers: [...Providers];
+      }
 ): Promise<SpectrumInstance<Providers>> {
-  spectrumConfigSchema.parse({
-    projectId,
-    projectSecret,
-    providers: options.providers,
-  });
+  spectrumConfigSchema.parse(options);
+
+  const { projectId, projectSecret, providers } = options;
 
   const platformStates = new Map<
     string,
@@ -81,7 +94,7 @@ export async function Spectrum<
   let stopped = false;
 
   // Initialize all provider clients eagerly
-  for (const provider of options.providers) {
+  for (const provider of providers) {
     const providerConfig = provider as PlatformProviderConfig;
     const def = providerConfig.__definition;
     const userConfig = def.config.parse(providerConfig.config);
@@ -344,7 +357,7 @@ export async function Spectrum<
   );
 
   const base = {
-    __providers: options.providers,
+    __providers: providers,
     __internal: { platforms: platformStates },
     messages,
     stop: stopOnce,

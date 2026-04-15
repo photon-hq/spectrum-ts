@@ -423,7 +423,11 @@ export interface SpectrumLike<
 // ---------------------------------------------------------------------------
 
 export interface Platform<Def extends AnyPlatformDef> {
-  config(config?: z.input<Def["config"]>): PlatformProviderConfig<Def>;
+  config(
+    ...args: Record<string, never> extends z.input<Def["config"]>
+      ? [config?: z.input<Def["config"]>]
+      : [config: z.input<Def["config"]>]
+  ): PlatformProviderConfig<Def>;
   <Providers extends PlatformProviderConfig[]>(
     spectrum: SpectrumLike<Providers>
   ): HasProvider<Providers, Def["name"]> extends true

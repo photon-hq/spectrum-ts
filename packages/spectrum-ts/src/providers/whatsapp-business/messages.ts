@@ -198,7 +198,7 @@ export const reactToMessage = async (
 ): Promise<void> => {
   await client.messages.send({
     to: spaceId,
-    reaction: { message_id: messageId, emoji: reaction },
+    reaction: { messageId, emoji: reaction },
   });
 };
 

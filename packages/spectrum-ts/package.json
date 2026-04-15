@@ -24,6 +24,11 @@
       "types": "./dist/providers/terminal/index.d.ts",
       "bun": "./src/providers/terminal/index.ts",
       "default": "./dist/providers/terminal/index.js"
+    },
+    "./providers/whatsapp-business": {
+      "types": "./dist/providers/whatsapp-business/index.d.ts",
+      "bun": "./src/providers/whatsapp-business/index.ts",
+      "default": "./dist/providers/whatsapp-business/index.js"
     }
   },
   "scripts": {
@@ -32,6 +37,7 @@
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.1.0",
+    "@photon-ai/whatsapp-business": "^0.1.0",
     "@photon-ai/imessage-kit": "^2.1.2",
     "@repeaterjs/repeater": "^3.0.6",
     "better-grpc": "^0.3.2",

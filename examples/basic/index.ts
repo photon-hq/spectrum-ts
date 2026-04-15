@@ -1,5 +1,6 @@
 import { Spectrum, text } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
+import { whatsappBusiness } from "spectrum-ts/providers/whatsapp-business";
 
 // import { terminal } from "spectrum-ts/providers/terminal";
 
@@ -7,7 +8,8 @@ const app = await Spectrum({
   projectId: "project-id",
   projectSecret: "project-secret",
   providers: [
-    imessage.config(),
+    // imessage.config(),
+    whatsappBusiness.config(),
     // terminal.config({}),
   ],
 });

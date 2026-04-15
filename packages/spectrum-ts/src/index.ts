@@ -23,4 +23,16 @@ export {
 export type { Message } from "./types/message";
 export type { Space } from "./types/space";
 export type { User } from "./types/user";
+export type {
+  CloudPlatform,
+  DedicatedTokenData,
+  ImessageInfoData,
+  PlatformStatus,
+  PlatformsData,
+  SharedTokenData,
+  SubscriptionData,
+  SubscriptionStatus,
+  TokenData,
+} from "./utils/cloud";
+export { cloud, SpectrumCloudError } from "./utils/cloud";
 export { type ManagedStream, mergeStreams, stream } from "./utils/stream";

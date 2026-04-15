@@ -2,30 +2,15 @@ import {
   type AdvancedIMessage,
   createClient,
 } from "@photon-ai/advanced-imessage";
-import { SPECTRUM_CLOUD_URL } from "../../utils/cloud";
+import {
+  cloud,
+  type DedicatedTokenData,
+  type SharedTokenData,
+} from "../../utils/cloud";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
 const RETRY_DELAY_MS = 30_000;
-
-interface SharedTokenData {
-  expiresIn: number;
-  token: string;
-  type: "shared";
-}
-
-interface DedicatedTokenData {
-  auth: Record<string, string>;
-  expiresIn: number;
-  type: "dedicated";
-}
-
-type TokenData = SharedTokenData | DedicatedTokenData;
-
-interface TokenResponse {
-  data: TokenData;
-  succeed: boolean;
-}
 
 interface CloudAuth {
   dispose: () => void;
@@ -33,42 +18,11 @@ interface CloudAuth {
 
 const cloudAuthState = new WeakMap<AdvancedIMessage[], CloudAuth>();
 
-async function fetchTokens(
-  projectId: string,
-  projectSecret: string
-): Promise<TokenData> {
-  const url = `${SPECTRUM_CLOUD_URL}/${projectId}/imessage/tokens`;
-  const credentials = btoa(`${projectId}:${projectSecret}`);
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-    },
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Spectrum Cloud authentication failed (${response.status}): ${body || response.statusText}`
-    );
-  }
-
-  const json = (await response.json()) as TokenResponse;
-  if (!json.succeed) {
-    throw new Error(
-      "Spectrum Cloud authentication failed: server returned succeed=false"
-    );
-  }
-
-  return json.data;
-}
-
 export async function createCloudClients(
   projectId: string,
   projectSecret: string
 ): Promise<AdvancedIMessage[]> {
-  let tokenData = await fetchTokens(projectId, projectSecret);
+  let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
@@ -82,7 +36,7 @@ export async function createCloudClients(
 
     renewalTimer = setTimeout(async () => {
       try {
-        tokenData = await fetchTokens(projectId, projectSecret);
+        tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
         tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
         scheduleRenewal();
       } catch {
@@ -99,7 +53,7 @@ export async function createCloudClients(
     if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
       return;
     }
-    tokenData = await fetchTokens(projectId, projectSecret);
+    tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
     scheduleRenewal();
   };

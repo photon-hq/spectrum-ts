@@ -579,15 +579,6 @@ export const myPlatform = definePlatform("my-platform", {
 
 ---
 
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SPECTRUM_CLOUD_URL` | `spectrum-cloud.photon.codes` | Spectrum Cloud API endpoint for authentication. |
-| `SPECTRUM_IMESSAGE_ADDRESS` | `spectrum-imessage.photon.codes:443` | Default gRPC address for cloud-mode iMessage connections. |
-
----
-
 ## Development
 
 ### Prerequisites

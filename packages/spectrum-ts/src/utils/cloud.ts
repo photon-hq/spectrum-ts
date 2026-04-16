@@ -1,4 +1,4 @@
-export const SPECTRUM_CLOUD_URL = `https://${process.env.SPECTRUM_CLOUD_URL ?? "spectrum-cloud.photon.codes"}`;
+export const SPECTRUM_CLOUD_URL = `https://${process.env.SPECTRUM_CLOUD_URL ?? "spectrum.photon.codes"}`;
 
 // ---------------------------------------------------------------------------
 // API response types (aligned with OpenAPI spec)

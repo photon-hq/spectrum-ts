@@ -29,8 +29,8 @@ export interface ContentBuilder {
   build(): Promise<Content>;
 }
 
-export function text<T extends string>(
-  text: NonEmptyString<T>
+export function text(
+  text: string
 ): ContentBuilder {
   return {
     build: (): Promise<Content> =>

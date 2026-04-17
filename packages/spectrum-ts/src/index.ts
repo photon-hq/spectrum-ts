@@ -1,4 +1,3 @@
-// biome-ignore lint/performance/noBarrelFile: library entry point
 export { attachment } from "./content/attachment";
 export { custom } from "./content/custom";
 export { resolveContents } from "./content/resolve";

@@ -15,5 +15,6 @@ jobs:
       service-name: spectrum-ts
       working-directory: packages/spectrum-ts
       build-command: "bun run build"
+      publish-command: "bunx clean-publish --package-manager npm"
       dry-run: false
     secrets: inherit

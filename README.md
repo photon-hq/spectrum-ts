@@ -21,7 +21,7 @@ const app = await Spectrum({
 
 for await (const [space, message] of app.messages) {
   await space.responding(async () => {
-    await message.reply(text("Hello from Spectrum."));
+    await message.reply("Hello from Spectrum.");
   });
 }
 ```
@@ -91,7 +91,7 @@ Find your `PROJECT_ID` and `SECRET_KEY` in your project **Settings** on the [das
 ### Run your first app
 
 ```typescript
-import { Spectrum, text } from "spectrum-ts";
+import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
 async function main() {
@@ -104,14 +104,10 @@ async function main() {
   });
 
   for await (const [space, message] of app.messages) {
-    const incoming = message.content
-      .filter((c) => c.type === "plain_text")
-      .map((c) => c.text)
-      .join(" ");
-
-    console.log(`[${message.platform}] ${message.sender.id}: ${incoming}`);
-
-    await space.send(text("hello world"));
+    if (message.content.type === "text") {
+      console.log(`[${message.platform}] ${message.sender.id}: ${message.content.text}`);
+      await space.send("hello world");
+    }
   }
 }
 
@@ -140,7 +136,7 @@ Streams messages from all platforms in real time.
 
 ### Send replies
 ```typescript
-await space.send(text("hello world"));
+await space.send("hello world");
 ```
 Respond directly to the conversation.
 
@@ -156,25 +152,25 @@ Every incoming message conforms to the `Message` interface:
 ```typescript
 interface Message {
   readonly id: string;
-  content: Content[];
+  content: Content;
   sender: User;
   space: Space;
   platform: string;
   timestamp: Date;
   react(reaction: string): Promise<void>;
-  reply(...content: ContentBuilder[]): Promise<void>;
+  reply(...content: ContentInput[]): Promise<void>;
 }
 ```
 
 Messages carry their own context. You can reply to a message directly, react to it, or use its space to send new messages. The `platform` field identifies which platform provider delivered the message.
 
-Content is an array because a single message can contain multiple pieces — text and an image, for example.
+`Content` is a discriminated union on `type` — `"text"`, `"attachment"`, or `"custom"`. Narrow on `message.content.type` to access the corresponding fields.
 
 ---
 
 ## Content
 
-Spectrum provides three content builders for constructing outgoing messages:
+Spectrum provides three content builders for constructing outgoing messages. Plain strings are also accepted everywhere a content input is expected, as a shortcut for `text()`.
 
 ### Text
 
@@ -182,6 +178,9 @@ Spectrum provides three content builders for constructing outgoing messages:
 import { text } from "spectrum-ts";
 
 await space.send(text("Hello, world."));
+
+// Plain strings are equivalent:
+await space.send("Hello, world.");
 ```
 
 ### Attachments
@@ -213,11 +212,11 @@ await space.send(custom({ type: "card", title: "Order Confirmed" }));
 
 ### Composing multiple content items
 
-All send methods accept variadic content builders. Items are sent in order.
+All send methods accept a variadic list of content inputs (strings or builders). Items are sent in order as separate messages.
 
 ```typescript
 await space.send(
-  text("Here's the file you requested:"),
+  "Here's the file you requested:",
   attachment("/path/to/document.pdf")
 );
 ```
@@ -232,7 +231,7 @@ A space represents a conversation. Every message arrives with its originating sp
 interface Space {
   readonly id: string;
   readonly __platform: string;
-  send(...content: ContentBuilder[]): Promise<void>;
+  send(...content: ContentInput[]): Promise<void>;
   startTyping(): Promise<void>;
   stopTyping(): Promise<void>;
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
@@ -527,7 +526,7 @@ export const myPlatform = definePlatform("my-platform", {
       for await (const msg of client.onMessage()) {
         yield {
           id: msg.id,
-          content: [{ type: "plain_text", text: msg.body }],
+          content: { type: "text", text: msg.body },
           sender: { id: msg.authorId },
           space: { id: msg.channelId },
           timestamp: new Date(msg.ts),
@@ -539,10 +538,8 @@ export const myPlatform = definePlatform("my-platform", {
   // Actions the platform supports
   actions: {
     send: async ({ space, content, client }) => {
-      for (const item of content) {
-        if (item.type === "plain_text") {
-          await client.send(space.id, item.text);
-        }
+      if (content.type === "text") {
+        await client.send(space.id, content.text);
       }
     },
     // Optional:
@@ -569,7 +566,7 @@ export const myPlatform = definePlatform("my-platform", {
 | `lifecycle.destroyClient` | Yes | Tears down the client on shutdown. |
 | `events.messages` | Yes | An async generator that yields incoming messages. |
 | `events.[custom]` | No | Additional async generators for platform-specific events. |
-| `actions.send` | Yes | Sends content to a space. |
+| `actions.send` | Yes | Sends a single content item to a space. Invoked once per item when multiple are passed. |
 | `actions.startTyping` | No | Shows a typing indicator in a space. |
 | `actions.stopTyping` | No | Hides a typing indicator in a space. |
 | `actions.reactToMessage` | No | Reacts to a specific message. |

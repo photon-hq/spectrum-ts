@@ -1,4 +1,4 @@
-import type { Content, ContentInput } from "./content";
+import type { Content, ContentInput } from "../content/types";
 import type { Space } from "./space";
 import type { User } from "./user";
 

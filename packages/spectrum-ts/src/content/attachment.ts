@@ -2,54 +2,16 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
+import type { ContentBuilder } from "./types";
 
 const DEFAULT_ATTACHMENT_NAME = "attachment";
 
-const contentSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("text"),
-    text: z.string().nonempty(),
-  }),
-  z.object({
-    type: z.literal("custom"),
-    raw: z.json(),
-  }),
-  z.object({
-    type: z.literal("attachment"),
-    data: z.instanceof(Buffer),
-    mimeType: z.string().nonempty(),
-    name: z.string().nonempty(),
-  }),
-]);
-
-export type Content = z.infer<typeof contentSchema>;
-
-export interface ContentBuilder {
-  build(): Promise<Content>;
-}
-
-export function text(text: string): ContentBuilder {
-  return {
-    build: (): Promise<Content> => Promise.resolve({ type: "text", text }),
-  };
-}
-
-export type ContentInput = string | ContentBuilder;
-
-export const resolveContents = (
-  items: readonly ContentInput[]
-): Promise<Content[]> =>
-  Promise.all(
-    items.map((c) => (typeof c === "string" ? text(c).build() : c.build()))
-  );
-
-export function custom(
-  raw: z.infer<ReturnType<typeof z.json>>
-): ContentBuilder {
-  return {
-    build: (): Promise<Content> => Promise.resolve({ type: "custom", raw }),
-  };
-}
+export const attachmentSchema = z.object({
+  type: z.literal("attachment"),
+  data: z.instanceof(Buffer),
+  mimeType: z.string().nonempty(),
+  name: z.string().nonempty(),
+});
 
 const resolveAttachmentName = (input: string | Buffer, name?: string): string =>
   name ||
@@ -75,7 +37,7 @@ export function attachment(
   options?: { mimeType?: string; name?: string }
 ): ContentBuilder {
   return {
-    build: async (): Promise<Content> => {
+    build: async () => {
       const data = typeof input === "string" ? await readFile(input) : input;
       const name = resolveAttachmentName(input, options?.name);
 

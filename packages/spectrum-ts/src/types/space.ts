@@ -1,4 +1,4 @@
-import type { ContentInput } from "./content";
+import type { ContentInput } from "../content/types";
 
 export interface Space<_Def = unknown> {
   readonly __platform: string;

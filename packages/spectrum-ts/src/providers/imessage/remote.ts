@@ -5,7 +5,7 @@ import {
   messageGuid,
   Reaction,
 } from "@photon-ai/advanced-imessage";
-import type { Content } from "../../types/content";
+import type { Content } from "../../content/types";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import type { IMessageMessage } from "./types";
 

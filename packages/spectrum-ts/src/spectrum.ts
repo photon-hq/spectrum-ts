@@ -1,15 +1,12 @@
 import z from "zod";
+import { resolveContents } from "./content/resolve";
+import type { Content, ContentInput } from "./content/types";
 import type {
   AnyPlatformDef,
   CustomEventStreams,
   PlatformProviderConfig,
   SpectrumLike,
 } from "./platform/types";
-import {
-  type Content,
-  type ContentInput,
-  resolveContents,
-} from "./types/content";
 import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import { type ManagedStream, mergeStreams, stream } from "./utils/stream";

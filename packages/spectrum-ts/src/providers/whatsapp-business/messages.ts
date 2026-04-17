@@ -2,7 +2,7 @@ import type {
   InboundMessage,
   WhatsAppClient,
 } from "@photon-ai/whatsapp-business";
-import type { Content } from "../../types/content";
+import type { Content } from "../../content/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import type { WhatsAppMessage } from "./types";
 

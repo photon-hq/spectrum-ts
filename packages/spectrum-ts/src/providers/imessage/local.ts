@@ -5,7 +5,7 @@ import type {
   IMessageSDK,
   Message as LocalIMessage,
 } from "@photon-ai/imessage-kit";
-import type { Content } from "../../types/content";
+import type { Content } from "../../content/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import type { IMessageMessage } from "./types";
 

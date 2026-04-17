@@ -1,5 +1,6 @@
 import type z from "zod";
-import { type ContentInput, resolveContents } from "../types/content";
+import { resolveContents } from "../content/resolve";
+import type { ContentInput } from "../content/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type {

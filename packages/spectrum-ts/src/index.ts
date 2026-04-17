@@ -1,4 +1,9 @@
 // biome-ignore lint/performance/noBarrelFile: library entry point
+export { attachment } from "./content/attachment";
+export { custom } from "./content/custom";
+export { resolveContents } from "./content/resolve";
+export { text } from "./content/text";
+export type { Content, ContentBuilder, ContentInput } from "./content/types";
 export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,
@@ -13,15 +18,6 @@ export type {
   SchemaMessage,
 } from "./platform/types";
 export { Spectrum, type SpectrumInstance } from "./spectrum";
-export {
-  attachment,
-  type Content,
-  type ContentBuilder,
-  type ContentInput,
-  custom,
-  resolveContents,
-  text,
-} from "./types/content";
 export type { Message } from "./types/message";
 export type { Space } from "./types/space";
 export type { User } from "./types/user";

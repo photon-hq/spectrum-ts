@@ -3,12 +3,10 @@ import type { ContentBuilder } from "./types";
 
 export const customSchema = z.object({
   type: z.literal("custom"),
-  raw: z.json(),
+  raw: z.unknown(),
 });
 
-export function custom(
-  raw: z.infer<ReturnType<typeof z.json>>
-): ContentBuilder {
+export function custom(raw: unknown): ContentBuilder {
   return {
     build: () => Promise.resolve({ type: "custom", raw }),
   };

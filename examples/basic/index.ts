@@ -1,4 +1,5 @@
 import { Spectrum } from "spectrum-ts";
+import { imessage } from "spectrum-ts/providers/imessage";
 
 // import { terminal } from "spectrum-ts/providers/terminal";
 
@@ -6,7 +7,7 @@ const app = await Spectrum({
   projectId: "project-id",
   projectSecret: "project-secret",
   providers: [
-    // imessage.config(),
+    imessage.config({ local: true }),
     // terminal.config({}),
   ],
 });
@@ -17,7 +18,7 @@ for await (const [space, message] of app.messages) {
       const incoming = message.content.text;
       console.log(incoming);
       await space.responding(async () => {
-        await message.reply(`echo: ${incoming}`);
+        await space.send(`echo: ${incoming}`);
       });
       break;
     }

@@ -52,10 +52,7 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
 
   actions: {
     send: async ({ space, content, client }) => {
-      const wa = client as WhatsAppClient;
-      for (const item of content) {
-        await send(wa, space.id, item);
-      }
+      await send(client as WhatsAppClient, space.id, content);
     },
 
     reactToMessage: async ({ space, messageId, reaction, client }) => {
@@ -68,10 +65,12 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
     },
 
     replyToMessage: async ({ space, messageId, content, client }) => {
-      const wa = client as WhatsAppClient;
-      for (const item of content) {
-        await replyToMessage(wa, space.id, messageId, item);
-      }
+      await replyToMessage(
+        client as WhatsAppClient,
+        space.id,
+        messageId,
+        content
+      );
     },
   },
 });

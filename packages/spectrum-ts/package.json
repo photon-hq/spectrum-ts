@@ -11,25 +11,30 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
       "bun": "./src/index.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./providers/imessage": {
-      "types": "./dist/providers/imessage/index.d.ts",
-      "bun": "./src/providers/imessage/index.ts",
-      "default": "./dist/providers/imessage/index.js"
-    },
-    "./providers/terminal": {
-      "types": "./dist/providers/terminal/index.d.ts",
-      "bun": "./src/providers/terminal/index.ts",
-      "default": "./dist/providers/terminal/index.js"
-    },
-    "./providers/whatsapp-business": {
-      "types": "./dist/providers/whatsapp-business/index.d.ts",
-      "bun": "./src/providers/whatsapp-business/index.ts",
-      "default": "./dist/providers/whatsapp-business/index.js"
+    "./providers/*": {
+      "bun": "./src/providers/*/index.ts",
+      "types": "./src/providers/*/index.ts",
+      "default": "./dist/providers/*/index.js"
     }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./providers/*": {
+        "types": "./dist/providers/*/index.d.ts",
+        "default": "./dist/providers/*/index.js"
+      }
+    },
+    "files": [
+      "dist"
+    ]
   },
   "scripts": {
     "build": "tsup",

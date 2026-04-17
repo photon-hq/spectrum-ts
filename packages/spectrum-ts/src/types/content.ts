@@ -7,7 +7,7 @@ const DEFAULT_ATTACHMENT_NAME = "attachment";
 
 const contentSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("plain_text"),
+    type: z.literal("text"),
     text: z.string().nonempty(),
   }),
   z.object({
@@ -30,10 +30,18 @@ export interface ContentBuilder {
 
 export function text(text: string): ContentBuilder {
   return {
-    build: (): Promise<Content> =>
-      Promise.resolve({ type: "plain_text", text }),
+    build: (): Promise<Content> => Promise.resolve({ type: "text", text }),
   };
 }
+
+export type ContentInput = string | ContentBuilder;
+
+export const resolveContents = (
+  items: readonly ContentInput[]
+): Promise<Content[]> =>
+  Promise.all(
+    items.map((c) => (typeof c === "string" ? text(c).build() : c.build()))
+  );
 
 export function custom(
   raw: z.infer<ReturnType<typeof z.json>>

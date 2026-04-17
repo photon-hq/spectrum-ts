@@ -23,70 +23,57 @@ const toMessage = async (
 const mapContent = async (
   client: WhatsAppClient,
   content: InboundMessage["content"]
-): Promise<Content[]> => {
+): Promise<Content> => {
   switch (content.type) {
     case "text":
-      return [{ type: "plain_text", text: content.body }];
+      return { type: "text", text: content.body };
     case "image":
     case "video":
     case "audio":
     case "document":
-      return [await downloadMedia(client, content.media)];
+      return await downloadMedia(client, content.media);
     case "sticker":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "sticker", ...content.sticker },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "sticker", ...content.sticker },
+      };
     case "location":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "location", ...content.location },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "location", ...content.location },
+      };
     case "contacts":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "contacts", contacts: content.contacts },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "contacts", contacts: content.contacts },
+      };
     case "reaction":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "reaction", ...content.reaction },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "reaction", ...content.reaction },
+      };
     case "interactive":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "interactive", ...content.interactive },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "interactive", ...content.interactive },
+      };
     case "button":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "button", ...content.button },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "button", ...content.button },
+      };
     case "order":
-      return [
-        { type: "custom", raw: { whatsapp_type: "order", ...content.order } },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "order", ...content.order },
+      };
     case "system":
-      return [
-        {
-          type: "custom",
-          raw: { whatsapp_type: "system", ...content.system },
-        },
-      ];
+      return {
+        type: "custom",
+        raw: { whatsapp_type: "system", ...content.system },
+      };
     default:
-      return [{ type: "custom", raw: { whatsapp_type: "unknown" } }];
+      return { type: "custom", raw: { whatsapp_type: "unknown" } };
   }
 };
 
@@ -165,7 +152,7 @@ export const send = async (
   content: Content
 ): Promise<void> => {
   switch (content.type) {
-    case "plain_text":
+    case "text":
       await client.messages.send({ to: spaceId, text: content.text });
       break;
     case "attachment": {
@@ -209,7 +196,7 @@ export const replyToMessage = async (
   content: Content
 ): Promise<void> => {
   switch (content.type) {
-    case "plain_text":
+    case "text":
       await client.messages.send({
         to: spaceId,
         replyTo: messageId,

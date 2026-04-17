@@ -17,7 +17,9 @@ export {
   attachment,
   type Content,
   type ContentBuilder,
+  type ContentInput,
   custom,
+  resolveContents,
   text,
 } from "./types/content";
 export type { Message } from "./types/message";

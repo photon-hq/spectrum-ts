@@ -17,7 +17,7 @@ const TAPBACK_NAMES: ReadonlySet<string> = new Set(
 
 const toMessage = (event: ReceivedEvent): IMessageMessage => ({
   id: event.message.guid as string,
-  content: [{ type: "plain_text", text: event.message.text ?? "" }],
+  content: { type: "text", text: event.message.text ?? "" },
   sender: { id: event.message.sender?.address ?? "" },
   space: {
     id: event.chatGuid,
@@ -81,7 +81,7 @@ export const send = async (
     return;
   }
   switch (content.type) {
-    case "plain_text":
+    case "text":
       await remote.messages.send(chatGuid(spaceId), content.text);
       break;
     case "attachment": {
@@ -115,7 +115,7 @@ export const replyToMessage = async (
   const replyTo = messageGuid(msgId);
 
   switch (content.type) {
-    case "plain_text":
+    case "text":
       await remote.messages.send(chat, content.text, { replyTo });
       break;
     case "attachment": {

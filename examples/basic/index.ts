@@ -1,4 +1,4 @@
-import { Spectrum, text } from "spectrum-ts";
+import { Spectrum } from "spectrum-ts";
 import { whatsappBusiness } from "spectrum-ts/providers/whatsapp-business";
 
 // import { terminal } from "spectrum-ts/providers/terminal";
@@ -19,23 +19,24 @@ const app = await Spectrum({
 });
 
 for await (const [space, message] of app.messages) {
-  const incoming = message.content
-    .filter((c) => c.type === "plain_text")
-    .map((c) => c.text)
-    .join(" ");
-
-  console.log(incoming);
-
-  // console.log(imessage(space));
-
-  await space.responding(async () => {
-    // await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // await message.react(imessage.tapbacks.laugh);
-    await message.reply(text(`echo: ${incoming}`));
-
-    // await space.send(text(`echo: ${incoming}`));
-  });
+  switch (message.content.type) {
+    case "text": {
+      const incoming = message.content.text;
+      console.log(incoming);
+      await space.responding(async () => {
+        await message.reply(`echo: ${incoming}`);
+      });
+      break;
+    }
+    case "attachment":
+      console.log(`[attachment] ${message.content.name}`);
+      break;
+    case "custom":
+      console.log("[custom]", message.content.raw);
+      break;
+    default:
+      break;
+  }
 }
 
 // const user1 = await imessage(app).user("+13322593374");

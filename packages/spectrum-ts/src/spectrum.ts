@@ -5,14 +5,18 @@ import type {
   PlatformProviderConfig,
   SpectrumLike,
 } from "./platform/types";
-import type { Content, ContentBuilder } from "./types/content";
+import {
+  type Content,
+  type ContentInput,
+  resolveContents,
+} from "./types/content";
 import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import { type ManagedStream, mergeStreams, stream } from "./utils/stream";
 
 type ProviderMessageRecord = {
   id: string;
-  content: Content[];
+  content: Content;
   sender: { id: string } & Record<string, unknown>;
   space: { id: string } & Record<string, unknown>;
   timestamp?: Date;
@@ -38,7 +42,7 @@ export type SpectrumInstance<
     stop(): Promise<void>;
     send(
       space: Space,
-      ...content: [ContentBuilder, ...ContentBuilder[]]
+      ...content: [ContentInput, ...ContentInput[]]
     ): Promise<void>;
     responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
   };
@@ -162,12 +166,14 @@ export async function Spectrum<
         const typingCtx = { space: spaceRef, client, config };
         const space = {
           ...spaceRef,
-          send: async (...content: [ContentBuilder, ...ContentBuilder[]]) => {
-            const resolved = await Promise.all(content.map((c) => c.build()));
-            await definition.actions.send({
-              ...typingCtx,
-              content: resolved,
-            });
+          send: async (...content: [ContentInput, ...ContentInput[]]) => {
+            const resolved = await resolveContents(content);
+            for (const item of resolved) {
+              await definition.actions.send({
+                ...typingCtx,
+                content: item,
+              });
+            }
           },
           startTyping: async () => {
             await definition.actions.startTyping?.(typingCtx);
@@ -202,19 +208,21 @@ export async function Spectrum<
             });
           },
           reply: async (
-            ...content: [ContentBuilder, ...ContentBuilder[]]
+            ...content: [ContentInput, ...ContentInput[]]
           ): Promise<void> => {
             if (!definition.actions.replyToMessage) {
               return;
             }
-            const resolved = await Promise.all(content.map((c) => c.build()));
-            await definition.actions.replyToMessage({
-              space: spaceRef,
-              messageId: msg.id,
-              content: resolved,
-              client,
-              config,
-            });
+            const resolved = await resolveContents(content);
+            for (const item of resolved) {
+              await definition.actions.replyToMessage({
+                space: spaceRef,
+                messageId: msg.id,
+                content: item,
+                client,
+                config,
+              });
+            }
           },
           sender: {
             ...msg.sender,
@@ -363,7 +371,7 @@ export async function Spectrum<
     stop: stopOnce,
     send: async (
       space: Space,
-      ...content: [ContentBuilder, ...ContentBuilder[]]
+      ...content: [ContentInput, ...ContentInput[]]
     ) => {
       await space.send(...content);
     },

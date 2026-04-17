@@ -43,7 +43,7 @@ export const terminal = definePlatform("terminal", {
       for await (const line of client) {
         yield {
           id: crypto.randomUUID(),
-          content: [{ type: "plain_text" as const, text: line }],
+          content: { type: "text" as const, text: line },
           sender: { id: "terminal-user" },
           space: { id: "terminal" },
           timestamp: new Date(),
@@ -54,12 +54,8 @@ export const terminal = definePlatform("terminal", {
 
   actions: {
     send: async ({ content }) => {
-      const outputs = content
-        .filter((c) => c.type === "plain_text")
-        .map((c) => c.text);
-
-      for (const output of outputs) {
-        console.log(output);
+      if (content.type === "text") {
+        console.log(content.text);
       }
     },
   },

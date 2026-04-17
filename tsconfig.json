@@ -14,6 +14,9 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
 
+    // Runtime types (monorepo-wide default; override per workspace if needed)
+    "types": ["bun"],
+
     // Best practices
     "strict": true,
     "skipLibCheck": true,

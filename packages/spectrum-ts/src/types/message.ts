@@ -1,4 +1,4 @@
-import type { Content, ContentBuilder } from "./content";
+import type { Content, ContentInput } from "./content";
 import type { Space } from "./space";
 import type { User } from "./user";
 
@@ -7,11 +7,11 @@ export interface Message<
   TSender extends User = User,
   TSpace extends Space = Space,
 > {
-  content: Content[];
+  content: Content;
   readonly id: string;
   platform: TPlatform;
   react(reaction: string): Promise<void>;
-  reply(...content: [ContentBuilder, ...ContentBuilder[]]): Promise<void>;
+  reply(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
   sender: TSender;
   space: TSpace;
   timestamp: Date;

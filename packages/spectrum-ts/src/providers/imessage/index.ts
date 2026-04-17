@@ -115,12 +115,10 @@ export const imessage = definePlatform("iMessage", {
 
   actions: {
     send: async ({ space, content, client }) => {
-      for (const item of content) {
-        if (isLocal(client)) {
-          await localSend(client, space.id, item);
-        } else {
-          await remoteSend(client, space.id, item);
-        }
+      if (isLocal(client)) {
+        await localSend(client, space.id, content);
+      } else {
+        await remoteSend(client, space.id, content);
       }
     },
     startTyping: async ({ space, client }) => {
@@ -145,9 +143,7 @@ export const imessage = definePlatform("iMessage", {
       if (isLocal(client)) {
         return;
       }
-      for (const item of content) {
-        await remoteReplyToMessage(client, space.id, messageId, item);
-      }
+      await remoteReplyToMessage(client, space.id, messageId, content);
     },
   },
 });

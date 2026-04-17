@@ -38,7 +38,7 @@ export type ProviderMessage<
   TExtra extends object = Record<never, never>,
 > = {
   id: string;
-  content: Content[];
+  content: Content;
   sender: TSender;
   space: TSpace;
   timestamp?: Date;
@@ -103,7 +103,7 @@ export interface PlatformDef<
   actions: {
     send: (_: {
       space: _ResolvedSpace & SpaceRef;
-      content: Content[];
+      content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
     }) => Promise<void>;
@@ -127,7 +127,7 @@ export interface PlatformDef<
     replyToMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
-      content: Content[];
+      content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
     }) => Promise<void>;

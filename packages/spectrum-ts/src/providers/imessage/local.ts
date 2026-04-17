@@ -16,7 +16,7 @@ const toSpace = (message: LocalIMessage): IMessageMessage["space"] => ({
 
 const toMessage = (message: LocalIMessage): IMessageMessage => ({
   id: message.guid,
-  content: [{ type: "plain_text", text: message.text ?? "" }],
+  content: { type: "text", text: message.text ?? "" },
   sender: { id: message.sender ?? "" },
   space: toSpace(message),
   timestamp: message.date ?? new Date(),
@@ -36,7 +36,7 @@ export const send = async (
   content: Content
 ) => {
   switch (content.type) {
-    case "plain_text":
+    case "text":
       await client.send(spaceId, content.text);
       break;
     case "attachment": {

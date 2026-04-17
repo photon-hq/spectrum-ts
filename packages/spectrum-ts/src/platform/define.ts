@@ -1,5 +1,5 @@
 import type z from "zod";
-import type { ContentBuilder } from "../types/content";
+import { type ContentInput, resolveContents } from "../types/content";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type {
@@ -107,12 +107,14 @@ function createPlatformInstance<
       return {
         ...parsedSpace,
         ...spaceRef,
-        send: async (...content: [ContentBuilder, ...ContentBuilder[]]) => {
-          const built = await Promise.all(content.map((c) => c.build()));
-          await def.actions.send({
-            ...typingCtx,
-            content: built,
-          });
+        send: async (...content: [ContentInput, ...ContentInput[]]) => {
+          const built = await resolveContents(content);
+          for (const item of built) {
+            await def.actions.send({
+              ...typingCtx,
+              content: item,
+            });
+          }
         },
         startTyping: async () => {
           await def.actions.startTyping?.(typingCtx);

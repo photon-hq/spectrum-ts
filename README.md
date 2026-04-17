@@ -158,7 +158,7 @@ interface Message {
   platform: string;
   timestamp: Date;
   react(reaction: string): Promise<void>;
-  reply(...content: ContentInput[]): Promise<void>;
+  reply(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
 }
 ```
 

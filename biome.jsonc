@@ -14,7 +14,7 @@
   },
   "overrides": [
     {
-      "includes": ["packages/*/src/index.ts"],
+      "includes": ["packages/spectrum-ts/src/index.ts"],
       "linter": {
         "rules": {
           "performance": {

@@ -2,6 +2,9 @@ import type {
   InboundMessage,
   WhatsAppClient,
 } from "@photon-ai/whatsapp-business";
+import { asAttachment } from "../../content/attachment";
+import { asCustom } from "../../content/custom";
+import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import type { WhatsAppMessage } from "./types";
@@ -26,54 +29,33 @@ const mapContent = async (
 ): Promise<Content> => {
   switch (content.type) {
     case "text":
-      return { type: "text", text: content.body };
+      return asText(content.body);
     case "image":
     case "video":
     case "audio":
     case "document":
-      return await downloadMedia(client, content.media);
+      return downloadMedia(client, content.media);
     case "sticker":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "sticker", ...content.sticker },
-      };
+      return asCustom({ whatsapp_type: "sticker", ...content.sticker });
     case "location":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "location", ...content.location },
-      };
+      return asCustom({ whatsapp_type: "location", ...content.location });
     case "contacts":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "contacts", contacts: content.contacts },
-      };
+      return asCustom({
+        whatsapp_type: "contacts",
+        contacts: content.contacts,
+      });
     case "reaction":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "reaction", ...content.reaction },
-      };
+      return asCustom({ whatsapp_type: "reaction", ...content.reaction });
     case "interactive":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "interactive", ...content.interactive },
-      };
+      return asCustom({ whatsapp_type: "interactive", ...content.interactive });
     case "button":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "button", ...content.button },
-      };
+      return asCustom({ whatsapp_type: "button", ...content.button });
     case "order":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "order", ...content.order },
-      };
+      return asCustom({ whatsapp_type: "order", ...content.order });
     case "system":
-      return {
-        type: "custom",
-        raw: { whatsapp_type: "system", ...content.system },
-      };
+      return asCustom({ whatsapp_type: "system", ...content.system });
     default:
-      return { type: "custom", raw: { whatsapp_type: "unknown" } };
+      return asCustom({ whatsapp_type: "unknown" });
   }
 };
 
@@ -88,21 +70,17 @@ const downloadMedia = async (
       throw new Error(`Media download failed: ${response.status}`);
     }
     const data = Buffer.from(await response.arrayBuffer());
-    return {
-      type: "attachment",
+    return asAttachment({
       data,
       mimeType: media.mimeType,
       name: media.filename ?? `media-${media.id}`,
-    };
+    });
   } catch {
-    return {
-      type: "custom",
-      raw: {
-        whatsapp_type: "media_error",
-        mediaId: media.id,
-        mimeType: media.mimeType,
-      },
-    };
+    return asCustom({
+      whatsapp_type: "media_error",
+      mediaId: media.id,
+      mimeType: media.mimeType,
+    });
   }
 };
 

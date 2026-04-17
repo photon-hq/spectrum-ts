@@ -6,8 +6,11 @@ export const textSchema = z.object({
   text: z.string().nonempty(),
 });
 
+export const asText = (text: string): z.infer<typeof textSchema> =>
+  textSchema.parse({ type: "text", text });
+
 export function text(text: string): ContentBuilder {
   return {
-    build: () => Promise.resolve({ type: "text", text }),
+    build: async () => asText(text),
   };
 }

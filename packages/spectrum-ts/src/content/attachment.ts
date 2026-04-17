@@ -32,6 +32,13 @@ const resolveAttachmentMimeType = (name: string, mimeType?: string): string => {
   return resolvedMimeType;
 };
 
+export const asAttachment = (input: {
+  data: Buffer;
+  mimeType: string;
+  name: string;
+}): z.infer<typeof attachmentSchema> =>
+  attachmentSchema.parse({ type: "attachment", ...input });
+
 export function attachment(
   input: string | Buffer,
   options?: { mimeType?: string; name?: string }
@@ -40,13 +47,11 @@ export function attachment(
     build: async () => {
       const data = typeof input === "string" ? await readFile(input) : input;
       const name = resolveAttachmentName(input, options?.name);
-
-      return {
+      return asAttachment({
         data,
         mimeType: resolveAttachmentMimeType(name, options?.mimeType),
         name,
-        type: "attachment",
-      };
+      });
     },
   };
 }

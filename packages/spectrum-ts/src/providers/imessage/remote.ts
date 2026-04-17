@@ -5,6 +5,8 @@ import {
   messageGuid,
   Reaction,
 } from "@photon-ai/advanced-imessage";
+import { asCustom } from "../../content/custom";
+import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import type { IMessageMessage } from "./types";
@@ -15,16 +17,19 @@ const TAPBACK_NAMES: ReadonlySet<string> = new Set(
   Object.values(Reaction).filter((r) => r !== "emoji" && r !== "sticker")
 );
 
-const toMessage = (event: ReceivedEvent): IMessageMessage => ({
-  id: event.message.guid as string,
-  content: { type: "text", text: event.message.text ?? "" },
-  sender: { id: event.message.sender?.address ?? "" },
-  space: {
-    id: event.chatGuid,
-    type: event.chatGuid.includes(";+;") ? "group" : "dm",
-  },
-  timestamp: event.timestamp,
-});
+const toMessage = (event: ReceivedEvent): IMessageMessage => {
+  const text = event.message.text;
+  return {
+    id: event.message.guid as string,
+    content: text ? asText(text) : asCustom(event.message),
+    sender: { id: event.message.sender?.address ?? "" },
+    space: {
+      id: event.chatGuid,
+      type: event.chatGuid.includes(";+;") ? "group" : "dm",
+    },
+    timestamp: event.timestamp,
+  };
+};
 
 const clientStream = (
   client: AdvancedIMessage
@@ -96,7 +101,7 @@ export const send = async (
       break;
     }
     default:
-      break;
+      throw new Error(`Unsupported iMessage content type: ${content.type}`);
   }
 };
 
@@ -131,7 +136,7 @@ export const replyToMessage = async (
       break;
     }
     default:
-      break;
+      throw new Error(`Unsupported iMessage content type: ${content.type}`);
   }
 };
 

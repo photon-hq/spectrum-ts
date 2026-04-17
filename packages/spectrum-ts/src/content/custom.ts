@@ -6,8 +6,11 @@ export const customSchema = z.object({
   raw: z.unknown(),
 });
 
+export const asCustom = (raw: unknown): z.infer<typeof customSchema> =>
+  customSchema.parse({ type: "custom", raw });
+
 export function custom(raw: unknown): ContentBuilder {
   return {
-    build: () => Promise.resolve({ type: "custom", raw }),
+    build: async () => asCustom(raw),
   };
 }

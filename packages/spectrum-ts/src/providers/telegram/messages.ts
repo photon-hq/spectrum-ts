@@ -65,7 +65,6 @@ import type {
   SuccessfulPaymentEvent,
   TelegramMessage,
   UserChatBoost,
-  WebhookInfo,
 } from "./types";
 
 type TgMessage = Context["message"] & {};
@@ -286,8 +285,7 @@ const extractSendOptions = (
 
 export const messages = (
   bot: Bot,
-  logger: TelegramLogger,
-  useWebhook = false
+  logger: TelegramLogger
 ): ManagedStream<TelegramMessage> =>
   stream<TelegramMessage>((emit, end) => {
     bot.on("message", (ctx) => {
@@ -301,18 +299,12 @@ export const messages = (
       end(err.error);
     });
 
-    if (!useWebhook) {
-      bot.start().catch((err) => {
-        logger.error("Bot start failed", err);
-        end(err);
-      });
-    }
+    bot.start().catch((err) => {
+      logger.error("Bot start failed", err);
+      end(err);
+    });
 
-    return () => {
-      if (!useWebhook) {
-        return bot.stop();
-      }
-    };
+    return () => bot.stop();
   });
 
 export const editedMessages = (bot: Bot): ManagedStream<EditedMessage> =>
@@ -2599,70 +2591,6 @@ export const setChatMemberTag = async (
 ): Promise<void> => {
   const chatId = Number(spaceId);
   await withRetry(() => bot.api.setChatMemberTag(chatId, userId, tag), logger);
-};
-
-// ---------------------------------------------------------------------------
-// Webhook management
-// ---------------------------------------------------------------------------
-
-export const setWebhookApi = async (
-  bot: Bot,
-  url: string,
-  options?: {
-    certificate?: Buffer;
-    dropPendingUpdates?: boolean;
-    ipAddress?: string;
-    maxConnections?: number;
-    secretToken?: string;
-  },
-  logger: TelegramLogger = createLogger()
-): Promise<void> => {
-  await withRetry(
-    () =>
-      bot.api.setWebhook(url, {
-        certificate: options?.certificate
-          ? new InputFile(options.certificate)
-          : undefined,
-        ip_address: options?.ipAddress,
-        max_connections: options?.maxConnections,
-        drop_pending_updates: options?.dropPendingUpdates,
-        secret_token: options?.secretToken,
-      }),
-    logger
-  );
-};
-
-export const deleteWebhookApi = async (
-  bot: Bot,
-  dropPendingUpdates?: boolean,
-  logger: TelegramLogger = createLogger()
-): Promise<void> => {
-  await withRetry(
-    () =>
-      bot.api.deleteWebhook({
-        drop_pending_updates: dropPendingUpdates,
-      }),
-    logger
-  );
-};
-
-export const getWebhookInfoApi = async (
-  bot: Bot,
-  logger: TelegramLogger = createLogger()
-): Promise<WebhookInfo> => {
-  return withRetry(async () => {
-    const info = await bot.api.getWebhookInfo();
-    return {
-      url: info.url,
-      hasCustomCertificate: info.has_custom_certificate,
-      pendingUpdateCount: info.pending_update_count,
-      ipAddress: info.ip_address,
-      lastErrorDate: info.last_error_date
-        ? new Date(info.last_error_date * 1000)
-        : undefined,
-      lastErrorMessage: info.last_error_message,
-    };
-  }, logger);
 };
 
 // ---------------------------------------------------------------------------

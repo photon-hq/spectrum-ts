@@ -65,7 +65,10 @@ export const asAttachment = (input: {
 }): Attachment => {
   let cached: Promise<Buffer> | undefined;
   const read = (): Promise<Buffer> => {
-    cached ??= input.read();
+    cached ??= input.read().catch((err: unknown) => {
+      cached = undefined;
+      throw err;
+    });
     return cached;
   };
 

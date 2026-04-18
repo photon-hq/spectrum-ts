@@ -37,7 +37,7 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@photon-ai/advanced-imessage": "^0.4.2",
+    "@photon-ai/advanced-imessage": "^0.4.3",
     "@photon-ai/whatsapp-business": "^0.1.1",
     "@photon-ai/imessage-kit": "^3.0.0-rc.2",
     "@repeaterjs/repeater": "^3.0.6",

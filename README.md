@@ -200,6 +200,20 @@ await space.send(attachment(buffer, {
 }));
 ```
 
+Incoming attachments arrive with metadata up front and fetch bytes on demand, so text messages aren't stalled behind slow downloads:
+
+```typescript
+if (message.content.type === "attachment") {
+  const { name, mimeType, size } = message.content;
+
+  // Fetch bytes when you actually need them (memoized across calls)
+  const bytes = await message.content.read();
+
+  // Or stream for large files (fresh stream per call)
+  const stream = await message.content.stream();
+}
+```
+
 ### Custom
 
 Send platform-specific structured data as JSON. Use this when a platform supports rich content types that don't map to text or attachments.

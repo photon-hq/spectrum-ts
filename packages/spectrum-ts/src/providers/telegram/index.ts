@@ -183,6 +183,7 @@ import {
   stopMessageLiveLocation,
   stopMessageLiveLocationInline,
   stopPoll,
+  type TgMessage,
   toMessage,
   transferBusinessAccountStars,
   transferGift,
@@ -2126,7 +2127,7 @@ export const telegram = definePlatform("Telegram", {
         }
         sinks.editedMessages.push({
           id: String(msg.message_id),
-          content: mapContent(bot, msg as never),
+          content: mapContent(bot, msg as unknown as TgMessage),
           sender: { id: String(msg.from?.id ?? msg.chat.id) },
           space: { id: String(msg.chat.id), type: msg.chat.type },
           editDate: new Date((msg.edit_date ?? msg.date) * 1000),
@@ -2139,7 +2140,7 @@ export const telegram = definePlatform("Telegram", {
         }
         sinks.channelPosts.push({
           id: String(post.message_id),
-          content: mapContent(bot, post as never),
+          content: mapContent(bot, post as unknown as TgMessage),
           space: { id: String(post.chat.id), type: "channel" },
           timestamp: new Date(post.date * 1000),
         });
@@ -2229,7 +2230,7 @@ export const telegram = definePlatform("Telegram", {
           sinks.businessMessages.push({
             id: String(msg.message_id),
             businessConnectionId: msg.business_connection_id ?? "",
-            content: mapContent(bot, msg as never),
+            content: mapContent(bot, msg as unknown as TgMessage),
             sender: { id: String(msg.from?.id ?? msg.chat.id) },
             space: { id: String(msg.chat.id), type: msg.chat.type },
             timestamp: new Date(msg.date * 1000),
@@ -2247,7 +2248,7 @@ export const telegram = definePlatform("Telegram", {
           sinks.editedBusinessMessages.push({
             id: String(msg.message_id),
             businessConnectionId: msg.business_connection_id ?? "",
-            content: mapContent(bot, msg as never),
+            content: mapContent(bot, msg as unknown as TgMessage),
             sender: { id: String(msg.from?.id ?? msg.chat.id) },
             space: { id: String(msg.chat.id), type: msg.chat.type },
             timestamp: new Date((msg.edit_date ?? msg.date) * 1000),

@@ -16,7 +16,7 @@ import { terminal } from "spectrum-ts/providers/terminal";
 const app = await Spectrum({
   providers: [
     imessage.config({ local: true }),
-    telegram.config({ token: process.env.TELEGRAM_BOT_TOKEN! }),
+    telegram.config({ token: process.env.TELEGRAM_BOT_TOKEN ?? "" }),
     terminal.config(),
   ],
 });
@@ -473,7 +473,7 @@ import { telegram } from "spectrum-ts/providers/telegram";
 The Telegram provider connects to the [Telegram Bot API](https://core.telegram.org/bots/api) via [grammy](https://grammy.dev). It uses long polling by default and covers nearly the full Bot API surface.
 
 ```typescript
-telegram.config({ token: process.env.TELEGRAM_BOT_TOKEN! })
+telegram.config({ token: process.env.TELEGRAM_BOT_TOKEN ?? "" })
 ```
 
 #### Core messaging
@@ -551,6 +551,8 @@ for await (const query of app.events.telegram.callbackQueries) {
   console.log(`Callback from ${query.userId}: ${query.data}`);
 }
 ```
+
+> **Note:** Telegram event streams are registered eagerly at startup and buffer incoming events until a consumer attaches. This differs from the default lazy-creation behavior — events won't be missed between bot startup and your first `for await`.
 
 ---
 

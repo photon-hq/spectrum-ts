@@ -78,7 +78,7 @@ import type {
   WebhookInfo,
 } from "./types";
 
-type TgMessage = Context["message"] & {};
+export type TgMessage = Context["message"] & {};
 
 const fileUrl = (token: string, filePath: string): string =>
   `https://api.telegram.org/file/bot${token}/${filePath}`;

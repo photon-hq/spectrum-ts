@@ -1911,15 +1911,16 @@ export const telegram = definePlatform("Telegram", {
     destroyClient: async ({ client }: { client: TelegramClient }) => {
       if (client.webhookServer) {
         await client.webhookServer.close();
+      } else {
+        await client.bot.stop();
       }
-      await client.bot.stop();
     },
   },
 
   events: {
     messages: ({ client }) => {
       const c = client as TelegramClient;
-      return messages(c.bot, c.logger);
+      return messages(c.bot, c.logger, !!c.webhookServer);
     },
     editedMessages: ({ client }: { client: TelegramClient }) =>
       editedMessages(client.bot) as AsyncIterable<EditedMessage>,

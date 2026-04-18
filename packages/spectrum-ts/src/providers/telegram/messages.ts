@@ -286,7 +286,8 @@ const extractSendOptions = (
 
 export const messages = (
   bot: Bot,
-  logger: TelegramLogger
+  logger: TelegramLogger,
+  useWebhook = false
 ): ManagedStream<TelegramMessage> =>
   stream<TelegramMessage>((emit, end) => {
     bot.on("message", (ctx) => {
@@ -299,12 +300,19 @@ export const messages = (
       logger.error("Bot error", err.error);
       end(err.error);
     });
-    bot.start().catch((err) => {
-      logger.error("Bot start failed", err);
-      end(err);
-    });
 
-    return () => bot.stop();
+    if (!useWebhook) {
+      bot.start().catch((err) => {
+        logger.error("Bot start failed", err);
+        end(err);
+      });
+    }
+
+    return () => {
+      if (!useWebhook) {
+        return bot.stop();
+      }
+    };
   });
 
 export const editedMessages = (bot: Bot): ManagedStream<EditedMessage> =>

@@ -29,25 +29,26 @@ const baseMessage = (
   timestamp: event.timestamp,
 });
 
-const toMessages = async (
+const toMessages = (
   client: AdvancedIMessage,
   event: ReceivedEvent
-): Promise<IMessageMessage[]> => {
+): IMessageMessage[] => {
   const base = baseMessage(event);
   const messageGuidStr = event.message.guid as string;
 
   if (event.message.attachments.length > 0) {
-    return await Promise.all(
-      event.message.attachments.map(async (info) => ({
-        ...base,
-        id: `${messageGuidStr}:${info.guid as string}`,
-        content: asAttachment({
-          data: Buffer.from(await client.attachments.downloadBuffer(info.guid)),
-          mimeType: info.mimeType,
-          name: info.fileName,
-        }),
-      }))
-    );
+    return event.message.attachments.map((info) => ({
+      ...base,
+      id: `${messageGuidStr}:${info.guid as string}`,
+      content: asAttachment({
+        name: info.fileName,
+        mimeType: info.mimeType,
+        size: info.totalBytes,
+        read: async () =>
+          Buffer.from(await client.attachments.downloadBuffer(info.guid)),
+        stream: async () => client.attachments.download(info.guid).stream,
+      }),
+    }));
   }
 
   const text = event.message.text;
@@ -68,8 +69,7 @@ const clientStream = (
     (async () => {
       try {
         for await (const event of sub) {
-          const messages = await toMessages(client, event);
-          for (const message of messages) {
+          for (const message of toMessages(client, event)) {
             emit(message);
           }
         }
@@ -123,7 +123,7 @@ export const send = async (
       break;
     case "attachment": {
       const attachment = await remote.attachments.upload({
-        data: content.data,
+        data: await content.read(),
         fileName: content.name,
         mimeType: content.mimeType,
       });
@@ -157,7 +157,7 @@ export const replyToMessage = async (
       break;
     case "attachment": {
       const attachment = await remote.attachments.upload({
-        data: content.data,
+        data: await content.read(),
         fileName: content.name,
         mimeType: content.mimeType,
       });

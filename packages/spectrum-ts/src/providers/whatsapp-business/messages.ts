@@ -9,24 +9,21 @@ import type { Content } from "../../content/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import type { WhatsAppMessage } from "./types";
 
-const toMessage = async (
+const toMessage = (
   client: WhatsAppClient,
   msg: InboundMessage
-): Promise<WhatsAppMessage> => {
-  const content = await mapContent(client, msg.content);
-  return {
-    id: msg.id,
-    content,
-    sender: { id: msg.from },
-    space: { id: msg.from },
-    timestamp: msg.timestamp,
-  };
-};
+): WhatsAppMessage => ({
+  id: msg.id,
+  content: mapContent(client, msg.content),
+  sender: { id: msg.from },
+  space: { id: msg.from },
+  timestamp: msg.timestamp,
+});
 
-const mapContent = async (
+const mapContent = (
   client: WhatsAppClient,
   content: InboundMessage["content"]
-): Promise<Content> => {
+): Content => {
   switch (content.type) {
     case "text":
       return asText(content.body);
@@ -34,7 +31,7 @@ const mapContent = async (
     case "video":
     case "audio":
     case "document":
-      return downloadMedia(client, content.media);
+      return lazyMedia(client, content.media);
     case "sticker":
       return asCustom({ whatsapp_type: "sticker", ...content.sticker });
     case "location":
@@ -59,30 +56,35 @@ const mapContent = async (
   }
 };
 
-const downloadMedia = async (
+const fetchMedia = async (
+  client: WhatsAppClient,
+  mediaId: string
+): Promise<Response> => {
+  const { url } = await client.media.getUrl(mediaId);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Media download failed: ${response.status}`);
+  }
+  return response;
+};
+
+const lazyMedia = (
   client: WhatsAppClient,
   media: { id: string; mimeType: string; filename?: string }
-): Promise<Content> => {
-  try {
-    const { url } = await client.media.getUrl(media.id);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Media download failed: ${response.status}`);
-    }
-    const data = Buffer.from(await response.arrayBuffer());
-    return asAttachment({
-      data,
-      mimeType: media.mimeType,
-      name: media.filename ?? `media-${media.id}`,
-    });
-  } catch {
-    return asCustom({
-      whatsapp_type: "media_error",
-      mediaId: media.id,
-      mimeType: media.mimeType,
-    });
-  }
-};
+): Content =>
+  asAttachment({
+    name: media.filename ?? `media-${media.id}`,
+    mimeType: media.mimeType,
+    read: async () =>
+      Buffer.from(await (await fetchMedia(client, media.id)).arrayBuffer()),
+    stream: async () => {
+      const response = await fetchMedia(client, media.id);
+      if (!response.body) {
+        throw new Error("Media response missing body");
+      }
+      return response.body;
+    },
+  });
 
 const mimeToMediaType = (
   mimeType: string
@@ -112,8 +114,7 @@ export const messages = (
     (async () => {
       try {
         for await (const event of eventStream) {
-          const msg = await toMessage(client, event.message);
-          emit(msg);
+          emit(toMessage(client, event.message));
         }
         end();
       } catch (e) {
@@ -135,7 +136,7 @@ export const send = async (
       break;
     case "attachment": {
       const { mediaId } = await client.media.upload({
-        file: content.data,
+        file: await content.read(),
         mimeType: content.mimeType,
         filename: content.name,
       });
@@ -183,7 +184,7 @@ export const replyToMessage = async (
       break;
     case "attachment": {
       const { mediaId } = await client.media.upload({
-        file: content.data,
+        file: await content.read(),
         mimeType: content.mimeType,
         filename: content.name,
       });

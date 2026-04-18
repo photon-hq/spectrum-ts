@@ -1,6 +1,8 @@
+import { createReadStream } from "node:fs";
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import {
   type IMessageSDK,
   type Message as LocalIMessage,
@@ -18,9 +20,7 @@ const toSpace = (message: LocalIMessage): IMessageMessage["space"] => ({
   type: message.chatKind === "group" ? "group" : "dm",
 });
 
-const toMessages = async (
-  message: LocalIMessage
-): Promise<IMessageMessage[]> => {
+const toMessages = (message: LocalIMessage): IMessageMessage[] => {
   const base = {
     sender: { id: message.participant ?? "" },
     space: toSpace(message),
@@ -28,17 +28,25 @@ const toMessages = async (
   };
 
   if (message.attachments.length > 0) {
-    return await Promise.all(
-      message.attachments.map(async (att) => ({
+    return message.attachments.map((att) => {
+      const { localPath } = att;
+      return {
         ...base,
         id: `${message.id}:${att.id}`,
         content: asAttachment({
-          data: await readAttachmentBytes(att),
-          mimeType: att.mimeType,
           name: att.fileName ?? DEFAULT_ATTACHMENT_NAME,
+          mimeType: att.mimeType,
+          size: att.sizeBytes,
+          read: () => readAttachmentBytes(att),
+          stream: localPath
+            ? async () =>
+                Readable.toWeb(
+                  createReadStream(localPath)
+                ) as ReadableStream<Uint8Array>
+            : undefined,
         }),
-      }))
-    );
+      };
+    });
   }
 
   return [
@@ -53,9 +61,9 @@ const toMessages = async (
 export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
   stream((emit, end) => {
     client.startWatching({
-      onMessage: async (message) => {
+      onMessage: (message) => {
         try {
-          for (const m of await toMessages(message)) {
+          for (const m of toMessages(message)) {
             emit(m);
           }
         } catch (error) {
@@ -77,7 +85,7 @@ export const send = async (
       break;
     case "attachment": {
       const tmp = join(tmpdir(), `spectrum-${Date.now()}-${content.name}`);
-      await writeFile(tmp, content.data);
+      await writeFile(tmp, await content.read());
       try {
         await client.send(spaceId, { attachments: [tmp] });
       } finally {

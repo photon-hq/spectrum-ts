@@ -22,10 +22,13 @@ for await (const [space, message] of app.messages) {
       });
       break;
     }
-    case "attachment":
-      console.log(`[attachment] ${message.content.name}`);
-      message.content.data;
+    case "attachment": {
+      const bytes = await message.content.read();
+      console.log(
+        `[attachment] ${message.content.name} (${bytes.length} bytes)`
+      );
       break;
+    }
     case "custom":
       console.log("[custom]", message.content.raw);
       break;

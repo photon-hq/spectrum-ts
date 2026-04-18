@@ -5,6 +5,7 @@ import {
   messageGuid,
   Reaction,
 } from "@photon-ai/advanced-imessage";
+import { asAttachment } from "../../content/attachment";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
@@ -17,18 +18,46 @@ const TAPBACK_NAMES: ReadonlySet<string> = new Set(
   Object.values(Reaction).filter((r) => r !== "emoji" && r !== "sticker")
 );
 
-const toMessage = (event: ReceivedEvent): IMessageMessage => {
+const baseMessage = (
+  event: ReceivedEvent
+): Omit<IMessageMessage, "id" | "content"> => ({
+  sender: { id: event.message.sender?.address ?? "" },
+  space: {
+    id: event.chatGuid,
+    type: event.chatGuid.includes(";+;") ? "group" : "dm",
+  },
+  timestamp: event.timestamp,
+});
+
+const toMessages = async (
+  client: AdvancedIMessage,
+  event: ReceivedEvent
+): Promise<IMessageMessage[]> => {
+  const base = baseMessage(event);
+  const messageGuidStr = event.message.guid as string;
+
+  if (event.message.attachments.length > 0) {
+    return await Promise.all(
+      event.message.attachments.map(async (info) => ({
+        ...base,
+        id: `${messageGuidStr}:${info.guid as string}`,
+        content: asAttachment({
+          data: Buffer.from(await client.attachments.downloadBuffer(info.guid)),
+          mimeType: info.mimeType,
+          name: info.fileName,
+        }),
+      }))
+    );
+  }
+
   const text = event.message.text;
-  return {
-    id: event.message.guid as string,
-    content: text ? asText(text) : asCustom(event.message),
-    sender: { id: event.message.sender?.address ?? "" },
-    space: {
-      id: event.chatGuid,
-      type: event.chatGuid.includes(";+;") ? "group" : "dm",
+  return [
+    {
+      ...base,
+      id: messageGuidStr,
+      content: text ? asText(text) : asCustom(event.message),
     },
-    timestamp: event.timestamp,
-  };
+  ];
 };
 
 const clientStream = (
@@ -39,7 +68,10 @@ const clientStream = (
     (async () => {
       try {
         for await (const event of sub) {
-          emit(toMessage(event));
+          const messages = await toMessages(client, event);
+          for (const message of messages) {
+            emit(message);
+          }
         }
         end();
       } catch (e) {

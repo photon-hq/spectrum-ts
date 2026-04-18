@@ -4,10 +4,10 @@ import { imessage } from "spectrum-ts/providers/imessage";
 // import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({
-  projectId: "project-id",
-  projectSecret: "project-secret",
+  projectId: "2df5638a-b51b-47a9-848e-0557368354a0",
+  projectSecret: "uguGq3CQCIEZR7BA_NlBxkK-__drGuVtwbO7i0jUEdU",
   providers: [
-    imessage.config({ local: true }),
+    imessage.config(),
     // terminal.config({}),
   ],
 });
@@ -24,6 +24,7 @@ for await (const [space, message] of app.messages) {
     }
     case "attachment":
       console.log(`[attachment] ${message.content.name}`);
+      message.content.data;
       break;
     case "custom":
       console.log("[custom]", message.content.raw);

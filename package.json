@@ -17,6 +17,7 @@
     "fix": "ultracite fix"
   },
   "dependencies": {
+    "@photon-ai/advanced-imessage": "^0.4.3",
     "@types/node": "^25.6.0"
   }
 }

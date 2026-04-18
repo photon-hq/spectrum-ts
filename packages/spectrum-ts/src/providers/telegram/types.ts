@@ -7,16 +7,6 @@ export const parseModeSchema = z
 
 export type ParseMode = z.infer<typeof parseModeSchema>;
 
-export const webhookConfigSchema = z
-  .object({
-    url: z.string().url(),
-    port: z.number().int().positive().optional(),
-    secretToken: z.string().optional(),
-  })
-  .optional();
-
-export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
-
 export const configSchema = z.object({
   token: z.string().min(1),
   paymentProviderToken: z.string().optional(),
@@ -25,7 +15,6 @@ export const configSchema = z.object({
     .enum(["silent", "error", "warn", "info", "debug"])
     .optional()
     .default("error"),
-  webhook: webhookConfigSchema,
 });
 
 export const spaceSchema = z.object({

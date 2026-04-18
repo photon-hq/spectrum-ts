@@ -29,6 +29,7 @@ import type { InlineKeyboardMarkup, InlineQueryResult } from "@grammyjs/types";
 import { Bot } from "grammy";
 import type { Content } from "../../content/types";
 import { definePlatform } from "../../platform/define";
+import { type ManagedStream, stream } from "../../utils/stream";
 import { createLogger, type TelegramLogger } from "./errors";
 import {
   addStickerToSet,
@@ -43,15 +44,7 @@ import {
   banChatSenderChat,
   botClose,
   botLogOut,
-  businessConnections,
-  businessMessages,
   businessSend,
-  callbackQueries,
-  channelPosts,
-  chatBoosts,
-  chatJoinRequests,
-  chatMemberUpdates,
-  chosenInlineResults,
   closeForumTopic,
   closeGeneralForumTopic,
   convertGiftToStars,
@@ -67,7 +60,6 @@ import {
   deleteBusinessMessages,
   deleteChatPhoto,
   deleteChatStickerSet,
-  deletedBusinessMessages,
   deleteForumTopic,
   deleteMessage,
   deleteMessages,
@@ -78,8 +70,6 @@ import {
   deleteWebhookApi,
   editChatInviteLink,
   editChatSubscriptionInviteLink,
-  editedBusinessMessages,
-  editedMessages,
   editForumTopic,
   editGeneralForumTopic,
   editMessage,
@@ -125,22 +115,15 @@ import {
   getWebhookInfoApi,
   giftPremiumSubscription,
   hideGeneralForumTopic,
-  inlineQueries,
   leaveChat,
-  messageReactions,
-  messages,
-  myChatMemberUpdates,
+  mapContent,
   pinMessage,
-  pollAnswers,
   postStory,
-  preCheckoutQueries,
   promoteChatMember,
-  purchasedPaidMedia,
   reactToMessage,
   readBusinessMessage,
   refundStarPayment,
   removeBusinessAccountProfilePhoto,
-  removedChatBoosts,
   removeMyProfilePhoto,
   reopenForumTopic,
   reopenGeneralForumTopic,
@@ -196,12 +179,11 @@ import {
   setStickerSetTitle,
   setUserEmojiStatus,
   setWebhookApi,
-  shippingQueries,
   startTyping,
   stopMessageLiveLocation,
   stopMessageLiveLocationInline,
   stopPoll,
-  successfulPayments,
+  toMessage,
   transferBusinessAccountStars,
   transferGift,
   unbanChatMember,
@@ -274,16 +256,73 @@ import {
   type StickerSetInfo,
   type SuccessfulPaymentEvent,
   spaceSchema,
+  type TelegramMessage,
   type UserChatBoost,
   type WebhookInfo as WebhookInfoType,
 } from "./types";
-import { startWebhookServer, type WebhookServer } from "./webhook";
+
+interface EventSink<T> {
+  buffer: T[];
+  listener: ((value: T) => void) | null;
+  push(value: T): void;
+}
+
+const createSink = <T>(): EventSink<T> => {
+  const sink: EventSink<T> = {
+    buffer: [],
+    listener: null,
+    push(value: T) {
+      if (sink.listener) {
+        sink.listener(value);
+      } else {
+        sink.buffer.push(value);
+      }
+    },
+  };
+  return sink;
+};
+
+const sinkToStream = <T>(sink: EventSink<T>): ManagedStream<T> =>
+  stream<T>((emit) => {
+    for (const item of sink.buffer) {
+      emit(item);
+    }
+    sink.buffer.length = 0;
+    sink.listener = emit;
+    return () => {
+      sink.listener = null;
+    };
+  });
+
+interface TelegramEventSinks {
+  businessConnections: EventSink<BusinessConnectionEvent>;
+  businessMessages: EventSink<BusinessMessageEvent>;
+  callbackQueries: EventSink<CallbackQuery>;
+  channelPosts: EventSink<ChannelPost>;
+  chatBoosts: EventSink<ChatBoostEvent>;
+  chatJoinRequests: EventSink<ChatJoinRequestEvent>;
+  chatMemberUpdates: EventSink<ChatMemberUpdateEvent>;
+  chosenInlineResults: EventSink<ChosenInlineResultEvent>;
+  deletedBusinessMessages: EventSink<DeletedBusinessMessagesEvent>;
+  editedBusinessMessages: EventSink<BusinessMessageEvent>;
+  editedMessages: EventSink<EditedMessage>;
+  inlineQueries: EventSink<InlineQueryEvent>;
+  messageReactions: EventSink<MessageReactionEvent>;
+  messages: EventSink<TelegramMessage>;
+  myChatMemberUpdates: EventSink<ChatMemberUpdateEvent>;
+  pollAnswers: EventSink<PollAnswerEvent>;
+  preCheckoutQueries: EventSink<PreCheckoutQueryEvent>;
+  purchasedPaidMedia: EventSink<PurchasedPaidMediaEvent>;
+  removedChatBoosts: EventSink<ChatBoostRemovedEvent>;
+  shippingQueries: EventSink<ShippingQueryEvent>;
+  successfulPayments: EventSink<SuccessfulPaymentEvent>;
+}
 
 interface TelegramClient {
   bot: Bot;
   logger: TelegramLogger;
   parseMode?: ParseMode;
-  webhookServer?: WebhookServer;
+  sinks: TelegramEventSinks;
 }
 
 export const telegram = definePlatform("Telegram", {
@@ -2046,81 +2085,428 @@ export const telegram = definePlatform("Telegram", {
       await bot.init();
       logger.info(`Bot initialized: @${bot.botInfo.username}`);
 
-      let webhookServer: WebhookServer | undefined;
-      if (config.webhook) {
-        webhookServer = await startWebhookServer(bot, config.webhook, logger);
-      }
+      const sinks: TelegramEventSinks = {
+        messages: createSink(),
+        editedMessages: createSink(),
+        channelPosts: createSink(),
+        callbackQueries: createSink(),
+        shippingQueries: createSink(),
+        preCheckoutQueries: createSink(),
+        successfulPayments: createSink(),
+        businessConnections: createSink(),
+        businessMessages: createSink(),
+        editedBusinessMessages: createSink(),
+        deletedBusinessMessages: createSink(),
+        messageReactions: createSink(),
+        chatJoinRequests: createSink(),
+        myChatMemberUpdates: createSink(),
+        chatMemberUpdates: createSink(),
+        chatBoosts: createSink(),
+        removedChatBoosts: createSink(),
+        pollAnswers: createSink(),
+        purchasedPaidMedia: createSink(),
+        inlineQueries: createSink(),
+        chosenInlineResults: createSink(),
+      };
+
+      bot.on("message", (ctx) => {
+        if (ctx.message) {
+          sinks.messages.push(toMessage(bot, ctx.message));
+        }
+      });
+      bot.on("edited_message", (ctx) => {
+        const msg = ctx.editedMessage;
+        if (!msg) {
+          return;
+        }
+        sinks.editedMessages.push({
+          id: String(msg.message_id),
+          content: mapContent(bot, msg as never),
+          sender: { id: String(msg.from?.id ?? msg.chat.id) },
+          space: { id: String(msg.chat.id), type: msg.chat.type },
+          editDate: new Date((msg.edit_date ?? msg.date) * 1000),
+        });
+      });
+      bot.on("channel_post", (ctx) => {
+        const post = ctx.channelPost;
+        if (!post) {
+          return;
+        }
+        sinks.channelPosts.push({
+          id: String(post.message_id),
+          content: mapContent(bot, post as never),
+          space: { id: String(post.chat.id), type: "channel" },
+          timestamp: new Date(post.date * 1000),
+        });
+      });
+      bot.on("callback_query:data", (ctx) => {
+        const q = ctx.callbackQuery;
+        sinks.callbackQueries.push({
+          id: q.id,
+          messageId: q.message ? String(q.message.message_id) : undefined,
+          sender: { id: String(q.from.id) },
+          space: q.message
+            ? { id: String(q.message.chat.id), type: q.message.chat.type }
+            : undefined,
+          data: q.data,
+        });
+      });
+      bot.on("shipping_query", (ctx) => {
+        const q = ctx.shippingQuery;
+        sinks.shippingQueries.push({
+          id: q.id,
+          sender: { id: String(q.from.id) },
+          invoicePayload: q.invoice_payload,
+          shippingAddress: {
+            countryCode: q.shipping_address.country_code,
+            state: q.shipping_address.state,
+            city: q.shipping_address.city,
+            streetLine1: q.shipping_address.street_line1,
+            streetLine2: q.shipping_address.street_line2,
+            postCode: q.shipping_address.post_code,
+          },
+        });
+      });
+      bot.on("pre_checkout_query", (ctx) => {
+        const q = ctx.preCheckoutQuery;
+        sinks.preCheckoutQueries.push({
+          id: q.id,
+          sender: { id: String(q.from.id) },
+          currency: q.currency,
+          totalAmount: q.total_amount,
+          invoicePayload: q.invoice_payload,
+        });
+      });
+      bot.on("message:successful_payment", (ctx) => {
+        const p = ctx.message.successful_payment;
+        sinks.successfulPayments.push({
+          sender: {
+            id: String(ctx.message.from?.id ?? ctx.message.chat.id),
+          },
+          space: {
+            id: String(ctx.message.chat.id),
+            type: ctx.message.chat.type,
+          },
+          currency: p.currency,
+          totalAmount: p.total_amount,
+          invoicePayload: p.invoice_payload,
+        });
+      });
+      bot.on("business_connection", (ctx) => {
+        const c = ctx.businessConnection;
+        sinks.businessConnections.push({
+          id: c.id,
+          userId: String(c.user.id),
+          userChatId: String(c.user_chat_id),
+          isEnabled: c.is_enabled,
+          rights: c.rights
+            ? {
+                canReply: c.rights.can_reply ?? false,
+                canReadMessages: c.rights.can_read_messages ?? false,
+                canDeleteOutgoingMessages:
+                  c.rights.can_delete_outgoing_messages ?? false,
+                canDeleteAllMessages: c.rights.can_delete_all_messages ?? false,
+                canEditName: c.rights.can_edit_name ?? false,
+                canEditBio: c.rights.can_edit_bio ?? false,
+                canEditProfilePhoto: c.rights.can_edit_profile_photo ?? false,
+                canEditUsername: c.rights.can_edit_username ?? false,
+              }
+            : undefined,
+          date: new Date(c.date * 1000),
+        });
+      });
+      bot.on("business_message", (ctx) => {
+        const msg = ctx.update.business_message;
+        if (!msg) {
+          return;
+        }
+        try {
+          sinks.businessMessages.push({
+            id: String(msg.message_id),
+            businessConnectionId: msg.business_connection_id ?? "",
+            content: mapContent(bot, msg as never),
+            sender: { id: String(msg.from?.id ?? msg.chat.id) },
+            space: { id: String(msg.chat.id), type: msg.chat.type },
+            timestamp: new Date(msg.date * 1000),
+          });
+        } catch (err) {
+          logger.error("Failed to process business message", err);
+        }
+      });
+      bot.on("edited_business_message", (ctx) => {
+        const msg = ctx.update.edited_business_message;
+        if (!msg) {
+          return;
+        }
+        try {
+          sinks.editedBusinessMessages.push({
+            id: String(msg.message_id),
+            businessConnectionId: msg.business_connection_id ?? "",
+            content: mapContent(bot, msg as never),
+            sender: { id: String(msg.from?.id ?? msg.chat.id) },
+            space: { id: String(msg.chat.id), type: msg.chat.type },
+            timestamp: new Date((msg.edit_date ?? msg.date) * 1000),
+          });
+        } catch (err) {
+          logger.error("Failed to process edited business message", err);
+        }
+      });
+      bot.on("deleted_business_messages", (ctx) => {
+        const del = ctx.update.deleted_business_messages;
+        if (!del) {
+          return;
+        }
+        sinks.deletedBusinessMessages.push({
+          businessConnectionId: del.business_connection_id,
+          space: { id: String(del.chat.id), type: del.chat.type },
+          messageIds: del.message_ids.map(String),
+        });
+      });
+      bot.on("message_reaction", (ctx) => {
+        const r = ctx.messageReaction;
+        sinks.messageReactions.push({
+          space: { id: String(r.chat.id), type: r.chat.type },
+          messageId: String(r.message_id),
+          actorId: r.user ? String(r.user.id) : String(r.actor_chat?.id ?? 0),
+          date: new Date(r.date * 1000),
+          oldReactions: r.old_reaction.map((rx) => ({
+            type: rx.type,
+            emoji: "emoji" in rx ? rx.emoji : undefined,
+            customEmojiId:
+              "custom_emoji_id" in rx ? rx.custom_emoji_id : undefined,
+          })),
+          newReactions: r.new_reaction.map((rx) => ({
+            type: rx.type,
+            emoji: "emoji" in rx ? rx.emoji : undefined,
+            customEmojiId:
+              "custom_emoji_id" in rx ? rx.custom_emoji_id : undefined,
+          })),
+        });
+      });
+      bot.on("chat_join_request", (ctx) => {
+        const req = ctx.chatJoinRequest;
+        sinks.chatJoinRequests.push({
+          space: { id: String(req.chat.id), type: req.chat.type },
+          userId: String(req.from.id),
+          date: new Date(req.date * 1000),
+          bio: req.bio ?? undefined,
+          inviteLink: req.invite_link?.invite_link ?? undefined,
+        });
+      });
+      bot.on("my_chat_member", (ctx) => {
+        const u = ctx.myChatMember;
+        sinks.myChatMemberUpdates.push({
+          space: { id: String(u.chat.id), type: u.chat.type },
+          userId: String(u.from.id),
+          date: new Date(u.date * 1000),
+          oldStatus: u.old_chat_member.status,
+          newStatus: u.new_chat_member.status,
+        });
+      });
+      bot.on("chat_member", (ctx) => {
+        const u = ctx.chatMember;
+        sinks.chatMemberUpdates.push({
+          space: { id: String(u.chat.id), type: u.chat.type },
+          userId: String(u.from.id),
+          date: new Date(u.date * 1000),
+          oldStatus: u.old_chat_member.status,
+          newStatus: u.new_chat_member.status,
+        });
+      });
+      bot.on("chat_boost", (ctx) => {
+        const b = ctx.chatBoost;
+        sinks.chatBoosts.push({
+          space: { id: String(b.chat.id), type: b.chat.type },
+          boostId: b.boost.boost_id,
+          date: new Date(b.boost.add_date * 1000),
+          expirationDate: new Date(b.boost.expiration_date * 1000),
+          source: b.boost.source.source,
+        });
+      });
+      bot.on("removed_chat_boost", (ctx) => {
+        const b = ctx.removedChatBoost;
+        sinks.removedChatBoosts.push({
+          space: { id: String(b.chat.id), type: b.chat.type },
+          boostId: b.boost_id,
+          removeDate: new Date(b.remove_date * 1000),
+          source: b.source.source,
+        });
+      });
+      bot.on("poll_answer", (ctx) => {
+        const a = ctx.pollAnswer;
+        sinks.pollAnswers.push({
+          pollId: a.poll_id,
+          userId: a.user ? String(a.user.id) : "",
+          optionIds: [...a.option_ids],
+        });
+      });
+      bot.on("purchased_paid_media", (ctx) => {
+        const p = ctx.update.purchased_paid_media;
+        if (!p) {
+          return;
+        }
+        sinks.purchasedPaidMedia.push({
+          userId: String(p.from.id),
+          space: { id: "", type: "private" },
+          payload: p.paid_media_payload ?? "",
+        });
+      });
+      bot.on("inline_query", (ctx) => {
+        const iq = ctx.inlineQuery;
+        sinks.inlineQueries.push({
+          id: iq.id,
+          from: { id: String(iq.from.id) },
+          query: iq.query,
+          offset: iq.offset,
+          chatType: iq.chat_type as InlineQueryEvent["chatType"],
+          location: iq.location
+            ? {
+                latitude: iq.location.latitude,
+                longitude: iq.location.longitude,
+              }
+            : undefined,
+        });
+      });
+      bot.on("chosen_inline_result", (ctx) => {
+        const r = ctx.chosenInlineResult;
+        sinks.chosenInlineResults.push({
+          resultId: r.result_id,
+          from: { id: String(r.from.id) },
+          query: r.query,
+          inlineMessageId: r.inline_message_id,
+          location: r.location
+            ? {
+                latitude: r.location.latitude,
+                longitude: r.location.longitude,
+              }
+            : undefined,
+        });
+      });
+
+      bot.catch((err) => {
+        logger.error("Bot error", err.error);
+      });
+
+      bot
+        .start({
+          allowed_updates: [
+            "message",
+            "edited_message",
+            "channel_post",
+            "edited_channel_post",
+            "inline_query",
+            "chosen_inline_result",
+            "callback_query",
+            "shipping_query",
+            "pre_checkout_query",
+            "poll",
+            "poll_answer",
+            "my_chat_member",
+            "chat_member",
+            "chat_join_request",
+            "chat_boost",
+            "removed_chat_boost",
+            "message_reaction",
+            "message_reaction_count",
+            "business_connection",
+            "business_message",
+            "edited_business_message",
+            "deleted_business_messages",
+            "purchased_paid_media",
+          ],
+        })
+        .catch((err) => {
+          logger.error("Bot polling failed", err);
+        });
 
       return {
         bot,
         logger,
         parseMode: config.parseMode,
-        webhookServer,
+        sinks,
       };
     },
 
     destroyClient: async ({ client }: { client: TelegramClient }) => {
-      if (client.webhookServer) {
-        await client.webhookServer.close();
-      } else {
-        await client.bot.stop();
-      }
+      await client.bot.stop();
     },
   },
 
   events: {
-    messages: ({ client }) => {
-      const c = client as TelegramClient;
-      return messages(c.bot, c.logger, !!c.webhookServer);
-    },
+    messages: ({ client }: { client: TelegramClient }) =>
+      sinkToStream(client.sinks.messages) as AsyncIterable<TelegramMessage>,
     editedMessages: ({ client }: { client: TelegramClient }) =>
-      editedMessages(client.bot) as AsyncIterable<EditedMessage>,
+      sinkToStream(client.sinks.editedMessages) as AsyncIterable<EditedMessage>,
     channelPosts: ({ client }: { client: TelegramClient }) =>
-      channelPosts(client.bot) as AsyncIterable<ChannelPost>,
+      sinkToStream(client.sinks.channelPosts) as AsyncIterable<ChannelPost>,
     callbackQueries: ({ client }: { client: TelegramClient }) =>
-      callbackQueries(client.bot) as AsyncIterable<CallbackQuery>,
+      sinkToStream(
+        client.sinks.callbackQueries
+      ) as AsyncIterable<CallbackQuery>,
     shippingQueries: ({ client }: { client: TelegramClient }) =>
-      shippingQueries(client.bot) as AsyncIterable<ShippingQueryEvent>,
+      sinkToStream(
+        client.sinks.shippingQueries
+      ) as AsyncIterable<ShippingQueryEvent>,
     preCheckoutQueries: ({ client }: { client: TelegramClient }) =>
-      preCheckoutQueries(client.bot) as AsyncIterable<PreCheckoutQueryEvent>,
+      sinkToStream(
+        client.sinks.preCheckoutQueries
+      ) as AsyncIterable<PreCheckoutQueryEvent>,
     successfulPayments: ({ client }: { client: TelegramClient }) =>
-      successfulPayments(client.bot) as AsyncIterable<SuccessfulPaymentEvent>,
+      sinkToStream(
+        client.sinks.successfulPayments
+      ) as AsyncIterable<SuccessfulPaymentEvent>,
     businessConnections: ({ client }: { client: TelegramClient }) =>
-      businessConnections(client.bot) as AsyncIterable<BusinessConnectionEvent>,
+      sinkToStream(
+        client.sinks.businessConnections
+      ) as AsyncIterable<BusinessConnectionEvent>,
     businessMessages: ({ client }: { client: TelegramClient }) =>
-      businessMessages(
-        client.bot,
-        client.logger
+      sinkToStream(
+        client.sinks.businessMessages
       ) as AsyncIterable<BusinessMessageEvent>,
     editedBusinessMessages: ({ client }: { client: TelegramClient }) =>
-      editedBusinessMessages(
-        client.bot,
-        client.logger
+      sinkToStream(
+        client.sinks.editedBusinessMessages
       ) as AsyncIterable<BusinessMessageEvent>,
     deletedBusinessMessages: ({ client }: { client: TelegramClient }) =>
-      deletedBusinessMessages(
-        client.bot
+      sinkToStream(
+        client.sinks.deletedBusinessMessages
       ) as AsyncIterable<DeletedBusinessMessagesEvent>,
     messageReactions: ({ client }: { client: TelegramClient }) =>
-      messageReactions(client.bot) as AsyncIterable<MessageReactionEvent>,
+      sinkToStream(
+        client.sinks.messageReactions
+      ) as AsyncIterable<MessageReactionEvent>,
     chatJoinRequests: ({ client }: { client: TelegramClient }) =>
-      chatJoinRequests(client.bot) as AsyncIterable<ChatJoinRequestEvent>,
+      sinkToStream(
+        client.sinks.chatJoinRequests
+      ) as AsyncIterable<ChatJoinRequestEvent>,
     myChatMemberUpdates: ({ client }: { client: TelegramClient }) =>
-      myChatMemberUpdates(client.bot) as AsyncIterable<ChatMemberUpdateEvent>,
+      sinkToStream(
+        client.sinks.myChatMemberUpdates
+      ) as AsyncIterable<ChatMemberUpdateEvent>,
     chatMemberUpdates: ({ client }: { client: TelegramClient }) =>
-      chatMemberUpdates(client.bot) as AsyncIterable<ChatMemberUpdateEvent>,
+      sinkToStream(
+        client.sinks.chatMemberUpdates
+      ) as AsyncIterable<ChatMemberUpdateEvent>,
     chatBoosts: ({ client }: { client: TelegramClient }) =>
-      chatBoosts(client.bot) as AsyncIterable<ChatBoostEvent>,
+      sinkToStream(client.sinks.chatBoosts) as AsyncIterable<ChatBoostEvent>,
     removedChatBoosts: ({ client }: { client: TelegramClient }) =>
-      removedChatBoosts(client.bot) as AsyncIterable<ChatBoostRemovedEvent>,
+      sinkToStream(
+        client.sinks.removedChatBoosts
+      ) as AsyncIterable<ChatBoostRemovedEvent>,
     pollAnswers: ({ client }: { client: TelegramClient }) =>
-      pollAnswers(client.bot) as AsyncIterable<PollAnswerEvent>,
+      sinkToStream(client.sinks.pollAnswers) as AsyncIterable<PollAnswerEvent>,
     purchasedPaidMedia: ({ client }: { client: TelegramClient }) =>
-      purchasedPaidMedia(client.bot) as AsyncIterable<PurchasedPaidMediaEvent>,
+      sinkToStream(
+        client.sinks.purchasedPaidMedia
+      ) as AsyncIterable<PurchasedPaidMediaEvent>,
     inlineQueries: ({ client }: { client: TelegramClient }) =>
-      inlineQueries(client.bot) as AsyncIterable<InlineQueryEvent>,
+      sinkToStream(
+        client.sinks.inlineQueries
+      ) as AsyncIterable<InlineQueryEvent>,
     chosenInlineResults: ({ client }: { client: TelegramClient }) =>
-      chosenInlineResults(client.bot) as AsyncIterable<ChosenInlineResultEvent>,
+      sinkToStream(
+        client.sinks.chosenInlineResults
+      ) as AsyncIterable<ChosenInlineResultEvent>,
   },
 
   actions: {

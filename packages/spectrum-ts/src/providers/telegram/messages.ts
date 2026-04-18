@@ -249,10 +249,10 @@ const mapCustomContent = (msg: TgMessage): Content => {
   return asCustom({ telegram_type: "unknown" });
 };
 
-const mapContent = (bot: Bot, msg: TgMessage): Content =>
+export const mapContent = (bot: Bot, msg: TgMessage): Content =>
   mapTextContent(msg) ?? mapMediaContent(bot, msg) ?? mapCustomContent(msg);
 
-const toMessage = (bot: Bot, msg: TgMessage): TelegramMessage => ({
+export const toMessage = (bot: Bot, msg: TgMessage): TelegramMessage => ({
   id: String(msg.message_id),
   content: mapContent(bot, msg),
   sender: { id: String(msg.from?.id ?? msg.chat.id) },
@@ -296,33 +296,14 @@ const extractSendOptions = (
 
 export const messages = (
   bot: Bot,
-  logger: TelegramLogger,
-  useWebhook = false
+  _logger: TelegramLogger
 ): ManagedStream<TelegramMessage> =>
-  stream<TelegramMessage>((emit, end) => {
+  stream<TelegramMessage>((emit) => {
     bot.on("message", (ctx) => {
       if (ctx.message) {
         emit(toMessage(bot, ctx.message));
       }
     });
-
-    bot.catch((err) => {
-      logger.error("Bot error", err.error);
-      end(err.error);
-    });
-
-    if (!useWebhook) {
-      bot.start().catch((err) => {
-        logger.error("Bot start failed", err);
-        end(err);
-      });
-    }
-
-    return () => {
-      if (!useWebhook) {
-        return bot.stop();
-      }
-    };
   });
 
 export const editedMessages = (bot: Bot): ManagedStream<EditedMessage> =>

@@ -1,13 +1,6 @@
 // ---------------------------------------------------------------------------
 // Upcoming / Future Integration Areas
 // ---------------------------------------------------------------------------
-// Webhook Mode
-//   setWebhook, deleteWebhook, getWebhookInfo, webhook HTTP server.
-//   Currently only long-polling (bot.start) is supported. Webhook mode
-//   requires a dedicated server to receive updates from Telegram, proper
-//   lifecycle management, and integration with the PlatformDef events system.
-//   See: https://core.telegram.org/bots/webhooks
-//
 // Mini Apps (Web Apps)
 //   Full client-side JS SDK for building embedded interfaces inside Telegram.
 //   Requires: WebApp init, theme params, viewport events, haptic feedback,
@@ -94,6 +87,7 @@ import {
   deleteStickerFromSet,
   deleteStickerSet,
   deleteStory,
+  deleteWebhookApi,
   editChatInviteLink,
   editChatSubscriptionInviteLink,
   editedBusinessMessages,
@@ -135,6 +129,7 @@ import {
   getUserGifts,
   getUserProfileAudios,
   getUserProfilePhotos,
+  getWebhookInfoApi,
   giftPremiumSubscription,
   hideGeneralForumTopic,
   leaveChat,
@@ -203,6 +198,7 @@ import {
   setStickerSetThumbnail,
   setStickerSetTitle,
   setUserEmojiStatus,
+  setWebhookApi,
   shippingQueries,
   startTyping,
   stopMessageLiveLocation,
@@ -273,12 +269,15 @@ import {
   type SuccessfulPaymentEvent,
   spaceSchema,
   type UserChatBoost,
+  type WebhookInfo as WebhookInfoType,
 } from "./types";
+import { startWebhookServer, type WebhookServer } from "./webhook";
 
 interface TelegramClient {
   bot: Bot;
   logger: TelegramLogger;
   parseMode?: ParseMode;
+  webhookServer?: WebhookServer;
 }
 
 export const telegram = definePlatform("Telegram", {
@@ -1358,6 +1357,35 @@ export const telegram = definePlatform("Telegram", {
       await setChatMemberTag(client.bot, spaceId, userId, tag, client.logger);
     },
 
+    // --- Webhook management ---
+
+    setWebhook: async (
+      client: TelegramClient,
+      url: string,
+      options?: {
+        certificate?: Buffer;
+        dropPendingUpdates?: boolean;
+        ipAddress?: string;
+        maxConnections?: number;
+        secretToken?: string;
+      }
+    ) => {
+      await setWebhookApi(client.bot, url, options, client.logger);
+    },
+
+    deleteWebhook: async (
+      client: TelegramClient,
+      dropPendingUpdates?: boolean
+    ) => {
+      await deleteWebhookApi(client.bot, dropPendingUpdates, client.logger);
+    },
+
+    getWebhookInfo: async (
+      client: TelegramClient
+    ): Promise<WebhookInfoType> => {
+      return getWebhookInfoApi(client.bot, client.logger);
+    },
+
     // --- Gifts ---
 
     getAvailableGifts: async (client: TelegramClient): Promise<GiftItem[]> => {
@@ -1867,22 +1895,32 @@ export const telegram = definePlatform("Telegram", {
       await bot.init();
       logger.info(`Bot initialized: @${bot.botInfo.username}`);
 
+      let webhookServer: WebhookServer | undefined;
+      if (config.webhook) {
+        webhookServer = await startWebhookServer(bot, config.webhook, logger);
+      }
+
       return {
         bot,
         logger,
         parseMode: config.parseMode,
+        webhookServer,
       };
     },
 
     destroyClient: async ({ client }: { client: TelegramClient }) => {
-      await client.bot.stop();
+      if (client.webhookServer) {
+        await client.webhookServer.close();
+      } else {
+        await client.bot.stop();
+      }
     },
   },
 
   events: {
     messages: ({ client }) => {
       const c = client as TelegramClient;
-      return messages(c.bot, c.logger);
+      return messages(c.bot, c.logger, !!c.webhookServer);
     },
     editedMessages: ({ client }: { client: TelegramClient }) =>
       editedMessages(client.bot) as AsyncIterable<EditedMessage>,

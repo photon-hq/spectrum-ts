@@ -38,10 +38,11 @@
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.4.3",
-    "@photon-ai/whatsapp-business": "^0.1.1",
     "@photon-ai/imessage-kit": "^3.0.0-rc.2",
+    "@photon-ai/whatsapp-business": "^0.1.1",
     "@repeaterjs/repeater": "^3.0.6",
     "better-grpc": "^0.3.2",
+    "grammy": "^1.42.0",
     "mime-types": "^3.0.1",
     "type-fest": "^5.4.1",
     "zod": "^4.2.1"

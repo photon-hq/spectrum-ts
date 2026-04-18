@@ -1,6 +1,7 @@
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
+// import { telegram } from "spectrum-ts/providers/telegram";
 // import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({
@@ -8,6 +9,7 @@ const app = await Spectrum({
   projectSecret: "",
   providers: [
     imessage.config(),
+    // telegram.config({ token: "YOUR_BOT_TOKEN" }),
     // terminal.config({}),
   ],
 });

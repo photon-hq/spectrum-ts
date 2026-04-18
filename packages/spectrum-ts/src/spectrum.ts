@@ -178,6 +178,69 @@ export async function Spectrum<
           stopTyping: async () => {
             await definition.actions.stopTyping?.(typingCtx);
           },
+          editMessage: async (
+            messageId: string,
+            ...content: [ContentInput, ...ContentInput[]]
+          ) => {
+            if (!definition.actions.editMessage) {
+              return;
+            }
+            const resolved = await resolveContents(content);
+            for (const item of resolved) {
+              await definition.actions.editMessage({
+                ...typingCtx,
+                messageId,
+                content: item,
+              });
+            }
+          },
+          deleteMessage: async (messageId: string) => {
+            if (!definition.actions.deleteMessage) {
+              return;
+            }
+            await definition.actions.deleteMessage({
+              ...typingCtx,
+              messageId,
+            });
+          },
+          forwardMessage: async (messageId: string, toSpaceId: string) => {
+            if (!definition.actions.forwardMessage) {
+              return;
+            }
+            await definition.actions.forwardMessage({
+              ...typingCtx,
+              messageId,
+              toSpaceId,
+            });
+          },
+          copyMessage: async (messageId: string, toSpaceId: string) => {
+            if (!definition.actions.copyMessage) {
+              return;
+            }
+            await definition.actions.copyMessage({
+              ...typingCtx,
+              messageId,
+              toSpaceId,
+            });
+          },
+          pinMessage: async (messageId: string) => {
+            if (!definition.actions.pinMessage) {
+              return;
+            }
+            await definition.actions.pinMessage({
+              ...typingCtx,
+              messageId,
+            });
+          },
+          unpinMessage: async (messageId: string) => {
+            if (!definition.actions.unpinMessage) {
+              return;
+            }
+            await definition.actions.unpinMessage({
+              ...typingCtx,
+              messageId,
+            });
+          },
           responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
             await definition.actions.startTyping?.(typingCtx);
             try {
@@ -192,6 +255,80 @@ export async function Spectrum<
           id: msg.id,
           content: msg.content,
           platform: definition.name,
+          edit: async (
+            ...content: [ContentInput, ...ContentInput[]]
+          ): Promise<void> => {
+            if (!definition.actions.editMessage) {
+              return;
+            }
+            const resolved = await resolveContents(content);
+            for (const item of resolved) {
+              await definition.actions.editMessage({
+                space: spaceRef,
+                messageId: msg.id,
+                content: item,
+                client,
+                config,
+              });
+            }
+          },
+          delete: async (): Promise<void> => {
+            if (!definition.actions.deleteMessage) {
+              return;
+            }
+            await definition.actions.deleteMessage({
+              space: spaceRef,
+              messageId: msg.id,
+              client,
+              config,
+            });
+          },
+          forward: async (toSpaceId: string): Promise<void> => {
+            if (!definition.actions.forwardMessage) {
+              return;
+            }
+            await definition.actions.forwardMessage({
+              space: spaceRef,
+              messageId: msg.id,
+              toSpaceId,
+              client,
+              config,
+            });
+          },
+          copy: async (toSpaceId: string): Promise<void> => {
+            if (!definition.actions.copyMessage) {
+              return;
+            }
+            await definition.actions.copyMessage({
+              space: spaceRef,
+              messageId: msg.id,
+              toSpaceId,
+              client,
+              config,
+            });
+          },
+          pin: async (): Promise<void> => {
+            if (!definition.actions.pinMessage) {
+              return;
+            }
+            await definition.actions.pinMessage({
+              space: spaceRef,
+              messageId: msg.id,
+              client,
+              config,
+            });
+          },
+          unpin: async (): Promise<void> => {
+            if (!definition.actions.unpinMessage) {
+              return;
+            }
+            await definition.actions.unpinMessage({
+              space: spaceRef,
+              messageId: msg.id,
+              client,
+              config,
+            });
+          },
           react: async (reaction: string): Promise<void> => {
             if (!definition.actions.reactToMessage) {
               return;

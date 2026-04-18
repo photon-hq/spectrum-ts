@@ -131,6 +131,45 @@ export interface PlatformDef<
       client: _Client;
       config: z.infer<_ConfigSchema>;
     }) => Promise<void>;
+    editMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      content: Content;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
+    deleteMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
+    forwardMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      toSpaceId: string;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
+    copyMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      toSpaceId: string;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
+    pinMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
+    unpinMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
   };
 
   config: _ConfigSchema;
@@ -192,6 +231,18 @@ export interface AnyPlatformDef {
     reactToMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     replyToMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    editMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    deleteMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    forwardMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    copyMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    pinMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    unpinMessage?: (_: any) => Promise<void>;
   };
   config: z.ZodType<object>;
   events: {

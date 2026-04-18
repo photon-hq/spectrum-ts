@@ -8,11 +8,17 @@ export interface Message<
   TSpace extends Space = Space,
 > {
   content: Content;
+  copy(toSpaceId: string): Promise<void>;
+  delete(): Promise<void>;
+  edit(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
+  forward(toSpaceId: string): Promise<void>;
   readonly id: string;
+  pin(): Promise<void>;
   platform: TPlatform;
   react(reaction: string): Promise<void>;
   reply(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
   sender: TSender;
   space: TSpace;
   timestamp: Date;
+  unpin(): Promise<void>;
 }

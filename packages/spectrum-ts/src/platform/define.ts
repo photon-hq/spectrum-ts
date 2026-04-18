@@ -123,6 +123,69 @@ function createPlatformInstance<
         stopTyping: async () => {
           await def.actions.stopTyping?.(typingCtx);
         },
+        editMessage: async (
+          messageId: string,
+          ...content: [ContentInput, ...ContentInput[]]
+        ) => {
+          if (!def.actions.editMessage) {
+            return;
+          }
+          const built = await resolveContents(content);
+          for (const item of built) {
+            await def.actions.editMessage({
+              ...typingCtx,
+              messageId,
+              content: item,
+            });
+          }
+        },
+        deleteMessage: async (messageId: string) => {
+          if (!def.actions.deleteMessage) {
+            return;
+          }
+          await def.actions.deleteMessage({
+            ...typingCtx,
+            messageId,
+          });
+        },
+        forwardMessage: async (messageId: string, toSpaceId: string) => {
+          if (!def.actions.forwardMessage) {
+            return;
+          }
+          await def.actions.forwardMessage({
+            ...typingCtx,
+            messageId,
+            toSpaceId,
+          });
+        },
+        copyMessage: async (messageId: string, toSpaceId: string) => {
+          if (!def.actions.copyMessage) {
+            return;
+          }
+          await def.actions.copyMessage({
+            ...typingCtx,
+            messageId,
+            toSpaceId,
+          });
+        },
+        pinMessage: async (messageId: string) => {
+          if (!def.actions.pinMessage) {
+            return;
+          }
+          await def.actions.pinMessage({
+            ...typingCtx,
+            messageId,
+          });
+        },
+        unpinMessage: async (messageId: string) => {
+          if (!def.actions.unpinMessage) {
+            return;
+          }
+          await def.actions.unpinMessage({
+            ...typingCtx,
+            messageId,
+          });
+        },
         responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
           await def.actions.startTyping?.(typingCtx);
           try {

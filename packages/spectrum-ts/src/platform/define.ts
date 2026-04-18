@@ -131,11 +131,12 @@ function createPlatformInstance<
             return;
           }
           const built = await resolveContents(content);
-          for (const item of built) {
+          const last = built.at(-1);
+          if (last) {
             await def.actions.editMessage({
               ...typingCtx,
               messageId,
-              content: item,
+              content: last,
             });
           }
         },

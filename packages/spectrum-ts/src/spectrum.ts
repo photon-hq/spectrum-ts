@@ -186,11 +186,12 @@ export async function Spectrum<
               return;
             }
             const resolved = await resolveContents(content);
-            for (const item of resolved) {
+            const last = resolved.at(-1);
+            if (last) {
               await definition.actions.editMessage({
                 ...typingCtx,
                 messageId,
-                content: item,
+                content: last,
               });
             }
           },
@@ -262,11 +263,12 @@ export async function Spectrum<
               return;
             }
             const resolved = await resolveContents(content);
-            for (const item of resolved) {
+            const last = resolved.at(-1);
+            if (last) {
               await definition.actions.editMessage({
                 space: spaceRef,
                 messageId: msg.id,
-                content: item,
+                content: last,
                 client,
                 config,
               });

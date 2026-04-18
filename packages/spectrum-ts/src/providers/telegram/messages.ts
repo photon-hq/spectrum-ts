@@ -1108,7 +1108,7 @@ const toApiPermissions = (
   can_send_video_notes: p.canSendVideoNotes,
   can_send_voice_notes: p.canSendVoiceNotes,
   can_send_polls: p.canSendPolls,
-  can_send_other_messages: p.canSendOther,
+  can_send_other_messages: p.canSendOtherMessages,
   can_add_web_page_previews: p.canAddWebPagePreviews,
   can_change_info: p.canChangeInfo,
   can_invite_users: p.canInviteUsers,
@@ -1398,14 +1398,15 @@ export const sendPoll = async (
         is_anonymous: params.isAnonymous,
         type: params.type,
         allows_multiple_answers: params.allowsMultipleAnswers,
-        correct_option_ids:
-          params.correctOptionId === undefined
-            ? undefined
-            : [params.correctOptionId],
+        allows_revoting: params.allowsRevoting,
+        correct_option_ids: params.correctOptionIds,
         explanation: params.explanation,
         open_period: params.openPeriod,
         close_date: params.closeDate,
         is_closed: params.isClosed,
+        shuffle_options: params.shuffleOptions,
+        allow_adding_options: params.allowAddingOptions,
+        hide_results_until_closes: params.hideResultsUntilCloses,
       }),
     logger
   );

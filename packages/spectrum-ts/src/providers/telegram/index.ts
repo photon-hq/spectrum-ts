@@ -261,6 +261,8 @@ import {
   type WebhookInfo as WebhookInfoType,
 } from "./types";
 
+const MAX_BUFFERED_EVENTS = 1000;
+
 interface EventSink<T> {
   buffer: T[];
   listener: ((value: T) => void) | null;
@@ -275,6 +277,9 @@ const createSink = <T>(): EventSink<T> => {
       if (sink.listener) {
         sink.listener(value);
       } else {
+        if (sink.buffer.length >= MAX_BUFFERED_EVENTS) {
+          sink.buffer.shift();
+        }
         sink.buffer.push(value);
       }
     },

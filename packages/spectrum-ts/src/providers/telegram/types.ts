@@ -202,13 +202,14 @@ export interface CreateInvoiceLinkParams {
 export interface ChatPermissions {
   canAddWebPagePreviews?: boolean;
   canChangeInfo?: boolean;
+  canEditTag?: boolean;
   canInviteUsers?: boolean;
   canManageTopics?: boolean;
   canPinMessages?: boolean;
   canSendAudios?: boolean;
   canSendDocuments?: boolean;
   canSendMessages?: boolean;
-  canSendOther?: boolean;
+  canSendOtherMessages?: boolean;
   canSendPhotos?: boolean;
   canSendPolls?: boolean;
   canSendVideoNotes?: boolean;
@@ -266,15 +267,19 @@ export interface PollOption {
 }
 
 export interface SendPollParams {
+  allowAddingOptions?: boolean;
   allowsMultipleAnswers?: boolean;
+  allowsRevoting?: boolean;
   closeDate?: number;
-  correctOptionId?: number;
+  correctOptionIds?: number[];
   explanation?: string;
+  hideResultsUntilCloses?: boolean;
   isAnonymous?: boolean;
   isClosed?: boolean;
   openPeriod?: number;
   options: string[];
   question: string;
+  shuffleOptions?: boolean;
   type?: "regular" | "quiz";
 }
 

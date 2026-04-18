@@ -96,7 +96,11 @@ export const withRetry = async <T>(
       lastError = err;
       const wrapped = TelegramError.fromUnknown(err);
 
-      if (wrapped instanceof TelegramError && wrapped.retryAfter) {
+      if (
+        wrapped instanceof TelegramError &&
+        wrapped.retryAfter !== undefined &&
+        attempt < maxRetries
+      ) {
         const waitMs = wrapped.retryAfter * 1000;
         logger.warn(
           `Rate limited, retrying in ${wrapped.retryAfter}s (attempt ${attempt + 1}/${maxRetries + 1})`
@@ -105,7 +109,11 @@ export const withRetry = async <T>(
         continue;
       }
 
-      if (wrapped instanceof TelegramError && wrapped.errorCode >= 500) {
+      if (
+        wrapped instanceof TelegramError &&
+        wrapped.errorCode >= 500 &&
+        attempt < maxRetries
+      ) {
         const backoff = Math.min(1000 * 2 ** attempt, 30_000);
         logger.warn(
           `Server error ${wrapped.errorCode}, retrying in ${backoff}ms (attempt ${attempt + 1}/${maxRetries + 1})`

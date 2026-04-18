@@ -2302,7 +2302,7 @@ export const telegram = definePlatform("Telegram", {
         const u = ctx.myChatMember;
         sinks.myChatMemberUpdates.push({
           space: { id: String(u.chat.id), type: u.chat.type },
-          userId: String(u.from.id),
+          userId: String(u.new_chat_member.user.id),
           date: new Date(u.date * 1000),
           oldStatus: u.old_chat_member.status,
           newStatus: u.new_chat_member.status,
@@ -2312,7 +2312,7 @@ export const telegram = definePlatform("Telegram", {
         const u = ctx.chatMember;
         sinks.chatMemberUpdates.push({
           space: { id: String(u.chat.id), type: u.chat.type },
-          userId: String(u.from.id),
+          userId: String(u.new_chat_member.user.id),
           date: new Date(u.date * 1000),
           oldStatus: u.old_chat_member.status,
           newStatus: u.new_chat_member.status,

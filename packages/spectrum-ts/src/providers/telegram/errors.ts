@@ -70,7 +70,7 @@ export class TelegramError extends Error {
       return TelegramError.fromGrammyError(err);
     }
     if (err instanceof HttpError) {
-      return new TelegramError(0, `Network error: ${err.message}`);
+      return err;
     }
     if (err instanceof Error) {
       return err;
@@ -95,6 +95,15 @@ export const withRetry = async <T>(
     } catch (err) {
       lastError = err;
       const wrapped = TelegramError.fromUnknown(err);
+
+      if (wrapped instanceof HttpError && attempt < maxRetries) {
+        const backoff = Math.min(1000 * 2 ** attempt, 30_000);
+        logger.warn(
+          `Network error, retrying in ${backoff}ms (attempt ${attempt + 1}/${maxRetries + 1})`
+        );
+        await sleep(backoff);
+        continue;
+      }
 
       if (
         wrapped instanceof TelegramError &&

@@ -8,20 +8,6 @@
 //   shortcuts, device motion, geolocation, secure storage, share to stories.
 //   See: https://core.telegram.org/bots/webapps
 //
-// Inline Mode
-//   answerInlineQuery, savePreparedInlineMessage, InlineQueryResult builders,
-//   inline feedback events. Allows users to invoke bot via @botusername query.
-//   Inline edit variants (require inline_message_id from inline mode):
-//     editMessageTextInline, editMessageCaptionInline, editMessageMediaInline,
-//     editMessageReplyMarkupInline, editMessageLiveLocationInline,
-//     stopMessageLiveLocationInline, getGameHighScoresInline, setGameScoreInline.
-//   See: https://core.telegram.org/bots/inline
-//
-// HTML5 Games
-//   sendGame, setGameScore, getGameHighScores, game callback handling.
-//   See: https://core.telegram.org/bots/games
-//
-//
 // Managed Bots
 //   getManagedBotToken, replaceManagedBotToken, savePreparedKeyboardButton.
 //   See: https://core.telegram.org/bots/features#managed-bots
@@ -39,7 +25,7 @@
 //   Requires PlatformDef streaming support.
 // ---------------------------------------------------------------------------
 
-import type { InlineKeyboardMarkup } from "@grammyjs/types";
+import type { InlineKeyboardMarkup, InlineQueryResult } from "@grammyjs/types";
 import { Bot } from "grammy";
 import type { Content } from "../../content/types";
 import { definePlatform } from "../../platform/define";
@@ -47,6 +33,7 @@ import { createLogger, type TelegramLogger } from "./errors";
 import {
   addStickerToSet,
   answerCallbackQuery,
+  answerInlineQuery,
   answerPreCheckoutQuery,
   answerShippingQuery,
   answerWebAppQuery,
@@ -64,6 +51,7 @@ import {
   chatBoosts,
   chatJoinRequests,
   chatMemberUpdates,
+  chosenInlineResults,
   closeForumTopic,
   closeGeneralForumTopic,
   convertGiftToStars,
@@ -96,9 +84,13 @@ import {
   editGeneralForumTopic,
   editMessage,
   editMessageCaption,
+  editMessageCaptionInline,
   editMessageChecklist,
   editMessageLiveLocation,
+  editMessageLiveLocationInline,
   editMessageReplyMarkup,
+  editMessageReplyMarkupInline,
+  editMessageTextInline,
   editStory,
   editUserStarSubscription,
   exportChatInviteLink,
@@ -116,6 +108,7 @@ import {
   getChatMenuButton as getChatMenuButtonFn,
   getCustomEmojiStickers,
   getForumTopicIconStickers,
+  getGameHighScores,
   getMe,
   getMyCommands,
   getMyDefaultAdministratorRights,
@@ -132,6 +125,7 @@ import {
   getWebhookInfoApi,
   giftPremiumSubscription,
   hideGeneralForumTopic,
+  inlineQueries,
   leaveChat,
   messageReactions,
   messages,
@@ -155,11 +149,13 @@ import {
   repostStory,
   restrictChatMember,
   revokeChatInviteLink,
+  savePreparedInlineMessage,
   send,
   sendAnimation,
   sendChecklist,
   sendContact,
   sendDice,
+  sendGame,
   sendGift,
   sendGiftToChannel,
   sendInvoice,
@@ -185,6 +181,7 @@ import {
   setChatStickerSet,
   setChatTitle,
   setCustomEmojiStickerSetThumbnail,
+  setGameScore,
   setMyCommands,
   setMyDefaultAdministratorRights,
   setMyDescription,
@@ -202,6 +199,7 @@ import {
   shippingQueries,
   startTyping,
   stopMessageLiveLocation,
+  stopMessageLiveLocationInline,
   stopPoll,
   successfulPayments,
   transferBusinessAccountStars,
@@ -219,6 +217,7 @@ import {
 import {
   type AcceptedGiftTypesConfig,
   type AdminRights,
+  type AnswerInlineQueryOptions,
   type BotCommand,
   type BotInfo,
   type BusinessConnectionEvent,
@@ -236,6 +235,7 @@ import {
   type ChatMemberUpdateEvent,
   type ChatPermissions,
   type ChecklistParams,
+  type ChosenInlineResultEvent,
   type CreateInviteLinkOptions,
   type CreateInvoiceLinkParams,
   configSchema,
@@ -243,7 +243,10 @@ import {
   type EditedMessage,
   type EditInviteLinkOptions,
   type ForumTopicInfo,
+  type GameHighScore as GameHighScoreType,
+  type GetGameHighScoresOptions,
   type GiftItem,
+  type InlineQueryEvent,
   type InputStickerParams,
   type InvoiceParams,
   type MaskPositionParams,
@@ -257,9 +260,12 @@ import {
   type PollInfo,
   type PostStoryParams,
   type PreCheckoutQueryEvent,
+  type PreparedInlineMessageResult,
   type PurchasedPaidMediaEvent,
+  type SavePreparedInlineMessageOptions,
   type SendLocationParams,
   type SendPollParams,
+  type SetGameScoreOptions,
   type ShippingOption,
   type ShippingQueryEvent,
   type StarTransaction,
@@ -1860,6 +1866,151 @@ export const telegram = definePlatform("Telegram", {
     deleteChatStickerSet: async (client: TelegramClient, spaceId: string) => {
       await deleteChatStickerSet(client.bot, spaceId, client.logger);
     },
+
+    // --- Inline Mode ---
+
+    answerInlineQuery: async (
+      client: TelegramClient,
+      inlineQueryId: string,
+      results: InlineQueryResult[],
+      options?: AnswerInlineQueryOptions
+    ) => {
+      await answerInlineQuery(
+        client.bot,
+        inlineQueryId,
+        results,
+        options,
+        client.logger
+      );
+    },
+
+    savePreparedInlineMessage: async (
+      client: TelegramClient,
+      userId: string,
+      result: InlineQueryResult,
+      options?: SavePreparedInlineMessageOptions
+    ): Promise<PreparedInlineMessageResult> => {
+      return savePreparedInlineMessage(
+        client.bot,
+        userId,
+        result,
+        options,
+        client.logger
+      );
+    },
+
+    editMessageTextInline: async (
+      client: TelegramClient,
+      inlineMessageId: string,
+      text: string,
+      options?: { parseMode?: ParseMode }
+    ) => {
+      await editMessageTextInline(
+        client.bot,
+        inlineMessageId,
+        text,
+        options,
+        client.logger
+      );
+    },
+
+    editMessageCaptionInline: async (
+      client: TelegramClient,
+      inlineMessageId: string,
+      caption: string,
+      options?: { parseMode?: ParseMode }
+    ) => {
+      await editMessageCaptionInline(
+        client.bot,
+        inlineMessageId,
+        caption,
+        options,
+        client.logger
+      );
+    },
+
+    editMessageReplyMarkupInline: async (
+      client: TelegramClient,
+      inlineMessageId: string,
+      replyMarkup?: InlineKeyboardMarkup
+    ) => {
+      await editMessageReplyMarkupInline(
+        client.bot,
+        inlineMessageId,
+        replyMarkup,
+        client.logger
+      );
+    },
+
+    editMessageLiveLocationInline: async (
+      client: TelegramClient,
+      inlineMessageId: string,
+      latitude: number,
+      longitude: number,
+      options?: {
+        heading?: number;
+        horizontalAccuracy?: number;
+        proximityAlertRadius?: number;
+      }
+    ) => {
+      await editMessageLiveLocationInline(
+        client.bot,
+        inlineMessageId,
+        latitude,
+        longitude,
+        options,
+        client.logger
+      );
+    },
+
+    stopMessageLiveLocationInline: async (
+      client: TelegramClient,
+      inlineMessageId: string
+    ) => {
+      await stopMessageLiveLocationInline(
+        client.bot,
+        inlineMessageId,
+        client.logger
+      );
+    },
+
+    // --- HTML5 Games ---
+
+    sendGame: async (
+      client: TelegramClient,
+      chatId: string,
+      gameShortName: string,
+      options?: {
+        disableNotification?: boolean;
+        protectContent?: boolean;
+        replyMarkup?: InlineKeyboardMarkup;
+      }
+    ): Promise<string> => {
+      return sendGame(
+        client.bot,
+        chatId,
+        gameShortName,
+        options,
+        client.logger
+      );
+    },
+
+    setGameScore: async (
+      client: TelegramClient,
+      userId: string,
+      score: number,
+      options?: SetGameScoreOptions
+    ) => {
+      await setGameScore(client.bot, userId, score, options, client.logger);
+    },
+
+    getGameHighScores: async (
+      client: TelegramClient,
+      userId: string,
+      options?: GetGameHighScoresOptions
+    ): Promise<GameHighScoreType[]> => {
+      return getGameHighScores(client.bot, userId, options, client.logger);
+    },
   },
 
   user: {
@@ -1966,6 +2117,10 @@ export const telegram = definePlatform("Telegram", {
       pollAnswers(client.bot) as AsyncIterable<PollAnswerEvent>,
     purchasedPaidMedia: ({ client }: { client: TelegramClient }) =>
       purchasedPaidMedia(client.bot) as AsyncIterable<PurchasedPaidMediaEvent>,
+    inlineQueries: ({ client }: { client: TelegramClient }) =>
+      inlineQueries(client.bot) as AsyncIterable<InlineQueryEvent>,
+    chosenInlineResults: ({ client }: { client: TelegramClient }) =>
+      chosenInlineResults(client.bot) as AsyncIterable<ChosenInlineResultEvent>,
   },
 
   actions: {

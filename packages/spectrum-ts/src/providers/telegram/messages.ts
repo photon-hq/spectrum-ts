@@ -1,5 +1,7 @@
 import type {
   InlineKeyboardMarkup,
+  InlineQueryResult,
+  InlineQueryResultsButton,
   InputStoryContent as InputStoryContentF,
   ReactionTypeEmoji,
 } from "@grammyjs/types";
@@ -16,6 +18,7 @@ import { createLogger, type TelegramLogger, withRetry } from "./errors";
 import type {
   AcceptedGiftTypesConfig,
   AdminRights,
+  AnswerInlineQueryOptions,
   BotCommand,
   BotInfo,
   BusinessConnectionEvent,
@@ -33,13 +36,17 @@ import type {
   ChatMemberUpdateEvent,
   ChatPermissions,
   ChecklistParams,
+  ChosenInlineResultEvent,
   CreateInviteLinkOptions,
   CreateInvoiceLinkParams,
   DeletedBusinessMessagesEvent,
   EditedMessage,
   EditInviteLinkOptions,
   ForumTopicInfo,
+  GameHighScore,
+  GetGameHighScoresOptions,
   GiftItem,
+  InlineQueryEvent,
   InputStickerParams,
   InvoiceParams,
   MaskPositionParams,
@@ -53,9 +60,12 @@ import type {
   PollInfo,
   PostStoryParams,
   PreCheckoutQueryEvent,
+  PreparedInlineMessageResult,
   PurchasedPaidMediaEvent,
+  SavePreparedInlineMessageOptions,
   SendLocationParams,
   SendPollParams,
+  SetGameScoreOptions,
   ShippingOption,
   ShippingQueryEvent,
   StarTransaction,
@@ -1737,6 +1747,276 @@ export const purchasedPaidMedia = (
       });
     });
   });
+
+// ---------------------------------------------------------------------------
+// Inline Mode event streams
+// ---------------------------------------------------------------------------
+
+export const inlineQueries = (bot: Bot): ManagedStream<InlineQueryEvent> =>
+  stream<InlineQueryEvent>((emit) => {
+    bot.on("inline_query", (ctx) => {
+      const iq = ctx.inlineQuery;
+      emit({
+        id: iq.id,
+        from: { id: String(iq.from.id) },
+        query: iq.query,
+        offset: iq.offset,
+        chatType: iq.chat_type,
+        location: iq.location
+          ? {
+              latitude: iq.location.latitude,
+              longitude: iq.location.longitude,
+            }
+          : undefined,
+      });
+    });
+  });
+
+export const chosenInlineResults = (
+  bot: Bot
+): ManagedStream<ChosenInlineResultEvent> =>
+  stream<ChosenInlineResultEvent>((emit) => {
+    bot.on("chosen_inline_result", (ctx) => {
+      const r = ctx.chosenInlineResult;
+      emit({
+        resultId: r.result_id,
+        from: { id: String(r.from.id) },
+        query: r.query,
+        inlineMessageId: r.inline_message_id,
+        location: r.location
+          ? { latitude: r.location.latitude, longitude: r.location.longitude }
+          : undefined,
+      });
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// Inline Mode methods
+// ---------------------------------------------------------------------------
+
+export const answerInlineQuery = async (
+  bot: Bot,
+  inlineQueryId: string,
+  results: InlineQueryResult[],
+  options?: AnswerInlineQueryOptions,
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  await withRetry(
+    () =>
+      bot.api.answerInlineQuery(inlineQueryId, results, {
+        cache_time: options?.cacheTime,
+        is_personal: options?.isPersonal,
+        next_offset: options?.nextOffset,
+        button: options?.button
+          ? ({
+              text: options.button.text,
+              start_parameter: options.button.startParameter,
+              web_app: options.button.webAppUrl
+                ? { url: options.button.webAppUrl }
+                : undefined,
+            } as InlineQueryResultsButton)
+          : undefined,
+      }),
+    logger
+  );
+};
+
+export const savePreparedInlineMessage = async (
+  bot: Bot,
+  userId: string,
+  result: InlineQueryResult,
+  options?: SavePreparedInlineMessageOptions,
+  logger: TelegramLogger = createLogger()
+): Promise<PreparedInlineMessageResult> => {
+  return withRetry(async () => {
+    const msg = await bot.api.savePreparedInlineMessage(
+      Number(userId),
+      result,
+      {
+        allow_user_chats: options?.allowUserChats,
+        allow_bot_chats: options?.allowBotChats,
+        allow_group_chats: options?.allowGroupChats,
+        allow_channel_chats: options?.allowChannelChats,
+      }
+    );
+    return {
+      id: msg.id,
+      expirationDate: new Date(msg.expiration_date * 1000),
+    };
+  }, logger);
+};
+
+// ---------------------------------------------------------------------------
+// Inline Mode edit variants (require inline_message_id)
+// ---------------------------------------------------------------------------
+
+export const editMessageTextInline = async (
+  bot: Bot,
+  inlineMessageId: string,
+  text: string,
+  options?: { parseMode?: ParseMode },
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  await withRetry(
+    () =>
+      bot.api.editMessageTextInline(inlineMessageId, text, {
+        parse_mode: options?.parseMode,
+      }),
+    logger
+  );
+};
+
+export const editMessageCaptionInline = async (
+  bot: Bot,
+  inlineMessageId: string,
+  caption: string,
+  options?: { parseMode?: ParseMode },
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  await withRetry(
+    () =>
+      bot.api.editMessageCaptionInline(inlineMessageId, {
+        caption,
+        parse_mode: options?.parseMode,
+      }),
+    logger
+  );
+};
+
+export const editMessageReplyMarkupInline = async (
+  bot: Bot,
+  inlineMessageId: string,
+  replyMarkup?: InlineKeyboardMarkup,
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  await withRetry(
+    () =>
+      bot.api.editMessageReplyMarkupInline(inlineMessageId, {
+        reply_markup: replyMarkup,
+      }),
+    logger
+  );
+};
+
+export const editMessageLiveLocationInline = async (
+  bot: Bot,
+  inlineMessageId: string,
+  latitude: number,
+  longitude: number,
+  options?: {
+    heading?: number;
+    horizontalAccuracy?: number;
+    proximityAlertRadius?: number;
+  },
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  await withRetry(
+    () =>
+      bot.api.editMessageLiveLocationInline(
+        inlineMessageId,
+        latitude,
+        longitude,
+        {
+          heading: options?.heading,
+          horizontal_accuracy: options?.horizontalAccuracy,
+          proximity_alert_radius: options?.proximityAlertRadius,
+        }
+      ),
+    logger
+  );
+};
+
+export const stopMessageLiveLocationInline = async (
+  bot: Bot,
+  inlineMessageId: string,
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  await withRetry(
+    () => bot.api.stopMessageLiveLocationInline(inlineMessageId),
+    logger
+  );
+};
+
+// ---------------------------------------------------------------------------
+// HTML5 Games
+// ---------------------------------------------------------------------------
+
+export const sendGame = async (
+  bot: Bot,
+  chatId: string,
+  gameShortName: string,
+  options?: {
+    disableNotification?: boolean;
+    protectContent?: boolean;
+    replyMarkup?: InlineKeyboardMarkup;
+  },
+  logger: TelegramLogger = createLogger()
+): Promise<string> => {
+  return withRetry(async () => {
+    const msg = await bot.api.sendGame(Number(chatId), gameShortName, {
+      disable_notification: options?.disableNotification,
+      protect_content: options?.protectContent,
+      reply_markup: options?.replyMarkup,
+    });
+    return String(msg.message_id);
+  }, logger);
+};
+
+export const setGameScore = async (
+  bot: Bot,
+  userId: string,
+  score: number,
+  options?: SetGameScoreOptions,
+  logger: TelegramLogger = createLogger()
+): Promise<void> => {
+  const uid = Number(userId);
+  const other = {
+    force: options?.force,
+    disable_edit_message: options?.disableEditMessage,
+  };
+  const inlineMsgId = options?.inlineMessageId;
+  if (inlineMsgId) {
+    await withRetry(
+      () => bot.api.setGameScoreInline(inlineMsgId, uid, score, other),
+      logger
+    );
+  } else {
+    await withRetry(
+      () =>
+        bot.api.setGameScore(
+          options?.chatId ?? 0,
+          options?.messageId ?? 0,
+          uid,
+          score,
+          other
+        ),
+      logger
+    );
+  }
+};
+
+export const getGameHighScores = async (
+  bot: Bot,
+  userId: string,
+  options?: GetGameHighScoresOptions,
+  logger: TelegramLogger = createLogger()
+): Promise<GameHighScore[]> => {
+  const uid = Number(userId);
+  return withRetry(async () => {
+    const scores = options?.inlineMessageId
+      ? await bot.api.getGameHighScoresInline(options.inlineMessageId, uid)
+      : await bot.api.getGameHighScores(
+          options?.chatId ?? 0,
+          options?.messageId ?? 0,
+          uid
+        );
+    return scores.map((s) => ({
+      position: s.position,
+      score: s.score,
+      user: { id: String(s.user.id) },
+    }));
+  }, logger);
+};
 
 // ---------------------------------------------------------------------------
 // Join request management

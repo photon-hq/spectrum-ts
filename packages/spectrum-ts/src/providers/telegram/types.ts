@@ -603,3 +603,71 @@ export interface StickerSetInfo {
   stickerType: StickerType;
   title: string;
 }
+
+// ---------------------------------------------------------------------------
+// Inline Mode
+// ---------------------------------------------------------------------------
+
+export interface InlineQueryEvent {
+  chatType?: "sender" | "private" | "group" | "supergroup" | "channel";
+  from: { id: string };
+  id: string;
+  location?: { latitude: number; longitude: number };
+  offset: string;
+  query: string;
+}
+
+export interface ChosenInlineResultEvent {
+  from: { id: string };
+  inlineMessageId?: string;
+  location?: { latitude: number; longitude: number };
+  query: string;
+  resultId: string;
+}
+
+export interface AnswerInlineQueryOptions {
+  button?: {
+    startParameter?: string;
+    text: string;
+    webAppUrl?: string;
+  };
+  cacheTime?: number;
+  isPersonal?: boolean;
+  nextOffset?: string;
+}
+
+export interface SavePreparedInlineMessageOptions {
+  allowBotChats?: boolean;
+  allowChannelChats?: boolean;
+  allowGroupChats?: boolean;
+  allowUserChats?: boolean;
+}
+
+export interface PreparedInlineMessageResult {
+  expirationDate: Date;
+  id: string;
+}
+
+// ---------------------------------------------------------------------------
+// HTML5 Games
+// ---------------------------------------------------------------------------
+
+export interface GameHighScore {
+  position: number;
+  score: number;
+  user: { id: string };
+}
+
+export interface SetGameScoreOptions {
+  chatId?: number;
+  disableEditMessage?: boolean;
+  force?: boolean;
+  inlineMessageId?: string;
+  messageId?: number;
+}
+
+export interface GetGameHighScoresOptions {
+  chatId?: number;
+  inlineMessageId?: string;
+  messageId?: number;
+}

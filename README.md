@@ -10,11 +10,13 @@ Spectrum abstracts messaging platforms behind a single, fully type-safe API. Rec
 ```typescript
 import { Spectrum, text } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
+import { telegram } from "spectrum-ts/providers/telegram";
 import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({
   providers: [
     imessage.config({ local: true }),
+    telegram.config({ token: process.env.TELEGRAM_BOT_TOKEN! }),
     terminal.config(),
   ],
 });
@@ -42,6 +44,7 @@ for await (const [space, message] of app.messages) {
 - [Platform Narrowing](#platform-narrowing)
 - [Platform Providers](#platform-providers)
   - [iMessage](#imessage)
+  - [Telegram](#telegram)
   - [Terminal](#terminal)
 - [Custom Events](#custom-events)
 - [Lifecycle](#lifecycle)
@@ -74,7 +77,7 @@ Spectrum is built around four primitives:
 | **Message** | An incoming piece of content — text, attachments, or structured data — from any platform. |
 | **Space** | A conversation context. A DM, a group chat, a terminal session. You send messages *into* a space. |
 | **User** | A participant on a platform, identified by a platform-specific ID. |
-| **Platform Provider** | A platform adapter (iMessage, terminal, or your own) that translates platform-specific protocols into Spectrum's unified interface. |
+| **Platform Provider** | A platform adapter (iMessage, Telegram, terminal, or your own) that translates platform-specific protocols into Spectrum's unified interface. |
 
 Every message arrives as a `[Space, Message]` tuple. The space gives you the ability to respond; the message gives you the content and metadata.
 
@@ -159,10 +162,16 @@ interface Message {
   timestamp: Date;
   react(reaction: string): Promise<void>;
   reply(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
+  edit(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
+  delete(): Promise<void>;
+  forward(toSpaceId: string): Promise<void>;
+  copy(toSpaceId: string): Promise<void>;
+  pin(): Promise<void>;
+  unpin(): Promise<void>;
 }
 ```
 
-Messages carry their own context. You can reply to a message directly, react to it, or use its space to send new messages. The `platform` field identifies which platform provider delivered the message.
+Messages carry their own context. You can reply to a message directly, react to it, edit or delete it, forward or copy it to another space, or pin it. The `platform` field identifies which platform provider delivered the message. Methods that aren't supported by a platform resolve silently as no-ops.
 
 `Content` is a discriminated union on `type` — `"text"`, `"attachment"`, or `"custom"`. Narrow on `message.content.type` to access the corresponding fields.
 
@@ -249,6 +258,12 @@ interface Space {
   startTyping(): Promise<void>;
   stopTyping(): Promise<void>;
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
+  editMessage(messageId: string, ...content: [ContentInput, ...ContentInput[]]): Promise<void>;
+  deleteMessage(messageId: string): Promise<void>;
+  forwardMessage(messageId: string, toSpaceId: string): Promise<void>;
+  copyMessage(messageId: string, toSpaceId: string): Promise<void>;
+  pinMessage(messageId: string): Promise<void>;
+  unpinMessage(messageId: string): Promise<void>;
 }
 ```
 
@@ -449,6 +464,58 @@ if (im.type === "group") {
 | `imessage.tapbacks.emphasize` | `"emphasize"` |
 | `imessage.tapbacks.question` | `"question"` |
 
+### Telegram
+
+```typescript
+import { telegram } from "spectrum-ts/providers/telegram";
+```
+
+The Telegram provider connects to the [Telegram Bot API](https://core.telegram.org/bots/api) via [grammy](https://grammy.dev). It uses long polling by default and covers nearly the full Bot API surface.
+
+```typescript
+telegram.config({ token: process.env.TELEGRAM_BOT_TOKEN! })
+```
+
+#### Core messaging
+
+Send text, photos, animations, voice, video notes, stickers, locations, venues, contacts, dice, polls, paid media, and media groups. Edit, delete, forward, copy, and pin messages — including bulk operations (`forwardMessages`, `copyMessages`, `deleteMessages`).
+
+#### Rich features
+
+| Category | Methods |
+| --- | --- |
+| **Bot profile** | `setMyName`, `setMyDescription`, `setMyShortDescription`, `setMyCommands`, `setMyProfilePhoto`, `removeMyProfilePhoto`, `setMyDefaultAdministratorRights`, `setChatMenuButton` |
+| **Chat management** | `getChatInfo`, `setChatTitle`, `setChatDescription`, `setChatPhoto`, `setChatPermissions`, `banChatMember`, `promoteChatMember`, `exportChatInviteLink`, `createChatInviteLink` |
+| **Forum topics** | Full lifecycle — create, edit, close, reopen, delete, pin/unpin, hide/unhide general topic |
+| **Inline mode** | `answerInlineQuery`, `savePreparedInlineMessage`, inline edit methods |
+| **Games** | `sendGame`, `setGameScore`, `getGameHighScores` |
+| **Stickers** | Full lifecycle — create set, add/remove/reorder stickers, set title/thumbnail |
+| **Payments & Stars** | `createInvoiceLink`, `getMyStarBalance`, `getStarTransactions`, `getAvailableGifts` |
+| **Webhook utilities** | `setWebhook`, `deleteWebhook`, `getWebhookInfo` (for use with external servers) |
+
+#### Event streams
+
+The provider exposes platform-specific event streams beyond the standard `messages`:
+
+```typescript
+for await (const [space, msg] of app.events.telegram.editedMessages) {
+  // handle edited messages
+}
+```
+
+Available streams: `editedMessages`, `channelPosts`, `callbackQueries`, `messageReactions`, `pollAnswers`, `myChatMemberUpdates`, `chatMemberUpdates`, `inlineQueries`, `chosenInlineResults`, `shippingQueries`, `preCheckoutQueries`, `businessConnections`, `businessMessages`, `editedBusinessMessages`, `deletedBusinessMessages`, `chatJoinRequests`, `chatBoosts`, `removedChatBoosts`, `purchasedPaidMedia`.
+
+#### Static methods
+
+Access the full API surface through the platform accessor:
+
+```typescript
+const tg = telegram(space);
+await tg.client.api.sendDice(space.id, "🎲");
+```
+
+All static methods accept the underlying `TelegramClient` for direct API access when needed.
+
 ### Terminal
 
 ```typescript
@@ -476,6 +543,14 @@ for await (const event of app.typing) {
 ```
 
 Custom events are merged across all platform providers that emit them, with a `platform` field added to identify the source. Event streams are created lazily on first access.
+
+For example, the Telegram provider exposes callback queries, inline queries, and many other event types:
+
+```typescript
+for await (const query of app.events.telegram.callbackQueries) {
+  console.log(`Callback from ${query.userId}: ${query.data}`);
+}
+```
 
 ---
 
@@ -585,6 +660,12 @@ export const myPlatform = definePlatform("my-platform", {
 | `actions.stopTyping` | No | Hides a typing indicator in a space. |
 | `actions.reactToMessage` | No | Reacts to a specific message. |
 | `actions.replyToMessage` | No | Sends a threaded reply to a specific message. |
+| `actions.editMessage` | No | Edits a previously sent message. |
+| `actions.deleteMessage` | No | Deletes a message by ID. |
+| `actions.forwardMessage` | No | Forwards a message to another space. |
+| `actions.copyMessage` | No | Copies a message to another space (without forward attribution). |
+| `actions.pinMessage` | No | Pins a message in a space. |
+| `actions.unpinMessage` | No | Unpins a message in a space. |
 | `message.schema` | No | A Zod schema for extra properties on incoming messages. |
 | `static` | No | Static properties attached to the platform object (e.g., constants). |
 

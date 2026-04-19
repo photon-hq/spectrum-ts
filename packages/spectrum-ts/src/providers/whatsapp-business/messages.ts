@@ -296,9 +296,30 @@ const spectrumNameToWa = (name: Contact["name"]): WaContactName => ({
   suffix: name?.suffix,
 });
 
+const isWhatsAppContactCard = (value: unknown): value is ContactCardInput => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const raw = value as Record<string, unknown>;
+  const name = raw.name as Record<string, unknown> | undefined;
+  if (
+    !name ||
+    typeof name !== "object" ||
+    typeof name.formattedName !== "string"
+  ) {
+    return false;
+  }
+  return (
+    Array.isArray(raw.phones) &&
+    Array.isArray(raw.emails) &&
+    Array.isArray(raw.addresses) &&
+    Array.isArray(raw.urls)
+  );
+};
+
 const contactToWa = (contact: Contact): ContactCardInput => {
-  if (contact.raw && typeof contact.raw === "object" && "name" in contact.raw) {
-    return contact.raw as ContactCardInput;
+  if (isWhatsAppContactCard(contact.raw)) {
+    return contact.raw;
   }
   const card: ContactCardInput = {
     name: spectrumNameToWa(contact.name),

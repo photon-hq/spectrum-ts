@@ -142,6 +142,15 @@ const vcardFileName = (
   return `${base.replace(/[^a-zA-Z0-9_\-.]/g, "_")}.vcf`;
 };
 
+const sendContactAttachment = async (
+  remote: AdvancedIMessage,
+  content: Extract<Content, { type: "contact" }>
+) => {
+  const vcf = await toVCard(content);
+  const upload = await sendVCardAttachment(remote, vcardFileName(content), vcf);
+  return upload.guid;
+};
+
 export const messages = (
   clients: AdvancedIMessage[]
 ): ManagedStream<IMessageMessage> => mergeStreams(clients.map(clientStream));
@@ -193,15 +202,8 @@ export const send = async (
       break;
     }
     case "contact": {
-      const vcf = await toVCard(content);
-      const upload = await sendVCardAttachment(
-        remote,
-        vcardFileName(content),
-        vcf
-      );
-      await remote.messages.send(chatGuid(spaceId), "", {
-        attachment: upload.guid,
-      });
+      const attachment = await sendContactAttachment(remote, content);
+      await remote.messages.send(chatGuid(spaceId), "", { attachment });
       break;
     }
     default:
@@ -240,16 +242,8 @@ export const replyToMessage = async (
       break;
     }
     case "contact": {
-      const vcf = await toVCard(content);
-      const upload = await sendVCardAttachment(
-        remote,
-        vcardFileName(content),
-        vcf
-      );
-      await remote.messages.send(chat, "", {
-        attachment: upload.guid,
-        replyTo,
-      });
+      const attachment = await sendContactAttachment(remote, content);
+      await remote.messages.send(chat, "", { attachment, replyTo });
       break;
     }
     default:

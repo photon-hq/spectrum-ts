@@ -6,11 +6,31 @@ import {
   Reaction,
 } from "@photon-ai/advanced-imessage";
 import { asAttachment } from "../../content/attachment";
+import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
+import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
+
+const VCARD_MIME_TYPES: ReadonlySet<string> = new Set([
+  "text/vcard",
+  "text/x-vcard",
+  "text/directory",
+  "application/vcard",
+  "application/x-vcard",
+]);
+
+const isVCardAttachment = (
+  mimeType: string | undefined,
+  fileName: string | undefined
+): boolean => {
+  if (mimeType && VCARD_MIME_TYPES.has(mimeType.toLowerCase())) {
+    return true;
+  }
+  return Boolean(fileName?.toLowerCase().endsWith(".vcf"));
+};
 
 type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 
@@ -29,26 +49,48 @@ const baseMessage = (
   timestamp: event.timestamp,
 });
 
-const toMessages = (
+const toAttachmentContent = (
+  client: AdvancedIMessage,
+  info: ReceivedEvent["message"]["attachments"][number]
+): Content =>
+  asAttachment({
+    name: info.fileName,
+    mimeType: info.mimeType,
+    size: info.totalBytes,
+    read: async () =>
+      Buffer.from(await client.attachments.downloadBuffer(info.guid)),
+    stream: async () => client.attachments.download(info.guid).stream,
+  });
+
+const toVCardContent = async (
+  client: AdvancedIMessage,
+  info: ReceivedEvent["message"]["attachments"][number]
+): Promise<Content> => {
+  try {
+    const buf = Buffer.from(await client.attachments.downloadBuffer(info.guid));
+    return asContact(fromVCard(buf.toString("utf8")));
+  } catch {
+    return toAttachmentContent(client, info);
+  }
+};
+
+const toMessages = async (
   client: AdvancedIMessage,
   event: ReceivedEvent
-): IMessageMessage[] => {
+): Promise<IMessageMessage[]> => {
   const base = baseMessage(event);
   const messageGuidStr = event.message.guid as string;
 
   if (event.message.attachments.length > 0) {
-    return event.message.attachments.map((info) => ({
-      ...base,
-      id: `${messageGuidStr}:${info.guid as string}`,
-      content: asAttachment({
-        name: info.fileName,
-        mimeType: info.mimeType,
-        size: info.totalBytes,
-        read: async () =>
-          Buffer.from(await client.attachments.downloadBuffer(info.guid)),
-        stream: async () => client.attachments.download(info.guid).stream,
-      }),
-    }));
+    return Promise.all(
+      event.message.attachments.map(async (info) => ({
+        ...base,
+        id: `${messageGuidStr}:${info.guid as string}`,
+        content: isVCardAttachment(info.mimeType, info.fileName)
+          ? await toVCardContent(client, info)
+          : toAttachmentContent(client, info),
+      }))
+    );
   }
 
   const text = event.message.text;
@@ -69,7 +111,7 @@ const clientStream = (
     (async () => {
       try {
         for await (const event of sub) {
-          for (const message of toMessages(client, event)) {
+          for (const message of await toMessages(client, event)) {
             emit(message);
           }
         }
@@ -80,6 +122,24 @@ const clientStream = (
     })();
     return () => sub.close();
   });
+};
+
+const sendVCardAttachment = (
+  remote: AdvancedIMessage,
+  name: string,
+  vcf: string
+) =>
+  remote.attachments.upload({
+    data: Buffer.from(vcf, "utf8"),
+    fileName: name,
+    mimeType: "text/vcard",
+  });
+
+const vcardFileName = (
+  contact: Extract<Content, { type: "contact" }>
+): string => {
+  const base = contact.name?.formatted ?? contact.user?.id ?? "contact";
+  return `${base.replace(/[^a-zA-Z0-9_\-.]/g, "_")}.vcf`;
 };
 
 export const messages = (
@@ -132,6 +192,18 @@ export const send = async (
       });
       break;
     }
+    case "contact": {
+      const vcf = await toVCard(content);
+      const upload = await sendVCardAttachment(
+        remote,
+        vcardFileName(content),
+        vcf
+      );
+      await remote.messages.send(chatGuid(spaceId), "", {
+        attachment: upload.guid,
+      });
+      break;
+    }
     default:
       throw new Error(`Unsupported iMessage content type: ${content.type}`);
   }
@@ -163,6 +235,19 @@ export const replyToMessage = async (
       });
       await remote.messages.send(chat, "", {
         attachment: attachment.guid,
+        replyTo,
+      });
+      break;
+    }
+    case "contact": {
+      const vcf = await toVCard(content);
+      const upload = await sendVCardAttachment(
+        remote,
+        vcardFileName(content),
+        vcf
+      );
+      await remote.messages.send(chat, "", {
+        attachment: upload.guid,
         replyTo,
       });
       break;

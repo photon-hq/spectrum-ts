@@ -38,17 +38,19 @@
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.4.3",
-    "@photon-ai/whatsapp-business": "^0.1.1",
     "@photon-ai/imessage-kit": "^3.0.0-rc.2",
+    "@photon-ai/whatsapp-business": "^0.1.1",
     "@repeaterjs/repeater": "^3.0.6",
     "better-grpc": "^0.3.2",
     "mime-types": "^3.0.1",
     "type-fest": "^5.4.1",
+    "vcf": "^2.1.2",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
+    "@types/vcf": "^2.0.7",
     "clean-publish": "^6.0.5",
     "hotscript": "^1.0.13",
     "tsup": "^8.4.0"

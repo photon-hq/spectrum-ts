@@ -170,7 +170,7 @@ Messages carry their own context. You can reply to a message directly, react to 
 
 ## Content
 
-Spectrum provides three content builders for constructing outgoing messages. Plain strings are also accepted everywhere a content input is expected, as a shortcut for `text()`.
+Spectrum provides four content builders for constructing outgoing messages. Plain strings are also accepted everywhere a content input is expected, as a shortcut for `text()`.
 
 ### Text
 
@@ -214,9 +214,36 @@ if (message.content.type === "attachment") {
 }
 ```
 
+### Contact
+
+Send a contact card. Provide structured details, parse a vCard string, or reference an existing user.
+
+```typescript
+import { contact } from "spectrum-ts";
+
+// Structured details
+await space.send(contact({
+  name: { first: "Ada", last: "Lovelace", formatted: "Ada Lovelace" },
+  phones: [{ value: "+15551234567", type: "mobile" }],
+  emails: [{ value: "ada@example.com", type: "work" }],
+  org: { name: "Analytical Engines", title: "Mathematician" },
+}));
+
+// From a vCard string
+await space.send(contact(vcardString));
+
+// From a user — useful for sharing a contact you've already resolved
+const user = await imessage(app).user("+15551234567");
+await space.send(contact(user, { name: { formatted: "Ada Lovelace" } }));
+```
+
+Inbound contacts arrive as `message.content.type === "contact"` with parsed fields. iMessage delivers contacts as `.vcf` attachments, which Spectrum auto-detects and parses; WhatsApp Business contact cards are mapped natively.
+
+The `fromVCard` and `toVCard` utilities are exported for direct vCard interop.
+
 ### Custom
 
-Send platform-specific structured data as JSON. Use this when a platform supports rich content types that don't map to text or attachments.
+Send platform-specific structured data as JSON. Use this when a platform supports rich content types that don't map to text, attachments, or contacts.
 
 ```typescript
 import { custom } from "spectrum-ts";

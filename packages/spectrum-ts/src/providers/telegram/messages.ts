@@ -10,6 +10,7 @@ import { type Bot, type Context, InputFile } from "grammy";
 type InputStoryContent = InputStoryContentF<InputFile>;
 
 import { asAttachment } from "../../content/attachment";
+import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
@@ -216,11 +217,18 @@ const mapCustomContent = (msg: TgMessage): Content => {
     });
   }
   if (msg.contact) {
-    return asCustom({
-      telegram_type: "contact",
-      phone_number: msg.contact.phone_number,
-      first_name: msg.contact.first_name,
-      last_name: msg.contact.last_name,
+    return asContact({
+      name: {
+        first: msg.contact.first_name,
+        last: msg.contact.last_name,
+        formatted: [msg.contact.first_name, msg.contact.last_name]
+          .filter(Boolean)
+          .join(" "),
+      },
+      phones: msg.contact.phone_number
+        ? [{ value: msg.contact.phone_number }]
+        : undefined,
+      raw: msg.contact.vcard || undefined,
     });
   }
   if (msg.poll) {
@@ -581,6 +589,16 @@ export const send = async (
       case "attachment":
         await sendAttachment(bot, chatId, content, opts);
         break;
+      case "contact": {
+        const phone = content.phones?.[0]?.value ?? "";
+        const firstName = content.name?.first ?? content.name?.formatted ?? "";
+        await bot.api.sendContact(chatId, phone, firstName, {
+          last_name: content.name?.last,
+          vcard: typeof content.raw === "string" ? content.raw : undefined,
+          ...opts,
+        });
+        break;
+      }
       case "custom": {
         const raw = content.raw as Record<string, unknown> | undefined;
         if (raw?.text && typeof raw.text === "string") {
@@ -631,6 +649,16 @@ export const replyToMessage = async (
       case "attachment":
         await sendAttachment(bot, chatId, content, extra);
         break;
+      case "contact": {
+        const phone = content.phones?.[0]?.value ?? "";
+        const firstName = content.name?.first ?? content.name?.formatted ?? "";
+        await bot.api.sendContact(chatId, phone, firstName, {
+          last_name: content.name?.last,
+          vcard: typeof content.raw === "string" ? content.raw : undefined,
+          ...extra,
+        });
+        break;
+      }
       default:
         break;
     }
@@ -1492,12 +1520,14 @@ export const sendContact = async (
   phoneNumber: string,
   firstName: string,
   logger: TelegramLogger,
-  lastName?: string
+  lastName?: string,
+  vcard?: string
 ): Promise<void> => {
   await withRetry(
     () =>
       bot.api.sendContact(Number(spaceId), phoneNumber, firstName, {
         last_name: lastName,
+        vcard,
       }),
     logger
   );

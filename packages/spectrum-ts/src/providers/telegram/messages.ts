@@ -341,10 +341,13 @@ export const channelPosts = (bot: Bot): ManagedStream<ChannelPost> =>
 
 export const callbackQueries = (bot: Bot): ManagedStream<CallbackQuery> =>
   stream<CallbackQuery>((emit) => {
-    bot.on("callback_query:data", (ctx) => {
+    bot.on("callback_query", (ctx) => {
       const query = ctx.callbackQuery;
       emit({
         id: query.id,
+        chatInstance: query.chat_instance,
+        data: query.data,
+        gameShortName: query.game_short_name,
         messageId: query.message ? String(query.message.message_id) : undefined,
         sender: { id: String(query.from.id) },
         space: query.message
@@ -353,7 +356,6 @@ export const callbackQueries = (bot: Bot): ManagedStream<CallbackQuery> =>
               type: query.message.chat.type,
             }
           : undefined,
-        data: query.data,
       });
     });
   });

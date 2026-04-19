@@ -40,7 +40,9 @@ export interface ChannelPost {
 }
 
 export interface CallbackQuery {
+  chatInstance?: string;
   data?: string;
+  gameShortName?: string;
   id: string;
   messageId?: string;
   sender: { id: string };

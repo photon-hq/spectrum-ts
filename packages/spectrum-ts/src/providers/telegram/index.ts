@@ -401,6 +401,11 @@ export const telegram = definePlatform("Telegram", {
           : `https://t.me/${botUsername}?startchannel`,
     },
 
+    // Static methods accept TelegramClient by design. Callers obtain it via
+    // the platform accessor: `const tg = telegram(space); tg.client` — this
+    // keeps the internal client type out of the public Space/Message interface
+    // while giving full API access when the caller explicitly opts in.
+
     // --- Callback / payment query answers ---
 
     answerCallbackQuery: async (
@@ -2145,16 +2150,18 @@ export const telegram = definePlatform("Telegram", {
           timestamp: new Date(post.date * 1000),
         });
       });
-      bot.on("callback_query:data", (ctx) => {
+      bot.on("callback_query", (ctx) => {
         const q = ctx.callbackQuery;
         sinks.callbackQueries.push({
           id: q.id,
+          chatInstance: q.chat_instance,
+          data: q.data,
+          gameShortName: q.game_short_name,
           messageId: q.message ? String(q.message.message_id) : undefined,
           sender: { id: String(q.from.id) },
           space: q.message
             ? { id: String(q.message.chat.id), type: q.message.chat.type }
             : undefined,
-          data: q.data,
         });
       });
       bot.on("shipping_query", (ctx) => {
@@ -2393,6 +2400,9 @@ export const telegram = definePlatform("Telegram", {
         logger.error("Bot error", err.error);
       });
 
+      // bot.start() is intentionally not awaited — its promise never resolves
+      // while polling is active, so awaiting it would block createClient forever.
+      // Startup errors (bad token, network) surface through bot.catch() above.
       bot
         .start({
           allowed_updates: [

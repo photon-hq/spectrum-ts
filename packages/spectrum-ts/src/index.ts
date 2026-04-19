@@ -1,4 +1,15 @@
 export { attachment } from "./content/attachment";
+export {
+  type Contact,
+  type ContactAddress,
+  type ContactDetails,
+  type ContactEmail,
+  type ContactInput,
+  type ContactName,
+  type ContactOrg,
+  type ContactPhone,
+  contact,
+} from "./content/contact";
 export { custom } from "./content/custom";
 export { resolveContents } from "./content/resolve";
 export { text } from "./content/text";
@@ -33,3 +44,4 @@ export type {
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";
 export { type ManagedStream, mergeStreams, stream } from "./utils/stream";
+export { fromVCard, toVCard } from "./utils/vcard";

@@ -46,11 +46,13 @@
     "grammy": "^1.42.0",
     "mime-types": "^3.0.1",
     "type-fest": "^5.4.1",
+    "vcf": "^2.1.2",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
+    "@types/vcf": "^2.0.7",
     "clean-publish": "^6.0.5",
     "hotscript": "^1.0.13",
     "tsup": "^8.4.0"

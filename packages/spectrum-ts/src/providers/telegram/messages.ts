@@ -14,6 +14,7 @@ import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
+import { asVoice } from "../../content/voice";
 import { type ManagedStream, stream } from "../../utils/stream";
 import { createLogger, type TelegramLogger, withRetry } from "./errors";
 import type {
@@ -125,6 +126,36 @@ const lazyMedia = (
     },
   });
 
+const lazyVoice = (
+  bot: Bot,
+  fileId: string,
+  mimeType: string,
+  duration?: number
+): Content =>
+  asVoice({
+    mimeType,
+    duration,
+    read: async () => {
+      const { url } = await fetchFile(bot, fileId);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Voice download failed: ${response.status}`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    },
+    stream: async () => {
+      const { url } = await fetchFile(bot, fileId);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Voice download failed: ${response.status}`);
+      }
+      if (!response.body) {
+        throw new Error("Voice response missing body");
+      }
+      return response.body;
+    },
+  });
+
 const mapTextContent = (msg: TgMessage): Content | undefined => {
   if (msg.text) {
     return asText(msg.text);
@@ -180,11 +211,11 @@ const mapMediaContent = (bot: Bot, msg: TgMessage): Content | undefined => {
     );
   }
   if (msg.voice) {
-    return lazyMedia(
+    return lazyVoice(
       bot,
       msg.voice.file_id,
-      `voice-${msg.voice.file_id}.ogg`,
-      msg.voice.mime_type ?? "audio/ogg"
+      msg.voice.mime_type ?? "audio/ogg",
+      msg.voice.duration
     );
   }
   if (msg.video_note) {
@@ -599,6 +630,14 @@ export const send = async (
         });
         break;
       }
+      case "voice": {
+        const file = new InputFile(await content.read());
+        await bot.api.sendVoice(chatId, file, {
+          duration: content.duration ? Math.round(content.duration) : undefined,
+          ...opts,
+        });
+        break;
+      }
       case "custom": {
         const raw = content.raw as Record<string, unknown> | undefined;
         if (raw?.text && typeof raw.text === "string") {
@@ -655,6 +694,14 @@ export const replyToMessage = async (
         await bot.api.sendContact(chatId, phone, firstName, {
           last_name: content.name?.last,
           vcard: typeof content.raw === "string" ? content.raw : undefined,
+          ...extra,
+        });
+        break;
+      }
+      case "voice": {
+        const file = new InputFile(await content.read());
+        await bot.api.sendVoice(chatId, file, {
+          duration: content.duration ? Math.round(content.duration) : undefined,
           ...extra,
         });
         break;

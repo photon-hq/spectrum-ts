@@ -4,6 +4,7 @@ import { definePlatform } from "../../platform/define";
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { messages as localMessages, send as localSend } from "./local";
 import {
+  editMessage as remoteEditMessage,
   messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
   replyToMessage as remoteReplyToMessage,
@@ -144,6 +145,14 @@ export const imessage = definePlatform("iMessage", {
         return;
       }
       await remoteReplyToMessage(client, space.id, messageId, content);
+    },
+    editMessage: async ({ space, messageId, content, client }) => {
+      if (isLocal(client)) {
+        throw new Error(
+          "iMessage local mode does not support editing messages"
+        );
+      }
+      await remoteEditMessage(client, space.id, messageId, content);
     },
   },
 });

@@ -131,6 +131,13 @@ export interface PlatformDef<
       client: _Client;
       config: z.infer<_ConfigSchema>;
     }) => Promise<void>;
+    editMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      content: Content;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<void>;
   };
 
   config: _ConfigSchema;
@@ -192,6 +199,8 @@ export interface AnyPlatformDef {
     reactToMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     replyToMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    editMessage?: (_: any) => Promise<void>;
   };
   config: z.ZodType<object>;
   events: {

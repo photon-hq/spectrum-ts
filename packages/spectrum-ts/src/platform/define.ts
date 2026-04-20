@@ -117,6 +117,12 @@ function createPlatformInstance<
             });
           }
         },
+        edit: async (
+          message: Message,
+          newContent: ContentInput
+        ): Promise<void> => {
+          await message.edit(newContent);
+        },
         startTyping: async () => {
           await def.actions.startTyping?.(typingCtx);
         },

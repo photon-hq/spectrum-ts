@@ -41,6 +41,7 @@ export type SpectrumInstance<
       space: Space,
       ...content: [ContentInput, ...ContentInput[]]
     ): Promise<void>;
+    edit(message: Message, newContent: ContentInput): Promise<void>;
     responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
   };
 
@@ -172,6 +173,12 @@ export async function Spectrum<
               });
             }
           },
+          edit: async (
+            targetMessage: Message,
+            newContent: ContentInput
+          ): Promise<void> => {
+            await targetMessage.edit(newContent);
+          },
           startTyping: async () => {
             await definition.actions.startTyping?.(typingCtx);
           },
@@ -220,6 +227,24 @@ export async function Spectrum<
                 config,
               });
             }
+          },
+          edit: async (newContent: ContentInput): Promise<void> => {
+            if (!definition.actions.editMessage) {
+              throw new Error(
+                `Platform "${definition.name}" does not support editing messages`
+              );
+            }
+            const [resolved] = await resolveContents([newContent]);
+            if (!resolved) {
+              return;
+            }
+            await definition.actions.editMessage({
+              space: spaceRef,
+              messageId: msg.id,
+              content: resolved,
+              client,
+              config,
+            });
           },
           sender: {
             ...msg.sender,
@@ -371,6 +396,9 @@ export async function Spectrum<
       ...content: [ContentInput, ...ContentInput[]]
     ) => {
       await space.send(...content);
+    },
+    edit: async (message: Message, newContent: ContentInput) => {
+      await message.edit(newContent);
     },
     responding: async <T>(
       space: Space,

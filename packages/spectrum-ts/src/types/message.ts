@@ -8,6 +8,7 @@ export interface Message<
   TSpace extends Space = Space,
 > {
   content: Content;
+  edit(newContent: ContentInput): Promise<void>;
   readonly id: string;
   platform: TPlatform;
   react(reaction: string): Promise<void>;

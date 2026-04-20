@@ -285,6 +285,26 @@ export const replyToMessage = async (
   }
 };
 
+export const editMessage = async (
+  clients: AdvancedIMessage[],
+  spaceId: string,
+  msgId: string,
+  content: Content
+) => {
+  if (content.type !== "text") {
+    throw new Error("iMessage only supports editing text content");
+  }
+  const remote = clients[0];
+  if (!remote) {
+    return;
+  }
+  await remote.messages.edit(
+    chatGuid(spaceId),
+    messageGuid(msgId),
+    content.text
+  );
+};
+
 export const reactToMessage = async (
   clients: AdvancedIMessage[],
   spaceId: string,

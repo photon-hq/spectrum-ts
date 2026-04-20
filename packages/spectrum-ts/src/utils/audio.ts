@@ -1,7 +1,8 @@
+import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "bun";
+import type { Readable } from "node:stream";
 
 const M4A_BRANDS: ReadonlySet<string> = new Set([
   "M4A ",
@@ -20,6 +21,9 @@ const M4A_MIME_TYPES: ReadonlySet<string> = new Set([
   "audio/aac",
   "audio/aacp",
 ]);
+
+const FFMPEG_MISSING_MESSAGE =
+  "voice content: input is not m4a/aac and ffmpeg is unavailable. Install `ffmpeg-static` or ensure `ffmpeg` is on PATH.";
 
 export const isM4a = (buffer: Buffer): boolean => {
   if (buffer.length < 12) {
@@ -45,36 +49,49 @@ const tryStaticBinary = async (): Promise<string | undefined> => {
   }
 };
 
-const tryPathLookup = async (): Promise<string | undefined> => {
-  try {
-    const proc = spawn(["which", "ffmpeg"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const output = await new Response(proc.stdout).text();
-    const code = await proc.exited;
-    if (code !== 0) {
-      return undefined;
-    }
-    const path = output.trim();
-    return path || undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 export const resolveFfmpegPath = async (): Promise<string> => {
   if (cachedFfmpegPath) {
     return cachedFfmpegPath;
   }
-  const resolved = (await tryStaticBinary()) ?? (await tryPathLookup());
-  if (!resolved) {
-    throw new Error(
-      "voice content: input is not m4a/aac and ffmpeg is unavailable. Install `ffmpeg-static` or ensure `ffmpeg` is on PATH."
-    );
+  cachedFfmpegPath = (await tryStaticBinary()) ?? "ffmpeg";
+  return cachedFfmpegPath;
+};
+
+const collectStream = (stream: Readable | null): Promise<string> => {
+  if (!stream) {
+    return Promise.resolve("");
   }
-  cachedFfmpegPath = resolved;
-  return resolved;
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer | string) => {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    });
+    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    stream.on("error", reject);
+  });
+};
+
+const isMissingBinaryError = (err: unknown): boolean =>
+  (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
+
+const runFfmpeg = (
+  ffmpegPath: string,
+  args: string[]
+): Promise<{ code: number; stderr: string }> => {
+  const proc = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
+  const stderr = collectStream(proc.stderr);
+  const exit = new Promise<number>((resolve, reject) => {
+    proc.on("error", (err) =>
+      reject(
+        isMissingBinaryError(err) ? new Error(FFMPEG_MISSING_MESSAGE) : err
+      )
+    );
+    proc.on("exit", (code) => resolve(code ?? -1));
+  });
+  return Promise.all([exit, stderr]).then(([code, text]) => ({
+    code,
+    stderr: text,
+  }));
 };
 
 const DURATION_PATTERN = /Duration:\s*(\d+):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/;
@@ -99,17 +116,21 @@ const transcodeToM4a = async (
   const outPath = join(dir, "out.m4a");
   try {
     await writeFile(inPath, buffer);
-    const proc = spawn(
-      [ffmpeg, "-y", "-i", inPath, "-f", "ipod", "-c:a", "aac", outPath],
-      { stdout: "ignore", stderr: "pipe" }
-    );
-    const stderrText = await new Response(proc.stderr).text();
-    const code = await proc.exited;
+    const { code, stderr } = await runFfmpeg(ffmpeg, [
+      "-y",
+      "-i",
+      inPath,
+      "-f",
+      "ipod",
+      "-c:a",
+      "aac",
+      outPath,
+    ]);
     if (code !== 0) {
-      throw new Error(`ffmpeg conversion failed (exit ${code}): ${stderrText}`);
+      throw new Error(`ffmpeg conversion failed (exit ${code}): ${stderr}`);
     }
     const out = await readFile(outPath);
-    return { buffer: out, duration: parseDuration(stderrText) };
+    return { buffer: out, duration: parseDuration(stderr) };
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }

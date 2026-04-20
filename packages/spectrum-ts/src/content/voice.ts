@@ -7,10 +7,17 @@ import z from "zod";
 import { bufferToStream, readSchema, streamSchema } from "./io";
 import type { ContentBuilder } from "./types";
 
+const AUDIO_MIME_PATTERN = /^audio\//i;
+
+const audioMimeSchema = z
+  .string()
+  .nonempty()
+  .regex(AUDIO_MIME_PATTERN, "voice content requires an audio/* MIME type");
+
 export const voiceSchema = z.object({
   type: z.literal("voice"),
   name: z.string().nonempty().optional(),
-  mimeType: z.string().nonempty(),
+  mimeType: audioMimeSchema,
   duration: z.number().nonnegative().optional(),
   size: z.number().int().nonnegative().optional(),
   read: readSchema,
@@ -37,12 +44,22 @@ const resolveVoiceMimeType = (
   mimeType?: string
 ): string => {
   if (mimeType) {
+    if (!AUDIO_MIME_PATTERN.test(mimeType)) {
+      throw new Error(
+        `voice content requires an audio/* MIME type, got "${mimeType}".`
+      );
+    }
     return mimeType;
   }
   if (name) {
     const resolved = lookupMimeType(name);
-    if (resolved) {
+    if (resolved && AUDIO_MIME_PATTERN.test(resolved)) {
       return resolved;
+    }
+    if (resolved) {
+      throw new Error(
+        `Resolved non-audio MIME type "${resolved}" from name "${name}". Pass options.mimeType explicitly with an audio/* type.`
+      );
     }
   }
   throw new Error(
@@ -91,6 +108,11 @@ export function voice(
 
       if (typeof input === "string") {
         const stats = await stat(input);
+        if (!stats.isFile()) {
+          throw new Error(
+            `voice content path "${input}" is not a regular file.`
+          );
+        }
         return asVoice({
           name,
           mimeType,

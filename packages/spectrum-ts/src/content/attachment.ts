@@ -4,7 +4,7 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
-import { bufferToStream, readSchema, streamSchema } from "./io";
+import { bufferToStream, readSchema, streamSchema } from "../utils/io";
 import type { ContentBuilder } from "./types";
 
 const DEFAULT_ATTACHMENT_NAME = "attachment";

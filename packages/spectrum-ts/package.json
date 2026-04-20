@@ -56,7 +56,13 @@
     "tsup": "^8.4.0"
   },
   "peerDependencies": {
+    "ffmpeg-static": "^5",
     "typescript": "^5"
+  },
+  "peerDependenciesMeta": {
+    "ffmpeg-static": {
+      "optional": true
+    }
   },
   "license": "MIT"
 }

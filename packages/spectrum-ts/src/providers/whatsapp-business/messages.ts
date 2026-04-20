@@ -4,6 +4,7 @@ import type {
   InboundMessage,
   WhatsAppClient,
 } from "@photon-ai/whatsapp-business";
+import { extension as mimeExtension } from "mime-types";
 import { asAttachment } from "../../content/attachment";
 import {
   asContact,
@@ -266,6 +267,16 @@ const mimeToMediaType = (
   return "document";
 };
 
+const voiceFilename = (
+  content: Extract<Content, { type: "voice" }>
+): string => {
+  if (content.name) {
+    return content.name;
+  }
+  const ext = mimeExtension(content.mimeType);
+  return ext ? `voice.${ext}` : "voice";
+};
+
 const spectrumPhoneTypeToWa = (
   type: SpectrumContactPhone["type"]
 ): string | undefined => {
@@ -411,6 +422,18 @@ export const send = async (
         contacts: [contactToWa(content)],
       });
       break;
+    case "voice": {
+      const { mediaId } = await client.media.upload({
+        file: await content.read(),
+        mimeType: content.mimeType,
+        filename: voiceFilename(content),
+      });
+      await client.messages.send({
+        to: spaceId,
+        audio: { id: mediaId },
+      } as Parameters<typeof client.messages.send>[0]);
+      break;
+    }
     default:
       break;
   }
@@ -467,6 +490,19 @@ export const replyToMessage = async (
         contacts: [contactToWa(content)],
       });
       break;
+    case "voice": {
+      const { mediaId } = await client.media.upload({
+        file: await content.read(),
+        mimeType: content.mimeType,
+        filename: voiceFilename(content),
+      });
+      await client.messages.send({
+        to: spaceId,
+        replyTo: messageId,
+        audio: { id: mediaId },
+      } as Parameters<typeof client.messages.send>[0]);
+      break;
+    }
     default:
       break;
   }

@@ -3,12 +3,14 @@ import { attachmentSchema } from "./attachment";
 import { contactSchema } from "./contact";
 import { customSchema } from "./custom";
 import { textSchema } from "./text";
+import { voiceSchema } from "./voice";
 
 export const contentSchema = z.discriminatedUnion("type", [
   textSchema,
   customSchema,
   attachmentSchema,
   contactSchema,
+  voiceSchema,
 ]);
 
 export type Content = z.infer<typeof contentSchema>;

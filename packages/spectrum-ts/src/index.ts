@@ -14,6 +14,7 @@ export { custom } from "./content/custom";
 export { resolveContents } from "./content/resolve";
 export { text } from "./content/text";
 export type { Content, ContentBuilder, ContentInput } from "./content/types";
+export { type Voice, voice } from "./content/voice";
 export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,

@@ -10,6 +10,7 @@ import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
+import { ensureM4a } from "../../utils/audio";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
@@ -206,6 +207,22 @@ export const send = async (
       await remote.messages.send(chatGuid(spaceId), "", { attachment });
       break;
     }
+    case "voice": {
+      const { buffer } = await ensureM4a(
+        await content.read(),
+        content.mimeType
+      );
+      const attachment = await remote.attachments.upload({
+        data: buffer,
+        fileName: content.name ?? "voice.m4a",
+        mimeType: "audio/x-m4a",
+      });
+      await remote.messages.send(chatGuid(spaceId), "", {
+        attachment: attachment.guid,
+        audioMessage: true,
+      });
+      break;
+    }
     default:
       throw new Error(`Unsupported iMessage content type: ${content.type}`);
   }
@@ -244,6 +261,23 @@ export const replyToMessage = async (
     case "contact": {
       const attachment = await sendContactAttachment(remote, content);
       await remote.messages.send(chat, "", { attachment, replyTo });
+      break;
+    }
+    case "voice": {
+      const { buffer } = await ensureM4a(
+        await content.read(),
+        content.mimeType
+      );
+      const attachment = await remote.attachments.upload({
+        data: buffer,
+        fileName: content.name ?? "voice.m4a",
+        mimeType: "audio/x-m4a",
+      });
+      await remote.messages.send(chat, "", {
+        attachment: attachment.guid,
+        audioMessage: true,
+        replyTo,
+      });
       break;
     }
     default:

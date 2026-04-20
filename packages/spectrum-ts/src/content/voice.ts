@@ -104,7 +104,8 @@ export function voice(
   return {
     build: async () => {
       const name = resolveVoiceName(input, options?.name);
-      const mimeType = resolveVoiceMimeType(name, options?.mimeType);
+      const mimeHint = typeof input === "string" ? basename(input) : name;
+      const mimeType = resolveVoiceMimeType(mimeHint, options?.mimeType);
 
       if (typeof input === "string") {
         const stats = await stat(input);

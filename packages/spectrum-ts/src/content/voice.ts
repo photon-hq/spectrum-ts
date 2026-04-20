@@ -4,17 +4,8 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
+import { bufferToStream, readSchema, streamSchema } from "./io";
 import type { ContentBuilder } from "./types";
-
-const readSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(Buffer)),
-});
-
-const streamSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(ReadableStream)),
-});
 
 export const voiceSchema = z.object({
   type: z.literal("voice"),
@@ -58,14 +49,6 @@ const resolveVoiceMimeType = (
     "Unable to resolve MIME type for voice content. Pass options.mimeType explicitly."
   );
 };
-
-const bufferToStream = (buf: Buffer): ReadableStream<Uint8Array> =>
-  new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(buf);
-      controller.close();
-    },
-  });
 
 export const asVoice = (input: {
   name?: string;

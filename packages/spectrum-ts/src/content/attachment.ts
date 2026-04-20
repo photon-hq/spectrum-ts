@@ -4,19 +4,10 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
+import { bufferToStream, readSchema, streamSchema } from "../utils/io";
 import type { ContentBuilder } from "./types";
 
 const DEFAULT_ATTACHMENT_NAME = "attachment";
-
-const readSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(Buffer)),
-});
-
-const streamSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(ReadableStream)),
-});
 
 export const attachmentSchema = z.object({
   type: z.literal("attachment"),
@@ -47,14 +38,6 @@ const resolveAttachmentMimeType = (name: string, mimeType?: string): string => {
 
   return resolvedMimeType;
 };
-
-const bufferToStream = (buf: Buffer): ReadableStream<Uint8Array> =>
-  new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(buf);
-      controller.close();
-    },
-  });
 
 export const asAttachment = (input: {
   name: string;

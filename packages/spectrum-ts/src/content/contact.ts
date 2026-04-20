@@ -1,13 +1,9 @@
 import vCard from "vcf";
 import z from "zod";
 import type { User } from "../types/user";
+import { readSchema } from "../utils/io";
 import { fromVCard } from "../utils/vcard";
 import type { ContentBuilder } from "./types";
-
-const readSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(Buffer)),
-});
 
 const userRefSchema = z.object({
   __platform: z.string(),

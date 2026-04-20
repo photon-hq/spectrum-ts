@@ -4,22 +4,20 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
+import { bufferToStream, readSchema, streamSchema } from "../utils/io";
 import type { ContentBuilder } from "./types";
 
-const readSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(Buffer)),
-});
+const AUDIO_MIME_PATTERN = /^audio\//i;
 
-const streamSchema = z.function({
-  input: [],
-  output: z.promise(z.instanceof(ReadableStream)),
-});
+const audioMimeSchema = z
+  .string()
+  .nonempty()
+  .regex(AUDIO_MIME_PATTERN, "voice content requires an audio/* MIME type");
 
 export const voiceSchema = z.object({
   type: z.literal("voice"),
   name: z.string().nonempty().optional(),
-  mimeType: z.string().nonempty(),
+  mimeType: audioMimeSchema,
   duration: z.number().nonnegative().optional(),
   size: z.number().int().nonnegative().optional(),
   read: readSchema,
@@ -46,26 +44,28 @@ const resolveVoiceMimeType = (
   mimeType?: string
 ): string => {
   if (mimeType) {
+    if (!AUDIO_MIME_PATTERN.test(mimeType)) {
+      throw new Error(
+        `voice content requires an audio/* MIME type, got "${mimeType}".`
+      );
+    }
     return mimeType;
   }
   if (name) {
     const resolved = lookupMimeType(name);
-    if (resolved) {
+    if (resolved && AUDIO_MIME_PATTERN.test(resolved)) {
       return resolved;
+    }
+    if (resolved) {
+      throw new Error(
+        `Resolved non-audio MIME type "${resolved}" from name "${name}". Pass options.mimeType explicitly with an audio/* type.`
+      );
     }
   }
   throw new Error(
     "Unable to resolve MIME type for voice content. Pass options.mimeType explicitly."
   );
 };
-
-const bufferToStream = (buf: Buffer): ReadableStream<Uint8Array> =>
-  new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(buf);
-      controller.close();
-    },
-  });
 
 export const asVoice = (input: {
   name?: string;
@@ -104,10 +104,16 @@ export function voice(
   return {
     build: async () => {
       const name = resolveVoiceName(input, options?.name);
-      const mimeType = resolveVoiceMimeType(name, options?.mimeType);
+      const mimeHint = typeof input === "string" ? basename(input) : name;
+      const mimeType = resolveVoiceMimeType(mimeHint, options?.mimeType);
 
       if (typeof input === "string") {
         const stats = await stat(input);
+        if (!stats.isFile()) {
+          throw new Error(
+            `voice content path "${input}" is not a regular file.`
+          );
+        }
         return asVoice({
           name,
           mimeType,

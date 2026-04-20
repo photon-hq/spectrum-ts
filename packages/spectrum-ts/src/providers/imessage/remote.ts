@@ -310,7 +310,7 @@ export const editMessage = async (
   }
   const remote = clients[0];
   if (!remote) {
-    return;
+    throw new Error("No remote iMessage client available");
   }
   await remote.messages.edit(
     chatGuid(spaceId),

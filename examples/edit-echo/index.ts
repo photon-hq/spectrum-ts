@@ -21,7 +21,11 @@ for await (const [space, message] of app.messages) {
   console.log(`sent id=${sent.id} direction=${sent.direction}`);
 
   // `sent` is OutboundMessage — edit typechecks. Terminal provider throws
-  // at runtime; iMessage remote will actually update the message:
-  
-  await sent.edit(`echo (edited): ${message.content.text}`);
+  // at runtime; iMessage remote will actually update the message. Wrap so
+  // the loop keeps running on providers that don't support edit.
+  try {
+    await sent.edit(`echo (edited): ${message.content.text}`);
+  } catch (err) {
+    console.log(`edit not supported: ${(err as Error).message}`);
+  }
 }

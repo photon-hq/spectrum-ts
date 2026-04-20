@@ -10,10 +10,16 @@ import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
+import type { SendResult } from "../../platform/types";
 import { ensureM4a } from "../../utils/audio";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
+
+const toSendResult = (receipt: { guid: unknown }): SendResult => ({
+  id: receipt.guid as string,
+  timestamp: new Date(),
+});
 
 const VCARD_MIME_TYPES: ReadonlySet<string> = new Set([
   "text/vcard",
@@ -112,6 +118,9 @@ const clientStream = (
     (async () => {
       try {
         for await (const event of sub) {
+          if (event.message.isFromMe) {
+            continue;
+          }
           for (const message of await toMessages(client, event)) {
             emit(message);
           }
@@ -182,30 +191,30 @@ export const send = async (
   clients: AdvancedIMessage[],
   spaceId: string,
   content: Content
-) => {
+): Promise<SendResult> => {
   const remote = clients[0];
   if (!remote) {
-    return;
+    throw new Error("No remote iMessage client available");
   }
+  const chat = chatGuid(spaceId);
   switch (content.type) {
     case "text":
-      await remote.messages.send(chatGuid(spaceId), content.text);
-      break;
+      return toSendResult(await remote.messages.send(chat, content.text));
     case "attachment": {
       const attachment = await remote.attachments.upload({
         data: await content.read(),
         fileName: content.name,
         mimeType: content.mimeType,
       });
-      await remote.messages.send(chatGuid(spaceId), "", {
-        attachment: attachment.guid,
-      });
-      break;
+      return toSendResult(
+        await remote.messages.send(chat, "", {
+          attachment: attachment.guid,
+        })
+      );
     }
     case "contact": {
       const attachment = await sendContactAttachment(remote, content);
-      await remote.messages.send(chatGuid(spaceId), "", { attachment });
-      break;
+      return toSendResult(await remote.messages.send(chat, "", { attachment }));
     }
     case "voice": {
       const { buffer } = await ensureM4a(
@@ -217,11 +226,12 @@ export const send = async (
         fileName: content.name ?? "voice.m4a",
         mimeType: "audio/x-m4a",
       });
-      await remote.messages.send(chatGuid(spaceId), "", {
-        attachment: attachment.guid,
-        audioMessage: true,
-      });
-      break;
+      return toSendResult(
+        await remote.messages.send(chat, "", {
+          attachment: attachment.guid,
+          audioMessage: true,
+        })
+      );
     }
     default:
       throw new Error(`Unsupported iMessage content type: ${content.type}`);
@@ -233,10 +243,10 @@ export const replyToMessage = async (
   spaceId: string,
   msgId: string,
   content: Content
-) => {
+): Promise<SendResult> => {
   const remote = clients[0];
   if (!remote) {
-    return;
+    throw new Error("No remote iMessage client available");
   }
 
   const chat = chatGuid(spaceId);
@@ -244,24 +254,27 @@ export const replyToMessage = async (
 
   switch (content.type) {
     case "text":
-      await remote.messages.send(chat, content.text, { replyTo });
-      break;
+      return toSendResult(
+        await remote.messages.send(chat, content.text, { replyTo })
+      );
     case "attachment": {
       const attachment = await remote.attachments.upload({
         data: await content.read(),
         fileName: content.name,
         mimeType: content.mimeType,
       });
-      await remote.messages.send(chat, "", {
-        attachment: attachment.guid,
-        replyTo,
-      });
-      break;
+      return toSendResult(
+        await remote.messages.send(chat, "", {
+          attachment: attachment.guid,
+          replyTo,
+        })
+      );
     }
     case "contact": {
       const attachment = await sendContactAttachment(remote, content);
-      await remote.messages.send(chat, "", { attachment, replyTo });
-      break;
+      return toSendResult(
+        await remote.messages.send(chat, "", { attachment, replyTo })
+      );
     }
     case "voice": {
       const { buffer } = await ensureM4a(
@@ -273,16 +286,37 @@ export const replyToMessage = async (
         fileName: content.name ?? "voice.m4a",
         mimeType: "audio/x-m4a",
       });
-      await remote.messages.send(chat, "", {
-        attachment: attachment.guid,
-        audioMessage: true,
-        replyTo,
-      });
-      break;
+      return toSendResult(
+        await remote.messages.send(chat, "", {
+          attachment: attachment.guid,
+          audioMessage: true,
+          replyTo,
+        })
+      );
     }
     default:
       throw new Error(`Unsupported iMessage content type: ${content.type}`);
   }
+};
+
+export const editMessage = async (
+  clients: AdvancedIMessage[],
+  spaceId: string,
+  msgId: string,
+  content: Content
+) => {
+  if (content.type !== "text") {
+    throw new Error("iMessage only supports editing text content");
+  }
+  const remote = clients[0];
+  if (!remote) {
+    throw new Error("No remote iMessage client available");
+  }
+  await remote.messages.edit(
+    chatGuid(spaceId),
+    messageGuid(msgId),
+    content.text
+  );
 };
 
 export const reactToMessage = async (

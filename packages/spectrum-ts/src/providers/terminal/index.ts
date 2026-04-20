@@ -54,9 +54,13 @@ export const terminal = definePlatform("terminal", {
 
   actions: {
     send: async ({ content }) => {
-      if (content.type === "text") {
-        console.log(content.text);
+      if (content.type !== "text") {
+        throw new Error(
+          `Terminal provider only supports text content, got "${content.type}"`
+        );
       }
+      console.log(content.text);
+      return { id: crypto.randomUUID(), timestamp: new Date() };
     },
   },
 });

@@ -44,6 +44,12 @@ export type ProviderMessage<
   timestamp?: Date;
 } & TExtra;
 
+export interface SendResult<TSender extends ResolvedUser = ResolvedUser> {
+  id: string;
+  sender?: TSender;
+  timestamp?: Date;
+}
+
 type MergeSchema<
   TSchema extends z.ZodType | undefined,
   TBase extends object,
@@ -106,7 +112,7 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
-    }) => Promise<void>;
+    }) => Promise<SendResult<_ResolvedUser>>;
     startTyping?: (_: {
       space: _ResolvedSpace & SpaceRef;
       client: _Client;
@@ -125,6 +131,13 @@ export interface PlatformDef<
       config: z.infer<_ConfigSchema>;
     }) => Promise<void>;
     replyToMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      content: Content;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<SendResult<_ResolvedUser>>;
+    editMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
       content: Content;
@@ -183,7 +196,7 @@ export interface PlatformDef<
 export interface AnyPlatformDef {
   actions: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    send: (_: any) => Promise<void>;
+    send: (_: any) => Promise<SendResult>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     startTyping?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
@@ -191,7 +204,9 @@ export interface AnyPlatformDef {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     reactToMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    replyToMessage?: (_: any) => Promise<void>;
+    replyToMessage?: (_: any) => Promise<SendResult>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    editMessage?: (_: any) => Promise<void>;
   };
   config: z.ZodType<object>;
   events: {

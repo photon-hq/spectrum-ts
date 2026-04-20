@@ -10,9 +10,19 @@ import type {
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import type { Content } from "../../content/types";
+import type { SendResult } from "../../platform/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
+
+// v3 `IMessageSDK.send` resolves to `void` — the chat.db row id only
+// surfaces later via the watcher's `onFromMeMessage`. A synthetic id
+// satisfies spectrum's SendResult contract; iMessage local does not
+// implement `editMessage`, so the id is never resolved back to a real row.
+const synthSendResult = (): SendResult => ({
+  id: crypto.randomUUID(),
+  timestamp: new Date(),
+});
 
 const DEFAULT_ATTACHMENT_NAME = "attachment";
 
@@ -142,6 +152,10 @@ export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
     return async () => {
       await startPromise.catch(() => {});
       await client.stopWatching();
+      // The incoming callback is sync (returns undefined), so `stopWatching`
+      // does not wait for the `lastPromise` chain — drain it explicitly to
+      // avoid `emit`/attachment reads running past teardown.
+      await lastPromise.catch(() => {});
     };
   });
 
@@ -173,14 +187,14 @@ export const send = async (
   client: IMessageSDK,
   spaceId: string,
   content: Content
-) => {
+): Promise<SendResult> => {
   switch (content.type) {
     case "text":
       await client.send({ to: spaceId, text: content.text });
-      break;
+      return synthSendResult();
     case "attachment":
       await sendTempFile(client, spaceId, content.name, await content.read());
-      break;
+      return synthSendResult();
     case "contact": {
       const vcf = await toVCard(content);
       await sendTempFile(
@@ -189,9 +203,11 @@ export const send = async (
         vcardFileName(content),
         Buffer.from(vcf, "utf8")
       );
-      break;
+      return synthSendResult();
     }
     default:
-      break;
+      throw new Error(
+        `Unsupported iMessage local content type: ${content.type}`
+      );
   }
 };

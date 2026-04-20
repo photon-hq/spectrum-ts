@@ -1,13 +1,13 @@
 import z from "zod";
-import { resolveContents } from "./content/resolve";
 import type { Content, ContentInput } from "./content/types";
+import { buildMessage, buildSpace } from "./platform/build";
 import type {
   AnyPlatformDef,
   CustomEventStreams,
   PlatformProviderConfig,
   SpectrumLike,
 } from "./platform/types";
-import type { Message } from "./types/message";
+import type { InboundMessage, Message, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
 import { type ManagedStream, mergeStreams, stream } from "./utils/stream";
 
@@ -35,12 +35,14 @@ export type SpectrumInstance<
   Providers extends PlatformProviderConfig[] = PlatformProviderConfig[],
 > = SpectrumLike<Providers> &
   CustomEventStreams<Providers> & {
-    readonly messages: AsyncIterable<[Space, Message]>;
+    readonly messages: AsyncIterable<[Space, InboundMessage]>;
     stop(): Promise<void>;
+    send(space: Space, content: ContentInput): Promise<OutboundMessage>;
     send(
       space: Space,
-      ...content: [ContentInput, ...ContentInput[]]
-    ): Promise<void>;
+      ...content: [ContentInput, ContentInput, ...ContentInput[]]
+    ): Promise<OutboundMessage[]>;
+    edit(message: OutboundMessage, newContent: ContentInput): Promise<void>;
     responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
   };
 
@@ -161,73 +163,27 @@ export async function Spectrum<
           __platform: definition.name,
         };
         const typingCtx = { space: spaceRef, client, config };
-        const space = {
-          ...spaceRef,
-          send: async (...content: [ContentInput, ...ContentInput[]]) => {
-            const resolved = await resolveContents(content);
-            for (const item of resolved) {
-              await definition.actions.send({
-                ...typingCtx,
-                content: item,
-              });
-            }
-          },
-          startTyping: async () => {
-            await definition.actions.startTyping?.(typingCtx);
-          },
-          stopTyping: async () => {
-            await definition.actions.stopTyping?.(typingCtx);
-          },
-          responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
-            await definition.actions.startTyping?.(typingCtx);
-            try {
-              return await fn();
-            } finally {
-              await definition.actions.stopTyping?.(typingCtx).catch(() => {});
-            }
-          },
-        };
-        const normalizedMessage = {
-          ...parsedExtra,
+        const space = buildSpace({
+          spaceRef,
+          extras: {},
+          typingCtx,
+          definition,
+          client,
+          config,
+        });
+        const normalizedMessage = buildMessage({
           id: msg.id,
           content: msg.content,
-          platform: definition.name,
-          react: async (reaction: string): Promise<void> => {
-            if (!definition.actions.reactToMessage) {
-              return;
-            }
-            await definition.actions.reactToMessage({
-              space: spaceRef,
-              messageId: msg.id,
-              reaction,
-              client,
-              config,
-            });
-          },
-          reply: async (
-            ...content: [ContentInput, ...ContentInput[]]
-          ): Promise<void> => {
-            if (!definition.actions.replyToMessage) {
-              return;
-            }
-            const resolved = await resolveContents(content);
-            for (const item of resolved) {
-              await definition.actions.replyToMessage({
-                space: spaceRef,
-                messageId: msg.id,
-                content: item,
-                client,
-                config,
-              });
-            }
-          },
-          sender: {
-            ...msg.sender,
-            __platform: definition.name,
-          },
-          space,
+          sender: msg.sender,
           timestamp: msg.timestamp ?? new Date(),
-        };
+          extras: parsedExtra as Record<string, unknown>,
+          spaceRef,
+          space,
+          definition,
+          client,
+          config,
+          direction: "inbound",
+        });
 
         yield [space, normalizedMessage];
       }
@@ -344,7 +300,7 @@ export async function Spectrum<
   process.on("SIGINT", handleSignal);
   process.on("SIGTERM", handleSignal);
 
-  const messages = messagesStream as AsyncIterable<[Space, Message]>;
+  const messages = messagesStream as AsyncIterable<[Space, InboundMessage]>;
 
   // Proxy for flat custom event access (app.typing, app.readReceipt, etc.)
   const customEventProxy = new Proxy(
@@ -366,11 +322,18 @@ export async function Spectrum<
     __internal: { platforms: platformStates },
     messages,
     stop: stopOnce,
-    send: async (
+    send: (async (
       space: Space,
       ...content: [ContentInput, ...ContentInput[]]
-    ) => {
-      await space.send(...content);
+    ): Promise<OutboundMessage | OutboundMessage[]> => {
+      return content.length === 1
+        ? await space.send(content[0])
+        : await space.send(
+            ...(content as [ContentInput, ContentInput, ...ContentInput[]])
+          );
+    }) as SpectrumInstance["send"],
+    edit: async (message: OutboundMessage, newContent: ContentInput) => {
+      await message.edit(newContent);
     },
     responding: async <T>(
       space: Space,

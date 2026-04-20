@@ -1,8 +1,7 @@
 import type z from "zod";
-import { resolveContents } from "../content/resolve";
-import type { ContentInput } from "../content/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import { buildSpace } from "./build";
 import type {
   AnyPlatformDef,
   Platform,
@@ -105,33 +104,14 @@ function createPlatformInstance<
         client: runtime.client as _Client,
         config: runtime.config as z.infer<_ConfigSchema>,
       };
-      return {
-        ...parsedSpace,
-        ...spaceRef,
-        send: async (...content: [ContentInput, ...ContentInput[]]) => {
-          const built = await resolveContents(content);
-          for (const item of built) {
-            await def.actions.send({
-              ...typingCtx,
-              content: item,
-            });
-          }
-        },
-        startTyping: async () => {
-          await def.actions.startTyping?.(typingCtx);
-        },
-        stopTyping: async () => {
-          await def.actions.stopTyping?.(typingCtx);
-        },
-        responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
-          await def.actions.startTyping?.(typingCtx);
-          try {
-            return await fn();
-          } finally {
-            await def.actions.stopTyping?.(typingCtx).catch(() => {});
-          }
-        },
-      } as PlatformSpace<Def>;
+      return buildSpace({
+        spaceRef,
+        extras: parsedSpace as Record<string, unknown>,
+        typingCtx,
+        definition: def as unknown as AnyPlatformDef,
+        client: runtime.client,
+        config: runtime.config,
+      }) as PlatformSpace<Def>;
     },
   };
 

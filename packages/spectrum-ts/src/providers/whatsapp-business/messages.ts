@@ -18,8 +18,15 @@ import {
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
+import type { SendResult } from "../../platform/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import type { WhatsAppMessage } from "./types";
+
+type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
+
+const toSendResult = (result: WaSendResult): SendResult => ({
+  id: result.messageId,
+});
 
 type WaContactName = ContactCard["name"];
 type WaContactPhone = ContactCard["phones"][number];
@@ -394,11 +401,12 @@ export const send = async (
   client: WhatsAppClient,
   spaceId: string,
   content: Content
-): Promise<void> => {
+): Promise<SendResult> => {
   switch (content.type) {
     case "text":
-      await client.messages.send({ to: spaceId, text: content.text });
-      break;
+      return toSendResult(
+        await client.messages.send({ to: spaceId, text: content.text })
+      );
     case "attachment": {
       const { mediaId } = await client.media.upload({
         file: await content.read(),
@@ -410,32 +418,35 @@ export const send = async (
         mediaType === "document"
           ? { id: mediaId, filename: content.name }
           : { id: mediaId };
-      await client.messages.send({
-        to: spaceId,
-        [mediaType]: mediaPayload,
-      } as Parameters<typeof client.messages.send>[0]);
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          [mediaType]: mediaPayload,
+        } as Parameters<typeof client.messages.send>[0])
+      );
     }
     case "contact":
-      await client.messages.send({
-        to: spaceId,
-        contacts: [contactToWa(content)],
-      });
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          contacts: [contactToWa(content)],
+        })
+      );
     case "voice": {
       const { mediaId } = await client.media.upload({
         file: await content.read(),
         mimeType: content.mimeType,
         filename: voiceFilename(content),
       });
-      await client.messages.send({
-        to: spaceId,
-        audio: { id: mediaId },
-      } as Parameters<typeof client.messages.send>[0]);
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          audio: { id: mediaId },
+        } as Parameters<typeof client.messages.send>[0])
+      );
     }
     default:
-      break;
+      throw new Error(`Unsupported WhatsApp content type: ${content.type}`);
   }
 };
 
@@ -456,15 +467,16 @@ export const replyToMessage = async (
   spaceId: string,
   messageId: string,
   content: Content
-): Promise<void> => {
+): Promise<SendResult> => {
   switch (content.type) {
     case "text":
-      await client.messages.send({
-        to: spaceId,
-        replyTo: messageId,
-        text: content.text,
-      });
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          text: content.text,
+        })
+      );
     case "attachment": {
       const { mediaId } = await client.media.upload({
         file: await content.read(),
@@ -476,34 +488,37 @@ export const replyToMessage = async (
         mediaType === "document"
           ? { id: mediaId, filename: content.name }
           : { id: mediaId };
-      await client.messages.send({
-        to: spaceId,
-        replyTo: messageId,
-        [mediaType]: mediaPayload,
-      } as Parameters<typeof client.messages.send>[0]);
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          [mediaType]: mediaPayload,
+        } as Parameters<typeof client.messages.send>[0])
+      );
     }
     case "contact":
-      await client.messages.send({
-        to: spaceId,
-        replyTo: messageId,
-        contacts: [contactToWa(content)],
-      });
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          contacts: [contactToWa(content)],
+        })
+      );
     case "voice": {
       const { mediaId } = await client.media.upload({
         file: await content.read(),
         mimeType: content.mimeType,
         filename: voiceFilename(content),
       });
-      await client.messages.send({
-        to: spaceId,
-        replyTo: messageId,
-        audio: { id: mediaId },
-      } as Parameters<typeof client.messages.send>[0]);
-      break;
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          audio: { id: mediaId },
+        } as Parameters<typeof client.messages.send>[0])
+      );
     }
     default:
-      break;
+      throw new Error(`Unsupported WhatsApp content type: ${content.type}`);
   }
 };

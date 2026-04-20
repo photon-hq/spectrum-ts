@@ -57,6 +57,7 @@ export const terminal = definePlatform("terminal", {
       if (content.type === "text") {
         console.log(content.text);
       }
+      return { id: crypto.randomUUID(), timestamp: new Date() };
     },
   },
 });

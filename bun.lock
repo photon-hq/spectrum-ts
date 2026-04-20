@@ -19,9 +19,15 @@
         "spectrum-ts": "workspace:*",
       },
     },
+    "examples/edit-echo": {
+      "name": "@spectrum-ts/example-edit-echo",
+      "dependencies": {
+        "spectrum-ts": "workspace:*",
+      },
+    },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "0.4.0",
+      "version": "0.6.0",
       "dependencies": {
         "@photon-ai/advanced-imessage": "^0.4.3",
         "@photon-ai/imessage-kit": "^3.0.0-rc.2",
@@ -224,6 +230,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.1", "", { "os": "win32", "cpu": "x64" }, "sha512-lWMnixq/QzxyhTV6NjQJ4SFo1J6PvOX8vUx5Wb4bBPsEb+8xZ89Bz6kOXpfXj9ak9AHTQVQzlgzBEc1SyM27xQ=="],
 
     "@spectrum-ts/example-basic": ["@spectrum-ts/example-basic@workspace:examples/basic"],
+
+    "@spectrum-ts/example-edit-echo": ["@spectrum-ts/example-edit-echo@workspace:examples/edit-echo"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.9.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-P8foouaP+y/p+hhEGBoZpzMbpVvUMwPjDpcy6wN7EYfvvyISD1USuV27qWkczecihwuPJzQ1lDBuL8ERcavTyg=="],
 

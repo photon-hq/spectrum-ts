@@ -11,9 +11,21 @@ import {
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import type { Content } from "../../content/types";
+import type { SendResult } from "../../platform/types";
 import { type ManagedStream, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
+
+type LocalSendResult = Awaited<ReturnType<IMessageSDK["send"]>>;
+
+const toSendResult = (result: LocalSendResult): SendResult => {
+  if (!result.message?.id) {
+    throw new Error(
+      "iMessage local send did not return a message id — track upstream in @photon-ai/imessage-kit"
+    );
+  }
+  return { id: result.message.id, timestamp: result.sentAt };
+};
 
 const DEFAULT_ATTACHMENT_NAME = "attachment";
 
@@ -105,6 +117,9 @@ export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
     let lastPromise: Promise<void> = Promise.resolve();
     client.startWatching({
       onMessage: (message) => {
+        if (message.isFromMe) {
+          return;
+        }
         lastPromise = lastPromise
           .then(() => toMessages(message))
           .then((ms) => {
@@ -130,13 +145,13 @@ const sendTempFile = async (
   spaceId: string,
   name: string,
   data: Buffer
-): Promise<void> => {
+): Promise<LocalSendResult> => {
   const safeName = basename(name) || DEFAULT_ATTACHMENT_NAME;
   const dir = await mkdtemp(join(tmpdir(), "spectrum-"));
   const tmp = join(dir, safeName);
   await writeFile(tmp, data);
   try {
-    await client.send(spaceId, { attachments: [tmp] });
+    return await client.send(spaceId, { attachments: [tmp] });
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -146,25 +161,28 @@ export const send = async (
   client: IMessageSDK,
   spaceId: string,
   content: Content
-) => {
+): Promise<SendResult> => {
   switch (content.type) {
     case "text":
-      await client.send(spaceId, content.text);
-      break;
+      return toSendResult(await client.send(spaceId, content.text));
     case "attachment":
-      await sendTempFile(client, spaceId, content.name, await content.read());
-      break;
+      return toSendResult(
+        await sendTempFile(client, spaceId, content.name, await content.read())
+      );
     case "contact": {
       const vcf = await toVCard(content);
-      await sendTempFile(
-        client,
-        spaceId,
-        vcardFileName(content),
-        Buffer.from(vcf, "utf8")
+      return toSendResult(
+        await sendTempFile(
+          client,
+          spaceId,
+          vcardFileName(content),
+          Buffer.from(vcf, "utf8")
+        )
       );
-      break;
     }
     default:
-      break;
+      throw new Error(
+        `Unsupported iMessage local content type: ${content.type}`
+      );
   }
 };

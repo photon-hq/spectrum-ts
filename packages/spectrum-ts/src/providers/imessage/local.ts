@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
-import { unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Readable } from "node:stream";
 import {
   type IMessageSDK,
@@ -25,11 +25,14 @@ const VCARD_MIME_TYPES: ReadonlySet<string> = new Set([
   "application/x-vcard",
 ]);
 
+const normalizeMimeType = (mimeType: string): string =>
+  (mimeType.split(";")[0] ?? "").trim().toLowerCase();
+
 const isVCardAttachment = (
   mimeType: string | null | undefined,
   fileName: string | null | undefined
 ): boolean => {
-  if (mimeType && VCARD_MIME_TYPES.has(mimeType.toLowerCase())) {
+  if (mimeType && VCARD_MIME_TYPES.has(normalizeMimeType(mimeType))) {
     return true;
   }
   return Boolean(fileName?.toLowerCase().endsWith(".vcf"));
@@ -99,17 +102,17 @@ const toMessages = async (
 
 export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
   stream((emit, end) => {
+    let lastPromise: Promise<void> = Promise.resolve();
     client.startWatching({
       onMessage: (message) => {
-        (async () => {
-          try {
-            for (const m of await toMessages(message)) {
+        lastPromise = lastPromise
+          .then(() => toMessages(message))
+          .then((ms) => {
+            for (const m of ms) {
               emit(m);
             }
-          } catch (error) {
-            end(error);
-          }
-        })();
+          })
+          .catch((error) => end(error));
       },
     });
     return () => client.stopWatching();
@@ -128,12 +131,14 @@ const sendTempFile = async (
   name: string,
   data: Buffer
 ): Promise<void> => {
-  const tmp = join(tmpdir(), `spectrum-${Date.now()}-${name}`);
+  const safeName = basename(name) || DEFAULT_ATTACHMENT_NAME;
+  const dir = await mkdtemp(join(tmpdir(), "spectrum-"));
+  const tmp = join(dir, safeName);
   await writeFile(tmp, data);
   try {
     await client.send(spaceId, { attachments: [tmp] });
   } finally {
-    await unlink(tmp).catch(() => {});
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 };
 

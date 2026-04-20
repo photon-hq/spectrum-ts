@@ -10,6 +10,7 @@ import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
+import { ensureM4a } from "../../utils/audio";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
@@ -142,6 +143,15 @@ const vcardFileName = (
   return `${base.replace(/[^a-zA-Z0-9_\-.]/g, "_")}.vcf`;
 };
 
+const sendContactAttachment = async (
+  remote: AdvancedIMessage,
+  content: Extract<Content, { type: "contact" }>
+) => {
+  const vcf = await toVCard(content);
+  const upload = await sendVCardAttachment(remote, vcardFileName(content), vcf);
+  return upload.guid;
+};
+
 export const messages = (
   clients: AdvancedIMessage[]
 ): ManagedStream<IMessageMessage> => mergeStreams(clients.map(clientStream));
@@ -193,14 +203,23 @@ export const send = async (
       break;
     }
     case "contact": {
-      const vcf = await toVCard(content);
-      const upload = await sendVCardAttachment(
-        remote,
-        vcardFileName(content),
-        vcf
+      const attachment = await sendContactAttachment(remote, content);
+      await remote.messages.send(chatGuid(spaceId), "", { attachment });
+      break;
+    }
+    case "voice": {
+      const { buffer } = await ensureM4a(
+        await content.read(),
+        content.mimeType
       );
+      const attachment = await remote.attachments.upload({
+        data: buffer,
+        fileName: content.name ?? "voice.m4a",
+        mimeType: "audio/x-m4a",
+      });
       await remote.messages.send(chatGuid(spaceId), "", {
-        attachment: upload.guid,
+        attachment: attachment.guid,
+        audioMessage: true,
       });
       break;
     }
@@ -240,14 +259,23 @@ export const replyToMessage = async (
       break;
     }
     case "contact": {
-      const vcf = await toVCard(content);
-      const upload = await sendVCardAttachment(
-        remote,
-        vcardFileName(content),
-        vcf
+      const attachment = await sendContactAttachment(remote, content);
+      await remote.messages.send(chat, "", { attachment, replyTo });
+      break;
+    }
+    case "voice": {
+      const { buffer } = await ensureM4a(
+        await content.read(),
+        content.mimeType
       );
+      const attachment = await remote.attachments.upload({
+        data: buffer,
+        fileName: content.name ?? "voice.m4a",
+        mimeType: "audio/x-m4a",
+      });
       await remote.messages.send(chat, "", {
-        attachment: upload.guid,
+        attachment: attachment.guid,
+        audioMessage: true,
         replyTo,
       });
       break;

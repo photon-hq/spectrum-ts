@@ -1,5 +1,5 @@
 {
-  "name": "@spectrum-ts/example-telegram-inline",
+  "name": "telegram-echo",
   "private": true,
   "type": "module",
   "scripts": {

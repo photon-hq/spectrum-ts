@@ -19,8 +19,19 @@ import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
-import { type ManagedStream, stream } from "../../utils/stream";
-import type { WhatsAppMessage } from "./types";
+import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
+import type { WhatsAppClients, WhatsAppMessage } from "./types";
+
+// v1 routes outbound traffic to the first line. When multi-line send becomes a
+// requirement, extend spaceSchema with an optional `line` (phoneNumberId) and
+// pick the matching client here.
+const primary = (clients: WhatsAppClients): WhatsAppClient => {
+  const client = clients[0];
+  if (!client) {
+    throw new Error("No WhatsApp Business client available");
+  }
+  return client;
+};
 
 type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
 
@@ -371,7 +382,7 @@ const contactToWa = (contact: Contact): ContactCardInput => {
   return card;
 };
 
-export const messages = (
+const clientStream = (
   client: WhatsAppClient
 ): ManagedStream<WhatsAppMessage> => {
   const eventStream = client.events
@@ -397,11 +408,16 @@ export const messages = (
   });
 };
 
+export const messages = (
+  clients: WhatsAppClients
+): ManagedStream<WhatsAppMessage> => mergeStreams(clients.map(clientStream));
+
 export const send = async (
-  client: WhatsAppClient,
+  clients: WhatsAppClients,
   spaceId: string,
   content: Content
 ): Promise<SendResult> => {
+  const client = primary(clients);
   switch (content.type) {
     case "text":
       return toSendResult(
@@ -451,23 +467,24 @@ export const send = async (
 };
 
 export const reactToMessage = async (
-  client: WhatsAppClient,
+  clients: WhatsAppClients,
   spaceId: string,
   messageId: string,
   reaction: string
 ): Promise<void> => {
-  await client.messages.send({
+  await primary(clients).messages.send({
     to: spaceId,
     reaction: { messageId, emoji: reaction },
   });
 };
 
 export const replyToMessage = async (
-  client: WhatsAppClient,
+  clients: WhatsAppClients,
   spaceId: string,
   messageId: string,
   content: Content
 ): Promise<SendResult> => {
+  const client = primary(clients);
   switch (content.type) {
     case "text":
       return toSendResult(

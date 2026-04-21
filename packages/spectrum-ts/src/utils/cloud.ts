@@ -37,6 +37,12 @@ export interface ImessageInfoData {
   type: "shared" | "dedicated";
 }
 
+export interface WhatsappBusinessTokenData {
+  auth: Record<string, string>;
+  expiresIn: number;
+  numbers: Record<string, string | null>;
+}
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -126,6 +132,15 @@ export const cloud = {
 
   getImessageInfo: (projectId: string): Promise<ImessageInfoData> =>
     request(`/projects/${projectId}/imessage/`),
+
+  issueWhatsappBusinessTokens: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<WhatsappBusinessTokenData> =>
+    request(`/projects/${projectId}/whatsapp-business/tokens`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
 
   getPlatforms: (projectId: string): Promise<PlatformsData> =>
     request(`/projects/${projectId}/platforms/`),

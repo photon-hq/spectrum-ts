@@ -1,0 +1,11 @@
+{
+  "name": "@spectrum-ts/example-telegram-inline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "spectrum-ts": "workspace:*"
+  }
+}

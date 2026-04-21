@@ -69,6 +69,7 @@ function createPlatformInstance<
   };
 
   const base = {
+    client: runtime.client,
     async user(userID: string) {
       const resolved = await def.user.resolve({
         input: { userID },

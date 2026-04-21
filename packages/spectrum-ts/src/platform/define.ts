@@ -1,8 +1,7 @@
 import type z from "zod";
-import { resolveContents } from "../content/resolve";
-import type { ContentInput } from "../content/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import { buildSpace } from "./build";
 import type {
   AnyPlatformDef,
   Platform,
@@ -105,97 +104,14 @@ function createPlatformInstance<
         client: runtime.client as _Client,
         config: runtime.config as z.infer<_ConfigSchema>,
       };
-      return {
-        ...parsedSpace,
-        ...spaceRef,
-        send: async (...content: [ContentInput, ...ContentInput[]]) => {
-          const built = await resolveContents(content);
-          for (const item of built) {
-            await def.actions.send({
-              ...typingCtx,
-              content: item,
-            });
-          }
-        },
-        startTyping: async () => {
-          await def.actions.startTyping?.(typingCtx);
-        },
-        stopTyping: async () => {
-          await def.actions.stopTyping?.(typingCtx);
-        },
-        editMessage: async (
-          messageId: string,
-          ...content: [ContentInput, ...ContentInput[]]
-        ) => {
-          if (!def.actions.editMessage) {
-            return;
-          }
-          const built = await resolveContents(content);
-          const last = built.at(-1);
-          if (last) {
-            await def.actions.editMessage({
-              ...typingCtx,
-              messageId,
-              content: last,
-            });
-          }
-        },
-        deleteMessage: async (messageId: string) => {
-          if (!def.actions.deleteMessage) {
-            return;
-          }
-          await def.actions.deleteMessage({
-            ...typingCtx,
-            messageId,
-          });
-        },
-        forwardMessage: async (messageId: string, toSpaceId: string) => {
-          if (!def.actions.forwardMessage) {
-            return;
-          }
-          await def.actions.forwardMessage({
-            ...typingCtx,
-            messageId,
-            toSpaceId,
-          });
-        },
-        copyMessage: async (messageId: string, toSpaceId: string) => {
-          if (!def.actions.copyMessage) {
-            return;
-          }
-          await def.actions.copyMessage({
-            ...typingCtx,
-            messageId,
-            toSpaceId,
-          });
-        },
-        pinMessage: async (messageId: string) => {
-          if (!def.actions.pinMessage) {
-            return;
-          }
-          await def.actions.pinMessage({
-            ...typingCtx,
-            messageId,
-          });
-        },
-        unpinMessage: async (messageId: string) => {
-          if (!def.actions.unpinMessage) {
-            return;
-          }
-          await def.actions.unpinMessage({
-            ...typingCtx,
-            messageId,
-          });
-        },
-        responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
-          await def.actions.startTyping?.(typingCtx);
-          try {
-            return await fn();
-          } finally {
-            await def.actions.stopTyping?.(typingCtx).catch(() => {});
-          }
-        },
-      } as PlatformSpace<Def>;
+      return buildSpace({
+        spaceRef,
+        extras: parsedSpace as Record<string, unknown>,
+        typingCtx,
+        definition: def as unknown as AnyPlatformDef,
+        client: runtime.client,
+        config: runtime.config,
+      }) as PlatformSpace<Def>;
     },
   };
 

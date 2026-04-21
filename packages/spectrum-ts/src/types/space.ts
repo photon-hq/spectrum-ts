@@ -1,19 +1,15 @@
 import type { ContentInput } from "../content/types";
+import type { OutboundMessage } from "./message";
 
 export interface Space<_Def = unknown> {
   readonly __platform: string;
-  copyMessage(messageId: string, toSpaceId: string): Promise<void>;
-  deleteMessage(messageId: string): Promise<void>;
-  editMessage(
-    messageId: string,
-    ...content: [ContentInput, ...ContentInput[]]
-  ): Promise<void>;
-  forwardMessage(messageId: string, toSpaceId: string): Promise<void>;
+  edit(message: OutboundMessage, newContent: ContentInput): Promise<void>;
   readonly id: string;
-  pinMessage(messageId: string): Promise<void>;
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
-  send(...content: [ContentInput, ...ContentInput[]]): Promise<void>;
+  send(content: ContentInput): Promise<OutboundMessage>;
+  send(
+    ...content: [ContentInput, ContentInput, ...ContentInput[]]
+  ): Promise<OutboundMessage[]>;
   startTyping(): Promise<void>;
   stopTyping(): Promise<void>;
-  unpinMessage(messageId: string): Promise<void>;
 }

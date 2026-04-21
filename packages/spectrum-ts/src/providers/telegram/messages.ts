@@ -581,24 +581,20 @@ const sendAttachment = async (
   content: Content & { type: "attachment" },
   // biome-ignore lint/suspicious/noExplicitAny: grammy send options vary per media type
   extra?: Record<string, any>
-): Promise<void> => {
+): Promise<number | undefined> => {
   const file = new InputFile(await content.read(), content.name);
   const mediaType = mimeToMediaType(content.mimeType);
   switch (mediaType) {
     case "photo":
-      await bot.api.sendPhoto(chatId, file, extra);
-      break;
+      return (await bot.api.sendPhoto(chatId, file, extra)).message_id;
     case "video":
-      await bot.api.sendVideo(chatId, file, extra);
-      break;
+      return (await bot.api.sendVideo(chatId, file, extra)).message_id;
     case "audio":
-      await bot.api.sendAudio(chatId, file, extra);
-      break;
+      return (await bot.api.sendAudio(chatId, file, extra)).message_id;
     case "document":
-      await bot.api.sendDocument(chatId, file, extra);
-      break;
+      return (await bot.api.sendDocument(chatId, file, extra)).message_id;
     default:
-      break;
+      return undefined;
   }
 };
 
@@ -608,45 +604,48 @@ export const send = async (
   content: Content,
   logger: TelegramLogger,
   defaultParseMode?: ParseMode
-): Promise<void> => {
+): Promise<{ id: string }> => {
   const chatId = Number(spaceId);
   const opts = extractSendOptions(content, defaultParseMode);
 
-  await withRetry(async () => {
+  return await withRetry(async () => {
     switch (content.type) {
-      case "text":
-        await bot.api.sendMessage(chatId, content.text, opts);
-        break;
-      case "attachment":
-        await sendAttachment(bot, chatId, content, opts);
-        break;
+      case "text": {
+        const msg = await bot.api.sendMessage(chatId, content.text, opts);
+        return { id: String(msg.message_id) };
+      }
+      case "attachment": {
+        const msgId = await sendAttachment(bot, chatId, content, opts);
+        return { id: String(msgId ?? 0) };
+      }
       case "contact": {
         const phone = content.phones?.[0]?.value ?? "";
         const firstName = content.name?.first ?? content.name?.formatted ?? "";
-        await bot.api.sendContact(chatId, phone, firstName, {
+        const msg = await bot.api.sendContact(chatId, phone, firstName, {
           last_name: content.name?.last,
           vcard: typeof content.raw === "string" ? content.raw : undefined,
           ...opts,
         });
-        break;
+        return { id: String(msg.message_id) };
       }
       case "voice": {
         const file = new InputFile(await content.read());
-        await bot.api.sendVoice(chatId, file, {
+        const msg = await bot.api.sendVoice(chatId, file, {
           duration: content.duration ? Math.round(content.duration) : undefined,
           ...opts,
         });
-        break;
+        return { id: String(msg.message_id) };
       }
       case "custom": {
         const raw = content.raw as Record<string, unknown> | undefined;
         if (raw?.text && typeof raw.text === "string") {
-          await bot.api.sendMessage(chatId, raw.text, opts);
+          const msg = await bot.api.sendMessage(chatId, raw.text, opts);
+          return { id: String(msg.message_id) };
         }
-        break;
+        return { id: "0" };
       }
       default:
-        break;
+        return { id: "0" };
     }
   }, logger);
 };
@@ -674,40 +673,42 @@ export const replyToMessage = async (
   content: Content,
   logger: TelegramLogger,
   defaultParseMode?: ParseMode
-): Promise<void> => {
+): Promise<{ id: string }> => {
   const chatId = Number(spaceId);
   const replyParams = { message_id: Number(messageId) };
   const opts = extractSendOptions(content, defaultParseMode);
   const extra = { ...opts, reply_parameters: replyParams };
 
-  await withRetry(async () => {
+  return await withRetry(async () => {
     switch (content.type) {
-      case "text":
-        await bot.api.sendMessage(chatId, content.text, extra);
-        break;
-      case "attachment":
-        await sendAttachment(bot, chatId, content, extra);
-        break;
+      case "text": {
+        const msg = await bot.api.sendMessage(chatId, content.text, extra);
+        return { id: String(msg.message_id) };
+      }
+      case "attachment": {
+        const msgId = await sendAttachment(bot, chatId, content, extra);
+        return { id: String(msgId ?? 0) };
+      }
       case "contact": {
         const phone = content.phones?.[0]?.value ?? "";
         const firstName = content.name?.first ?? content.name?.formatted ?? "";
-        await bot.api.sendContact(chatId, phone, firstName, {
+        const msg = await bot.api.sendContact(chatId, phone, firstName, {
           last_name: content.name?.last,
           vcard: typeof content.raw === "string" ? content.raw : undefined,
           ...extra,
         });
-        break;
+        return { id: String(msg.message_id) };
       }
       case "voice": {
         const file = new InputFile(await content.read());
-        await bot.api.sendVoice(chatId, file, {
+        const msg = await bot.api.sendVoice(chatId, file, {
           duration: content.duration ? Math.round(content.duration) : undefined,
           ...extra,
         });
-        break;
+        return { id: String(msg.message_id) };
       }
       default:
-        break;
+        return { id: "0" };
     }
   }, logger);
 };

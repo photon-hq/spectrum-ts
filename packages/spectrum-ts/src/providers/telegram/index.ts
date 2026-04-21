@@ -48,7 +48,6 @@ import {
   closeForumTopic,
   closeGeneralForumTopic,
   convertGiftToStars,
-  copyMessage,
   copyMessages,
   createChatInviteLink,
   createChatSubscriptionInviteLink,
@@ -61,7 +60,6 @@ import {
   deleteChatPhoto,
   deleteChatStickerSet,
   deleteForumTopic,
-  deleteMessage,
   deleteMessages,
   deleteMyCommands,
   deleteStickerFromSet,
@@ -84,7 +82,6 @@ import {
   editStory,
   editUserStarSubscription,
   exportChatInviteLink,
-  forwardMessage,
   forwardMessages,
   getAvailableGifts,
   getBusinessAccountGifts,
@@ -117,7 +114,6 @@ import {
   hideGeneralForumTopic,
   leaveChat,
   mapContent,
-  pinMessage,
   postStory,
   promoteChatMember,
   reactToMessage,
@@ -193,7 +189,6 @@ import {
   unpinAllForumTopicMessages,
   unpinAllGeneralForumTopicMessages,
   unpinAllMessages,
-  unpinMessage,
   upgradeGift,
   uploadStickerFile,
 } from "./messages";
@@ -2528,7 +2523,7 @@ export const telegram = definePlatform("Telegram", {
   actions: {
     send: async ({ space, content, client }) => {
       const c = client as TelegramClient;
-      await send(c.bot, space.id, content, c.logger, c.parseMode);
+      return await send(c.bot, space.id, content, c.logger, c.parseMode);
     },
 
     startTyping: async ({ space, client }) => {
@@ -2547,7 +2542,7 @@ export const telegram = definePlatform("Telegram", {
 
     replyToMessage: async ({ space, messageId, content, client }) => {
       const c = client as TelegramClient;
-      await replyToMessage(
+      return await replyToMessage(
         c.bot,
         space.id,
         messageId,
@@ -2567,31 +2562,6 @@ export const telegram = definePlatform("Telegram", {
         c.logger,
         c.parseMode
       );
-    },
-
-    deleteMessage: async ({ space, messageId, client }) => {
-      const c = client as TelegramClient;
-      await deleteMessage(c.bot, space.id, messageId, c.logger);
-    },
-
-    forwardMessage: async ({ space, messageId, toSpaceId, client }) => {
-      const c = client as TelegramClient;
-      await forwardMessage(c.bot, space.id, messageId, toSpaceId, c.logger);
-    },
-
-    copyMessage: async ({ space, messageId, toSpaceId, client }) => {
-      const c = client as TelegramClient;
-      await copyMessage(c.bot, space.id, messageId, toSpaceId, c.logger);
-    },
-
-    pinMessage: async ({ space, messageId, client }) => {
-      const c = client as TelegramClient;
-      await pinMessage(c.bot, space.id, messageId, c.logger);
-    },
-
-    unpinMessage: async ({ space, messageId, client }) => {
-      const c = client as TelegramClient;
-      await unpinMessage(c.bot, space.id, messageId, c.logger);
     },
   },
 });

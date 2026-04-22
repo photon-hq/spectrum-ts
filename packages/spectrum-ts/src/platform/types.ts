@@ -406,7 +406,6 @@ export type PlatformUser<Def extends AnyPlatformDef> = Omit<
 // ---------------------------------------------------------------------------
 
 export type PlatformInstance<Def extends AnyPlatformDef> = {
-  client: AwaitedReturn<Def["lifecycle"]["createClient"]>;
   space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
   user(userID: string): Promise<PlatformUser<Def>>;
 } & {

@@ -41,3 +41,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # test results
 test/
+
+# local backup of full telegram provider (pre-strip)
+telegram-full-backup/

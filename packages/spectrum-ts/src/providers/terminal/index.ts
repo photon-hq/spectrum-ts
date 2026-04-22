@@ -9,6 +9,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { createServer, type Socket } from "node:net";
+import { inspect } from "node:util";
 import z from "zod";
 import { definePlatform } from "../../platform/define";
 import {
@@ -23,7 +24,60 @@ const commandSchema = z.object({
   description: z.string().optional(),
 });
 
+// ----- console hijack -----
+// While tuichat owns the terminal (stdio: "inherit"), any direct console.*
+// write from agent code would garble the TUI mid-render. We monkeypatch
+// console to forward each call as a `log` notification, which the binary
+// renders into a pinned __system__ chat. Restored on destroyClient.
+
+const LOG_LEVELS = ["log", "info", "warn", "error", "debug"] as const;
+type LogLevel = (typeof LOG_LEVELS)[number];
+
+type ConsoleMethod = (...args: unknown[]) => void;
+
+interface ConsoleHijack {
+  restore: () => void;
+}
+
+function installConsoleHijack(session: RpcSession): ConsoleHijack {
+  const originals: Record<LogLevel, ConsoleMethod> = {} as Record<
+    LogLevel,
+    ConsoleMethod
+  >;
+  // Re-entrancy guard: if some downstream code invokes console during our
+  // forwarding path, fall back to the original to avoid infinite loops.
+  let forwarding = false;
+  for (const level of LOG_LEVELS) {
+    originals[level] = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      if (forwarding) {
+        originals[level](...args);
+        return;
+      }
+      forwarding = true;
+      try {
+        const text = args
+          .map((a) =>
+            typeof a === "string" ? a : inspect(a, { depth: 3, colors: false })
+          )
+          .join(" ");
+        session.notify("log", { level, text });
+      } finally {
+        forwarding = false;
+      }
+    };
+  }
+  return {
+    restore: () => {
+      for (const level of LOG_LEVELS) {
+        console[level] = originals[level];
+      }
+    },
+  };
+}
+
 interface TerminalClient {
+  hijack: ConsoleHijack;
   messages: AsyncIterable<ProtocolMessageNotification>;
   proc: ChildProcess;
   session: RpcSession;
@@ -136,7 +190,11 @@ async function spawnClient(options: {
     clientInfo: { name: "spectrum-ts", version: "terminal-provider" },
   });
 
-  return { proc, session, messages: iter };
+  // Install the console hijack only AFTER initialize succeeds, so any startup
+  // errors still surface to the real stderr.
+  const hijack = installConsoleHijack(session);
+
+  return { hijack, proc, session, messages: iter };
 }
 
 // ----- content conversion (Spectrum Content ↔ ProtocolContent) -----
@@ -295,6 +353,9 @@ export const terminal = definePlatform("terminal", {
 
     destroyClient: async ({ client }) => {
       const c = client as TerminalClient;
+      // Restore console FIRST so any further logs in this teardown go to the
+      // real stderr instead of a closing socket.
+      c.hijack.restore();
       try {
         await c.session.request("shutdown");
       } catch {

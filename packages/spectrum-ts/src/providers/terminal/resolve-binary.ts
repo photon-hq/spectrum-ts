@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 // Pinned default; bump on each certified tuichat release.
-export const DEFAULT_VERSION = "0.1.0";
+export const DEFAULT_VERSION = "0.1.1";
 
 const REPO = "photon-hq/tuichat";
 

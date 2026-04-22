@@ -182,6 +182,19 @@ export class RpcSession {
     });
   }
 
+  notify(method: string, params?: unknown): void {
+    if (this.closed) {
+      return;
+    }
+    const msg: RpcNotification = { jsonrpc: "2.0", method, params };
+    try {
+      this.socket.write(encode(msg));
+    } catch {
+      // best-effort — drops are fine for notifications (log spam shouldn't
+      // crash the agent if the socket is transiently unavailable).
+    }
+  }
+
   close(): void {
     this.shutdown();
   }

@@ -393,11 +393,11 @@ const clientStream = (
     );
 
   return stream<WhatsAppMessage>((emit, end) => {
-    (async () => {
+    const pump = (async () => {
       try {
         for await (const event of eventStream) {
           for (const m of toMessages(client, event.message)) {
-            emit(m);
+            await emit(m);
           }
         }
         end();
@@ -405,7 +405,10 @@ const clientStream = (
         end(e);
       }
     })();
-    return () => eventStream.close();
+    return async () => {
+      await eventStream.close();
+      await pump;
+    };
   });
 };
 

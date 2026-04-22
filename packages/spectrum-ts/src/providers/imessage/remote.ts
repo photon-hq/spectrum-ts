@@ -121,14 +121,14 @@ const clientStream = (
 ): ManagedStream<IMessageMessage> => {
   const sub = client.messages.subscribe("message.received");
   return stream<IMessageMessage>((emit, end) => {
-    (async () => {
+    const pump = (async () => {
       try {
         for await (const event of sub) {
           if (event.message.isFromMe) {
             continue;
           }
           for (const message of await toMessages(client, event)) {
-            emit(message);
+            await emit(message);
           }
         }
         end();
@@ -136,7 +136,10 @@ const clientStream = (
         end(e);
       }
     })();
-    return () => sub.close();
+    return async () => {
+      sub.close();
+      await pump;
+    };
   });
 };
 

@@ -139,9 +139,9 @@ export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
         onIncomingMessage: (message) => {
           lastPromise = lastPromise
             .then(() => toMessages(message))
-            .then((ms) => {
+            .then(async (ms) => {
               for (const m of ms) {
-                emit(m);
+                await emit(m);
               }
             })
             .catch(end);

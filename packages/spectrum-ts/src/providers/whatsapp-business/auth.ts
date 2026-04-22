@@ -209,7 +209,7 @@ const buildClientProxy = (
 };
 
 interface ResubscribeContext {
-  emit: (event: WhatsAppEvent) => void;
+  emit: (event: WhatsAppEvent) => Promise<void>;
   getCurrent: () => WhatsAppClient;
   options?: SubscribeOptions;
   setActive: (stream: TypedEventStream<WhatsAppEvent> | undefined) => void;
@@ -220,7 +220,7 @@ const pumpOnce = async (ctx: ResubscribeContext): Promise<boolean> => {
   ctx.setActive(sub);
   try {
     for await (const event of sub) {
-      ctx.emit(event);
+      await ctx.emit(event);
     }
     return true;
   } catch {
@@ -249,7 +249,7 @@ const resubscribableStream = (
         active = s;
       },
     };
-    (async () => {
+    const pump = (async () => {
       while (!closed) {
         await pumpOnce(ctx);
         if (!closed) {
@@ -259,11 +259,12 @@ const resubscribableStream = (
       end();
     })();
 
-    return () => {
+    return async () => {
       closed = true;
       active?.close().catch(() => undefined);
       active = undefined;
       state.subscriptions.delete(subscription);
+      await pump;
     };
   });
 

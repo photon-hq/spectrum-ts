@@ -8,16 +8,18 @@ type StreamCleanup = void | (() => void | Promise<void>);
 
 export function stream<T>(
   setup: (
-    emit: (value: T) => void,
+    emit: (value: T) => Promise<void>,
     end: (error?: unknown) => void
   ) => StreamCleanup | Promise<StreamCleanup>
 ): ManagedStream<T> {
   const repeater = new Repeater<T>(async (push, stop) => {
-    const emit = (value: T) => {
-      Promise.resolve(push(value)).catch((error) => {
+    const emit = async (value: T): Promise<void> => {
+      try {
+        await push(value);
+      } catch (error) {
         stop(error);
-        return undefined;
-      });
+        throw error;
+      }
     };
     const end = (error?: unknown) => {
       stop(error);
@@ -51,7 +53,7 @@ export function mergeStreams<T>(
     const workers = streams.map(async (source) => {
       try {
         for await (const value of source) {
-          emit(value);
+          await emit(value);
         }
       } catch (error) {
         end(error);

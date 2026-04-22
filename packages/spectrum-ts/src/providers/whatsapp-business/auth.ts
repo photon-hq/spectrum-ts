@@ -87,7 +87,11 @@ export async function createCloudClients(
       try {
         await refreshTokens();
         scheduleRenewal();
-      } catch {
+      } catch (err) {
+        console.warn(
+          `[spectrum-ts] WhatsApp Business token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
+          err
+        );
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
         renewalTimer?.unref?.();
       }

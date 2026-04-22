@@ -37,7 +37,10 @@ export type SpectrumInstance<
   CustomEventStreams<Providers> & {
     readonly messages: AsyncIterable<[Space, InboundMessage]>;
     stop(): Promise<void>;
-    send(space: Space, content: ContentInput): Promise<OutboundMessage>;
+    send(
+      space: Space,
+      content: ContentInput
+    ): Promise<OutboundMessage | undefined>;
     send(
       space: Space,
       ...content: [ContentInput, ContentInput, ...ContentInput[]]
@@ -325,7 +328,7 @@ export async function Spectrum<
     send: (async (
       space: Space,
       ...content: [ContentInput, ...ContentInput[]]
-    ): Promise<OutboundMessage | OutboundMessage[]> => {
+    ): Promise<OutboundMessage | OutboundMessage[] | undefined> => {
       return content.length === 1
         ? await space.send(content[0])
         : await space.send(

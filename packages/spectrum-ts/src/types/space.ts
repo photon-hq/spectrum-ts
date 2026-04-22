@@ -6,7 +6,7 @@ export interface Space<_Def = unknown> {
   edit(message: OutboundMessage, newContent: ContentInput): Promise<void>;
   readonly id: string;
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
-  send(content: ContentInput): Promise<OutboundMessage>;
+  send(content: ContentInput): Promise<OutboundMessage | undefined>;
   send(
     ...content: [ContentInput, ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage[]>;

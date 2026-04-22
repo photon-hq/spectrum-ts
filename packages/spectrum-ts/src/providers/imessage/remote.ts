@@ -12,9 +12,15 @@ import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
 import { ensureM4a } from "../../utils/audio";
+import { UnsupportedError } from "../../utils/errors";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
+
+const PLATFORM = "iMessage";
+
+const unsupportedContent = (type: string): UnsupportedError =>
+  UnsupportedError.content(type, PLATFORM);
 
 const toSendResult = (receipt: { guid: unknown }): SendResult => ({
   id: receipt.guid as string,
@@ -234,7 +240,7 @@ export const send = async (
       );
     }
     default:
-      throw new Error(`Unsupported iMessage content type: ${content.type}`);
+      throw unsupportedContent(content.type);
   }
 };
 
@@ -295,7 +301,7 @@ export const replyToMessage = async (
       );
     }
     default:
-      throw new Error(`Unsupported iMessage content type: ${content.type}`);
+      throw unsupportedContent(content.type);
   }
 };
 
@@ -306,7 +312,11 @@ export const editMessage = async (
   content: Content
 ) => {
   if (content.type !== "text") {
-    throw new Error("iMessage only supports editing text content");
+    throw UnsupportedError.content(
+      content.type,
+      PLATFORM,
+      "only text content can be edited"
+    );
   }
   const remote = clients[0];
   if (!remote) {

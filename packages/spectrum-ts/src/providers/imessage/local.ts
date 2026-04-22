@@ -11,6 +11,7 @@ import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
+import { UnsupportedError } from "../../utils/errors";
 import { type ManagedStream, stream } from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
@@ -206,8 +207,6 @@ export const send = async (
       return synthSendResult();
     }
     default:
-      throw new Error(
-        `Unsupported iMessage local content type: ${content.type}`
-      );
+      throw UnsupportedError.content(content.type, "iMessage (local mode)");
   }
 };

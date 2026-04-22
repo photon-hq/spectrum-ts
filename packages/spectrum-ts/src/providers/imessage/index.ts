@@ -1,6 +1,7 @@
 import { createClient, directChat } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { definePlatform } from "../../platform/define";
+import { UnsupportedError } from "../../utils/errors";
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { messages as localMessages, send as localSend } from "./local";
 import {
@@ -41,8 +42,10 @@ export const imessage = definePlatform("iMessage", {
     schema: spaceSchema,
     resolve: async ({ input, client }) => {
       if (isLocal(client)) {
-        throw new Error(
-          "Space creation is not supported in local mode. Local mode only supports replying to messages."
+        throw UnsupportedError.action(
+          "createSpace",
+          "iMessage (local mode)",
+          "local mode only supports replying to existing messages"
         );
       }
 
@@ -141,17 +144,13 @@ export const imessage = definePlatform("iMessage", {
     },
     replyToMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {
-        throw new Error(
-          "iMessage local mode does not support replying to messages"
-        );
+        throw UnsupportedError.action("reply", "iMessage (local mode)");
       }
       return await remoteReplyToMessage(client, space.id, messageId, content);
     },
     editMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {
-        throw new Error(
-          "iMessage local mode does not support editing messages"
-        );
+        throw UnsupportedError.action("edit", "iMessage (local mode)");
       }
       await remoteEditMessage(client, space.id, messageId, content);
     },

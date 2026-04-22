@@ -19,6 +19,7 @@ import { asCustom } from "../../content/custom";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
+import { UnsupportedError } from "../../utils/errors";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 
@@ -462,7 +463,7 @@ export const send = async (
       );
     }
     default:
-      throw new Error(`Unsupported WhatsApp content type: ${content.type}`);
+      throw UnsupportedError.content(content.type);
   }
 };
 
@@ -536,6 +537,6 @@ export const replyToMessage = async (
       );
     }
     default:
-      throw new Error(`Unsupported WhatsApp content type: ${content.type}`);
+      throw UnsupportedError.content(content.type);
   }
 };

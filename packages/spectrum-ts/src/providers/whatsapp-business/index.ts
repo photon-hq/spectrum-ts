@@ -1,5 +1,6 @@
 import { createClient } from "@photon-ai/whatsapp-business";
 import { definePlatform } from "../../platform/define";
+import { UnsupportedError } from "../../utils/errors";
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { messages, reactToMessage, replyToMessage, send } from "./messages";
 import {
@@ -23,8 +24,10 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
         throw new Error("WhatsApp space creation requires at least one user");
       }
       if (input.users.length > 1) {
-        throw new Error(
-          "WhatsApp Business API only supports 1:1 conversations"
+        throw UnsupportedError.action(
+          "createSpace",
+          "WhatsApp Business",
+          "only 1:1 conversations are supported"
         );
       }
       const user = input.users[0];

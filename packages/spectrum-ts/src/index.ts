@@ -44,5 +44,6 @@ export type {
   TokenData,
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";
+export { UnsupportedError, type UnsupportedKind } from "./utils/errors";
 export { type ManagedStream, mergeStreams, stream } from "./utils/stream";
 export { fromVCard, toVCard } from "./utils/vcard";

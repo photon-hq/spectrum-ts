@@ -16,12 +16,14 @@ import {
   type ContactPhone as SpectrumContactPhone,
 } from "../../content/contact";
 import { asCustom } from "../../content/custom";
+import { asPollOption } from "../../content/poll";
 import { asReaction } from "../../content/reaction";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
 import { UnsupportedError } from "../../utils/errors";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
+import { pollToInteractive } from "./poll";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 
 // v1 routes outbound traffic to the first line. When multi-line send becomes a
@@ -240,8 +242,13 @@ const mapContent = (
         target: stubTarget as Parameters<typeof asReaction>[0]["target"],
       });
     }
-    case "interactive":
-      return asCustom({ whatsapp_type: "interactive", ...content.interactive });
+    case "interactive": {
+      const inter = content.interactive;
+      if (inter.type === "button_reply" || inter.type === "list_reply") {
+        return asPollOption({ title: inter.reply.title });
+      }
+      return asCustom({ whatsapp_type: "interactive", ...inter });
+    }
     case "button":
       return asCustom({ whatsapp_type: "button", ...content.button });
     case "order":
@@ -477,6 +484,13 @@ export const send = async (
         } as Parameters<typeof client.messages.send>[0])
       );
     }
+    case "poll":
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          interactive: pollToInteractive(content),
+        })
+      );
     default:
       throw UnsupportedError.content(content.type);
   }
@@ -551,6 +565,14 @@ export const replyToMessage = async (
         } as Parameters<typeof client.messages.send>[0])
       );
     }
+    case "poll":
+      return toSendResult(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          interactive: pollToInteractive(content),
+        })
+      );
     default:
       throw UnsupportedError.content(content.type);
   }

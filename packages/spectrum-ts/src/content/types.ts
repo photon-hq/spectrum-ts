@@ -3,6 +3,7 @@ import { attachmentSchema } from "./attachment";
 import { contactSchema } from "./contact";
 import { customSchema } from "./custom";
 import { groupSchema } from "./group";
+import { pollOptionSchema, pollSchema } from "./poll";
 import { reactionSchema } from "./reaction";
 import { richlinkSchema } from "./richlink";
 import { textSchema } from "./text";
@@ -17,6 +18,8 @@ export const contentSchema = z.discriminatedUnion("type", [
   richlinkSchema,
   reactionSchema,
   groupSchema,
+  pollSchema,
+  pollOptionSchema,
 ]);
 
 export type Content = z.infer<typeof contentSchema>;

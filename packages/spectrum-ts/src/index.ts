@@ -12,6 +12,14 @@ export {
 } from "./content/contact";
 export { custom } from "./content/custom";
 export { type Group, group } from "./content/group";
+export {
+  option,
+  type Poll,
+  type PollChoice,
+  type PollChoiceInput,
+  type PollOption,
+  poll,
+} from "./content/poll";
 export { type Reaction, reaction } from "./content/reaction";
 export { resolveContents } from "./content/resolve";
 export { type Richlink, richlink } from "./content/richlink";

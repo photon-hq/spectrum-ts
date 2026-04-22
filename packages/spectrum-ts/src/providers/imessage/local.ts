@@ -206,6 +206,8 @@ export const send = async (
       );
       return synthSendResult();
     }
+    case "poll":
+      throw UnsupportedError.content("poll", "iMessage (local mode)");
     default:
       throw UnsupportedError.content(content.type, "iMessage (local mode)");
   }

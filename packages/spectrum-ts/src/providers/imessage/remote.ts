@@ -9,6 +9,7 @@ import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asGroup } from "../../content/group";
+import { asPollOption } from "../../content/poll";
 import { asReaction } from "../../content/reaction";
 import { asRichlink } from "../../content/richlink";
 import { asText } from "../../content/text";
@@ -469,6 +470,26 @@ const toMessages = async (
   }
 
   const text = event.message.text;
+  if (!text) {
+    const raw = (event.message as { _raw?: Record<string, unknown> })._raw;
+    console.log("[spectrum-ts][imessage][empty-text] _raw dump", {
+      guid: event.message.guid,
+      sender: event.message.sender?.address,
+      isFromMe: event.message.isFromMe,
+      balloonBundleId: raw?.balloonBundleId,
+      associatedMessageGuid: raw?.associatedMessageGuid,
+      associatedMessageType: raw?.associatedMessageType,
+      payloadDataLength:
+        raw?.payloadData instanceof Uint8Array
+          ? raw.payloadData.byteLength
+          : undefined,
+      messageSummaryInfoLength:
+        raw?.messageSummaryInfo instanceof Uint8Array
+          ? raw.messageSummaryInfo.byteLength
+          : undefined,
+      rawKeys: raw ? Object.keys(raw) : [],
+    });
+  }
   const msg: IMessageMessage = {
     ...base,
     id: messageGuidStr,
@@ -478,15 +499,77 @@ const toMessages = async (
   return [msg];
 };
 
+const toPollVoteMessage = async (
+  client: AdvancedIMessage,
+  pollMessageGuid: string,
+  chatGuid: string,
+  senderAddress: string,
+  timestamp: Date
+): Promise<IMessageMessage | null> => {
+  const info = await client.polls.get(pollMessageGuid as never);
+  console.log("[spectrum-ts][imessage][poll] fetched poll info", {
+    pollMessageGuid,
+    title: info.title,
+    options: info.options.map((o) => ({
+      id: o.optionIdentifier,
+      text: o.text,
+    })),
+    votes: info.votes.map((v) => ({
+      participant: v.participantAddress,
+      option: v.optionIdentifier,
+    })),
+    senderAddress,
+  });
+  const vote = info.votes.find((v) => v.participantAddress === senderAddress);
+  if (!vote) {
+    console.log(
+      "[spectrum-ts][imessage][poll] no vote from sender",
+      senderAddress
+    );
+    return null;
+  }
+  const chosen = info.options.find(
+    (o) => o.optionIdentifier === vote.optionIdentifier
+  );
+  if (!chosen) {
+    console.log(
+      "[spectrum-ts][imessage][poll] option not found",
+      vote.optionIdentifier
+    );
+    return null;
+  }
+  console.log(
+    "[spectrum-ts][imessage][poll] resolved vote",
+    senderAddress,
+    "->",
+    chosen.text
+  );
+  return {
+    id: `${pollMessageGuid}:${senderAddress}`,
+    sender: { id: senderAddress },
+    space: {
+      id: chatGuid,
+      type: chatGuid.includes(";+;") ? "group" : "dm",
+    },
+    timestamp,
+    content: asPollOption({
+      title: chosen.text,
+      pollId: pollMessageGuid,
+    }),
+  };
+};
+
 const clientStream = (
   client: AdvancedIMessage
 ): ManagedStream<IMessageMessage> => {
-  const sub = client.messages.subscribe("message.received");
+  const messageSub = client.messages.subscribe("message.received");
+  const updatedSub = client.messages.subscribe("message.updated");
+  const pollSub = client.polls.subscribe();
   const cache = getMessageCache(client);
   return stream<IMessageMessage>((emit, end) => {
-    const pump = (async () => {
+    const messagePump = (async () => {
       try {
-        for await (const event of sub) {
+        for await (const event of messageSub) {
           if (event.message.isFromMe) {
             continue;
           }
@@ -494,14 +577,69 @@ const clientStream = (
             await emit(message);
           }
         }
-        end();
       } catch (e) {
         end(e);
       }
     })();
+    const updatedPump = (async () => {
+      try {
+        for await (const event of updatedSub) {
+          console.log("[spectrum-ts][imessage][message.updated]", {
+            updateType: event.updateType,
+            isFromMe: event.message.isFromMe,
+            guid: event.message.guid,
+            sender: event.message.sender?.address,
+            text: event.message.text,
+          });
+        }
+      } catch (e) {
+        console.log("[spectrum-ts][imessage][message.updated] error", e);
+      }
+    })();
+    const pollPump = (async () => {
+      try {
+        for await (const event of pollSub) {
+          console.log("[spectrum-ts][imessage][poll] event", {
+            action: event.action,
+            pollMessageGuid: event.pollMessageGuid,
+            chatGuid: event.chatGuid,
+            isFromMe: event.message.isFromMe,
+            sender: event.message.sender?.address,
+          });
+          if (event.message.isFromMe) {
+            continue;
+          }
+          if (event.action !== "voted" && event.action !== "optionAdded") {
+            continue;
+          }
+          const senderAddress = event.message.sender?.address;
+          if (!senderAddress) {
+            console.log(
+              "[spectrum-ts][imessage][poll] missing sender address; skipping"
+            );
+            continue;
+          }
+          const voteMessage = await toPollVoteMessage(
+            client,
+            event.pollMessageGuid as string,
+            event.chatGuid as string,
+            senderAddress,
+            event.timestamp
+          );
+          if (voteMessage) {
+            await emit(voteMessage);
+          }
+        }
+      } catch (e) {
+        console.log("[spectrum-ts][imessage][poll] stream error", e);
+        end(e);
+      }
+    })();
     return async () => {
-      sub.close();
-      await pump;
+      messageSub.close();
+      updatedSub.close();
+      pollSub.close();
+      await Promise.all([messagePump, updatedPump, pollPump]);
     };
   });
 };
@@ -602,6 +740,14 @@ const sendSingle = async (
         })
       );
     }
+    case "poll":
+      return toSendResult(
+        await remote.polls.create(
+          chat,
+          content.title,
+          content.options.map((o) => o.title)
+        )
+      );
     default:
       throw unsupportedContent(content.type);
   }
@@ -713,6 +859,12 @@ export const replyToMessage = async (
         })
       );
     }
+    case "poll":
+      throw UnsupportedError.content(
+        "poll",
+        PLATFORM,
+        "polls cannot be sent as replies"
+      );
     default:
       throw unsupportedContent(content.type);
   }

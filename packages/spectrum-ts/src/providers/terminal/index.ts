@@ -11,7 +11,11 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createServer, type Socket } from "node:net";
 import { inspect } from "node:util";
 import z from "zod";
+import { asAttachment } from "../../content/attachment";
+import { asContact } from "../../content/contact";
+import { asVoice } from "../../content/voice";
 import { definePlatform } from "../../platform/define";
+import { fromVCard, toVCard } from "../../utils/vcard";
 import {
   type ProtocolContent,
   type ProtocolMessageNotification,
@@ -19,6 +23,12 @@ import {
   RpcSession,
 } from "./protocol";
 import { resolveTuichatBinary } from "./resolve-binary";
+
+// Grace period for the shutdown RPC at teardown. Beyond this we stop waiting
+// and tear the session/subprocess down unilaterally so destroyClient always
+// completes in a bounded time.
+const SHUTDOWN_TIMEOUT_MS = 2000;
+const SPAWN_CONNECT_TIMEOUT_MS = 10_000;
 
 const commandSchema = z.object({
   name: z.string().regex(/^\/[A-Za-z0-9_-]+$/, "command must start with /"),
@@ -89,8 +99,23 @@ type InboundEvent =
 interface TerminalClient {
   events: AsyncIterable<InboundEvent>;
   hijack: ConsoleHijack;
+  // Per-client chat tracking — previously module-level globals, which leaked
+  // state across provider instances and grew unbounded. Scoped here so each
+  // createClient/destroyClient cycle starts fresh.
+  knownChats: Set<string>;
+  nextChatIndex: number;
   proc: ChildProcess;
   session: RpcSession;
+}
+
+function generateChatId(client: TerminalClient): string {
+  while (client.knownChats.has(`chat-${client.nextChatIndex}`)) {
+    client.nextChatIndex += 1;
+  }
+  const id = `chat-${client.nextChatIndex}`;
+  client.nextChatIndex += 1;
+  client.knownChats.add(id);
+  return id;
 }
 
 function makeEventQueue(): {
@@ -160,22 +185,6 @@ async function spawnClient(options: {
   const host = "127.0.0.1";
   const port = addr.port;
 
-  const socketPromise = new Promise<Socket>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      server.close();
-      reject(new Error("tuichat: subprocess did not connect within 10s"));
-    }, 10_000);
-    server.once("connection", (sock) => {
-      clearTimeout(timeout);
-      server.close();
-      resolve(sock);
-    });
-    server.once("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-
   const proc = spawn(binary, ["--connect", `${host}:${port}`], {
     stdio: "inherit",
   });
@@ -189,7 +198,68 @@ async function spawnClient(options: {
     }
   });
 
-  const socket = await socketPromise;
+  // Wait for the subprocess to dial back. Guard against three failure modes:
+  // the spawn itself errors, the subprocess exits before connecting, or it
+  // hangs past the connect timeout. In all three we reject immediately,
+  // clean up the listener, and SIGTERM any straggling child so no subprocess
+  // is orphaned.
+  const socket = await new Promise<Socket>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      server.off("connection", onConnect);
+      server.off("error", onServerError);
+      proc.off("error", onProcError);
+      proc.off("exit", onProcExit);
+    };
+    const fail = (err: Error, killProc: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      server.close();
+      if (killProc && !proc.killed) {
+        try {
+          proc.kill();
+        } catch {
+          // best-effort
+        }
+      }
+      reject(err);
+    };
+    const succeed = (sock: Socket) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      server.close();
+      resolve(sock);
+    };
+    const onConnect = (sock: Socket) => succeed(sock);
+    const onServerError = (err: Error) => fail(err, true);
+    const onProcError = (err: Error) => fail(err, false);
+    const onProcExit = (code: number | null, signal: NodeJS.Signals | null) =>
+      fail(
+        new Error(
+          `tuichat: subprocess exited before connecting (code=${code ?? "null"}, signal=${signal ?? "null"})`
+        ),
+        false
+      );
+    const timer = setTimeout(() => {
+      fail(
+        new Error(
+          `tuichat: subprocess did not connect within ${SPAWN_CONNECT_TIMEOUT_MS}ms`
+        ),
+        true
+      );
+    }, SPAWN_CONNECT_TIMEOUT_MS);
+    server.once("connection", onConnect);
+    server.once("error", onServerError);
+    proc.once("error", onProcError);
+    proc.once("exit", onProcExit);
+  });
   const session = new RpcSession(socket);
 
   const eventsQ = makeEventQueue();
@@ -232,6 +302,8 @@ async function spawnClient(options: {
     proc,
     session,
     events: eventsQ.iter,
+    knownChats: new Set<string>(),
+    nextChatIndex: 1,
   };
 }
 
@@ -240,6 +312,15 @@ async function spawnClient(options: {
 type SpectrumContent = z.infer<
   typeof import("../../content/types").contentSchema
 >;
+
+// parseTimestamp validates an ISO timestamp string returned by the server —
+// an invalid string silently becomes an Invalid Date object through `new
+// Date(...)`, which then propagates nonsense through downstream code. We
+// fall back to `new Date()` on malformed input so timestamps are always real.
+function parseTimestamp(s: string): Date {
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? new Date() : new Date(t);
+}
 
 async function spectrumToProtocol(
   content: SpectrumContent
@@ -268,6 +349,9 @@ async function spectrumToProtocol(
     };
   }
   if (content.type === "contact") {
+    // Serialize the full contact to vCard so phones/emails/addresses/org
+    // survive the round-trip. The protocol also carries a name hint for
+    // peers that prefer not to parse the vCard.
     return {
       type: "contact",
       name: content.name
@@ -277,6 +361,7 @@ async function spectrumToProtocol(
             last: content.name.last,
           }
         : undefined,
+      vcard: await toVCard(content),
     };
   }
   throw new Error(
@@ -290,17 +375,25 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
   }
   if (p.type === "attachment" || p.type === "voice") {
     const path = p.path;
-    let bufPromise: Promise<Buffer>;
-    if (p.bytes) {
-      bufPromise = Promise.resolve(Buffer.from(p.bytes, "base64") as Buffer);
-    } else if (path) {
-      bufPromise = import("node:fs/promises").then((m) => m.readFile(path));
-    } else {
-      bufPromise = Promise.reject(
-        new Error(`${p.type} has neither path nor bytes`)
-      );
-    }
-    const read = async (): Promise<Buffer> => bufPromise;
+    const bytesB64 = p.bytes;
+    // Lazy factory: creating the rejected promise eagerly triggered Node's
+    // unhandled-rejection warnings on consumers that never called read().
+    let cached: Promise<Buffer> | undefined;
+    const readBytes = (): Promise<Buffer> => {
+      if (cached) {
+        return cached;
+      }
+      if (bytesB64) {
+        cached = Promise.resolve(Buffer.from(bytesB64, "base64") as Buffer);
+      } else if (path) {
+        cached = import("node:fs/promises").then((m) => m.readFile(path));
+      } else {
+        cached = Promise.reject(
+          new Error(`${p.type} has neither path nor bytes`)
+        );
+      }
+      return cached;
+    };
     const stream = async (): Promise<ReadableStream<Uint8Array>> => {
       if (path) {
         const [{ createReadStream }, { Readable }] = await Promise.all([
@@ -311,7 +404,7 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
           createReadStream(path)
         ) as ReadableStream<Uint8Array>;
       }
-      const buf = await bufPromise;
+      const buf = await readBytes();
       return new ReadableStream({
         start(ctrl) {
           ctrl.enqueue(new Uint8Array(buf));
@@ -319,45 +412,38 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
         },
       });
     };
-    const common = {
+    if (p.type === "attachment") {
+      return asAttachment({
+        name: p.name,
+        mimeType: p.mimeType,
+        size: p.size,
+        read: readBytes,
+        stream,
+      }) as SpectrumContent;
+    }
+    return asVoice({
+      name: p.name,
       mimeType: p.mimeType,
       size: p.size,
-      read,
+      read: readBytes,
       stream,
-    };
-    if (p.type === "attachment") {
-      return {
-        type: "attachment",
-        name: p.name,
-        ...common,
-      } as SpectrumContent;
-    }
-    return {
-      type: "voice",
-      name: p.name,
-      ...common,
-    } as SpectrumContent;
+    }) as SpectrumContent;
   }
   if (p.type === "contact") {
-    return { type: "contact", name: p.name } as SpectrumContent;
+    // Prefer vCard — retains phones/emails/addresses that the `name` hint
+    // throws away. Fall back to the name hint if no vCard came through.
+    if (p.vcard) {
+      try {
+        return asContact(fromVCard(p.vcard)) as SpectrumContent;
+      } catch {
+        // If the vCard is malformed, fall through to the name-only path
+        // rather than surfacing an opaque zod error to the agent.
+      }
+    }
+    return asContact({ name: p.name }) as SpectrumContent;
   }
   // Fallback so unknown future shapes don't crash the agent.
   return { type: "custom", raw: p } as SpectrumContent;
-}
-
-// ----- chat-id generation (adapter side) -----
-
-let nextChatIndex = 1;
-const knownChats = new Set<string>();
-
-function generateChatId(): string {
-  while (knownChats.has(`chat-${nextChatIndex}`)) {
-    nextChatIndex += 1;
-  }
-  const id = `chat-${nextChatIndex}`;
-  nextChatIndex += 1;
-  knownChats.add(id);
-  return id;
 }
 
 // ----- the provider -----
@@ -385,8 +471,8 @@ export const terminal = definePlatform("terminal", {
     params: z.object({ id: z.string().optional() }),
     resolve: async (ctx) => {
       const client = ctx.client as TerminalClient;
-      const id = ctx.input.params?.id ?? generateChatId();
-      knownChats.add(id);
+      const id = ctx.input.params?.id ?? generateChatId(client);
+      client.knownChats.add(id);
       await client.session.request("ensureSpace", { id });
       return { id };
     },
@@ -403,7 +489,8 @@ export const terminal = definePlatform("terminal", {
       // real stderr instead of a closing socket.
       c.hijack.restore();
       try {
-        await c.session.request("shutdown");
+        // Bounded so an unresponsive subprocess can't hang destroyClient.
+        await c.session.request("shutdown", undefined, SHUTDOWN_TIMEOUT_MS);
       } catch {
         // best-effort
       }
@@ -422,13 +509,13 @@ export const terminal = definePlatform("terminal", {
       for await (const evt of client.events) {
         if (evt.kind === "message") {
           const msg = evt.value;
-          knownChats.add(msg.spaceId);
+          client.knownChats.add(msg.spaceId);
           yield {
             id: msg.id,
             content: protocolToSpectrum(msg.content),
             sender: { id: msg.senderId },
             space: { id: msg.spaceId },
-            timestamp: new Date(msg.timestamp),
+            timestamp: parseTimestamp(msg.timestamp),
             // replyTo is a terminal-specific extra — agents inspect via a
             // cast until Spectrum's message model grows first-class support.
             ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
@@ -439,7 +526,7 @@ export const terminal = definePlatform("terminal", {
         // WhatsApp provider's convention — agents filter with
         // `msg.content.type === "custom" && msg.content.raw.terminal_type === "reaction"`.
         const r = evt.value;
-        knownChats.add(r.spaceId);
+        client.knownChats.add(r.spaceId);
         yield {
           id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
           content: {
@@ -452,7 +539,7 @@ export const terminal = definePlatform("terminal", {
           },
           sender: { id: r.senderId },
           space: { id: r.spaceId },
-          timestamp: new Date(r.timestamp),
+          timestamp: parseTimestamp(r.timestamp),
         };
       }
     },
@@ -462,11 +549,11 @@ export const terminal = definePlatform("terminal", {
     send: async ({ client, content, space }) => {
       const c = client as TerminalClient;
       const proto = await spectrumToProtocol(content);
-      await c.session.request("send", {
-        spaceId: space.id,
-        content: proto,
-      });
-      return { id: crypto.randomUUID(), timestamp: new Date() };
+      const result = await c.session.request<{ id: string; timestamp: string }>(
+        "send",
+        { spaceId: space.id, content: proto }
+      );
+      return { id: result.id, timestamp: parseTimestamp(result.timestamp) };
     },
 
     startTyping: async ({ client, space }) => {
@@ -491,12 +578,11 @@ export const terminal = definePlatform("terminal", {
     replyToMessage: async ({ client, space, messageId, content }) => {
       const c = client as TerminalClient;
       const proto = await spectrumToProtocol(content);
-      await c.session.request("replyToMessage", {
-        spaceId: space.id,
-        messageId,
-        content: proto,
-      });
-      return { id: crypto.randomUUID(), timestamp: new Date() };
+      const result = await c.session.request<{ id: string; timestamp: string }>(
+        "replyToMessage",
+        { spaceId: space.id, messageId, content: proto }
+      );
+      return { id: result.id, timestamp: parseTimestamp(result.timestamp) };
     },
   },
 });

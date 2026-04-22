@@ -40,10 +40,10 @@ export type ProtocolContent =
 export interface ProtocolMessageNotification {
   content: ProtocolContent;
   id: string;
+  replyTo?: { messageId: string };
   senderId: string;
   spaceId: string;
   timestamp: string;
-  replyTo?: { messageId: string };
 }
 
 export interface ProtocolReactionNotification {
@@ -94,14 +94,10 @@ class Decoder {
   private buf: Buffer = Buffer.alloc(0);
 
   push(chunk: Buffer): RpcMessage[] {
-    if (this.buf.length === 0) {
-      this.buf = Buffer.from(chunk);
-    } else {
-      const merged = new Uint8Array(this.buf.byteLength + chunk.byteLength);
-      merged.set(this.buf, 0);
-      merged.set(chunk, this.buf.byteLength);
-      this.buf = Buffer.from(merged);
-    }
+    this.buf =
+      this.buf.length === 0
+        ? Buffer.from(chunk)
+        : Buffer.concat([this.buf, chunk]);
     const out: RpcMessage[] = [];
     for (;;) {
       const msg = this.readOne();
@@ -171,20 +167,58 @@ export class RpcSession {
     this.onClose = h;
   }
 
-  async request<T = unknown>(method: string, params?: unknown): Promise<T> {
+  async request<T = unknown>(
+    method: string,
+    params?: unknown,
+    timeoutMs?: number
+  ): Promise<T> {
     if (this.closed) {
       throw new Error("session closed");
     }
     const id = this.nextId++;
     const msg: RpcRequest = { jsonrpc: "2.0", id, method, params };
     return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const done = () => {
+        settled = true;
+        if (timer) {
+          clearTimeout(timer);
+        }
+      };
       this.pending.set(id, {
-        resolve: (v) => resolve(v as T),
-        reject,
+        resolve: (v) => {
+          if (settled) {
+            return;
+          }
+          done();
+          resolve(v as T);
+        },
+        reject: (e) => {
+          if (settled) {
+            return;
+          }
+          done();
+          reject(e);
+        },
       });
+      if (timeoutMs !== undefined && timeoutMs >= 0) {
+        timer = setTimeout(() => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          this.pending.delete(id);
+          reject(new Error(`rpc ${method} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }
       try {
         this.socket.write(encode(msg));
       } catch (err) {
+        if (settled) {
+          return;
+        }
+        done();
         this.pending.delete(id);
         reject(err);
       }

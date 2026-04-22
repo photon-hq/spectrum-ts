@@ -6,8 +6,15 @@
 //
 // No external deps — stdlib only.
 
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -126,9 +133,23 @@ export async function resolveTuichatBinary(
     );
   }
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path, bytes);
-  if (process.platform !== "win32") {
-    chmodSync(path, 0o755);
+  // Write to a unique temp path in the same directory, chmod, then atomically
+  // rename into place. Avoids torn writes when multiple processes resolve the
+  // same version concurrently or when a process crashes mid-download.
+  const tmpPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(tmpPath, bytes);
+    if (process.platform !== "win32") {
+      chmodSync(tmpPath, 0o755);
+    }
+    renameSync(tmpPath, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // Temp may not exist if writeFileSync was what failed — ignore.
+    }
+    throw err;
   }
   return path;
 }

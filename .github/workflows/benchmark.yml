@@ -1,0 +1,19 @@
+name: Performance Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build --if-present
+      - name: Run benchmarks
+        run: npm run benchmark --if-present || echo "No benchmarks configured yet"

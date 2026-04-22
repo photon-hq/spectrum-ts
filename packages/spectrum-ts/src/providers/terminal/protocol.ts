@@ -43,6 +43,15 @@ export interface ProtocolMessageNotification {
   senderId: string;
   spaceId: string;
   timestamp: string;
+  replyTo?: { messageId: string };
+}
+
+export interface ProtocolReactionNotification {
+  messageId: string;
+  reaction: string;
+  senderId: string;
+  spaceId: string;
+  timestamp: string;
 }
 
 interface RpcRequest {

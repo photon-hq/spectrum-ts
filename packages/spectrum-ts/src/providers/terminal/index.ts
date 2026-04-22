@@ -15,6 +15,7 @@ import { definePlatform } from "../../platform/define";
 import {
   type ProtocolContent,
   type ProtocolMessageNotification,
+  type ProtocolReactionNotification,
   RpcSession,
 } from "./protocol";
 import { resolveTuichatBinary } from "./resolve-binary";
@@ -76,11 +77,66 @@ function installConsoleHijack(session: RpcSession): ConsoleHijack {
   };
 }
 
+// InboundEvent is a user-originated event surfaced to the agent. Messages
+// (including replies) arrive with their original shape; reactions are
+// normalized to a `custom`-content message so the agent's single `messages`
+// iterator sees everything — matching the WhatsApp provider's convention of
+// routing non-message events through `custom` content.
+type InboundEvent =
+  | { kind: "message"; value: ProtocolMessageNotification }
+  | { kind: "reaction"; value: ProtocolReactionNotification };
+
 interface TerminalClient {
+  events: AsyncIterable<InboundEvent>;
   hijack: ConsoleHijack;
-  messages: AsyncIterable<ProtocolMessageNotification>;
   proc: ChildProcess;
   session: RpcSession;
+}
+
+function makeEventQueue(): {
+  iter: AsyncIterable<InboundEvent>;
+  push: (v: InboundEvent) => void;
+  close: () => void;
+} {
+  const queue: InboundEvent[] = [];
+  const waiters: Array<(v: IteratorResult<InboundEvent>) => void> = [];
+  let closed = false;
+  const iter: AsyncIterable<InboundEvent> = {
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<InboundEvent>> {
+          if (closed && queue.length === 0) {
+            return Promise.resolve({ value: undefined, done: true });
+          }
+          const buffered = queue.shift();
+          if (buffered !== undefined) {
+            return Promise.resolve({ value: buffered, done: false });
+          }
+          return new Promise((resolve) => waiters.push(resolve));
+        },
+      };
+    },
+  };
+  return {
+    iter,
+    push(v: InboundEvent) {
+      if (closed) {
+        return;
+      }
+      const w = waiters.shift();
+      if (w) {
+        w({ value: v, done: false });
+      } else {
+        queue.push(v);
+      }
+    },
+    close() {
+      closed = true;
+      while (waiters.length > 0) {
+        waiters.shift()?.({ value: undefined, done: true });
+      }
+    },
+  };
 }
 
 async function spawnClient(options: {
@@ -136,53 +192,30 @@ async function spawnClient(options: {
   const socket = await socketPromise;
   const session = new RpcSession(socket);
 
-  const queue: ProtocolMessageNotification[] = [];
-  const waiters: Array<
-    (v: IteratorResult<ProtocolMessageNotification>) => void
-  > = [];
-  let closed = false;
-
-  const iter: AsyncIterable<ProtocolMessageNotification> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<ProtocolMessageNotification>> {
-          if (closed && queue.length === 0) {
-            return Promise.resolve({ value: undefined, done: true });
-          }
-          const buffered = queue.shift();
-          if (buffered) {
-            return Promise.resolve({ value: buffered, done: false });
-          }
-          return new Promise((resolve) => waiters.push(resolve));
-        },
-      };
-    },
-  };
+  const eventsQ = makeEventQueue();
 
   session.handleNotifications((method, params) => {
     if (method === "streamEnd") {
-      closed = true;
-      while (waiters.length > 0) {
-        waiters.shift()?.({ value: undefined, done: true });
-      }
+      eventsQ.close();
       return;
     }
-    if (method !== "message") {
+    if (method === "message") {
+      eventsQ.push({
+        kind: "message",
+        value: params as ProtocolMessageNotification,
+      });
       return;
     }
-    const msg = params as ProtocolMessageNotification;
-    const w = waiters.shift();
-    if (w) {
-      w({ value: msg, done: false });
-    } else {
-      queue.push(msg);
+    if (method === "reaction") {
+      eventsQ.push({
+        kind: "reaction",
+        value: params as ProtocolReactionNotification,
+      });
+      return;
     }
   });
   session.onClosed(() => {
-    closed = true;
-    while (waiters.length > 0) {
-      waiters.shift()?.({ value: undefined, done: true });
-    }
+    eventsQ.close();
   });
 
   await session.request("initialize", {
@@ -194,7 +227,12 @@ async function spawnClient(options: {
   // errors still surface to the real stderr.
   const hijack = installConsoleHijack(session);
 
-  return { hijack, proc, session, messages: iter };
+  return {
+    hijack,
+    proc,
+    session,
+    events: eventsQ.iter,
+  };
 }
 
 // ----- content conversion (Spectrum Content ↔ ProtocolContent) -----
@@ -329,6 +367,14 @@ export const terminal = definePlatform("terminal", {
     commands: z.array(commandSchema).optional(),
   }),
 
+  // Declaring a message schema is how extras survive Spectrum's buildMessage
+  // filter — without it, unknown fields on the yielded message are stripped.
+  message: {
+    schema: z.object({
+      replyTo: z.object({ messageId: z.string() }).optional(),
+    }),
+  },
+
   user: {
     resolve: async ({ input }) => ({
       id: input.userID,
@@ -373,14 +419,40 @@ export const terminal = definePlatform("terminal", {
   events: {
     async *messages(ctx) {
       const client = ctx.client as TerminalClient;
-      for await (const msg of client.messages) {
-        knownChats.add(msg.spaceId);
+      for await (const evt of client.events) {
+        if (evt.kind === "message") {
+          const msg = evt.value;
+          knownChats.add(msg.spaceId);
+          yield {
+            id: msg.id,
+            content: protocolToSpectrum(msg.content),
+            sender: { id: msg.senderId },
+            space: { id: msg.spaceId },
+            timestamp: new Date(msg.timestamp),
+            // replyTo is a terminal-specific extra — agents inspect via a
+            // cast until Spectrum's message model grows first-class support.
+            ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+          };
+          continue;
+        }
+        // Reactions ride the messages stream as `custom` content. Matches the
+        // WhatsApp provider's convention — agents filter with
+        // `msg.content.type === "custom" && msg.content.raw.terminal_type === "reaction"`.
+        const r = evt.value;
+        knownChats.add(r.spaceId);
         yield {
-          id: msg.id,
-          content: protocolToSpectrum(msg.content),
-          sender: { id: msg.senderId },
-          space: { id: msg.spaceId },
-          timestamp: new Date(msg.timestamp),
+          id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
+          content: {
+            type: "custom" as const,
+            raw: {
+              terminal_type: "reaction",
+              messageId: r.messageId,
+              reaction: r.reaction,
+            },
+          },
+          sender: { id: r.senderId },
+          space: { id: r.spaceId },
+          timestamp: new Date(r.timestamp),
         };
       }
     },

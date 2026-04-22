@@ -19,8 +19,9 @@ const supportsAnsiColor = (): boolean => {
   if (process.env.NO_COLOR) {
     return false;
   }
-  if (process.env.FORCE_COLOR) {
-    return true;
+  const force = process.env.FORCE_COLOR;
+  if (force !== undefined) {
+    return force !== "" && force !== "0" && force !== "false";
   }
   return Boolean(process.stderr?.isTTY);
 };
@@ -177,7 +178,9 @@ export function buildMessage(params: BuildMessageParams): Message {
     });
   };
 
-  async function reply(content: ContentInput): Promise<OutboundMessage>;
+  async function reply(
+    content: ContentInput
+  ): Promise<OutboundMessage | undefined>;
   async function reply(
     ...content: [ContentInput, ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage[]>;

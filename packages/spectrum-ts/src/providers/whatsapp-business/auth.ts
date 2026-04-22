@@ -76,10 +76,18 @@ export async function createCloudClients(
     }
   };
 
+  const clearRenewalTimer = () => {
+    if (renewalTimer !== undefined) {
+      clearTimeout(renewalTimer);
+      renewalTimer = undefined;
+    }
+  };
+
   const scheduleRenewal = () => {
     if (disposed) {
       return;
     }
+    clearRenewalTimer();
     const ttlMs = tokenData.expiresIn * 1000;
     const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
 
@@ -92,6 +100,7 @@ export async function createCloudClients(
           `[spectrum-ts] WhatsApp Business token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
           err
         );
+        clearRenewalTimer();
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
         renewalTimer?.unref?.();
       }
@@ -123,10 +132,7 @@ export async function createCloudClients(
   cloudAuthState.set(clients, {
     dispose: async () => {
       disposed = true;
-      if (renewalTimer !== undefined) {
-        clearTimeout(renewalTimer);
-        renewalTimer = undefined;
-      }
+      clearRenewalTimer();
       for (const state of lines.values()) {
         for (const sub of state.subscriptions) {
           sub.close();

@@ -32,6 +32,31 @@ function createPlatformInstance<
     );
   };
 
+  const resolveUserID = async (userID: string): Promise<PlatformUser<Def>> => {
+    const resolved = await def.user.resolve({
+      input: { userID },
+      client: runtime.client as _Client,
+      config: runtime.config as z.infer<_ConfigSchema>,
+    });
+    return {
+      ...resolved,
+      __platform: def.name,
+    } as PlatformUser<Def>;
+  };
+
+  const resolveStringUsers = async (args: unknown[]): Promise<unknown[]> => {
+    const convertArg = async (arg: unknown): Promise<unknown> => {
+      if (typeof arg === "string") {
+        return await resolveUserID(arg);
+      }
+      if (Array.isArray(arg)) {
+        return await Promise.all(arg.map(convertArg));
+      }
+      return arg;
+    };
+    return await Promise.all(args.map(convertArg));
+  };
+
   const normalizeSpaceArgs = (
     args: unknown[]
   ): { users: PlatformUser<Def>[]; params: unknown } => {
@@ -82,7 +107,8 @@ function createPlatformInstance<
     },
 
     async space(...args: unknown[]) {
-      const { users, params } = normalizeSpaceArgs(args);
+      const convertedArgs = await resolveStringUsers(args);
+      const { users, params } = normalizeSpaceArgs(convertedArgs);
       let parsedParams = params;
       if (params !== undefined && def.space.params) {
         parsedParams = def.space.params.parse(params);

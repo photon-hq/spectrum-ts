@@ -6,7 +6,38 @@ import type {
   OutboundMessage,
 } from "../types/message";
 import type { Space } from "../types/space";
+import { UnsupportedError } from "../utils/errors";
 import type { AnyPlatformDef, SendResult } from "./types";
+
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_RESET = "\x1b[0m";
+
+const supportsAnsiColor = (): boolean => {
+  if (typeof process === "undefined") {
+    return false;
+  }
+  if (process.env.NO_COLOR) {
+    return false;
+  }
+  const force = process.env.FORCE_COLOR;
+  if (force !== undefined) {
+    return force !== "" && force !== "0" && force !== "false";
+  }
+  return Boolean(process.stderr?.isTTY);
+};
+
+const warnUnsupported = (err: UnsupportedError, fallbackPlatform: string) => {
+  const platform = err.platform ?? fallbackPlatform;
+  const subject =
+    err.kind === "content"
+      ? `content type "${err.contentType ?? "unknown"}"`
+      : `action "${err.action ?? "unknown"}"`;
+  const detail = err.detail ? `: ${err.detail}` : "";
+  const body = `[spectrum-ts] ${platform} does not support ${subject}${detail}; skipping.`;
+  console.warn(
+    supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
+  );
+};
 
 export type SpaceRef = {
   id: string;
@@ -53,14 +84,23 @@ export function buildSpace(params: BuildSpaceParams): Space {
 
   async function sendImpl(
     ...content: [ContentInput, ...ContentInput[]]
-  ): Promise<OutboundMessage | OutboundMessage[]> {
+  ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
     const resolved = await resolveContents(content);
     const results: OutboundMessage[] = [];
     for (const item of resolved) {
-      const sendResult = (await definition.actions.send({
-        ...typingCtx,
-        content: item,
-      })) as SendResult | undefined;
+      let sendResult: SendResult | undefined;
+      try {
+        sendResult = (await definition.actions.send({
+          ...typingCtx,
+          content: item,
+        })) as SendResult | undefined;
+      } catch (err) {
+        if (err instanceof UnsupportedError) {
+          warnUnsupported(err, definition.name);
+          continue;
+        }
+        throw err;
+      }
       if (!sendResult?.id) {
         throw new Error(
           `Platform "${definition.name}" send did not return a message id`
@@ -82,7 +122,10 @@ export function buildSpace(params: BuildSpaceParams): Space {
         })
       );
     }
-    return content.length === 1 && results[0] ? results[0] : results;
+    if (content.length === 1) {
+      return results[0];
+    }
+    return results;
   }
 
   space = {
@@ -120,6 +163,10 @@ export function buildMessage(params: BuildMessageParams): Message {
 
   const react = async (reaction: string): Promise<void> => {
     if (!definition.actions.reactToMessage) {
+      warnUnsupported(
+        UnsupportedError.action("react", definition.name),
+        definition.name
+      );
       return;
     }
     await definition.actions.reactToMessage({
@@ -131,28 +178,41 @@ export function buildMessage(params: BuildMessageParams): Message {
     });
   };
 
-  async function reply(content: ContentInput): Promise<OutboundMessage>;
+  async function reply(
+    content: ContentInput
+  ): Promise<OutboundMessage | undefined>;
   async function reply(
     ...content: [ContentInput, ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage[]>;
   async function reply(
     ...content: [ContentInput, ...ContentInput[]]
-  ): Promise<OutboundMessage | OutboundMessage[]> {
+  ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
     if (!definition.actions.replyToMessage) {
-      throw new Error(
-        `Platform "${definition.name}" does not support replying to messages`
+      warnUnsupported(
+        UnsupportedError.action("reply", definition.name),
+        definition.name
       );
+      return content.length === 1 ? undefined : [];
     }
     const resolved = await resolveContents(content);
     const results: OutboundMessage[] = [];
     for (const item of resolved) {
-      const sendResult = (await definition.actions.replyToMessage({
-        space: spaceRef,
-        messageId: params.id,
-        content: item,
-        client,
-        config,
-      })) as SendResult | undefined;
+      let sendResult: SendResult | undefined;
+      try {
+        sendResult = (await definition.actions.replyToMessage({
+          space: spaceRef,
+          messageId: params.id,
+          content: item,
+          client,
+          config,
+        })) as SendResult | undefined;
+      } catch (err) {
+        if (err instanceof UnsupportedError) {
+          warnUnsupported(err, definition.name);
+          continue;
+        }
+        throw err;
+      }
       if (!sendResult?.id) {
         throw new Error(
           `Platform "${definition.name}" reply did not return a message id`
@@ -174,7 +234,10 @@ export function buildMessage(params: BuildMessageParams): Message {
         })
       );
     }
-    return content.length === 1 && results[0] ? results[0] : results;
+    if (content.length === 1) {
+      return results[0];
+    }
+    return results;
   }
 
   const senderWithPlatform =
@@ -193,21 +256,31 @@ export function buildMessage(params: BuildMessageParams): Message {
       reply,
       edit: async (newContent: ContentInput): Promise<void> => {
         if (!definition.actions.editMessage) {
-          throw new Error(
-            `Platform "${definition.name}" does not support editing messages`
+          warnUnsupported(
+            UnsupportedError.action("edit", definition.name),
+            definition.name
           );
+          return;
         }
         const [resolved] = await resolveContents([newContent]);
         if (!resolved) {
           return;
         }
-        await definition.actions.editMessage({
-          space: spaceRef,
-          messageId: params.id,
-          content: resolved,
-          client,
-          config,
-        });
+        try {
+          await definition.actions.editMessage({
+            space: spaceRef,
+            messageId: params.id,
+            content: resolved,
+            client,
+            config,
+          });
+        } catch (err) {
+          if (err instanceof UnsupportedError) {
+            warnUnsupported(err, definition.name);
+            return;
+          }
+          throw err;
+        }
       },
       sender: senderWithPlatform,
       space,

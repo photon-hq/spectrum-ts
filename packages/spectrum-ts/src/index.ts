@@ -12,6 +12,7 @@ export {
 } from "./content/contact";
 export { custom } from "./content/custom";
 export { resolveContents } from "./content/resolve";
+export { type Richlink, richlink } from "./content/richlink";
 export { text } from "./content/text";
 export type { Content, ContentBuilder, ContentInput } from "./content/types";
 export { type Voice, voice } from "./content/voice";

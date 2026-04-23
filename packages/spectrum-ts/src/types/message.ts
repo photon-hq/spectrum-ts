@@ -13,7 +13,7 @@ interface BaseMessage<
   react(reaction: string): Promise<void>;
   reply(
     content: ContentInput
-  ): Promise<OutboundMessage<TPlatform, TSender, TSpace>>;
+  ): Promise<OutboundMessage<TPlatform, TSender, TSpace> | undefined>;
   reply(
     ...content: [ContentInput, ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage<TPlatform, TSender, TSpace>[]>;

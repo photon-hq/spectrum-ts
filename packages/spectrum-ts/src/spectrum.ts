@@ -37,7 +37,10 @@ export type SpectrumInstance<
   CustomEventStreams<Providers> & {
     readonly messages: AsyncIterable<[Space, InboundMessage]>;
     stop(): Promise<void>;
-    send(space: Space, content: ContentInput): Promise<OutboundMessage>;
+    send(
+      space: Space,
+      content: ContentInput
+    ): Promise<OutboundMessage | undefined>;
     send(
       space: Space,
       ...content: [ContentInput, ContentInput, ...ContentInput[]]
@@ -119,11 +122,11 @@ export async function Spectrum<
     return stream<T>((emit, end) => {
       const iterator = iterable[Symbol.asyncIterator]();
 
-      (async () => {
+      const pump = (async () => {
         try {
           let result = await iterator.next();
           while (!result.done) {
-            emit(result.value);
+            await emit(result.value);
             result = await iterator.next();
           }
           end();
@@ -134,6 +137,7 @@ export async function Spectrum<
 
       return async () => {
         await iterator.return?.();
+        await pump;
       };
     });
   };
@@ -193,15 +197,15 @@ export async function Spectrum<
   };
 
   const createMessagesStream = (): ManagedStream<[Space, Message]> => {
-    return stream<[Space, Message]>(async (emit, end) => {
+    return stream<[Space, Message]>((emit, end) => {
       const merged = mergeStreams(
         Array.from(platformStates.values(), createProviderMessagesStream)
       );
 
-      (async () => {
+      const pump = (async () => {
         try {
           for await (const value of merged) {
-            emit(value);
+            await emit(value);
           }
           end();
         } catch (error) {
@@ -211,6 +215,7 @@ export async function Spectrum<
 
       return async () => {
         await merged.close();
+        await pump;
       };
     });
   };
@@ -218,7 +223,7 @@ export async function Spectrum<
   const createCustomEventStream = (
     eventName: string
   ): ManagedStream<unknown> => {
-    return stream<unknown>(async (emit, end) => {
+    return stream<unknown>((emit, end) => {
       const providerStreams = Array.from(platformStates.values(), (state) => {
         const { client, config, definition } = state;
         const producer = definition.events[eventName] as
@@ -245,10 +250,10 @@ export async function Spectrum<
 
       const merged = mergeStreams(providerStreams);
 
-      (async () => {
+      const pump = (async () => {
         try {
           for await (const value of merged) {
-            emit(value);
+            await emit(value);
           }
           end();
         } catch (error) {
@@ -258,6 +263,7 @@ export async function Spectrum<
 
       return async () => {
         await merged.close();
+        await pump;
       };
     });
   };
@@ -325,7 +331,7 @@ export async function Spectrum<
     send: (async (
       space: Space,
       ...content: [ContentInput, ...ContentInput[]]
-    ): Promise<OutboundMessage | OutboundMessage[]> => {
+    ): Promise<OutboundMessage | OutboundMessage[] | undefined> => {
       return content.length === 1
         ? await space.send(content[0])
         : await space.send(

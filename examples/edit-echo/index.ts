@@ -18,6 +18,9 @@ for await (const [space, message] of app.messages) {
 
   // space.send returns the OutboundMessage we just sent, so we can chain.
   const sent = await space.send(text(`echo: ${message.content.text}`));
+  if (!sent) {
+    continue;
+  }
   console.log(`sent id=${sent.id} direction=${sent.direction}`);
 
   // `sent` is OutboundMessage — edit typechecks. Terminal provider throws

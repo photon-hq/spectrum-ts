@@ -24,6 +24,14 @@ const normaliseImageUrl = (raw: string, base: string): string | undefined => {
   }
 };
 
+const cleanString = (v: string | undefined): string | undefined => {
+  if (typeof v !== "string") {
+    return;
+  }
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export const fetchLinkMetadata = async (url: string): Promise<LinkMetadata> => {
   try {
     const result = await ogs({
@@ -43,23 +51,25 @@ export const fetchLinkMetadata = async (url: string): Promise<LinkMetadata> => {
       twitterImage,
     } = result.result;
 
-    const title = ogTitle ?? twitterTitle;
-    const summary = ogDescription ?? twitterDescription;
+    const title = cleanString(ogTitle) ?? cleanString(twitterTitle);
+    const summary =
+      cleanString(ogDescription) ?? cleanString(twitterDescription);
 
     const imageCandidate = ogImage?.[0] ?? twitterImage?.[0];
-    const image = imageCandidate
-      ? (() => {
-          const resolved = normaliseImageUrl(imageCandidate.url, url);
-          if (!resolved) {
-            return;
-          }
-          const mimeType =
-            "type" in imageCandidate && typeof imageCandidate.type === "string"
-              ? imageCandidate.type
-              : undefined;
-          return { url: resolved, mimeType };
-        })()
+    const resolved = imageCandidate
+      ? normaliseImageUrl(imageCandidate.url, url)
       : undefined;
+    const image =
+      imageCandidate && resolved
+        ? {
+            url: resolved,
+            mimeType:
+              "type" in imageCandidate &&
+              typeof imageCandidate.type === "string"
+                ? imageCandidate.type
+                : undefined,
+          }
+        : undefined;
 
     return { title, summary, image };
   } catch {

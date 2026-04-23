@@ -8,14 +8,14 @@ import {
 import type { ContentBuilder } from "./types";
 
 const richlinkCoverSchema = z.object({
-  mimeType: z.string().nonempty().optional(),
+  mimeType: z.string().min(1).optional(),
   read: readSchema,
   stream: streamSchema,
 });
 
 const optionalStringAccessor = z.function({
   input: [],
-  output: z.promise(z.string().nonempty().optional()),
+  output: z.promise(z.string().min(1).optional()),
 });
 
 const coverAccessor = z.function({
@@ -69,20 +69,20 @@ const buildCover = (
  */
 export const asRichlink = (input: { url: string }): Richlink => {
   const getMetadata = memoize(() => fetchLinkMetadata(input.url));
+  const getCover = memoize(async (): Promise<RichlinkCover | undefined> => {
+    const { image } = await getMetadata();
+    return image ? buildCover(image) : undefined;
+  });
 
   const title = async () => (await getMetadata()).title;
   const summary = async () => (await getMetadata()).summary;
-  const cover = async (): Promise<RichlinkCover | undefined> => {
-    const { image } = await getMetadata();
-    return image ? buildCover(image) : undefined;
-  };
 
   return richlinkSchema.parse({
     type: "richlink",
     url: input.url,
     title,
     summary,
-    cover,
+    cover: getCover,
   });
 };
 

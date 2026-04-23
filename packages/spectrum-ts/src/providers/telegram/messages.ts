@@ -4,6 +4,7 @@ import type { Content } from "../../content/types";
 import type { Voice } from "../../content/voice";
 import type { SendResult } from "../../platform/types";
 import { UnsupportedError } from "../../utils/errors";
+import { toVCard } from "../../utils/vcard";
 import type { Message } from "./generated/types";
 import type { TelegramClient } from "./runtime/client";
 
@@ -146,10 +147,38 @@ const sendVoiceContent = async (
   const message = await client.invoke("sendVoice", {
     chat_id: toChatId(spaceId),
     voice: file,
-    ...(voice.duration === undefined ? {} : { duration: voice.duration }),
+    ...(voice.duration === undefined
+      ? {}
+      : { duration: Math.round(voice.duration) }),
     ...replyParams(opts),
   });
   return toSendResult(message);
+};
+
+const VCARD_MAX_BYTES = 2048;
+
+const hasExtraContactData = (contact: Contact): boolean =>
+  (contact.phones?.length ?? 0) > 1 ||
+  (contact.emails?.length ?? 0) > 0 ||
+  (contact.addresses?.length ?? 0) > 0 ||
+  (contact.urls?.length ?? 0) > 0 ||
+  contact.org !== undefined ||
+  contact.birthday !== undefined ||
+  contact.note !== undefined ||
+  contact.photo !== undefined ||
+  (typeof contact.raw === "string" && contact.raw.startsWith("BEGIN:VCARD"));
+
+const buildVCardField = async (
+  contact: Contact
+): Promise<string | undefined> => {
+  if (!hasExtraContactData(contact)) {
+    return undefined;
+  }
+  const card = await toVCard(contact);
+  if (Buffer.byteLength(card, "utf8") > VCARD_MAX_BYTES) {
+    return undefined;
+  }
+  return card;
 };
 
 const sendContactContent = async (
@@ -179,6 +208,10 @@ const sendContactContent = async (
   };
   if (contact.name?.last !== undefined) {
     params.last_name = contact.name.last;
+  }
+  const vcard = await buildVCardField(contact);
+  if (vcard !== undefined) {
+    params.vcard = vcard;
   }
   const reply = replyParams(opts);
   if ("reply_parameters" in reply) {

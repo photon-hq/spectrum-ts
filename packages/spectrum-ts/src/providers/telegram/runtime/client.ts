@@ -25,17 +25,25 @@ const mergeSignals = (
     return present[0];
   }
   const controller = new AbortController();
-  const onAbort = (reason: unknown) => {
-    controller.abort(reason);
+  const handlers: { signal: AbortSignal; handler: () => void }[] = [];
+  const cleanup = () => {
+    for (const { signal, handler } of handlers) {
+      signal.removeEventListener("abort", handler);
+    }
+    handlers.length = 0;
   };
   for (const signal of present) {
     if (signal.aborted) {
       controller.abort(signal.reason);
+      cleanup();
       return controller.signal;
     }
-    signal.addEventListener("abort", () => onAbort(signal.reason), {
-      once: true,
-    });
+    const handler = () => {
+      cleanup();
+      controller.abort(signal.reason);
+    };
+    handlers.push({ signal, handler });
+    signal.addEventListener("abort", handler, { once: true });
   }
   return controller.signal;
 };

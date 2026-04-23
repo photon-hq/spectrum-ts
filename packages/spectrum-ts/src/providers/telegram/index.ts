@@ -16,6 +16,9 @@ import {
   userSchema,
 } from "./types";
 
+const runtimeOf = (client: unknown): TelegramRuntime =>
+  client as TelegramRuntime;
+
 export const telegram = definePlatform("Telegram", {
   config: configSchema,
 
@@ -28,7 +31,7 @@ export const telegram = definePlatform("Telegram", {
     schema: spaceSchema,
     params: spaceParamsSchema,
     resolve: async ({ input, client }) => {
-      const runtime = client as TelegramRuntime;
+      const runtime = runtimeOf(client);
       const chatIdSource =
         input.params?.chatId ??
         (input.users.length === 1 ? input.users[0]?.id : undefined);
@@ -75,13 +78,13 @@ export const telegram = definePlatform("Telegram", {
     },
 
     destroyClient: async ({ client }) => {
-      (client as TelegramRuntime).abort.abort();
+      runtimeOf(client).abort.abort();
     },
   },
 
   events: {
     messages: ({ client, config }) => {
-      const runtime = client as TelegramRuntime;
+      const runtime = runtimeOf(client);
       return messages(runtime.client, runtime.abort.signal, {
         ...(config.pollingTimeout === undefined
           ? {}
@@ -95,12 +98,12 @@ export const telegram = definePlatform("Telegram", {
 
   actions: {
     send: async ({ space, content, client }) => {
-      return await send((client as TelegramRuntime).client, space.id, content);
+      return await send(runtimeOf(client).client, space.id, content);
     },
 
     replyToMessage: async ({ space, messageId, content, client }) => {
       return await replyToMessage(
-        (client as TelegramRuntime).client,
+        runtimeOf(client).client,
         space.id,
         messageId,
         content
@@ -108,17 +111,12 @@ export const telegram = definePlatform("Telegram", {
     },
 
     editMessage: async ({ space, messageId, content, client }) => {
-      await editMessage(
-        (client as TelegramRuntime).client,
-        space.id,
-        messageId,
-        content
-      );
+      await editMessage(runtimeOf(client).client, space.id, messageId, content);
     },
 
     reactToMessage: async ({ space, messageId, reaction, client }) => {
       await reactToMessage(
-        (client as TelegramRuntime).client,
+        runtimeOf(client).client,
         space.id,
         messageId,
         reaction
@@ -126,7 +124,7 @@ export const telegram = definePlatform("Telegram", {
     },
 
     startTyping: async ({ space, client }) => {
-      await startTyping((client as TelegramRuntime).client, space.id);
+      await startTyping(runtimeOf(client).client, space.id);
     },
   },
 });

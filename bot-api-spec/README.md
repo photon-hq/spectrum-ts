@@ -6,7 +6,7 @@ This directory is **not** a package. It is a plain folder in the `spectrum-ts` r
 
 ## Layout
 
-```
+```text
 bot-api-spec/
 ├── schema/
 │   └── telegram.json       ← authoritative schema (hand-written)
@@ -19,7 +19,7 @@ bot-api-spec/
 
 The schema covers only the Bot API subset that maps onto Spectrum's universal `Platform` actions:
 
-- `send` (text, media, contact, voice, media groups)
+- `send` (text, media, contact, voice)
 - `replyToMessage`, `editMessage`
 - `reactToMessage`, `startTyping`
 - `events.messages` (via long polling)
@@ -77,7 +77,7 @@ Field options:
 
 After editing `schema/telegram.json`:
 
-```
+```bash
 bun run gen:telegram
 ```
 

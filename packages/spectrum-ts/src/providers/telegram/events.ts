@@ -4,6 +4,7 @@ import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import { asVoice } from "../../content/voice";
 import { type ManagedStream, stream } from "../../utils/stream";
+import { fromVCard } from "../../utils/vcard";
 import type {
   Audio,
   Chat,
@@ -92,15 +93,16 @@ const userToSender = (
 // cached and messages that are never consumed cost nothing.
 const fetchFileBytes = async (
   client: TelegramClient,
-  fileId: string
+  fileId: string,
+  signal?: AbortSignal
 ): Promise<Response> => {
-  const file = await client.invoke("getFile", { file_id: fileId });
+  const file = await client.invoke("getFile", { file_id: fileId }, signal);
   if (!file.file_path) {
     throw new Error(
       `Telegram getFile returned no file_path for file_id=${fileId}`
     );
   }
-  const response = await fetch(client.fileUrl(file.file_path));
+  const response = await fetch(client.fileUrl(file.file_path), { signal });
   if (!response.ok) {
     throw new Error(
       `Telegram file download failed (${response.status}) for file_id=${fileId}`
@@ -114,6 +116,7 @@ const attachmentFromFile = (
   fileId: string,
   name: string,
   mimeType: string,
+  signal: AbortSignal | undefined,
   size?: number
 ): Content =>
   asAttachment({
@@ -121,9 +124,11 @@ const attachmentFromFile = (
     mimeType,
     ...(size === undefined ? {} : { size }),
     read: async () =>
-      Buffer.from(await (await fetchFileBytes(client, fileId)).arrayBuffer()),
+      Buffer.from(
+        await (await fetchFileBytes(client, fileId, signal)).arrayBuffer()
+      ),
     stream: async () => {
-      const response = await fetchFileBytes(client, fileId);
+      const response = await fetchFileBytes(client, fileId, signal);
       if (!response.body) {
         throw new Error(
           `Telegram file response has no body (file_id=${fileId})`
@@ -133,7 +138,11 @@ const attachmentFromFile = (
     },
   });
 
-const voiceFromFile = (client: TelegramClient, voice: TgVoice): Content => {
+const voiceFromFile = (
+  client: TelegramClient,
+  voice: TgVoice,
+  signal: AbortSignal | undefined
+): Content => {
   const mimeType = voice.mime_type ?? "audio/ogg";
   return asVoice({
     mimeType,
@@ -141,10 +150,12 @@ const voiceFromFile = (client: TelegramClient, voice: TgVoice): Content => {
     ...(voice.file_size === undefined ? {} : { size: voice.file_size }),
     read: async () =>
       Buffer.from(
-        await (await fetchFileBytes(client, voice.file_id)).arrayBuffer()
+        await (
+          await fetchFileBytes(client, voice.file_id, signal)
+        ).arrayBuffer()
       ),
     stream: async () => {
-      const response = await fetchFileBytes(client, voice.file_id);
+      const response = await fetchFileBytes(client, voice.file_id, signal);
       if (!response.body) {
         throw new Error(
           `Telegram voice file has no body (file_id=${voice.file_id})`
@@ -174,17 +185,33 @@ const audioName = (audio: Audio): string =>
 const videoName = (video: Video): string =>
   video.file_name ?? `video-${video.file_id}.mp4`;
 
+const parseVCardSafe = (
+  vcard: string
+): Parameters<typeof asContact>[0] | undefined => {
+  try {
+    return fromVCard(vcard);
+  } catch {
+    return undefined;
+  }
+};
+
 const contactToContent = (contact: TgContact): Content => {
   const formatted = [contact.first_name, contact.last_name]
     .filter((p): p is string => Boolean(p))
     .join(" ");
+  const fromCard =
+    contact.vcard === undefined ? undefined : parseVCardSafe(contact.vcard);
   const input: Parameters<typeof asContact>[0] = {
-    raw: contact,
+    ...(fromCard ?? {}),
+    raw: contact.vcard ?? contact,
     name: {
+      ...(fromCard?.name ?? {}),
       formatted: formatted || contact.first_name,
       first: contact.first_name,
     },
-    phones: [{ value: contact.phone_number }],
+    phones: fromCard?.phones?.length
+      ? fromCard.phones
+      : [{ value: contact.phone_number }],
   };
   if (contact.last_name !== undefined && input.name) {
     input.name.last = contact.last_name;
@@ -194,13 +221,14 @@ const contactToContent = (contact: TgContact): Content => {
 
 const messageToContent = (
   client: TelegramClient,
-  msg: Message
+  msg: Message,
+  signal: AbortSignal | undefined
 ): Content | undefined => {
   if (msg.text !== undefined) {
     return asText(msg.text);
   }
   if (msg.voice) {
-    return voiceFromFile(client, msg.voice);
+    return voiceFromFile(client, msg.voice, signal);
   }
   if (msg.photo && msg.photo.length > 0) {
     const largest = largestPhoto(msg.photo);
@@ -210,6 +238,7 @@ const messageToContent = (
         largest.file_id,
         photoName(largest),
         "image/jpeg",
+        signal,
         largest.file_size
       );
     }
@@ -220,6 +249,7 @@ const messageToContent = (
       msg.document.file_id,
       documentName(msg.document),
       msg.document.mime_type ?? "application/octet-stream",
+      signal,
       msg.document.file_size
     );
   }
@@ -229,6 +259,7 @@ const messageToContent = (
       msg.audio.file_id,
       audioName(msg.audio),
       msg.audio.mime_type ?? "audio/mpeg",
+      signal,
       msg.audio.file_size
     );
   }
@@ -238,6 +269,7 @@ const messageToContent = (
       msg.video.file_id,
       videoName(msg.video),
       msg.video.mime_type ?? "video/mp4",
+      signal,
       msg.video.file_size
     );
   }
@@ -252,13 +284,14 @@ const messageToContent = (
 
 const toTelegramMessage = (
   client: TelegramClient,
-  msg: Message
+  msg: Message,
+  signal: AbortSignal | undefined
 ): TelegramMessage | undefined => {
   const from = msg.from;
   if (!from) {
     return undefined;
   }
-  const content = messageToContent(client, msg);
+  const content = messageToContent(client, msg, signal);
   if (!content) {
     return undefined;
   }
@@ -313,7 +346,11 @@ export const messages = (
           if (!tgMessage) {
             continue;
           }
-          const spectrumMessage = toTelegramMessage(client, tgMessage);
+          const spectrumMessage = toTelegramMessage(
+            client,
+            tgMessage,
+            abortController.signal
+          );
           if (!spectrumMessage) {
             continue;
           }

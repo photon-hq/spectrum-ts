@@ -40,7 +40,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .DS_Store
 
 # test results
-test/
+test-results/
 
 # local backup of full telegram provider (pre-strip)
 telegram-full-backup/

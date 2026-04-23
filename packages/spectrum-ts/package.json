@@ -34,7 +34,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "generate:emoji": "bun scripts/generate-emoji.ts"
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.4.3",
@@ -54,7 +55,8 @@
     "@types/vcf": "^2.0.7",
     "clean-publish": "^6.0.5",
     "hotscript": "^1.0.13",
-    "tsup": "^8.4.0"
+    "tsup": "^8.4.0",
+    "unicode-emoji-json": "^0.9.0"
   },
   "peerDependencies": {
     "ffmpeg-static": "^5",

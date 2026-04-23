@@ -42,8 +42,6 @@
     "@photon-ai/whatsapp-business": "^0.1.1",
     "@repeaterjs/repeater": "^3.0.6",
     "better-grpc": "^0.3.2",
-    "@grammyjs/types": "^3.26.0",
-    "grammy": "^1.42.0",
     "mime-types": "^3.0.1",
     "type-fest": "^5.4.1",
     "vcf": "^2.1.2",

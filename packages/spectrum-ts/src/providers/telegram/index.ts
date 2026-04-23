@@ -1,190 +1,132 @@
-import { Bot } from "grammy";
 import { definePlatform } from "../../platform/define";
-import { type ManagedStream, stream } from "../../utils/stream";
-import { createLogger, type TelegramLogger } from "./errors";
+import { messages } from "./events";
 import {
   editMessage,
   reactToMessage,
   replyToMessage,
   send,
   startTyping,
-  toMessage,
 } from "./messages";
+import { TelegramClient } from "./runtime/client";
 import {
   configSchema,
-  type ParseMode,
   spaceParamsSchema,
   spaceSchema,
-  type TelegramMessage,
+  type TelegramRuntime,
+  userSchema,
 } from "./types";
-
-const MAX_BUFFERED_EVENTS = 1000;
-
-interface EventSink<T> {
-  buffer: T[];
-  listener: ((value: T) => void) | null;
-  push(value: T): void;
-}
-
-const createSink = <T>(): EventSink<T> => {
-  const sink: EventSink<T> = {
-    buffer: [],
-    listener: null,
-    push(value: T) {
-      if (sink.listener) {
-        sink.listener(value);
-      } else {
-        if (sink.buffer.length >= MAX_BUFFERED_EVENTS) {
-          sink.buffer.shift();
-        }
-        sink.buffer.push(value);
-      }
-    },
-  };
-  return sink;
-};
-
-const sinkToStream = <T>(sink: EventSink<T>): ManagedStream<T> =>
-  stream<T>((emit) => {
-    for (const item of sink.buffer) {
-      emit(item);
-    }
-    sink.buffer.length = 0;
-    sink.listener = emit;
-    return () => {
-      sink.listener = null;
-    };
-  });
-
-interface TelegramEventSinks {
-  messages: EventSink<TelegramMessage>;
-}
-
-interface TelegramClient {
-  bot: Bot;
-  logger: TelegramLogger;
-  parseMode?: ParseMode;
-  sinks: TelegramEventSinks;
-}
 
 export const telegram = definePlatform("Telegram", {
   config: configSchema,
+
+  user: {
+    schema: userSchema,
+    resolve: async ({ input }) => ({ id: input.userID }),
+  },
 
   space: {
     schema: spaceSchema,
     params: spaceParamsSchema,
     resolve: async ({ input, client }) => {
-      const c = client as TelegramClient;
-      const chatId = input.params?.chatId ?? input.users[0]?.id ?? "";
-
-      const chat = await c.bot.api.getChat(chatId);
-      const chatType = "type" in chat ? chat.type : ("private" as const);
-
-      return {
+      const runtime = client as TelegramRuntime;
+      const chatIdSource =
+        input.params?.chatId ??
+        (input.users.length === 1 ? input.users[0]?.id : undefined);
+      if (chatIdSource === undefined) {
+        throw new Error(
+          "Telegram space() requires params.chatId or a single resolved user"
+        );
+      }
+      const chat = await runtime.client.invoke("getChat", {
+        chat_id:
+          typeof chatIdSource === "string"
+            ? chatIdSource
+            : Number(chatIdSource),
+      });
+      const space: {
+        id: string;
+        chatId: number;
+        type: typeof chat.type;
+        title?: string;
+        username?: string;
+      } = {
         id: String(chat.id),
-        type: chatType,
+        chatId: chat.id,
+        type: chat.type,
       };
+      if (chat.title !== undefined) {
+        space.title = chat.title;
+      }
+      if (chat.username !== undefined) {
+        space.username = chat.username;
+      }
+      return space;
     },
-  },
-
-  user: {
-    resolve: async ({ input }) => ({
-      id: input.userID,
-    }),
   },
 
   lifecycle: {
-    createClient: async ({ config }): Promise<TelegramClient> => {
-      const logger = createLogger(config.logLevel);
-      const bot = new Bot(config.token);
-      await bot.init();
-      logger.info(`Bot initialized: @${bot.botInfo.username}`);
-
-      const sinks: TelegramEventSinks = {
-        messages: createSink(),
-      };
-
-      bot.on("message", (ctx) => {
-        if (ctx.message) {
-          sinks.messages.push(toMessage(bot, ctx.message));
-        }
+    createClient: async ({ config }): Promise<TelegramRuntime> => {
+      const client = new TelegramClient({
+        token: config.token,
+        ...(config.apiBaseUrl ? { baseUrl: config.apiBaseUrl } : {}),
       });
-
-      bot.catch((err) => {
-        logger.error("Bot error", err.error);
-      });
-
-      // bot.start() is intentionally not awaited — its promise never resolves
-      // while polling is active, so awaiting it would block createClient forever.
-      // Startup errors (bad token, network) surface through bot.catch() above.
-      bot
-        .start({
-          allowed_updates: ["message"],
-        })
-        .catch((err) => {
-          logger.error("Bot polling failed", err);
-        });
-
-      return {
-        bot,
-        logger,
-        parseMode: config.parseMode,
-        sinks,
-      };
+      await client.invoke("getMe", {});
+      return { client, abort: new AbortController() };
     },
 
-    destroyClient: async ({ client }: { client: TelegramClient }) => {
-      await client.bot.stop();
+    destroyClient: async ({ client }) => {
+      (client as TelegramRuntime).abort.abort();
     },
   },
 
   events: {
-    messages: ({ client }: { client: TelegramClient }) =>
-      sinkToStream(client.sinks.messages) as AsyncIterable<TelegramMessage>,
+    messages: ({ client, config }) => {
+      const runtime = client as TelegramRuntime;
+      return messages(runtime.client, runtime.abort.signal, {
+        ...(config.pollingTimeout === undefined
+          ? {}
+          : { timeout: config.pollingTimeout }),
+        ...(config.dropPendingUpdates === undefined
+          ? {}
+          : { dropPendingUpdates: config.dropPendingUpdates }),
+      });
+    },
   },
 
   actions: {
     send: async ({ space, content, client }) => {
-      const c = client as TelegramClient;
-      return await send(c.bot, space.id, content, c.logger, c.parseMode);
-    },
-
-    startTyping: async ({ space, client }) => {
-      const c = client as TelegramClient;
-      await startTyping(c.bot, space.id);
-    },
-
-    stopTyping: async () => {
-      // Telegram auto-clears typing after 5s or when a message is sent
-    },
-
-    reactToMessage: async ({ space, messageId, reaction, client }) => {
-      const c = client as TelegramClient;
-      await reactToMessage(c.bot, space.id, messageId, reaction, c.logger);
+      return await send((client as TelegramRuntime).client, space.id, content);
     },
 
     replyToMessage: async ({ space, messageId, content, client }) => {
-      const c = client as TelegramClient;
       return await replyToMessage(
-        c.bot,
+        (client as TelegramRuntime).client,
         space.id,
         messageId,
-        content,
-        c.logger,
-        c.parseMode
+        content
       );
     },
 
     editMessage: async ({ space, messageId, content, client }) => {
-      const c = client as TelegramClient;
       await editMessage(
-        c.bot,
+        (client as TelegramRuntime).client,
         space.id,
         messageId,
-        content,
-        c.logger,
-        c.parseMode
+        content
       );
+    },
+
+    reactToMessage: async ({ space, messageId, reaction, client }) => {
+      await reactToMessage(
+        (client as TelegramRuntime).client,
+        space.id,
+        messageId,
+        reaction
+      );
+    },
+
+    startTyping: async ({ space, client }) => {
+      await startTyping((client as TelegramRuntime).client, space.id);
     },
   },
 });

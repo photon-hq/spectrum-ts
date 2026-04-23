@@ -1,0 +1,337 @@
+{
+  "version": "8.3",
+  "baseUrl": "https://api.telegram.org",
+  "scope": "spectrum-universal",
+  "types": {
+    "Update": {
+      "description": "Incoming update. At most one of the optional parameters can be present in any given update.",
+      "fields": [
+        { "name": "update_id", "type": "integer", "required": true },
+        { "name": "message", "type": "Ref:Message", "required": false },
+        { "name": "edited_message", "type": "Ref:Message", "required": false },
+        { "name": "channel_post", "type": "Ref:Message", "required": false },
+        {
+          "name": "edited_channel_post",
+          "type": "Ref:Message",
+          "required": false
+        }
+      ]
+    },
+    "User": {
+      "description": "Telegram user or bot.",
+      "fields": [
+        { "name": "id", "type": "integer", "required": true },
+        { "name": "is_bot", "type": "boolean", "required": true },
+        { "name": "first_name", "type": "string", "required": true },
+        { "name": "last_name", "type": "string", "required": false },
+        { "name": "username", "type": "string", "required": false },
+        { "name": "language_code", "type": "string", "required": false }
+      ]
+    },
+    "Chat": {
+      "description": "Chat (private, group, supergroup, or channel).",
+      "fields": [
+        { "name": "id", "type": "integer", "required": true },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "enum": ["private", "group", "supergroup", "channel"]
+        },
+        { "name": "title", "type": "string", "required": false },
+        { "name": "username", "type": "string", "required": false }
+      ]
+    },
+    "Message": {
+      "description": "A message.",
+      "fields": [
+        { "name": "message_id", "type": "integer", "required": true },
+        {
+          "name": "date",
+          "type": "integer",
+          "required": true,
+          "description": "Unix time"
+        },
+        { "name": "chat", "type": "Ref:Chat", "required": true },
+        { "name": "from", "type": "Ref:User", "required": false },
+        { "name": "text", "type": "string", "required": false },
+        { "name": "caption", "type": "string", "required": false },
+        { "name": "photo", "type": "Array:Ref:PhotoSize", "required": false },
+        { "name": "document", "type": "Ref:Document", "required": false },
+        { "name": "audio", "type": "Ref:Audio", "required": false },
+        { "name": "video", "type": "Ref:Video", "required": false },
+        { "name": "voice", "type": "Ref:Voice", "required": false },
+        { "name": "contact", "type": "Ref:Contact", "required": false }
+      ]
+    },
+    "PhotoSize": {
+      "description": "One size of a photo.",
+      "fields": [
+        { "name": "file_id", "type": "string", "required": true },
+        { "name": "width", "type": "integer", "required": true },
+        { "name": "height", "type": "integer", "required": true },
+        { "name": "file_size", "type": "integer", "required": false }
+      ]
+    },
+    "Document": {
+      "description": "General file (as opposed to photo/voice/video/audio).",
+      "fields": [
+        { "name": "file_id", "type": "string", "required": true },
+        { "name": "file_name", "type": "string", "required": false },
+        { "name": "mime_type", "type": "string", "required": false },
+        { "name": "file_size", "type": "integer", "required": false }
+      ]
+    },
+    "Audio": {
+      "description": "Audio file to be treated as music.",
+      "fields": [
+        { "name": "file_id", "type": "string", "required": true },
+        { "name": "file_name", "type": "string", "required": false },
+        { "name": "mime_type", "type": "string", "required": false },
+        { "name": "file_size", "type": "integer", "required": false }
+      ]
+    },
+    "Video": {
+      "description": "Video file.",
+      "fields": [
+        { "name": "file_id", "type": "string", "required": true },
+        { "name": "file_name", "type": "string", "required": false },
+        { "name": "mime_type", "type": "string", "required": false },
+        { "name": "file_size", "type": "integer", "required": false }
+      ]
+    },
+    "Voice": {
+      "description": "Voice note.",
+      "fields": [
+        { "name": "file_id", "type": "string", "required": true },
+        { "name": "duration", "type": "integer", "required": true },
+        { "name": "mime_type", "type": "string", "required": false },
+        { "name": "file_size", "type": "integer", "required": false }
+      ]
+    },
+    "Contact": {
+      "description": "Phone contact.",
+      "fields": [
+        { "name": "phone_number", "type": "string", "required": true },
+        { "name": "first_name", "type": "string", "required": true },
+        { "name": "last_name", "type": "string", "required": false }
+      ]
+    },
+    "ReactionType": {
+      "description": "Reaction type.",
+      "fields": [
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "const": "emoji"
+        },
+        { "name": "emoji", "type": "string", "required": true }
+      ]
+    },
+    "ReplyParameters": {
+      "description": "Reply parameters for outgoing messages.",
+      "fields": [{ "name": "message_id", "type": "integer", "required": true }]
+    },
+    "ResponseParameters": {
+      "description": "Error response parameters.",
+      "fields": [
+        { "name": "retry_after", "type": "integer", "required": false },
+        { "name": "migrate_to_chat_id", "type": "integer", "required": false }
+      ]
+    },
+    "File": {
+      "description": "Downloadable file descriptor.",
+      "fields": [
+        { "name": "file_id", "type": "string", "required": true },
+        { "name": "file_size", "type": "integer", "required": false },
+        { "name": "file_path", "type": "string", "required": false }
+      ]
+    },
+    "InputFile": {
+      "description": "File to upload. Sent as either a file_id/URL string or a multipart attachment.",
+      "fields": [],
+      "primitive": "input-file"
+    }
+  },
+  "methods": {
+    "getMe": {
+      "description": "Returns basic info about the bot.",
+      "httpMethod": "POST",
+      "params": [],
+      "returns": "Ref:User"
+    },
+    "getUpdates": {
+      "description": "Receives incoming updates using long polling.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "offset", "type": "integer", "required": false },
+        {
+          "name": "timeout",
+          "type": "integer",
+          "required": false,
+          "description": "Long-polling timeout in seconds"
+        },
+        {
+          "name": "allowed_updates",
+          "type": "Array:string",
+          "required": false
+        }
+      ],
+      "returns": "Array:Ref:Update"
+    },
+    "sendMessage": {
+      "description": "Sends a text message.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "text", "type": "string", "required": true },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "sendPhoto": {
+      "description": "Sends a photo.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "photo", "type": "Ref:InputFile", "required": true },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "sendDocument": {
+      "description": "Sends a general file.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "document", "type": "Ref:InputFile", "required": true },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "sendAudio": {
+      "description": "Sends an audio file shown as music.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "audio", "type": "Ref:InputFile", "required": true },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "sendVideo": {
+      "description": "Sends a video.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "video", "type": "Ref:InputFile", "required": true },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "sendVoice": {
+      "description": "Sends an audio file to be displayed as a voice note.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "voice", "type": "Ref:InputFile", "required": true },
+        { "name": "duration", "type": "integer", "required": false },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "sendContact": {
+      "description": "Sends a phone contact.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "phone_number", "type": "string", "required": true },
+        { "name": "first_name", "type": "string", "required": true },
+        { "name": "last_name", "type": "string", "required": false },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "editMessageText": {
+      "description": "Edits a text message.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "message_id", "type": "integer", "required": true },
+        { "name": "text", "type": "string", "required": true }
+      ],
+      "returns": "Union:Ref:Message|boolean"
+    },
+    "setMessageReaction": {
+      "description": "Sets reactions on a message.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "message_id", "type": "integer", "required": true },
+        {
+          "name": "reaction",
+          "type": "Array:Ref:ReactionType",
+          "required": false
+        }
+      ],
+      "returns": "boolean"
+    },
+    "sendChatAction": {
+      "description": "Broadcasts a chat action.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        {
+          "name": "action",
+          "type": "string",
+          "required": true,
+          "const": "typing"
+        }
+      ],
+      "returns": "boolean"
+    },
+    "getChat": {
+      "description": "Gets a chat by ID.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true }
+      ],
+      "returns": "Ref:Chat"
+    },
+    "getFile": {
+      "description": "Gets basic info about a file. Compose with baseUrl + /file/bot<TOKEN>/<file_path> to download.",
+      "httpMethod": "POST",
+      "params": [{ "name": "file_id", "type": "string", "required": true }],
+      "returns": "Ref:File"
+    }
+  }
+}

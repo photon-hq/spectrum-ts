@@ -14,7 +14,8 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "check": "ultracite check",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "gen:telegram": "bun run bot-api-spec/generators/typescript.ts"
   },
   "dependencies": {
     "@types/node": "^25.6.0"

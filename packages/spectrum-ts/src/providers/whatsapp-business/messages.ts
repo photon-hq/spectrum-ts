@@ -16,6 +16,7 @@ import {
   type ContactPhone as SpectrumContactPhone,
 } from "../../content/contact";
 import { asCustom } from "../../content/custom";
+import { asReaction } from "../../content/reaction";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
@@ -227,7 +228,10 @@ const mapContent = (
     case "location":
       return asCustom({ whatsapp_type: "location", ...content.location });
     case "reaction":
-      return asCustom({ whatsapp_type: "reaction", ...content.reaction });
+      return asReaction({
+        emoji: content.reaction.emoji,
+        target: content.reaction.messageId,
+      });
     case "interactive":
       return asCustom({ whatsapp_type: "interactive", ...content.interactive });
     case "button":

@@ -8,6 +8,7 @@ import {
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
+import { asReaction } from "../../content/reaction";
 import { asRichlink } from "../../content/richlink";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
@@ -55,9 +56,65 @@ const isVCardAttachment = (
 
 type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 
-const TAPBACK_NAMES: ReadonlySet<string> = new Set(
-  Object.values(Reaction).filter((r) => r !== "emoji" && r !== "sticker")
+// Emoji ↔ classic tapback (Apple's six fixed reactions). On send, these six
+// emoji use the native tapback API; anything else falls through to the
+// emoji-reaction API (iOS 17+). On receive, classic tapbacks surface as
+// their emoji equivalent so callers never see platform-specific strings.
+const EMOJI_TO_TAPBACK: Readonly<Record<string, Reaction>> = {
+  "❤️": Reaction.love,
+  "👍": Reaction.like,
+  "👎": Reaction.dislike,
+  "😂": Reaction.laugh,
+  "‼️": Reaction.emphasize,
+  "❓": Reaction.question,
+};
+
+const TAPBACK_TO_EMOJI: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(EMOJI_TO_TAPBACK).map(([emoji, kind]) => [kind, emoji])
 );
+
+// Apple `associatedMessageType` raw codes (IMItemType):
+//   2000–2005 add classic tapback, 2006 add emoji, 2007 add sticker.
+//   3000–3007 mirror but *remove* the reaction; we drop removals for now.
+const TAPBACK_CODE_TO_KIND: Readonly<Record<string, Reaction>> = {
+  "2000": Reaction.love,
+  "2001": Reaction.like,
+  "2002": Reaction.dislike,
+  "2003": Reaction.laugh,
+  "2004": Reaction.emphasize,
+  "2005": Reaction.question,
+  "2006": Reaction.emoji,
+  "2007": Reaction.sticker,
+};
+
+const isTapbackRemoval = (code: string): boolean => code.startsWith("3");
+
+const resolveReactionEmoji = (
+  type: string | undefined,
+  emoji: string | undefined
+): string | null => {
+  if (emoji) {
+    return emoji;
+  }
+  if (!type) {
+    return null;
+  }
+  const kind = TAPBACK_CODE_TO_KIND[type] ?? (type as Reaction);
+  return TAPBACK_TO_EMOJI[kind] ?? null;
+};
+
+const getAssociatedMessageType = (
+  message: ReceivedEvent["message"]
+): string | undefined => {
+  const direct = (message as { associatedMessageType?: unknown })
+    .associatedMessageType;
+  if (typeof direct === "string") {
+    return direct;
+  }
+  const raw = (message as { _raw?: { associatedMessageType?: unknown } })._raw;
+  const fromRaw = raw?.associatedMessageType;
+  return typeof fromRaw === "string" ? fromRaw : undefined;
+};
 
 const baseMessage = (
   event: ReceivedEvent
@@ -120,12 +177,45 @@ const toRichlinkMessage = (
   }
 };
 
+// Apple prefixes the target guid of a tapback with `p:<partIndex>/` to name a
+// specific part of a multi-part message. spectrum-ts surfaces message ids as
+// bare guids everywhere else, so strip the part prefix here for consistency.
+const PART_PREFIX = /^p:\d+\//;
+
+const toReactionMessage = (
+  event: ReceivedEvent,
+  base: Omit<IMessageMessage, "id" | "content">,
+  id: string,
+  target: string
+): IMessageMessage[] => {
+  const type = getAssociatedMessageType(event.message);
+  if (type && isTapbackRemoval(type)) {
+    return [];
+  }
+  const emoji = resolveReactionEmoji(
+    type,
+    event.message.associatedMessageEmoji
+  );
+  if (!emoji) {
+    return [];
+  }
+  const normalizedTarget = target.replace(PART_PREFIX, "");
+  return [
+    { ...base, id, content: asReaction({ emoji, target: normalizedTarget }) },
+  ];
+};
+
 const toMessages = async (
   client: AdvancedIMessage,
   event: ReceivedEvent
 ): Promise<IMessageMessage[]> => {
   const base = baseMessage(event);
   const messageGuidStr = event.message.guid as string;
+
+  const assoc = event.message.associatedMessageGuid as string | undefined;
+  if (assoc) {
+    return toReactionMessage(event, base, messageGuidStr, assoc);
+  }
 
   if (getBalloonBundleId(event.message) === URL_BALLOON_BUNDLE_ID) {
     return [toRichlinkMessage(event, base, messageGuidStr)];
@@ -394,8 +484,9 @@ export const reactToMessage = async (
   const chat = chatGuid(spaceId);
   const msg = messageGuid(msgId);
 
-  if (TAPBACK_NAMES.has(reaction)) {
-    await remote.messages.react(chat, msg, reaction as Reaction);
+  const native = EMOJI_TO_TAPBACK[reaction];
+  if (native) {
+    await remote.messages.react(chat, msg, native);
   } else {
     await remote.messages.reactEmoji(chat, msg, reaction);
   }

@@ -23,17 +23,6 @@ import {
 export const imessage = definePlatform("iMessage", {
   config: configSchema,
 
-  static: {
-    tapbacks: {
-      love: "love",
-      like: "like",
-      dislike: "dislike",
-      laugh: "laugh",
-      emphasize: "emphasize",
-      question: "question",
-    } as const,
-  },
-
   user: {
     resolve: async ({ input }) => ({ id: input.userID }),
   },
@@ -138,7 +127,7 @@ export const imessage = definePlatform("iMessage", {
     },
     reactToMessage: async ({ space, messageId, reaction, client }) => {
       if (isLocal(client)) {
-        return;
+        throw UnsupportedError.action("react", "iMessage (local mode)");
       }
       await remoteReactToMessage(client, space.id, messageId, reaction);
     },

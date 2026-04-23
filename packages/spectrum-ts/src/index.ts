@@ -11,11 +11,13 @@ export {
   contact,
 } from "./content/contact";
 export { custom } from "./content/custom";
+export { type Reaction, reaction } from "./content/reaction";
 export { resolveContents } from "./content/resolve";
 export { type Richlink, richlink } from "./content/richlink";
 export { text } from "./content/text";
 export type { Content, ContentBuilder, ContentInput } from "./content/types";
 export { type Voice, voice } from "./content/voice";
+export { Emoji, type EmojiKey } from "./emoji";
 export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,

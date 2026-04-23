@@ -82,45 +82,79 @@ export function buildSpace(params: BuildSpaceParams): Space {
   // Declared first so inner arrows can reference it after assignment.
   let space: Space;
 
+  async function dispatchReaction(
+    item: Extract<Content, { type: "reaction" }>
+  ): Promise<void> {
+    try {
+      if (!definition.actions.reactToMessage) {
+        throw UnsupportedError.action("react", definition.name);
+      }
+      await definition.actions.reactToMessage({
+        space: spaceRef,
+        messageId: item.target,
+        reaction: item.emoji,
+        client,
+        config,
+      });
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        warnUnsupported(err, definition.name);
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async function dispatchSend(
+    item: Exclude<Content, { type: "reaction" }>
+  ): Promise<OutboundMessage | undefined> {
+    let sendResult: SendResult | undefined;
+    try {
+      sendResult = (await definition.actions.send({
+        ...typingCtx,
+        content: item,
+      })) as SendResult | undefined;
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        warnUnsupported(err, definition.name);
+        return;
+      }
+      throw err;
+    }
+    if (!sendResult?.id) {
+      throw new Error(
+        `Platform "${definition.name}" send did not return a message id`
+      );
+    }
+    return buildMessage({
+      id: sendResult.id,
+      content: item,
+      sender: sendResult.sender,
+      timestamp: sendResult.timestamp ?? new Date(),
+      extras: {},
+      spaceRef,
+      space,
+      definition,
+      client,
+      config,
+      direction: "outbound",
+    });
+  }
+
   async function sendImpl(
     ...content: [ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
     const resolved = await resolveContents(content);
     const results: OutboundMessage[] = [];
     for (const item of resolved) {
-      let sendResult: SendResult | undefined;
-      try {
-        sendResult = (await definition.actions.send({
-          ...typingCtx,
-          content: item,
-        })) as SendResult | undefined;
-      } catch (err) {
-        if (err instanceof UnsupportedError) {
-          warnUnsupported(err, definition.name);
-          continue;
-        }
-        throw err;
+      if (item.type === "reaction") {
+        await dispatchReaction(item);
+        continue;
       }
-      if (!sendResult?.id) {
-        throw new Error(
-          `Platform "${definition.name}" send did not return a message id`
-        );
+      const sent = await dispatchSend(item);
+      if (sent) {
+        results.push(sent);
       }
-      results.push(
-        buildMessage({
-          id: sendResult.id,
-          content: item,
-          sender: sendResult.sender,
-          timestamp: sendResult.timestamp ?? new Date(),
-          extras: {},
-          spaceRef,
-          space,
-          definition,
-          client,
-          config,
-          direction: "outbound",
-        })
-      );
     }
     if (content.length === 1) {
       return results[0];
@@ -169,13 +203,21 @@ export function buildMessage(params: BuildMessageParams): Message {
       );
       return;
     }
-    await definition.actions.reactToMessage({
-      space: spaceRef,
-      messageId: params.id,
-      reaction,
-      client,
-      config,
-    });
+    try {
+      await definition.actions.reactToMessage({
+        space: spaceRef,
+        messageId: params.id,
+        reaction,
+        client,
+        config,
+      });
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        warnUnsupported(err, definition.name);
+        return;
+      }
+      throw err;
+    }
   };
 
   async function reply(

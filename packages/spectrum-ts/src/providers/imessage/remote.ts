@@ -8,6 +8,7 @@ import {
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
+import { asRichlink } from "../../content/richlink";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
@@ -18,6 +19,13 @@ import { fromVCard, toVCard } from "../../utils/vcard";
 import type { IMessageMessage } from "./types";
 
 const PLATFORM = "iMessage";
+
+// The balloonBundleId Apple stamps on messages whose sole purpose is to
+// render a URL preview card. Lives on the proto-level message only —
+// the public `Message$1` type does not expose it, so we reach through
+// `_raw`. Other plugin bundles (Find My, Digital Touch, Apple Pay) use
+// different ids and are intentionally not matched here.
+const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
 
 const unsupportedContent = (type: string): UnsupportedError =>
   UnsupportedError.content(type, PLATFORM);
@@ -87,12 +95,41 @@ const toVCardContent = async (
   }
 };
 
+const getBalloonBundleId = (
+  message: ReceivedEvent["message"]
+): string | undefined => {
+  const raw = (message as { _raw?: { balloonBundleId?: unknown } })._raw;
+  const id = raw?.balloonBundleId;
+  return typeof id === "string" ? id : undefined;
+};
+
+const toRichlinkMessage = (
+  event: ReceivedEvent,
+  base: Omit<IMessageMessage, "id" | "content">,
+  id: string
+): IMessageMessage => {
+  const url = event.message.text ?? "";
+  try {
+    return { ...base, id, content: asRichlink({ url }) };
+  } catch {
+    return {
+      ...base,
+      id,
+      content: url ? asText(url) : asCustom(event.message),
+    };
+  }
+};
+
 const toMessages = async (
   client: AdvancedIMessage,
   event: ReceivedEvent
 ): Promise<IMessageMessage[]> => {
   const base = baseMessage(event);
   const messageGuidStr = event.message.guid as string;
+
+  if (getBalloonBundleId(event.message) === URL_BALLOON_BUNDLE_ID) {
+    return [toRichlinkMessage(event, base, messageGuidStr)];
+  }
 
   if (event.message.attachments.length > 0) {
     return Promise.all(
@@ -209,6 +246,10 @@ export const send = async (
   switch (content.type) {
     case "text":
       return toSendResult(await remote.messages.send(chat, content.text));
+    case "richlink":
+      return toSendResult(
+        await remote.messages.send(chat, content.url, { richLink: true })
+      );
     case "attachment": {
       const attachment = await remote.attachments.upload({
         data: await content.read(),
@@ -265,6 +306,13 @@ export const replyToMessage = async (
     case "text":
       return toSendResult(
         await remote.messages.send(chat, content.text, { replyTo })
+      );
+    case "richlink":
+      return toSendResult(
+        await remote.messages.send(chat, content.url, {
+          richLink: true,
+          replyTo,
+        })
       );
     case "attachment": {
       const attachment = await remote.attachments.upload({

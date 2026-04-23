@@ -177,6 +177,11 @@ const toRichlinkMessage = (
   }
 };
 
+// Apple prefixes the target guid of a tapback with `p:<partIndex>/` to name a
+// specific part of a multi-part message. spectrum-ts surfaces message ids as
+// bare guids everywhere else, so strip the part prefix here for consistency.
+const PART_PREFIX = /^p:\d+\//;
+
 const toReactionMessage = (
   event: ReceivedEvent,
   base: Omit<IMessageMessage, "id" | "content">,
@@ -194,7 +199,10 @@ const toReactionMessage = (
   if (!emoji) {
     return [];
   }
-  return [{ ...base, id, content: asReaction({ emoji, target }) }];
+  const normalizedTarget = target.replace(PART_PREFIX, "");
+  return [
+    { ...base, id, content: asReaction({ emoji, target: normalizedTarget }) },
+  ];
 };
 
 const toMessages = async (

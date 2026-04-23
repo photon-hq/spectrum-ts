@@ -328,7 +328,12 @@
       "params": [
         { "name": "chat_id", "type": "Union:integer|string", "required": true },
         { "name": "message_id", "type": "integer", "required": true },
-        { "name": "text", "type": "string", "required": true }
+        { "name": "text", "type": "string", "required": true },
+        {
+          "name": "link_preview_options",
+          "type": "Ref:LinkPreviewOptions",
+          "required": false
+        }
       ],
       "returns": "Union:Ref:Message|boolean"
     },

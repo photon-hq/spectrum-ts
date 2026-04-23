@@ -93,6 +93,7 @@ export interface EditMessageTextParams {
   chat_id: number | string;
   message_id: number;
   text: string;
+  link_preview_options?: LinkPreviewOptions;
 }
 
 /** Sets reactions on a message. */

@@ -87,24 +87,28 @@ const sendText = async (
   return toSendResult(message);
 };
 
-// Telegram fetches OG metadata server-side from the URL itself, so we don't
-// forward the Richlink.title / summary / cover accessors — they would duplicate
-// Telegram's own preview. We just send the URL as the message body and pin
-// link-preview options so the preview is shown above the text.
+// Telegram generates the preview card server-side by scraping OG metadata from
+// the URL, so we don't forward Richlink.title / summary / cover — Telegram
+// fetches its own. Pinning `url` explicitly unlocks prefer_large_media (which
+// is ignored without an explicit url), which is what turns a plain link into a
+// big preview card — i.e. the whole point of a richlink.
+const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
+  is_disabled: false,
+  url,
+  prefer_large_media: true,
+  show_above_text: true,
+});
+
 const sendRichlinkContent = async (
   client: TelegramClient,
   spaceId: string,
   richlink: Richlink,
   opts: SendOpts
 ): Promise<SendResult> => {
-  const linkPreview: LinkPreviewOptions = {
-    is_disabled: false,
-    show_above_text: true,
-  };
   const message = await client.invoke("sendMessage", {
     chat_id: toChatId(spaceId),
     text: richlink.url,
-    link_preview_options: linkPreview,
+    link_preview_options: richlinkPreviewOptions(richlink.url),
     ...replyParams(opts),
   });
   return toSendResult(message);
@@ -309,6 +313,9 @@ export const editMessage = async (
     chat_id: toChatId(spaceId),
     message_id: targetId,
     text,
+    ...(content.type === "richlink"
+      ? { link_preview_options: richlinkPreviewOptions(content.url) }
+      : {}),
   });
 };
 

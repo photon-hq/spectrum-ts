@@ -203,13 +203,21 @@ export function buildMessage(params: BuildMessageParams): Message {
       );
       return;
     }
-    await definition.actions.reactToMessage({
-      space: spaceRef,
-      messageId: params.id,
-      reaction,
-      client,
-      config,
-    });
+    try {
+      await definition.actions.reactToMessage({
+        space: spaceRef,
+        messageId: params.id,
+        reaction,
+        client,
+        config,
+      });
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        warnUnsupported(err, definition.name);
+        return;
+      }
+      throw err;
+    }
   };
 
   async function reply(

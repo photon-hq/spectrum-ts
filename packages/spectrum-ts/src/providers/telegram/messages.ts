@@ -1,11 +1,12 @@
 import type { Attachment } from "../../content/attachment";
 import type { Contact } from "../../content/contact";
+import type { Richlink } from "../../content/richlink";
 import type { Content } from "../../content/types";
 import type { Voice } from "../../content/voice";
 import type { SendResult } from "../../platform/types";
 import { UnsupportedError } from "../../utils/errors";
 import { toVCard } from "../../utils/vcard";
-import type { Message } from "./generated/types";
+import type { LinkPreviewOptions, Message } from "./generated/types";
 import type { TelegramClient } from "./runtime/client";
 
 const PLATFORM_NAME = "Telegram";
@@ -81,6 +82,29 @@ const sendText = async (
   const message = await client.invoke("sendMessage", {
     chat_id: toChatId(spaceId),
     text,
+    ...replyParams(opts),
+  });
+  return toSendResult(message);
+};
+
+// Telegram fetches OG metadata server-side from the URL itself, so we don't
+// forward the Richlink.title / summary / cover accessors — they would duplicate
+// Telegram's own preview. We just send the URL as the message body and pin
+// link-preview options so the preview is shown above the text.
+const sendRichlinkContent = async (
+  client: TelegramClient,
+  spaceId: string,
+  richlink: Richlink,
+  opts: SendOpts
+): Promise<SendResult> => {
+  const linkPreview: LinkPreviewOptions = {
+    is_disabled: false,
+    show_above_text: true,
+  };
+  const message = await client.invoke("sendMessage", {
+    chat_id: toChatId(spaceId),
+    text: richlink.url,
+    link_preview_options: linkPreview,
     ...replyParams(opts),
   });
   return toSendResult(message);
@@ -230,6 +254,8 @@ const dispatchSend = async (
   switch (content.type) {
     case "text":
       return await sendText(client, spaceId, content.text, opts);
+    case "richlink":
+      return await sendRichlinkContent(client, spaceId, content, opts);
     case "attachment":
       return await sendAttachment(client, spaceId, content, opts);
     case "voice":
@@ -271,17 +297,18 @@ export const editMessage = async (
   content: Content
 ): Promise<void> => {
   const targetId = toMessageId(messageId);
-  if (content.type !== "text") {
+  if (content.type !== "text" && content.type !== "richlink") {
     throw UnsupportedError.action(
       "editMessage",
       PLATFORM_NAME,
-      `only text edits are supported, got "${content.type}"`
+      `only text/richlink edits are supported, got "${content.type}"`
     );
   }
+  const text = content.type === "text" ? content.text : content.url;
   await client.invoke("editMessageText", {
     chat_id: toChatId(spaceId),
     message_id: targetId,
-    text: content.text,
+    text,
   });
 };
 

@@ -41,12 +41,32 @@ export interface Message {
   from?: User;
   text?: string;
   caption?: string;
+  entities?: Array<MessageEntity>;
+  link_preview_options?: LinkPreviewOptions;
   photo?: Array<PhotoSize>;
   document?: Document;
   audio?: Audio;
   video?: Video;
   voice?: Voice;
   contact?: Contact;
+}
+
+/** A special entity in a text message (URL, mention, hashtag, etc.). */
+export interface MessageEntity {
+  type: string;
+  offset: number;
+  length: number;
+  /** For text_link only: the URL to open */
+  url?: string;
+}
+
+/** Describes link-preview generation options for a message. */
+export interface LinkPreviewOptions {
+  is_disabled?: boolean;
+  url?: string;
+  prefer_small_media?: boolean;
+  prefer_large_media?: boolean;
+  show_above_text?: boolean;
 }
 
 /** One size of a photo. */

@@ -9,7 +9,9 @@ import type {
   Contact,
   Document,
   File,
+  LinkPreviewOptions,
   Message,
+  MessageEntity,
   PhotoSize,
   ReactionType,
   ReplyParameters,
@@ -36,6 +38,7 @@ export interface GetUpdatesParams {
 export interface SendMessageParams {
   chat_id: number | string;
   text: string;
+  link_preview_options?: LinkPreviewOptions;
   reply_parameters?: ReplyParameters;
 }
 

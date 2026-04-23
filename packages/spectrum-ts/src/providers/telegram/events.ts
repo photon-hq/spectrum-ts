@@ -1,5 +1,6 @@
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
+import { asRichlink } from "../../content/richlink";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import { asVoice } from "../../content/voice";
@@ -9,7 +10,9 @@ import type {
   Audio,
   Chat,
   Document,
+  LinkPreviewOptions,
   Message,
+  MessageEntity,
   PhotoSize,
   Contact as TgContact,
   Voice as TgVoice,
@@ -219,12 +222,70 @@ const contactToContent = (contact: TgContact): Content => {
   return asContact(input);
 };
 
+// A message is surfaced as a richlink when the sender clearly meant it as
+// a link card: either Telegram points the preview at a specific URL via
+// `link_preview_options.url`, or the entire message body is a single url /
+// text_link entity and preview is not disabled.
+const extractRichlinkUrl = (
+  text: string,
+  entities: MessageEntity[] | undefined,
+  linkPreview: LinkPreviewOptions | undefined
+): string | undefined => {
+  if (linkPreview?.is_disabled === true) {
+    return undefined;
+  }
+  if (linkPreview?.url) {
+    return linkPreview.url;
+  }
+  if (!entities || entities.length !== 1) {
+    return undefined;
+  }
+  const [entity] = entities;
+  if (!entity) {
+    return undefined;
+  }
+  const covers = entity.offset === 0 && entity.length === text.length;
+  if (!covers) {
+    return undefined;
+  }
+  if (entity.type === "text_link") {
+    return entity.url;
+  }
+  if (entity.type === "url") {
+    return text;
+  }
+  return undefined;
+};
+
+const richlinkFromMessage = (msg: Message): Content | undefined => {
+  if (msg.text === undefined) {
+    return undefined;
+  }
+  const url = extractRichlinkUrl(
+    msg.text,
+    msg.entities,
+    msg.link_preview_options
+  );
+  if (url === undefined) {
+    return undefined;
+  }
+  try {
+    return asRichlink({ url });
+  } catch {
+    return undefined;
+  }
+};
+
 const messageToContent = (
   client: TelegramClient,
   msg: Message,
   signal: AbortSignal | undefined
 ): Content | undefined => {
   if (msg.text !== undefined) {
+    const richlink = richlinkFromMessage(msg);
+    if (richlink) {
+      return richlink;
+    }
     return asText(msg.text);
   }
   if (msg.voice) {

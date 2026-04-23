@@ -56,12 +56,46 @@
         { "name": "from", "type": "Ref:User", "required": false },
         { "name": "text", "type": "string", "required": false },
         { "name": "caption", "type": "string", "required": false },
+        {
+          "name": "entities",
+          "type": "Array:Ref:MessageEntity",
+          "required": false
+        },
+        {
+          "name": "link_preview_options",
+          "type": "Ref:LinkPreviewOptions",
+          "required": false
+        },
         { "name": "photo", "type": "Array:Ref:PhotoSize", "required": false },
         { "name": "document", "type": "Ref:Document", "required": false },
         { "name": "audio", "type": "Ref:Audio", "required": false },
         { "name": "video", "type": "Ref:Video", "required": false },
         { "name": "voice", "type": "Ref:Voice", "required": false },
         { "name": "contact", "type": "Ref:Contact", "required": false }
+      ]
+    },
+    "MessageEntity": {
+      "description": "A special entity in a text message (URL, mention, hashtag, etc.).",
+      "fields": [
+        { "name": "type", "type": "string", "required": true },
+        { "name": "offset", "type": "integer", "required": true },
+        { "name": "length", "type": "integer", "required": true },
+        {
+          "name": "url",
+          "type": "string",
+          "required": false,
+          "description": "For text_link only: the URL to open"
+        }
+      ]
+    },
+    "LinkPreviewOptions": {
+      "description": "Describes link-preview generation options for a message.",
+      "fields": [
+        { "name": "is_disabled", "type": "boolean", "required": false },
+        { "name": "url", "type": "string", "required": false },
+        { "name": "prefer_small_media", "type": "boolean", "required": false },
+        { "name": "prefer_large_media", "type": "boolean", "required": false },
+        { "name": "show_above_text", "type": "boolean", "required": false }
       ]
     },
     "PhotoSize": {
@@ -187,6 +221,11 @@
       "params": [
         { "name": "chat_id", "type": "Union:integer|string", "required": true },
         { "name": "text", "type": "string", "required": true },
+        {
+          "name": "link_preview_options",
+          "type": "Ref:LinkPreviewOptions",
+          "required": false
+        },
         {
           "name": "reply_parameters",
           "type": "Ref:ReplyParameters",

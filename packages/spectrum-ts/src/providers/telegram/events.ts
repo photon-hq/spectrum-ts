@@ -109,18 +109,22 @@ const chatToSender = (chat: Chat): Sender => {
 // through `client.downloadFile` so attachment/voice reads reuse the same
 // `TelegramClientOptions.fetch`, per-request timeout, and retry/backoff as
 // every other Bot API call.
+//
+// No `AbortSignal` is threaded in from the polling loop: lazy reads must not
+// inherit the event-stream lifetime. If the caller closes the stream, already-
+// emitted messages should still be readable. The client transport's own
+// timeouts/retries still apply per read.
 const fetchFileBytes = async (
   client: TelegramClient,
-  fileId: string,
-  signal?: AbortSignal
+  fileId: string
 ): Promise<Response> => {
-  const file = await client.invoke("getFile", { file_id: fileId }, signal);
+  const file = await client.invoke("getFile", { file_id: fileId });
   if (!file.file_path) {
     throw new Error(
       `Telegram getFile returned no file_path for file_id=${fileId}`
     );
   }
-  return await client.downloadFile(file.file_path, signal);
+  return await client.downloadFile(file.file_path);
 };
 
 const attachmentFromFile = (
@@ -128,7 +132,6 @@ const attachmentFromFile = (
   fileId: string,
   name: string,
   mimeType: string,
-  signal: AbortSignal | undefined,
   size?: number
 ): Content =>
   asAttachment({
@@ -136,11 +139,9 @@ const attachmentFromFile = (
     mimeType,
     ...(size === undefined ? {} : { size }),
     read: async () =>
-      Buffer.from(
-        await (await fetchFileBytes(client, fileId, signal)).arrayBuffer()
-      ),
+      Buffer.from(await (await fetchFileBytes(client, fileId)).arrayBuffer()),
     stream: async () => {
-      const response = await fetchFileBytes(client, fileId, signal);
+      const response = await fetchFileBytes(client, fileId);
       if (!response.body) {
         throw new Error(
           `Telegram file response has no body (file_id=${fileId})`
@@ -150,11 +151,7 @@ const attachmentFromFile = (
     },
   });
 
-const voiceFromFile = (
-  client: TelegramClient,
-  voice: TgVoice,
-  signal: AbortSignal | undefined
-): Content => {
+const voiceFromFile = (client: TelegramClient, voice: TgVoice): Content => {
   const mimeType = voice.mime_type ?? "audio/ogg";
   return asVoice({
     mimeType,
@@ -162,12 +159,10 @@ const voiceFromFile = (
     ...(voice.file_size === undefined ? {} : { size: voice.file_size }),
     read: async () =>
       Buffer.from(
-        await (
-          await fetchFileBytes(client, voice.file_id, signal)
-        ).arrayBuffer()
+        await (await fetchFileBytes(client, voice.file_id)).arrayBuffer()
       ),
     stream: async () => {
-      const response = await fetchFileBytes(client, voice.file_id, signal);
+      const response = await fetchFileBytes(client, voice.file_id);
       if (!response.body) {
         throw new Error(
           `Telegram voice file has no body (file_id=${voice.file_id})`
@@ -294,8 +289,7 @@ const richlinkFromMessage = (msg: Message): Content | undefined => {
 // Telegram `Message` reachable through `startTyping`/webhook helpers.
 const messageToContent = (
   client: TelegramClient,
-  msg: Message,
-  signal: AbortSignal | undefined
+  msg: Message
 ): Content | undefined => {
   if (msg.text !== undefined) {
     const richlink = richlinkFromMessage(msg);
@@ -305,7 +299,7 @@ const messageToContent = (
     return asText(msg.text);
   }
   if (msg.voice) {
-    return voiceFromFile(client, msg.voice, signal);
+    return voiceFromFile(client, msg.voice);
   }
   if (msg.photo && msg.photo.length > 0) {
     const largest = largestPhoto(msg.photo);
@@ -315,7 +309,6 @@ const messageToContent = (
         largest.file_id,
         photoName(largest),
         "image/jpeg",
-        signal,
         largest.file_size
       );
     }
@@ -326,7 +319,6 @@ const messageToContent = (
       msg.document.file_id,
       documentName(msg.document),
       msg.document.mime_type ?? "application/octet-stream",
-      signal,
       msg.document.file_size
     );
   }
@@ -336,7 +328,6 @@ const messageToContent = (
       msg.audio.file_id,
       audioName(msg.audio),
       msg.audio.mime_type ?? "audio/mpeg",
-      signal,
       msg.audio.file_size
     );
   }
@@ -346,7 +337,6 @@ const messageToContent = (
       msg.video.file_id,
       videoName(msg.video),
       msg.video.mime_type ?? "video/mp4",
-      signal,
       msg.video.file_size
     );
   }
@@ -362,8 +352,7 @@ const messageToContent = (
 
 const toTelegramMessage = (
   client: TelegramClient,
-  msg: Message,
-  signal: AbortSignal | undefined
+  msg: Message
 ): TelegramMessage | undefined => {
   let sender: Sender | undefined;
   if (msg.from) {
@@ -374,7 +363,7 @@ const toTelegramMessage = (
   if (!sender) {
     return undefined;
   }
-  const content = messageToContent(client, msg, signal);
+  const content = messageToContent(client, msg);
   if (!content) {
     return undefined;
   }
@@ -455,8 +444,7 @@ const reactionEventsFromUpdate = (
 
 const buildMessages = (
   client: TelegramClient,
-  update: Update,
-  signal: AbortSignal | undefined
+  update: Update
 ): TelegramMessage[] => {
   if (update.message_reaction) {
     return reactionEventsFromUpdate(update.message_reaction, update.update_id);
@@ -465,7 +453,7 @@ const buildMessages = (
   if (!tgMessage) {
     return [];
   }
-  const message = toTelegramMessage(client, tgMessage, signal);
+  const message = toTelegramMessage(client, tgMessage);
   return message ? [message] : [];
 };
 
@@ -496,7 +484,7 @@ export const messages = (
           abortController.signal,
           options
         )) {
-          const built = buildMessages(client, update, abortController.signal);
+          const built = buildMessages(client, update);
           for (const message of built) {
             await emit(message);
           }

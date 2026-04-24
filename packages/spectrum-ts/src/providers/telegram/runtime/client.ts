@@ -170,42 +170,48 @@ export class TelegramClient {
               : AbortSignal.timeout(this.requestTimeoutMs);
           const merged = mergeSignals([signal, timeoutSignal]);
 
-          let response: Response;
+          // `cleanup()` must stay deferred until the response body is fully
+          // consumed — otherwise the per-request timeout and caller signal
+          // stop applying once the headers arrive, and a slow/stuck body can
+          // hang the call indefinitely.
           try {
-            response = await this.fetchImpl(url, {
-              method: "POST",
-              headers,
-              body,
-              signal: merged.signal,
-            });
-          } catch (err) {
-            if (signal?.aborted) {
-              throw err;
+            let response: Response;
+            try {
+              response = await this.fetchImpl(url, {
+                method: "POST",
+                headers,
+                body,
+                signal: merged.signal,
+              });
+            } catch (err) {
+              if (signal?.aborted) {
+                throw err;
+              }
+              throw new TelegramNetworkError(method, err);
             }
-            throw new TelegramNetworkError(method, err);
+
+            let payload: ApiResponse<Methods[M]["result"]>;
+            try {
+              payload = (await response.json()) as ApiResponse<
+                Methods[M]["result"]
+              >;
+            } catch (err) {
+              throw new TelegramNetworkError(method, err);
+            }
+
+            if (!payload.ok) {
+              throw new TelegramApiError({
+                method,
+                errorCode: payload.error_code,
+                description: payload.description,
+                parameters: payload.parameters,
+              });
+            }
+
+            return payload.result;
           } finally {
             merged.cleanup();
           }
-
-          let payload: ApiResponse<Methods[M]["result"]>;
-          try {
-            payload = (await response.json()) as ApiResponse<
-              Methods[M]["result"]
-            >;
-          } catch (err) {
-            throw new TelegramNetworkError(method, err);
-          }
-
-          if (!payload.ok) {
-            throw new TelegramApiError({
-              method,
-              errorCode: payload.error_code,
-              description: payload.description,
-              parameters: payload.parameters,
-            });
-          }
-
-          return payload.result;
         },
         { policy: this.retryPolicy, signal }
       );
@@ -246,27 +252,87 @@ export class TelegramClient {
         try {
           response = await this.fetchImpl(url, { signal: merged.signal });
         } catch (err) {
+          merged.cleanup();
           if (signal?.aborted) {
             throw err;
           }
           throw new TelegramNetworkError("downloadFile", err);
-        } finally {
-          merged.cleanup();
         }
 
         if (!response.ok) {
+          merged.cleanup();
           throw new TelegramApiError({
             method: "downloadFile",
             errorCode: response.status,
             description: `Telegram file download failed with HTTP ${response.status}`,
           });
         }
-        return response;
+
+        // Keep the merged signal live until the caller finishes consuming the
+        // response body — otherwise the per-request timeout and caller signal
+        // stop applying mid-transfer. We wrap the body so cleanup runs exactly
+        // once whether the stream completes, errors, or is cancelled. For
+        // bodyless responses, clean up immediately.
+        return wrapResponseForCleanup(response, merged.cleanup);
       },
       { policy: this.retryPolicy, signal }
     );
   }
 }
+
+const wrapResponseForCleanup = (
+  response: Response,
+  cleanup: () => void
+): Response => {
+  let done = false;
+  const runOnce = () => {
+    if (done) {
+      return;
+    }
+    done = true;
+    cleanup();
+  };
+
+  const body = response.body;
+  if (!body) {
+    runOnce();
+    return response;
+  }
+
+  // `TransformStream` transformers expose only `start/transform/flush` — no
+  // `cancel` hook — so we wrap the body in a ReadableStream adapter whose
+  // `pull`/`cancel` fire cleanup exactly once whether the stream completes,
+  // errors, or the consumer aborts mid-read.
+  const reader = body.getReader();
+  const wrapped = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) {
+          controller.close();
+          runOnce();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (err) {
+        controller.error(err);
+        runOnce();
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        runOnce();
+      }
+    },
+  });
+  return new Response(wrapped, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
 
 const migrationTargetFor = (err: unknown): number | undefined => {
   if (!(err instanceof TelegramApiError)) {

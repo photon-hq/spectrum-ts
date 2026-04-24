@@ -1,5 +1,6 @@
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
+import { asReaction } from "../../content/reaction";
 import { asRichlink } from "../../content/richlink";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
@@ -13,9 +14,12 @@ import type {
   LinkPreviewOptions,
   Message,
   MessageEntity,
+  MessageReactionUpdated,
   PhotoSize,
+  ReactionType,
   Contact as TgContact,
   Voice as TgVoice,
+  Update,
   User,
   Video,
 } from "./generated/types";
@@ -365,16 +369,87 @@ const toTelegramMessage = (
   };
 };
 
-const extractMessage = (update: {
-  message?: Message;
-  edited_message?: Message;
-  channel_post?: Message;
-  edited_channel_post?: Message;
-}): Message | undefined =>
+const pickMessage = (update: Update): Message | undefined =>
   update.message ??
   update.edited_message ??
   update.channel_post ??
   update.edited_channel_post;
+
+// ---------------------------------------------------------------------------
+// Reactions (inbound)
+//
+// Telegram's `message_reaction` update carries a diff (`old_reaction` vs
+// `new_reaction`) per user per message. Spectrum's `reaction` content is
+// add-only and plain-unicode, so we only emit the newly-added emoji
+// reactions from each update. Everything else is deliberately skipped with
+// a comment so the gap is grep-able once the schema grows richer.
+//
+// TODO(reactions): when `reactionSchema` gains `action: "add" | "remove"`,
+//   emit remove events for emojis that left `new_reaction`.
+// TODO(reactions): when `reactionSchema` can carry custom emoji (e.g. an
+//   `emojiKind: "custom"` + id field), surface ReactionTypeCustomEmoji.
+//   Paid reactions have no emoji payload and will likely stay dropped.
+// TODO(reactions): consider surfacing `message_reaction_count` as a
+//   separate snapshot content type for anonymous channels.
+// ---------------------------------------------------------------------------
+
+const extractEmoji = (reaction: ReactionType): string | undefined =>
+  reaction.type === "emoji" ? reaction.emoji : undefined;
+
+const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
+  const previous = new Set(
+    update.old_reaction.map(extractEmoji).filter((e): e is string => !!e)
+  );
+  const added: string[] = [];
+  for (const reaction of update.new_reaction) {
+    const emoji = extractEmoji(reaction);
+    if (emoji && !previous.has(emoji)) {
+      added.push(emoji);
+    }
+  }
+  return added;
+};
+
+const reactionEventsFromUpdate = (
+  update: MessageReactionUpdated,
+  updateId: number
+): TelegramMessage[] => {
+  // Anonymous actors (actor_chat, no user) can't produce a Spectrum sender; the
+  // content-type carries no "chat reactor" concept today. Drop for now.
+  if (!update.user) {
+    return [];
+  }
+  const target = String(update.message_id);
+  const sender = userToSender(update.user);
+  const space = chatToSpace(update.chat);
+  const timestamp = new Date(update.date * 1000);
+  return newlyAddedEmojis(update).map((emoji, index) => ({
+    // update_id is unique per update, message_id is the *target* of the
+    // reaction (not the reaction's own id — Telegram doesn't surface one), so
+    // compose a stable id per emitted event.
+    id: `reaction:${updateId}:${index}`,
+    content: asReaction({ emoji, target }),
+    sender,
+    space,
+    timestamp,
+  }));
+};
+
+const buildMessages = (
+  client: TelegramClient,
+  update: Update,
+  signal: AbortSignal | undefined
+): TelegramMessage[] => {
+  if (update.message_reaction) {
+    return reactionEventsFromUpdate(update.message_reaction, update.update_id);
+  }
+  const tgMessage = pickMessage(update);
+  if (!tgMessage) {
+    return [];
+  }
+  const message = toTelegramMessage(client, tgMessage, signal);
+  return message ? [message] : [];
+};
 
 export interface MessagesOptions {
   allowedUpdates?: string[];
@@ -403,19 +478,10 @@ export const messages = (
           abortController.signal,
           options
         )) {
-          const tgMessage = extractMessage(update);
-          if (!tgMessage) {
-            continue;
+          const built = buildMessages(client, update, abortController.signal);
+          for (const message of built) {
+            await emit(message);
           }
-          const spectrumMessage = toTelegramMessage(
-            client,
-            tgMessage,
-            abortController.signal
-          );
-          if (!spectrumMessage) {
-            continue;
-          }
-          await emit(spectrumMessage);
         }
         end();
       } catch (err) {

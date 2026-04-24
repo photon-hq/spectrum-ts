@@ -12,6 +12,7 @@ export interface Update {
   edited_message?: Message;
   channel_post?: Message;
   edited_channel_post?: Message;
+  message_reaction?: MessageReactionUpdated;
 }
 
 /** Telegram user or bot. */
@@ -117,10 +118,25 @@ export interface Contact {
   vcard?: string;
 }
 
-/** Reaction type. */
+/** Reaction type. Flat union shape: discriminate at runtime via `type`. */
 export interface ReactionType {
-  type: "emoji";
-  emoji: string;
+  type: "emoji" | "custom_emoji" | "paid";
+  /** Set when type === "emoji". */
+  emoji?: string;
+  /** Set when type === "custom_emoji". */
+  custom_emoji_id?: string;
+}
+
+/** A reaction on a message changed by a user. */
+export interface MessageReactionUpdated {
+  chat: Chat;
+  message_id: number;
+  /** Unix time of the change */
+  date: number;
+  user?: User;
+  actor_chat?: Chat;
+  old_reaction: Array<ReactionType>;
+  new_reaction: Array<ReactionType>;
 }
 
 /** Reply parameters for outgoing messages. */

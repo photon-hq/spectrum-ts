@@ -12,6 +12,7 @@ import type {
   LinkPreviewOptions,
   Message,
   MessageEntity,
+  MessageReactionUpdated,
   PhotoSize,
   ReactionType,
   ReplyParameters,

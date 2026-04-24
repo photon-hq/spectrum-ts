@@ -14,6 +14,11 @@
           "name": "edited_channel_post",
           "type": "Ref:Message",
           "required": false
+        },
+        {
+          "name": "message_reaction",
+          "type": "Ref:MessageReactionUpdated",
+          "required": false
         }
       ]
     },
@@ -153,15 +158,51 @@
       ]
     },
     "ReactionType": {
-      "description": "Reaction type.",
+      "description": "Reaction type. Flat union shape: discriminate at runtime via `type`.",
       "fields": [
         {
           "name": "type",
           "type": "string",
           "required": true,
-          "const": "emoji"
+          "enum": ["emoji", "custom_emoji", "paid"]
         },
-        { "name": "emoji", "type": "string", "required": true }
+        {
+          "name": "emoji",
+          "type": "string",
+          "required": false,
+          "description": "Set when type === \"emoji\"."
+        },
+        {
+          "name": "custom_emoji_id",
+          "type": "string",
+          "required": false,
+          "description": "Set when type === \"custom_emoji\"."
+        }
+      ]
+    },
+    "MessageReactionUpdated": {
+      "description": "A reaction on a message changed by a user.",
+      "fields": [
+        { "name": "chat", "type": "Ref:Chat", "required": true },
+        { "name": "message_id", "type": "integer", "required": true },
+        {
+          "name": "date",
+          "type": "integer",
+          "required": true,
+          "description": "Unix time of the change"
+        },
+        { "name": "user", "type": "Ref:User", "required": false },
+        { "name": "actor_chat", "type": "Ref:Chat", "required": false },
+        {
+          "name": "old_reaction",
+          "type": "Array:Ref:ReactionType",
+          "required": true
+        },
+        {
+          "name": "new_reaction",
+          "type": "Array:Ref:ReactionType",
+          "required": true
+        }
       ]
     },
     "ReplyParameters": {

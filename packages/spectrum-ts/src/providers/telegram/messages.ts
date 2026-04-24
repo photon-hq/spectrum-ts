@@ -1,5 +1,6 @@
 import type { Attachment } from "../../content/attachment";
 import type { Contact } from "../../content/contact";
+import type { Reaction } from "../../content/reaction";
 import type { Richlink } from "../../content/richlink";
 import type { Content } from "../../content/types";
 import type { Voice } from "../../content/voice";
@@ -249,6 +250,23 @@ const sendContactContent = async (
   return toSendResult(message);
 };
 
+const sendReactionContent = async (
+  client: TelegramClient,
+  spaceId: string,
+  reaction: Reaction
+): Promise<SendResult> => {
+  await client.invoke("setMessageReaction", {
+    chat_id: toChatId(spaceId),
+    message_id: toMessageId(reaction.target),
+    // Telegram setMessageReaction overwrites the bot's reaction set on this
+    // message. Sending a single-element array matches Spectrum's add-only
+    // reaction model; callers wanting to clear should pass an empty string
+    // through reactToMessage (we already handle that case there).
+    reaction: [{ type: "emoji", emoji: reaction.emoji }],
+  });
+  return { id: reaction.target, timestamp: new Date() };
+};
+
 const dispatchSend = async (
   client: TelegramClient,
   spaceId: string,
@@ -266,6 +284,13 @@ const dispatchSend = async (
       return await sendVoiceContent(client, spaceId, content, opts);
     case "contact":
       return await sendContactContent(client, spaceId, content, opts);
+    case "reaction":
+      // Reactions bypass the normal send flow: Telegram's setMessageReaction
+      // returns a boolean, not a Message, and the reaction carries its own
+      // target. We surface the target's id in SendResult so callers don't
+      // get a fabricated message id, and the timestamp is "now" since the
+      // API offers no server-side reaction timestamp.
+      return await sendReactionContent(client, spaceId, content);
     case "custom":
       throw UnsupportedError.content("custom", PLATFORM_NAME);
     default: {

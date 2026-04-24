@@ -22,7 +22,7 @@ export const spaceSchema = z.object({
 });
 
 export const spaceParamsSchema = z.object({
-  chatId: z.union([z.string().min(1), z.number().int()]),
+  chatId: z.union([z.string().trim().min(1), z.number().int()]),
 });
 
 export type TelegramMessage = SchemaMessage<

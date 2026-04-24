@@ -203,7 +203,16 @@ const buildVCardField = async (
   if (!hasExtraContactData(contact)) {
     return undefined;
   }
-  const card = await toVCard(contact);
+  // vCard enrichment is an optional decoration on top of Telegram's required
+  // phone+first_name fields. If serialization fails for any reason (bad raw
+  // payload, encoding edge case, etc.), fall back to sending the contact
+  // without the `vcard` field rather than aborting the whole message.
+  let card: string;
+  try {
+    card = await toVCard(contact);
+  } catch {
+    return undefined;
+  }
   if (Buffer.byteLength(card, "utf8") > VCARD_MAX_BYTES) {
     return undefined;
   }

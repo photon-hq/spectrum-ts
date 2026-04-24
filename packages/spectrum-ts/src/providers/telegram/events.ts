@@ -400,8 +400,16 @@ const pickMessage = (update: Update): Message | undefined =>
 //   separate snapshot content type for anonymous channels.
 // ---------------------------------------------------------------------------
 
-const extractEmoji = (reaction: ReactionType): string | undefined =>
-  reaction.type === "emoji" ? reaction.emoji : undefined;
+// Defensive against schema drift: `ReactionType{emoji}` declares `emoji` as
+// required, but upstream Telegram payloads have historically omitted fields
+// during API transitions. Treat a missing/empty string as "no reaction" to
+// keep the diff against `old_reaction` correct instead of emitting `""`.
+const extractEmoji = (reaction: ReactionType): string | undefined => {
+  if (reaction.type !== "emoji") {
+    return undefined;
+  }
+  return reaction.emoji ? reaction.emoji : undefined;
+};
 
 const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
   const previous = new Set(

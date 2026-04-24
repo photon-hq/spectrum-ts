@@ -260,11 +260,16 @@ export class TelegramClient {
         }
 
         if (!response.ok) {
+          // Read the error body before cleanup so the per-request timeout
+          // still applies to the body read; a tiny JSON "description" is
+          // typical and far more debuggable than a bare status code.
+          const snippet = await readErrorSnippet(response);
           merged.cleanup();
+          const base = `Telegram file download failed with HTTP ${response.status}`;
           throw new TelegramApiError({
             method: "downloadFile",
             errorCode: response.status,
-            description: `Telegram file download failed with HTTP ${response.status}`,
+            description: snippet ? `${base}: ${snippet}` : base,
           });
         }
 
@@ -279,6 +284,26 @@ export class TelegramClient {
     );
   }
 }
+
+const ERROR_SNIPPET_MAX_LEN = 200;
+
+// Best-effort body read for error messages. Returns undefined on empty bodies
+// or read failures — callers fall back to a bare status-code message.
+const readErrorSnippet = async (
+  response: Response
+): Promise<string | undefined> => {
+  try {
+    const text = await response.text();
+    if (!text) {
+      return undefined;
+    }
+    return text.length > ERROR_SNIPPET_MAX_LEN
+      ? `${text.slice(0, ERROR_SNIPPET_MAX_LEN)}…`
+      : text;
+  } catch {
+    return undefined;
+  }
+};
 
 const wrapResponseForCleanup = (
   response: Response,

@@ -50,9 +50,22 @@ const FILE_BANNER = `// GENERATED FILE — do not edit by hand.
 // Regenerate with: bun run gen:telegram
 `;
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 const loadSchema = async (): Promise<Schema> => {
   const raw = await readFile(SCHEMA_PATH, "utf8");
-  return JSON.parse(raw) as Schema;
+  const parsed = JSON.parse(raw) as unknown;
+  // Fail fast with a clear message if the schema file is malformed rather
+  // than letting downstream generators throw confusing property-access errors.
+  if (
+    !(isRecord(parsed) && isRecord(parsed.types) && isRecord(parsed.methods))
+  ) {
+    throw new Error(
+      `Invalid schema at ${SCHEMA_PATH}: expected object with "types" and "methods" object maps`
+    );
+  }
+  return parsed as Schema;
 };
 
 // Translate the schema's TypeRef DSL into a TypeScript type expression.
@@ -93,15 +106,7 @@ const toTs = (type: string): string => {
   }
   if (type.startsWith("Union:")) {
     const rest = type.slice("Union:".length);
-    return rest
-      .split("|")
-      .map((part) => {
-        if (part.startsWith("Ref:")) {
-          return toTs(part);
-        }
-        return toTs(part);
-      })
-      .join(" | ");
+    return rest.split("|").map(toTs).join(" | ");
   }
   throw new Error(`Unknown type expression: ${type}`);
 };

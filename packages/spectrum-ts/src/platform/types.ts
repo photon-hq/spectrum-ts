@@ -364,20 +364,22 @@ type SpaceParamsInputOf<Def extends AnyPlatformDef> = InputSchema<
   Def["space"]["params"]
 >;
 
+type SpaceUserLike<Def extends AnyPlatformDef> = PlatformUser<Def> | string;
+
 type SpaceArrayArgs<Def extends AnyPlatformDef> = [
   SpaceParamsInputOf<Def>,
 ] extends [never]
-  ? [users: PlatformUser<Def>[]]
+  ? [users: SpaceUserLike<Def>[]]
   :
-      | [users: PlatformUser<Def>[]]
-      | [users: PlatformUser<Def>[], params: SpaceParamsInputOf<Def>]
+      | [users: SpaceUserLike<Def>[]]
+      | [users: SpaceUserLike<Def>[], params: SpaceParamsInputOf<Def>]
       | [params: SpaceParamsInputOf<Def>];
 
 type SpaceVarargArgs<Def extends AnyPlatformDef> = [
   SpaceParamsInputOf<Def>,
 ] extends [never]
-  ? PlatformUser<Def>[]
-  : PlatformUser<Def>[] | [...PlatformUser<Def>[], SpaceParamsInputOf<Def>];
+  ? SpaceUserLike<Def>[]
+  : SpaceUserLike<Def>[] | [...SpaceUserLike<Def>[], SpaceParamsInputOf<Def>];
 
 type SpaceArgs<Def extends AnyPlatformDef> =
   | SpaceArrayArgs<Def>

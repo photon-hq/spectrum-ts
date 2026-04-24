@@ -66,7 +66,11 @@ const containsBinary = (params: unknown): boolean => {
   if (params === null || typeof params !== "object") {
     return false;
   }
-  if (params instanceof Blob || params instanceof ReadableStream) {
+  // Keep in sync with appendFormField: only Blobs are attached as raw parts.
+  // ReadableStream is intentionally not treated as binary — appendFormField
+  // has no handler for it, so triggering multipart here would JSON.stringify
+  // the stream into "{}" and silently drop the payload.
+  if (params instanceof Blob) {
     return true;
   }
   if (Array.isArray(params)) {

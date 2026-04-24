@@ -183,4 +183,4 @@ export interface Methods {
 export type MethodName = keyof Methods;
 
 export const BASE_URL = "https://api.telegram.org";
-export const API_VERSION = "8.3";
+export const API_VERSION = "9.6";

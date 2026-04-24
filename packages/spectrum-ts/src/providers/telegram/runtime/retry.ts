@@ -18,25 +18,44 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const finalize = (fn: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+      signal?.removeEventListener("abort", onAbort);
+      fn();
+    };
+
+    const onAbort = () => {
+      finalize(() => reject(signal?.reason));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+    // Re-check after attaching the listener to close the race window where
+    // the signal aborts between entry and listener registration.
     if (signal?.aborted) {
-      reject(signal.reason);
+      onAbort();
       return;
     }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
+
+    timer = setTimeout(() => {
+      finalize(resolve);
     }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal?.reason);
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
   });
 
 const backoffDelay = (attempt: number, policy: RetryPolicy): number => {
   const exp = policy.baseDelayMs * 2 ** (attempt - 1);
   const capped = Math.min(exp, policy.maxDelayMs);
-  return Math.floor(Math.random() * capped);
+  // Full jitter in [50%, 100%] of the capped delay so callers never get a
+  // 0ms "retry immediately" window that defeats the backoff.
+  return Math.floor(capped * (0.5 + Math.random() * 0.5));
 };
 
 const nextDelay = (

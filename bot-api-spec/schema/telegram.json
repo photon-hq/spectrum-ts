@@ -1,7 +1,8 @@
 {
-  "version": "8.3",
+  "version": "9.6",
   "baseUrl": "https://api.telegram.org",
   "scope": "spectrum-universal",
+  "scopeNote": "Covers only the cross-platform subset Spectrum needs: plain/rich-link text, media (photo/audio/video/voice/document), contacts, reactions, and long-poll updates. Telegram-specific features introduced in 8.4-9.6 (managed bots, checklists, suggested posts, stories, gifts, polls, mini-app storage, direct-message topics, paid posts, suggested-post approvals) are intentionally out of scope; reviewed against https://core.telegram.org/bots/api-changelog and no in-scope types had breaking changes between 8.3 and 9.6.",
   "types": {
     "Update": {
       "description": "Incoming update. At most one of the optional parameters can be present in any given update.",

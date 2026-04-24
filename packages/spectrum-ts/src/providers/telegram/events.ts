@@ -280,6 +280,13 @@ const richlinkFromMessage = (msg: Message): Content | undefined => {
   }
 };
 
+// Spectrum's `Content` is a single discriminated-union value, so a Telegram
+// message carrying both media and a caption can only surface one of them.
+// We prefer the media attachment (the richer payload) and fall back to the
+// caption only when no media is present. A future compound content type would
+// let us expose both; until then the caption that accompanies media is not
+// lost silently because it's also exposed via `msg.caption` on the raw
+// Telegram `Message` reachable through `startTyping`/webhook helpers.
 const messageToContent = (
   client: TelegramClient,
   msg: Message,
@@ -341,6 +348,7 @@ const messageToContent = (
   if (msg.contact) {
     return contactToContent(msg.contact);
   }
+  // Caption-only messages (no recognized media) surface the caption as text.
   if (msg.caption !== undefined) {
     return asText(msg.caption);
   }

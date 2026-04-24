@@ -59,26 +59,18 @@ const chatToSpace = (
   return space;
 };
 
-const userToSender = (
-  user: User
-): {
-  id: string;
+interface Sender {
   chatId: number;
-  isBot: boolean;
   firstName: string;
+  id: string;
+  isBot: boolean;
+  languageCode?: string;
   lastName?: string;
   username?: string;
-  languageCode?: string;
-} => {
-  const sender: {
-    id: string;
-    chatId: number;
-    isBot: boolean;
-    firstName: string;
-    lastName?: string;
-    username?: string;
-    languageCode?: string;
-  } = {
+}
+
+const userToSender = (user: User): Sender => {
+  const sender: Sender = {
     id: userIdToSpectrumId(user.id),
     chatId: user.id,
     isBot: user.is_bot,
@@ -96,8 +88,27 @@ const userToSender = (
   return sender;
 };
 
+// Channel posts and anonymous group-admin messages arrive without `from` but
+// with `sender_chat`. Synthesize a Sender from the chat so these updates are
+// delivered end-to-end instead of silently dropped.
+const chatToSender = (chat: Chat): Sender => {
+  const sender: Sender = {
+    id: chatIdToSpaceId(chat.id),
+    chatId: chat.id,
+    isBot: false,
+    firstName: chat.title ?? chat.username ?? "Telegram chat",
+  };
+  if (chat.username !== undefined) {
+    sender.username = chat.username;
+  }
+  return sender;
+};
+
 // getFile URLs are valid for ~1h; resolve lazily per read so stale URLs aren't
-// cached and messages that are never consumed cost nothing.
+// cached and messages that are never consumed cost nothing. The download goes
+// through `client.downloadFile` so attachment/voice reads reuse the same
+// `TelegramClientOptions.fetch`, per-request timeout, and retry/backoff as
+// every other Bot API call.
 const fetchFileBytes = async (
   client: TelegramClient,
   fileId: string,
@@ -109,13 +120,7 @@ const fetchFileBytes = async (
       `Telegram getFile returned no file_path for file_id=${fileId}`
     );
   }
-  const response = await fetch(client.fileUrl(file.file_path), { signal });
-  if (!response.ok) {
-    throw new Error(
-      `Telegram file download failed (${response.status}) for file_id=${fileId}`
-    );
-  }
-  return response;
+  return await client.downloadFile(file.file_path, signal);
 };
 
 const attachmentFromFile = (
@@ -360,8 +365,13 @@ const toTelegramMessage = (
   msg: Message,
   signal: AbortSignal | undefined
 ): TelegramMessage | undefined => {
-  const from = msg.from;
-  if (!from) {
+  let sender: Sender | undefined;
+  if (msg.from) {
+    sender = userToSender(msg.from);
+  } else if (msg.sender_chat) {
+    sender = chatToSender(msg.sender_chat);
+  }
+  if (!sender) {
     return undefined;
   }
   const content = messageToContent(client, msg, signal);
@@ -371,7 +381,7 @@ const toTelegramMessage = (
   return {
     id: String(msg.message_id),
     content,
-    sender: userToSender(from),
+    sender,
     space: chatToSpace(msg.chat),
     timestamp: new Date(msg.date * 1000),
   };

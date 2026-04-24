@@ -14,15 +14,20 @@ export interface TelegramClientOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-const mergeSignals = (
-  signals: (AbortSignal | undefined)[]
-): AbortSignal | undefined => {
+interface MergedSignal {
+  /** Always call once the awaited operation settles so listeners on caller
+   * signals don't leak on the happy path. Safe to call multiple times. */
+  cleanup: () => void;
+  signal: AbortSignal | undefined;
+}
+
+const mergeSignals = (signals: (AbortSignal | undefined)[]): MergedSignal => {
   const present = signals.filter((s): s is AbortSignal => s !== undefined);
   if (present.length === 0) {
-    return undefined;
+    return { signal: undefined, cleanup: () => {} };
   }
   if (present.length === 1) {
-    return present[0];
+    return { signal: present[0], cleanup: () => {} };
   }
   const controller = new AbortController();
   const handlers: { signal: AbortSignal; handler: () => void }[] = [];
@@ -36,7 +41,7 @@ const mergeSignals = (
     if (signal.aborted) {
       controller.abort(signal.reason);
       cleanup();
-      return controller.signal;
+      return { signal: controller.signal, cleanup: () => {} };
     }
     const handler = () => {
       cleanup();
@@ -45,7 +50,7 @@ const mergeSignals = (
     handlers.push({ signal, handler });
     signal.addEventListener("abort", handler, { once: true });
   }
-  return controller.signal;
+  return { signal: controller.signal, cleanup };
 };
 
 interface ApiResponseOk<T> {
@@ -163,7 +168,7 @@ export class TelegramClient {
             this.requestTimeoutMs === null
               ? undefined
               : AbortSignal.timeout(this.requestTimeoutMs);
-          const combined = mergeSignals([signal, timeoutSignal]);
+          const merged = mergeSignals([signal, timeoutSignal]);
 
           let response: Response;
           try {
@@ -171,13 +176,15 @@ export class TelegramClient {
               method: "POST",
               headers,
               body,
-              signal: combined,
+              signal: merged.signal,
             });
           } catch (err) {
             if (signal?.aborted) {
               throw err;
             }
             throw new TelegramNetworkError(method, err);
+          } finally {
+            merged.cleanup();
           }
 
           let payload: ApiResponse<Methods[M]["result"]>;
@@ -217,6 +224,47 @@ export class TelegramClient {
 
   fileUrl(filePath: string): string {
     return `${this.baseUrl}/file/bot${this.token}/${filePath}`;
+  }
+
+  // Downloads a Telegram-hosted file through the same transport used by
+  // `invoke()` so that `TelegramClientOptions.fetch`, per-request timeouts,
+  // and retry/backoff apply uniformly to media reads.
+  async downloadFile(
+    filePath: string,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    const url = this.fileUrl(filePath);
+    return await withRetry(
+      async () => {
+        const timeoutSignal =
+          this.requestTimeoutMs === null
+            ? undefined
+            : AbortSignal.timeout(this.requestTimeoutMs);
+        const merged = mergeSignals([signal, timeoutSignal]);
+
+        let response: Response;
+        try {
+          response = await this.fetchImpl(url, { signal: merged.signal });
+        } catch (err) {
+          if (signal?.aborted) {
+            throw err;
+          }
+          throw new TelegramNetworkError("downloadFile", err);
+        } finally {
+          merged.cleanup();
+        }
+
+        if (!response.ok) {
+          throw new TelegramApiError({
+            method: "downloadFile",
+            errorCode: response.status,
+            description: `Telegram file download failed with HTTP ${response.status}`,
+          });
+        }
+        return response;
+      },
+      { policy: this.retryPolicy, signal }
+    );
   }
 }
 

@@ -74,6 +74,12 @@ const toTs = (type: string): string => {
   if (type === "any") {
     return "unknown";
   }
+  // `InputFile` is documented in README as a top-level TypeRef primitive so
+  // bare occurrences (e.g. `"type": "InputFile"` or `"Union:InputFile|string"`)
+  // resolve without requiring the `Ref:` prefix.
+  if (type === "InputFile") {
+    return "InputFile";
+  }
   if (type.startsWith("Ref:")) {
     const name = type.slice("Ref:".length);
     if (name === "InputFile") {

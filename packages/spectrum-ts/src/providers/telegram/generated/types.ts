@@ -40,6 +40,8 @@ export interface Message {
   date: number;
   chat: Chat;
   from?: User;
+  /** Sender of the message, sent on behalf of a chat (channel posts, anonymous group admins). */
+  sender_chat?: Chat;
   text?: string;
   caption?: string;
   entities?: Array<MessageEntity>;

@@ -60,6 +60,12 @@
         },
         { "name": "chat", "type": "Ref:Chat", "required": true },
         { "name": "from", "type": "Ref:User", "required": false },
+        {
+          "name": "sender_chat",
+          "type": "Ref:Chat",
+          "required": false,
+          "description": "Sender of the message, sent on behalf of a chat (channel posts, anonymous group admins)."
+        },
         { "name": "text", "type": "string", "required": false },
         { "name": "caption", "type": "string", "required": false },
         {

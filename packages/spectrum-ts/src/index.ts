@@ -11,6 +11,7 @@ export {
   contact,
 } from "./content/contact";
 export { custom } from "./content/custom";
+export { type Group, group } from "./content/group";
 export { type Reaction, reaction } from "./content/reaction";
 export { resolveContents } from "./content/resolve";
 export { type Richlink, richlink } from "./content/richlink";

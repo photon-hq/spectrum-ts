@@ -125,7 +125,7 @@ export interface PlatformDef<
     }) => Promise<void>;
     reactToMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
-      messageId: string;
+      target: _MessageType;
       reaction: string;
       client: _Client;
       config: z.infer<_ConfigSchema>;
@@ -144,6 +144,12 @@ export interface PlatformDef<
       client: _Client;
       config: z.infer<_ConfigSchema>;
     }) => Promise<void>;
+    getMessage?: (_: {
+      space: _ResolvedSpace & SpaceRef;
+      messageId: string;
+      client: _Client;
+      config: z.infer<_ConfigSchema>;
+    }) => Promise<_MessageType | undefined>;
   };
 
   config: _ConfigSchema;
@@ -207,6 +213,8 @@ export interface AnyPlatformDef {
     replyToMessage?: (_: any) => Promise<SendResult>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     editMessage?: (_: any) => Promise<void>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+    getMessage?: (_: any) => Promise<any>;
   };
   config: z.ZodType<object>;
   events: {

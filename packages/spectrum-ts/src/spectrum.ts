@@ -1,6 +1,10 @@
 import z from "zod";
-import type { Content, ContentInput } from "./content/types";
-import { buildMessage, buildSpace } from "./platform/build";
+import type { ContentInput } from "./content/types";
+import {
+  buildSpace,
+  type ProviderMessageRecord,
+  wrapProviderMessage,
+} from "./platform/build";
 import type {
   AnyPlatformDef,
   CustomEventStreams,
@@ -10,22 +14,6 @@ import type {
 import type { InboundMessage, Message, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
 import { type ManagedStream, mergeStreams, stream } from "./utils/stream";
-
-type ProviderMessageRecord = {
-  id: string;
-  content: Content;
-  sender: { id: string } & Record<string, unknown>;
-  space: { id: string } & Record<string, unknown>;
-  timestamp?: Date;
-} & Record<string, unknown>;
-
-const providerMessageCoreKeys = new Set([
-  "content",
-  "id",
-  "sender",
-  "space",
-  "timestamp",
-]);
 
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
@@ -155,13 +143,6 @@ export async function Spectrum<
 
     const bindSend = async function* (): AsyncIterable<[Space, Message]> {
       for await (const msg of raw) {
-        const extraEntries = Object.entries(msg).filter(
-          ([key]) => !providerMessageCoreKeys.has(key)
-        );
-        const extra = Object.fromEntries(extraEntries);
-        const parsedExtra = definition.message?.schema
-          ? definition.message.schema.parse(extra)
-          : {};
         const spaceRef = {
           ...msg.space,
           __platform: definition.name,
@@ -175,20 +156,13 @@ export async function Spectrum<
           client,
           config,
         });
-        const normalizedMessage = buildMessage({
-          id: msg.id,
-          content: msg.content,
-          sender: msg.sender,
-          timestamp: msg.timestamp ?? new Date(),
-          extras: parsedExtra as Record<string, unknown>,
-          spaceRef,
-          space,
-          definition,
+        const normalizedMessage = wrapProviderMessage(msg, {
           client,
           config,
-          direction: "inbound",
+          definition,
+          space,
+          spaceRef,
         });
-
         yield [space, normalizedMessage];
       }
     };

@@ -227,11 +227,19 @@ const mapContent = (
       return asCustom({ whatsapp_type: "sticker", ...content.sticker });
     case "location":
       return asCustom({ whatsapp_type: "location", ...content.location });
-    case "reaction":
+    case "reaction": {
+      // WhatsApp reaction events carry only the target message id; synthesize
+      // a minimal target Message shape. Core's wrapProviderMessage inflates
+      // this into a full Message with react/reply methods at emit time.
+      const stubTarget = {
+        id: content.reaction.messageId,
+        content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
+      };
       return asReaction({
         emoji: content.reaction.emoji,
-        target: content.reaction.messageId,
+        target: stubTarget as Parameters<typeof asReaction>[0]["target"],
       });
+    }
     case "interactive":
       return asCustom({ whatsapp_type: "interactive", ...content.interactive });
     case "button":

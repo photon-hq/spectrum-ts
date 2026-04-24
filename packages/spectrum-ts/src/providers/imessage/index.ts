@@ -3,9 +3,14 @@ import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
 import { createCloudClients, disposeCloudAuth } from "./auth";
-import { messages as localMessages, send as localSend } from "./local";
+import {
+  getMessage as localGetMessage,
+  messages as localMessages,
+  send as localSend,
+} from "./local";
 import {
   editMessage as remoteEditMessage,
+  getMessage as remoteGetMessage,
   messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
   replyToMessage as remoteReplyToMessage,
@@ -16,7 +21,9 @@ import {
 import {
   configSchema,
   type IMessageClient,
+  type IMessageMessage,
   isLocal,
+  messageSchema,
   spaceSchema,
 } from "./types";
 
@@ -59,6 +66,10 @@ export const imessage = definePlatform("iMessage", {
       const { chat } = await remote.chats.create(addresses);
       return { id: chat.guid as string, type: "group" as const };
     },
+  },
+
+  message: {
+    schema: messageSchema,
   },
 
   lifecycle: {
@@ -125,11 +136,16 @@ export const imessage = definePlatform("iMessage", {
       }
       await remoteStopTyping(client, space.id);
     },
-    reactToMessage: async ({ space, messageId, reaction, client }) => {
+    reactToMessage: async ({ space, target, reaction, client }) => {
       if (isLocal(client)) {
         throw UnsupportedError.action("react", "iMessage (local mode)");
       }
-      await remoteReactToMessage(client, space.id, messageId, reaction);
+      await remoteReactToMessage(
+        client,
+        space.id,
+        target as IMessageMessage,
+        reaction
+      );
     },
     replyToMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {
@@ -142,6 +158,12 @@ export const imessage = definePlatform("iMessage", {
         throw UnsupportedError.action("edit", "iMessage (local mode)");
       }
       await remoteEditMessage(client, space.id, messageId, content);
+    },
+    getMessage: async ({ space, messageId, client }) => {
+      if (isLocal(client)) {
+        return localGetMessage(client, messageId);
+      }
+      return remoteGetMessage(client, space.id, messageId);
     },
   },
 });

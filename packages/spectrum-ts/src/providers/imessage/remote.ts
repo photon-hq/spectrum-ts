@@ -249,7 +249,7 @@ const rebuildFromAppleMessage = async (
           client,
           base,
           info,
-          info.guid as string,
+          formatChildId(i, messageGuidStr),
           i,
           messageGuidStr
         )
@@ -312,9 +312,14 @@ const toRichlinkMessage = (
 };
 
 // Apple prefixes the target guid of a tapback with `p:<partIndex>/` to name a
-// specific part of a multi-part message. We keep the index so multi-image
-// reactions can resolve to the exact group sub-item.
+// specific part of a multi-part message. We reuse the same encoding as
+// spectrum-ts group child message ids so that a child id is round-trippable:
+// `remote.messages.get(parentGuid)` can always reconstruct the child by
+// parsing the index off the front.
 const PART_PREFIX = /^p:(\d+)\//;
+
+const formatChildId = (partIndex: number, parentGuid: string): string =>
+  `p:${partIndex}/${parentGuid}`;
 
 const parseTapbackTarget = (
   target: string
@@ -323,6 +328,19 @@ const parseTapbackTarget = (
   const guid = target.replace(PART_PREFIX, "");
   const partIndex = match ? Number(match[1]) : 0;
   return { guid, partIndex };
+};
+
+const parseChildId = (
+  id: string
+): { parentGuid: string; partIndex: number } | null => {
+  const match = id.match(PART_PREFIX);
+  if (!match) {
+    return null;
+  }
+  return {
+    parentGuid: id.replace(PART_PREFIX, ""),
+    partIndex: Number(match[1]),
+  };
 };
 
 const resolveReactionTarget = async (
@@ -435,7 +453,7 @@ const toMessages = async (
           client,
           base,
           info,
-          info.guid as string,
+          formatChildId(i, messageGuidStr),
           i,
           messageGuidStr
         )
@@ -612,15 +630,21 @@ export const send = async (
         );
       }
     }
-    let first: SendResult | undefined;
+    // The SDK has no single multi-attachment send with uploaded bytes
+    // (MessagePart requires server-side paths; upload returns guids only),
+    // so we fall back to N sequential sends. Return per-child receipts on
+    // `groupMembers` so the platform layer can build real outbound Messages
+    // for each group item. The outer `id` tracks the first child purely for
+    // OutboundMessage compatibility — prefer items[i].id for per-item ops.
+    const groupMembers: SendResult[] = [];
     for (const sub of content.items as unknown as IMessageMessage[]) {
-      const r = await sendSingle(remote, chat, sub.content);
-      first ??= r;
+      groupMembers.push(await sendSingle(remote, chat, sub.content));
     }
+    const first = groupMembers[0];
     if (!first) {
       throw new Error("Empty group");
     }
-    return first;
+    return { ...first, groupMembers };
   }
 
   return sendSingle(remote, chat, content);
@@ -762,6 +786,28 @@ export const getMessage = async (
   if (cached) {
     return cached;
   }
+
+  // Group-child ids use the `p:<partIndex>/<parentGuid>` format (same as
+  // Apple tapback targets). The SDK's `messages.get` only accepts parent
+  // guids, so decode the id and descend into the parent's items.
+  const childRef = parseChildId(msgId);
+  if (childRef) {
+    try {
+      const fetched = await remote.messages.get(
+        messageGuid(childRef.parentGuid)
+      );
+      const parent = await rebuildFromAppleMessage(remote, fetched, spaceId);
+      cacheMessage(cache, parent);
+      if (parent.content.type !== "group") {
+        return;
+      }
+      const items = parent.content.items as unknown as IMessageMessage[];
+      return items[childRef.partIndex];
+    } catch {
+      return;
+    }
+  }
+
   try {
     const fetched = await remote.messages.get(messageGuid(msgId));
     const rebuilt = await rebuildFromAppleMessage(remote, fetched, spaceId);

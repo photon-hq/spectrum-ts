@@ -227,9 +227,41 @@ export function buildSpace(params: BuildSpaceParams): Space {
         `Platform "${definition.name}" send did not return a message id`
       );
     }
+
+    // If the provider reported per-item send receipts for a group, replace
+    // the placeholder items (produced by the `group()` builder, which cannot
+    // know ids before the send) with real outbound Messages carrying each
+    // native receipt. This is what lets consumers call
+    // `outMsg.content.items[i].react(...)` after a group send.
+    const outboundContent =
+      item.type === "group" && sendResult.groupMembers
+        ? {
+            ...item,
+            items: item.items.map((stub, idx) => {
+              const member = sendResult?.groupMembers?.[idx];
+              if (!member?.id) {
+                return stub;
+              }
+              return buildMessage({
+                id: member.id,
+                content: stub.content,
+                sender: member.sender,
+                timestamp: member.timestamp ?? new Date(),
+                extras: {},
+                spaceRef,
+                space,
+                definition,
+                client,
+                config,
+                direction: "outbound",
+              });
+            }),
+          }
+        : item;
+
     return buildMessage({
       id: sendResult.id,
-      content: item,
+      content: outboundContent,
       sender: sendResult.sender,
       timestamp: sendResult.timestamp ?? new Date(),
       extras: {},

@@ -15,15 +15,12 @@ for await (const [space, message] of app.messages) {
     await space.send(text("hi! reply to me or react with ↑ → r/e"));
   }
 
-  if (
-    message.content.type === "custom" &&
-    typeof message.content.raw === "object" &&
-    message.content.raw !== null &&
-    (message.content.raw as { terminal_type?: string }).terminal_type ===
-      "reaction"
-  ) {
-    const r = message.content.raw as { messageId: string; reaction: string };
-    console.log(`reaction ${r.reaction} on msg ${r.messageId.slice(0, 8)}…`);
+  // Inbound reactions are now first-class `reaction` content (upstream
+  // spectrum-ts PR #31) — no more custom-content wrapping.
+  if (message.content.type === "reaction") {
+    console.log(
+      `reaction ${message.content.emoji} on msg ${message.content.target.slice(0, 8)}…`
+    );
     continue;
   }
 

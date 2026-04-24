@@ -522,20 +522,18 @@ export const terminal = definePlatform("terminal", {
           };
           continue;
         }
-        // Reactions ride the messages stream as `custom` content. Matches the
-        // WhatsApp provider's convention — agents filter with
-        // `msg.content.type === "custom" && msg.content.raw.terminal_type === "reaction"`.
+        // Reactions ride the messages stream as first-class `reaction`
+        // content (upstream spectrum-ts PR #31 added this variant to the
+        // Content union). Agents filter with `msg.content.type === "reaction"`
+        // and read `.emoji` + `.target` directly.
         const r = evt.value;
         client.knownChats.add(r.spaceId);
         yield {
           id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
           content: {
-            type: "custom" as const,
-            raw: {
-              terminal_type: "reaction",
-              messageId: r.messageId,
-              reaction: r.reaction,
-            },
+            type: "reaction" as const,
+            emoji: r.reaction,
+            target: r.messageId,
           },
           sender: { id: r.senderId },
           space: { id: r.spaceId },

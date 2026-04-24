@@ -23,6 +23,17 @@ export const DEFAULT_VERSION = "0.1.4";
 
 const REPO = "photon-hq/tuichat";
 
+// Semver-ish: three numeric components with optional pre-release/build suffix.
+// Intentionally strict — the value is embedded into filesystem paths and URLs,
+// and accepting arbitrary strings would let a hostile env like
+// `TUICHAT_VERSION=../../evil` escape the cache directory.
+const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
+// Timeout on GitHub release fetches. GitHub's CDN is usually <1s; anything
+// over this means the network is stuck and we prefer a fast failure over a
+// client-creation call hanging forever.
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+
 type Target =
   | "darwin-arm64"
   | "darwin-x64"
@@ -73,42 +84,34 @@ function parseChecksums(text: string): Record<string, string> {
   return out;
 }
 
-export interface ResolveOptions {
-  /** Set to true to force re-download even if cached. */
-  force?: boolean;
-  /** Override the version (default: TUICHAT_VERSION env or DEFAULT_VERSION). */
-  version?: string;
-}
-
-export async function resolveTuichatBinary(
-  options: ResolveOptions = {}
-): Promise<string> {
-  // Dev/local override: skip download, use a local binary path directly.
-  const override = process.env.TUICHAT_BINARY;
-  if (override) {
-    if (!existsSync(override)) {
-      throw new Error(`tuichat: TUICHAT_BINARY=${override} does not exist`);
-    }
-    return override;
-  }
-
-  const version =
-    options.version ?? process.env.TUICHAT_VERSION ?? DEFAULT_VERSION;
-  const target = targetSuffix();
-  const ext = target.startsWith("windows") ? ".exe" : "";
-  const filename = `tuichat-${target}${ext}`;
-  const dir = cacheDir(version);
-  const path = join(dir, filename);
-
-  if (!options.force && existsSync(path)) {
-    return path;
-  }
-
+// downloadVerified fetches SHA256SUMS + the binary for the given version
+// under a single abortable timeout, verifies the checksum, and returns the
+// raw bytes. Factored out so resolveTuichatBinary stays below the package
+// complexity budget.
+async function downloadVerified(
+  version: string,
+  filename: string
+): Promise<Buffer> {
   const base = `https://github.com/${REPO}/releases/download/v${version}`;
-  const [sumsRes, binRes] = await Promise.all([
-    fetch(`${base}/SHA256SUMS`),
-    fetch(`${base}/${filename}`),
-  ]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  let sumsRes: Response;
+  let binRes: Response;
+  try {
+    [sumsRes, binRes] = await Promise.all([
+      fetch(`${base}/SHA256SUMS`, { signal: controller.signal }),
+      fetch(`${base}/${filename}`, { signal: controller.signal }),
+    ]);
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `tuichat: timed out fetching v${version} release assets after ${DOWNLOAD_TIMEOUT_MS}ms`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!sumsRes.ok) {
     throw new Error(
       `tuichat: failed to fetch SHA256SUMS (v${version}): HTTP ${sumsRes.status}`
@@ -132,10 +135,15 @@ export async function resolveTuichatBinary(
       `tuichat: checksum mismatch for ${filename} (expected ${expected}, got ${actual})`
     );
   }
-  mkdirSync(dir, { recursive: true });
-  // Write to a unique temp path in the same directory, chmod, then atomically
-  // rename into place. Avoids torn writes when multiple processes resolve the
-  // same version concurrently or when a process crashes mid-download.
+  return bytes;
+}
+
+// writeBinary atomically installs the downloaded bytes at `path`: write to a
+// unique temp file in the same directory, chmod (POSIX only), rename into
+// place. Cleans up the temp file on any failure. Windows has an extra race
+// path where renameSync EEXIST means another resolver already populated the
+// cache — we treat that as success and reuse the existing file.
+function writeBinary(path: string, bytes: Buffer): void {
   const tmpPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     writeFileSync(tmpPath, bytes);
@@ -144,12 +152,63 @@ export async function resolveTuichatBinary(
     }
     renameSync(tmpPath, path);
   } catch (err) {
+    const renameErr = err as NodeJS.ErrnoException;
     try {
       unlinkSync(tmpPath);
     } catch {
       // Temp may not exist if writeFileSync was what failed — ignore.
     }
+    if (
+      process.platform === "win32" &&
+      renameErr.code === "EEXIST" &&
+      existsSync(path)
+    ) {
+      return;
+    }
     throw err;
   }
+}
+
+export interface ResolveOptions {
+  /** Set to true to force re-download even if cached. */
+  force?: boolean;
+  /** Override the version (default: TUICHAT_VERSION env or DEFAULT_VERSION). */
+  version?: string;
+}
+
+export async function resolveTuichatBinary(
+  options: ResolveOptions = {}
+): Promise<string> {
+  // Dev/local override: skip download, use a local binary path directly.
+  const override = process.env.TUICHAT_BINARY;
+  if (override) {
+    if (!existsSync(override)) {
+      throw new Error(`tuichat: TUICHAT_BINARY=${override} does not exist`);
+    }
+    return override;
+  }
+
+  const version =
+    options.version ?? process.env.TUICHAT_VERSION ?? DEFAULT_VERSION;
+  // Reject anything that could escape the intended cache dir or alter the
+  // URL shape — ".." segments, path separators, leading slashes, etc.
+  if (!VERSION_RE.test(version)) {
+    throw new Error(
+      `tuichat: invalid version "${version}" — expected semver like 0.1.4`
+    );
+  }
+  const target = targetSuffix();
+  const ext = target.startsWith("windows") ? ".exe" : "";
+  const filename = `tuichat-${target}${ext}`;
+  const dir = cacheDir(version);
+  const path = join(dir, filename);
+
+  if (!options.force && existsSync(path)) {
+    return path;
+  }
+
+  const bytes = await downloadVerified(version, filename);
+  mkdirSync(dir, { recursive: true });
+  writeBinary(path, bytes);
   return path;
 }

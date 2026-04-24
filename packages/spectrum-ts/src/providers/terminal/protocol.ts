@@ -211,6 +211,11 @@ export class RpcSession {
           this.pending.delete(id);
           reject(new Error(`rpc ${method} timed out after ${timeoutMs}ms`));
         }, timeoutMs);
+        // Don't pin the Node event loop open just because an RPC timeout is
+        // scheduled — if the agent wants to exit before the timeout fires,
+        // let it. The settled guard above handles the unref'd-tick-after-
+        // exit case cleanly.
+        timer.unref?.();
       }
       try {
         this.socket.write(encode(msg));

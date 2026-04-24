@@ -15,6 +15,7 @@ import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import { asVoice } from "../../content/voice";
 import { definePlatform } from "../../platform/define";
+import { UnsupportedError } from "../../utils/errors";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import {
   type ProtocolContent,
@@ -29,6 +30,10 @@ import { resolveTuichatBinary } from "./resolve-binary";
 // completes in a bounded time.
 const SHUTDOWN_TIMEOUT_MS = 2000;
 const SPAWN_CONNECT_TIMEOUT_MS = 10_000;
+// Upper bound on `initialize` — the subprocess has connected but if the
+// protocol handshake gets stuck, we'd rather fail fast than hang
+// createClient indefinitely.
+const INITIALIZE_TIMEOUT_MS = 10_000;
 
 const commandSchema = z.object({
   name: z.string().regex(/^\/[A-Za-z0-9_-]+$/, "command must start with /"),
@@ -126,6 +131,11 @@ function makeEventQueue(): {
   const queue: InboundEvent[] = [];
   const waiters: Array<(v: IteratorResult<InboundEvent>) => void> = [];
   let closed = false;
+  const drain = () => {
+    while (waiters.length > 0) {
+      waiters.shift()?.({ value: undefined, done: true });
+    }
+  };
   const iter: AsyncIterable<InboundEvent> = {
     [Symbol.asyncIterator]() {
       return {
@@ -138,6 +148,15 @@ function makeEventQueue(): {
             return Promise.resolve({ value: buffered, done: false });
           }
           return new Promise((resolve) => waiters.push(resolve));
+        },
+        // return() fires when the consumer's for-await-of loop breaks or
+        // when Spectrum.stop() calls iterator.return() upstream. Without
+        // this, a pending next() would hang forever because no further
+        // push/close is coming. Close + drain so shutdown is always prompt.
+        return(): Promise<IteratorResult<InboundEvent>> {
+          closed = true;
+          drain();
+          return Promise.resolve({ value: undefined, done: true });
         },
       };
     },
@@ -157,9 +176,7 @@ function makeEventQueue(): {
     },
     close() {
       closed = true;
-      while (waiters.length > 0) {
-        waiters.shift()?.({ value: undefined, done: true });
-      }
+      drain();
     },
   };
 }
@@ -284,18 +301,42 @@ async function spawnClient(options: {
       return;
     }
   });
+  // hijack is installed only after initialize succeeds (so startup errors
+  // reach the real stderr). We hoist the reference here so the onClosed
+  // handler below can restore the console if the session dies unexpectedly.
+  let hijack: ConsoleHijack | undefined;
   session.onClosed(() => {
+    // Restore console the moment the session dies — if the subprocess
+    // crashes, subsequent console.* calls would otherwise be swallowed by
+    // the hijack forever (session.notify() becomes a no-op on closed).
+    // restore() is idempotent, so destroyClient calling it again is fine.
+    hijack?.restore();
     eventsQ.close();
   });
 
-  await session.request("initialize", {
-    commands: options.commands,
-    clientInfo: { name: "spectrum-ts", version: "terminal-provider" },
-  });
+  try {
+    await session.request(
+      "initialize",
+      {
+        commands: options.commands,
+        clientInfo: { name: "spectrum-ts", version: "terminal-provider" },
+      },
+      INITIALIZE_TIMEOUT_MS
+    );
+  } catch (err) {
+    // initialize didn't complete — tear the session + subprocess down so
+    // we don't leak a socket or an orphaned tuichat process. Caller sees
+    // a failed createClient with the original error rethrown.
+    session.close();
+    try {
+      proc.kill("SIGTERM");
+    } catch {
+      // best-effort
+    }
+    throw err;
+  }
 
-  // Install the console hijack only AFTER initialize succeeds, so any startup
-  // errors still surface to the real stderr.
-  const hijack = installConsoleHijack(session);
+  hijack = installConsoleHijack(session);
 
   return {
     hijack,
@@ -364,8 +405,13 @@ async function spectrumToProtocol(
       vcard: await toVCard(content),
     };
   }
-  throw new Error(
-    `terminal provider: unsupported content type: ${(content as { type: string }).type}`
+  // Surface the failure as an UnsupportedError — the platform builder
+  // catches those and warns+skips, so an agent sending e.g. `richlink` on
+  // this provider gets a warning rather than an uncaught throw that
+  // crashes the whole process.
+  throw UnsupportedError.content(
+    (content as { type: string }).type,
+    "terminal"
   );
 }
 

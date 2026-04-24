@@ -14,7 +14,7 @@ import z from "zod";
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
-import { asReaction } from "../../content/reaction";
+import { reactionSchema } from "../../content/reaction";
 import { asVoice } from "../../content/voice";
 import type { ProviderMessageRecord } from "../../platform/build";
 import { definePlatform } from "../../platform/define";
@@ -356,7 +356,6 @@ async function spawnClient(options: {
 type SpectrumContent = z.infer<
   typeof import("../../content/types").contentSchema
 >;
-type ReactionTarget = Parameters<typeof asReaction>[0]["target"];
 
 // parseTimestamp validates an ISO timestamp string returned by the server —
 // an invalid string silently becomes an Invalid Date object through `new
@@ -369,7 +368,7 @@ function parseTimestamp(s: string): Date {
 
 function reactionTargetFromProtocol(
   reaction: ProtocolReactionNotification
-): ReactionTarget {
+): ProviderMessageRecord {
   // The protocol only gives us the target id. Core accepts nested raw provider
   // records in reaction content and wraps them into full Messages before users
   // see the event.
@@ -381,7 +380,17 @@ function reactionTargetFromProtocol(
     timestamp: parseTimestamp(reaction.timestamp),
   } satisfies ProviderMessageRecord;
 
-  return target as ReactionTarget;
+  return target;
+}
+
+function reactionContentFromProtocol(
+  reaction: ProtocolReactionNotification
+): SpectrumContent {
+  return reactionSchema.parse({
+    type: "reaction",
+    emoji: reaction.reaction,
+    target: reactionTargetFromProtocol(reaction),
+  });
 }
 
 async function spectrumToProtocol(
@@ -596,10 +605,7 @@ export const terminal = definePlatform("terminal", {
         client.knownChats.add(r.spaceId);
         yield {
           id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
-          content: asReaction({
-            emoji: r.reaction,
-            target: reactionTargetFromProtocol(r),
-          }),
+          content: reactionContentFromProtocol(r),
           sender: { id: r.senderId },
           space: { id: r.spaceId },
           timestamp: parseTimestamp(r.timestamp),

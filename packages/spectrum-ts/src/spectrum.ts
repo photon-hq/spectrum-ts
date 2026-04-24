@@ -38,19 +38,48 @@ export type SpectrumInstance<
   };
 
 // ---------------------------------------------------------------------------
+// Runtime options
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime behavior tweaks for a Spectrum instance.
+ */
+export interface SpectrumOptions {
+  /**
+   * When `true`, inbound `group` messages are never delivered whole. Instead,
+   * each group item is yielded from `spectrum.messages` as its own
+   * `[space, message]` tuple, in order. Items retain their individual
+   * `id`, `sender`, `timestamp`, and `.react()` / `.reply()` methods.
+   *
+   * Does not affect outbound `group(...)` sends or `space.getMessage(id)`.
+   *
+   * @default false
+   */
+  flattenGroups?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Config validation
 // ---------------------------------------------------------------------------
+
+const spectrumOptionsSchema = z
+  .object({
+    flattenGroups: z.boolean().optional(),
+  })
+  .optional();
 
 const spectrumConfigSchema = z.union([
   z.object({
     projectId: z.string().min(1),
     projectSecret: z.string().min(1),
     providers: z.array(z.custom<PlatformProviderConfig>()),
+    options: spectrumOptionsSchema,
   }),
   z.object({
     projectId: z.undefined().optional(),
     projectSecret: z.undefined().optional(),
     providers: z.array(z.custom<PlatformProviderConfig>()),
+    options: spectrumOptionsSchema,
   }),
 ]);
 
@@ -66,16 +95,24 @@ export async function Spectrum<
         projectId: string;
         projectSecret: string;
         providers: [...Providers];
+        options?: SpectrumOptions;
       }
     | {
         projectId?: never;
         projectSecret?: never;
         providers: [...Providers];
+        options?: SpectrumOptions;
       }
 ): Promise<SpectrumInstance<Providers>> {
   spectrumConfigSchema.parse(options);
 
-  const { projectId, projectSecret, providers } = options;
+  const {
+    projectId,
+    projectSecret,
+    providers,
+    options: runtimeOptions,
+  } = options;
+  const flattenGroups = runtimeOptions?.flattenGroups ?? false;
 
   const platformStates = new Map<
     string,
@@ -163,6 +200,12 @@ export async function Spectrum<
           space,
           spaceRef,
         });
+        if (flattenGroups && normalizedMessage.content.type === "group") {
+          for (const item of normalizedMessage.content.items) {
+            yield [space, item];
+          }
+          continue;
+        }
         yield [space, normalizedMessage];
       }
     };

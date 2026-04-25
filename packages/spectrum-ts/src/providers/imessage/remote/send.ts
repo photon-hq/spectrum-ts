@@ -1,7 +1,9 @@
 import {
   type AdvancedIMessage,
+  type AttachmentGuid,
   chatGuid,
   messageGuid,
+  type SendOptions,
 } from "@photon-ai/advanced-imessage";
 import type { Content } from "../../../content/types";
 import type { SendResult } from "../../../platform/types";
@@ -20,26 +22,19 @@ const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
 type ChatGuid = ReturnType<typeof chatGuid>;
 type ReplyGuid = ReturnType<typeof messageGuid>;
 
-interface MessageSendOptions {
-  attachment?: string;
-  audioMessage?: boolean;
-  replyTo?: ReplyGuid;
-  richLink?: boolean;
-}
-
 const toSendResult = (receipt: { guid: unknown }): SendResult => ({
   id: receipt.guid as string,
   timestamp: new Date(),
 });
 
 const withReply = (
-  options: MessageSendOptions,
+  options: SendOptions,
   replyTo: ReplyGuid | undefined
-): MessageSendOptions => (replyTo ? { ...options, replyTo } : options);
+): SendOptions => (replyTo ? { ...options, replyTo } : options);
 
 const replyOptions = (
   replyTo: ReplyGuid | undefined
-): MessageSendOptions | undefined => (replyTo ? { replyTo } : undefined);
+): SendOptions | undefined => (replyTo ? { replyTo } : undefined);
 
 const sendVCardAttachment = (
   remote: AdvancedIMessage,
@@ -55,7 +50,7 @@ const sendVCardAttachment = (
 const sendContactAttachment = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "contact" }>
-) => {
+): Promise<AttachmentGuid> => {
   const vcf = await toVCard(content);
   const upload = await sendVCardAttachment(remote, vcardFileName(content), vcf);
   return upload.guid;
@@ -64,7 +59,7 @@ const sendContactAttachment = async (
 const uploadAttachment = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "attachment" }>
-): Promise<string> => {
+): Promise<AttachmentGuid> => {
   const attachment = await remote.attachments.upload({
     data: await content.read(),
     fileName: content.name,
@@ -76,7 +71,7 @@ const uploadAttachment = async (
 const uploadVoice = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "voice" }>
-): Promise<string> => {
+): Promise<AttachmentGuid> => {
   const { buffer } = await ensureM4a(await content.read(), content.mimeType);
   const attachment = await remote.attachments.upload({
     data: buffer,

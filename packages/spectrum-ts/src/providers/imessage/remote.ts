@@ -496,6 +496,12 @@ type UnvotedPollEvent = PollEvent & {
   delta: Extract<PollChangeDelta, { type: "unvoted" }>;
 };
 
+const isVotedPollEvent = (event: PollEvent): event is VotedPollEvent =>
+  event.delta.type === "voted";
+
+const isUnvotedPollEvent = (event: PollEvent): event is UnvotedPollEvent =>
+  event.delta.type === "unvoted";
+
 const toCachedPoll = (input: {
   options: readonly IMessagePollOption[];
   title: string;
@@ -763,14 +769,13 @@ const toPollDeltaMessages = async (
   pollCache: PollCache,
   event: PollEvent
 ): Promise<IMessageMessage[]> => {
-  switch (event.delta.type) {
-    case "voted":
-      return toPollVoteMessages(client, pollCache, event);
-    case "unvoted":
-      return toPollUnvoteMessages(client, pollCache, event);
-    default:
-      return [];
+  if (isVotedPollEvent(event)) {
+    return toPollVoteMessages(client, pollCache, event);
   }
+  if (isUnvotedPollEvent(event)) {
+    return toPollUnvoteMessages(client, pollCache, event);
+  }
+  return [];
 };
 
 const clientStream = (

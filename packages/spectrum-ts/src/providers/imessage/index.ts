@@ -7,7 +7,7 @@ import {
   getMessage as localGetMessage,
   messages as localMessages,
   send as localSend,
-} from "./local";
+} from "./local/api";
 import {
   editMessage as remoteEditMessage,
   getMessage as remoteGetMessage,
@@ -17,7 +17,7 @@ import {
   send as remoteSend,
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
-} from "./remote";
+} from "./remote/api";
 import {
   configSchema,
   type IMessageClient,

@@ -17,7 +17,10 @@ for await (const [space, message] of app.messages) {
 
   // Inbound reactions are now first-class `reaction` content (upstream
   // spectrum-ts PR #31) — no more custom-content wrapping.
-  if (message.content.type === "reaction" && message.content.target.content.type === "text") {
+  if (
+    message.content.type === "reaction" &&
+    message.content.target.content.type === "text"
+  ) {
     console.log(
       `reaction ${message.content.emoji} on msg ${message.content.target.content.text.slice(0, 8)}…`
     );

@@ -276,21 +276,14 @@ const toPollUnvoteMessages = async (
     return [];
   }
   const chatGuidStr = event.chatGuid as string;
-  const messages: IMessageMessage[] = [];
   const deltas = pollCache.clearedActorSelectionDeltas(pollId, senderAddress);
-  for (const delta of deltas) {
-    const message = buildPollOptionMessage({
-      cached,
-      chatGuid: chatGuidStr,
-      event,
-      optionId: delta.optionId,
-      selected: delta.selected,
-      senderAddress,
-    });
-    if (message) {
-      messages.push(message);
-    }
-  }
+  const messages = buildPollOptionMessages({
+    cached,
+    chatGuid: chatGuidStr,
+    deltas,
+    event,
+    senderAddress,
+  });
   pollCache.commitActorSelection(pollId, senderAddress, [], event.at);
   return messages;
 };

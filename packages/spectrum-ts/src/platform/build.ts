@@ -9,6 +9,10 @@ import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
 import type { AnyPlatformDef, SendResult } from "./types";
 
+type ReplyToMessageAction = NonNullable<
+  AnyPlatformDef["actions"]["replyToMessage"]
+>;
+
 const ANSI_YELLOW = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
 
@@ -398,6 +402,57 @@ export function buildMessage(params: BuildMessageParams): Message {
     }
   };
 
+  const requireBuiltMessage = (action: "react" | "reply"): Message => {
+    if (!self) {
+      throw new Error(
+        `${action}() called before message construction completed (internal bug)`
+      );
+    }
+    return self;
+  };
+
+  const dispatchReplyItem = async (
+    item: Content,
+    target: Message,
+    replyToMessage: ReplyToMessageAction
+  ): Promise<OutboundMessage | undefined> => {
+    let sendResult: SendResult | undefined;
+    try {
+      sendResult = (await replyToMessage({
+        space: spaceRef,
+        messageId: params.id,
+        target,
+        content: item,
+        client,
+        config,
+      })) as SendResult | undefined;
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        warnUnsupported(err, definition.name);
+        return;
+      }
+      throw err;
+    }
+    if (!sendResult?.id) {
+      throw new Error(
+        `Platform "${definition.name}" reply did not return a message id`
+      );
+    }
+    return buildMessage({
+      id: sendResult.id,
+      content: item,
+      sender: sendResult.sender,
+      timestamp: sendResult.timestamp ?? new Date(),
+      extras: {},
+      spaceRef,
+      space,
+      definition,
+      client,
+      config,
+      direction: "outbound",
+    });
+  };
+
   async function reply(
     content: ContentInput
   ): Promise<OutboundMessage | undefined>;
@@ -407,7 +462,8 @@ export function buildMessage(params: BuildMessageParams): Message {
   async function reply(
     ...content: [ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
-    if (!definition.actions.replyToMessage) {
+    const replyToMessage = definition.actions.replyToMessage;
+    if (!replyToMessage) {
       warnUnsupported(
         UnsupportedError.action("reply", definition.name),
         definition.name
@@ -415,44 +471,13 @@ export function buildMessage(params: BuildMessageParams): Message {
       return content.length === 1 ? undefined : [];
     }
     const resolved = await resolveContents(content);
+    const target = requireBuiltMessage("reply");
     const results: OutboundMessage[] = [];
     for (const item of resolved) {
-      let sendResult: SendResult | undefined;
-      try {
-        sendResult = (await definition.actions.replyToMessage({
-          space: spaceRef,
-          messageId: params.id,
-          content: item,
-          client,
-          config,
-        })) as SendResult | undefined;
-      } catch (err) {
-        if (err instanceof UnsupportedError) {
-          warnUnsupported(err, definition.name);
-          continue;
-        }
-        throw err;
+      const sent = await dispatchReplyItem(item, target, replyToMessage);
+      if (sent) {
+        results.push(sent);
       }
-      if (!sendResult?.id) {
-        throw new Error(
-          `Platform "${definition.name}" reply did not return a message id`
-        );
-      }
-      results.push(
-        buildMessage({
-          id: sendResult.id,
-          content: item,
-          sender: sendResult.sender,
-          timestamp: sendResult.timestamp ?? new Date(),
-          extras: {},
-          spaceRef,
-          space,
-          definition,
-          client,
-          config,
-          direction: "outbound",
-        })
-      );
     }
     if (content.length === 1) {
       return results[0];

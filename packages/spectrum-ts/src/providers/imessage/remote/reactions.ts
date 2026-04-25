@@ -4,14 +4,17 @@ import {
   messageGuid,
   Reaction,
 } from "@photon-ai/advanced-imessage";
-import { asReaction } from "../../../content/reaction";
-import type { Message } from "../../../types/message";
+import {
+  type Reaction as ReactionContent,
+  reactionSchema,
+} from "../../../content/reaction";
 import type { MessageCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { parseTapbackTarget } from "./ids";
 import {
   buildMessageBase,
   cacheMessage,
+  isIMessageMessage,
   type ReceivedEvent,
   rebuildFromAppleMessage,
 } from "./inbound";
@@ -76,6 +79,18 @@ const getAssociatedMessageType = (
   return typeof fromRaw === "string" ? fromRaw : undefined;
 };
 
+type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
+
+const asProviderReaction = (
+  emoji: string,
+  target: RawProviderMessage
+): ReactionContent =>
+  reactionSchema.parse({
+    emoji,
+    target,
+    type: "reaction",
+  });
+
 const resolveReactionTarget = async (
   client: AdvancedIMessage,
   cache: MessageCache,
@@ -93,10 +108,12 @@ const resolveReactionTarget = async (
     }
   }
   if (candidate.content.type === "group") {
-    const item = (candidate.content.items as unknown as IMessageMessage[])[
-      partIndex
-    ];
-    return item ?? candidate;
+    const items = candidate.content.items;
+    if (!Array.isArray(items)) {
+      return candidate;
+    }
+    const item = items[partIndex];
+    return isIMessageMessage(item) ? item : candidate;
   }
   return candidate;
 };
@@ -128,12 +145,16 @@ export const toReactionMessages = async (
   if (!resolved) {
     return [];
   }
+  const messageId = event.message.guid;
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    return [];
+  }
   const base = buildMessageBase(event.message, event.chatGuid, event.timestamp);
   return [
     {
       ...base,
-      id: event.message.guid as string,
-      content: asReaction({ emoji, target: resolved as unknown as Message }),
+      id: messageId,
+      content: asProviderReaction(emoji, resolved),
     },
   ];
 };

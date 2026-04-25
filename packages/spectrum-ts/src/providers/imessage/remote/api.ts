@@ -21,6 +21,7 @@ export const messages = (
   clients: AdvancedIMessage[]
 ): ManagedStream<IMessageMessage> => remoteMessages(clients);
 
+/** Best-effort no-op when firstRemoteClient(clients) is unavailable. */
 export const startTyping = async (
   clients: AdvancedIMessage[],
   spaceId: string
@@ -32,6 +33,7 @@ export const startTyping = async (
   await startRemoteTyping(remote, spaceId);
 };
 
+/** Best-effort no-op when firstRemoteClient(clients) is unavailable. */
 export const stopTyping = async (
   clients: AdvancedIMessage[],
   spaceId: string
@@ -43,6 +45,7 @@ export const stopTyping = async (
   await stopRemoteTyping(remote, spaceId);
 };
 
+/** Throws when primaryRemoteClient(clients) is unavailable. */
 export const send = async (
   clients: AdvancedIMessage[],
   spaceId: string,
@@ -50,6 +53,7 @@ export const send = async (
 ): Promise<SendResult> =>
   sendRemoteMessage(primaryRemoteClient(clients), spaceId, content);
 
+/** Throws when primaryRemoteClient(clients) is unavailable. */
 export const replyToMessage = async (
   clients: AdvancedIMessage[],
   spaceId: string,
@@ -58,6 +62,7 @@ export const replyToMessage = async (
 ): Promise<SendResult> =>
   replyToRemoteMessage(primaryRemoteClient(clients), spaceId, msgId, content);
 
+/** Throws when primaryRemoteClient(clients) is unavailable. */
 export const editMessage = async (
   clients: AdvancedIMessage[],
   spaceId: string,
@@ -66,6 +71,7 @@ export const editMessage = async (
 ): Promise<void> =>
   editRemoteMessage(primaryRemoteClient(clients), spaceId, msgId, content);
 
+/** Best-effort no-op when firstRemoteClient(clients) is unavailable. */
 export const reactToMessage = async (
   clients: AdvancedIMessage[],
   spaceId: string,
@@ -79,6 +85,7 @@ export const reactToMessage = async (
   await reactToRemoteMessage(remote, spaceId, target, reaction);
 };
 
+/** Best-effort undefined when firstRemoteClient(clients) is unavailable. */
 export const getMessage = async (
   clients: AdvancedIMessage[],
   spaceId: string,

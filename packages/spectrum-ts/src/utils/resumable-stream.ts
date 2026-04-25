@@ -216,6 +216,9 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     ): Promise<string | undefined> => {
       let index = 0;
       let lastFlushedId: string | undefined;
+      // The live pump keeps appending while buffering remains true, and JS
+      // async work runs on one thread, so this loop intentionally observes
+      // newly buffered events before switching back to direct live delivery.
       while (index < liveBuffer.length) {
         throwLiveError(getLiveError());
         const event = liveBuffer[index];

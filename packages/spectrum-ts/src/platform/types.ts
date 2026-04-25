@@ -141,6 +141,7 @@ export interface PlatformDef<
     replyToMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
+      target: _MessageType;
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;

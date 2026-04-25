@@ -2,15 +2,15 @@ import {
   type AdvancedIMessage,
   type MessageEvent,
   messageGuid,
+  NotFoundError,
 } from "@photon-ai/advanced-imessage";
 import { asAttachment } from "../../../content/attachment";
 import { asContact } from "../../../content/contact";
 import { asCustom } from "../../../content/custom";
-import { asGroup } from "../../../content/group";
+import { type Group, groupSchema } from "../../../content/group";
 import { asRichlink } from "../../../content/richlink";
 import { asText } from "../../../content/text";
 import type { Content } from "../../../content/types";
-import type { Message } from "../../../types/message";
 import { fromVCard } from "../../../utils/vcard";
 import { getMessageCache, type MessageCache } from "../cache";
 import { isVCardAttachment } from "../shared/vcard";
@@ -46,6 +46,28 @@ const resolveChatGuid = (
 
 const resolveSenderId = (message: AppleMessage): string =>
   message.sender?.address ?? "";
+
+type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
+
+export const isIMessageMessage = (value: unknown): value is IMessageMessage => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.id === "string" &&
+    record.id.length > 0 &&
+    typeof record.content === "object" &&
+    record.content !== null &&
+    typeof record.sender === "object" &&
+    record.sender !== null &&
+    typeof record.space === "object" &&
+    record.space !== null
+  );
+};
+
+const asProviderGroup = (items: readonly RawProviderMessage[]): Group =>
+  groupSchema.parse({ type: "group", items });
 
 export const buildMessageBase = (
   message: AppleMessage,
@@ -93,7 +115,11 @@ const toVCardContent = async (
   try {
     const buf = Buffer.from(await client.attachments.downloadBuffer(info.guid));
     return asContact(fromVCard(buf.toString("utf8")));
-  } catch {
+  } catch (err) {
+    console.warn(
+      "[spectrum-ts][imessage] failed to parse vCard attachment; falling back to attachment content",
+      { error: err, guid: info.guid }
+    );
     return toAttachmentContent(client, info);
   }
 };
@@ -130,7 +156,11 @@ const toRichlinkMessage = (
   const url = message.text ?? "";
   try {
     return { ...base, id, content: asRichlink({ url }) };
-  } catch {
+  } catch (err) {
+    console.warn(
+      "[spectrum-ts][imessage] failed to convert message to rich link; falling back to text/custom content",
+      { error: err, message, url }
+    );
     return {
       ...base,
       id,
@@ -180,7 +210,7 @@ export const rebuildFromAppleMessage = async (
     return {
       ...base,
       id: messageGuidStr,
-      content: asGroup({ items: items as unknown as Message[] }),
+      content: asProviderGroup(items),
     };
   }
 
@@ -202,8 +232,10 @@ export const cacheMessage = (
 ): void => {
   cache.set(message.id, message);
   if (message.content.type === "group") {
-    for (const item of message.content.items as unknown as IMessageMessage[]) {
-      cache.set(item.id, item);
+    for (const item of message.content.items) {
+      if (isIMessageMessage(item)) {
+        cache.set(item.id, item);
+      }
     }
   }
 };
@@ -259,7 +291,7 @@ export const toInboundMessages = async (
     const parent: IMessageMessage = {
       ...base,
       id: messageGuidStr,
-      content: asGroup({ items: items as unknown as Message[] }),
+      content: asProviderGroup(items),
     };
     cacheMessage(cache, parent);
     return [parent];
@@ -300,10 +332,13 @@ export const getMessage = async (
       if (parent.content.type !== "group") {
         return;
       }
-      const items = parent.content.items as unknown as IMessageMessage[];
-      return items[childRef.partIndex];
-    } catch {
-      return;
+      const item = parent.content.items[childRef.partIndex];
+      return isIMessageMessage(item) ? item : undefined;
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return;
+      }
+      throw err;
     }
   }
 
@@ -312,7 +347,10 @@ export const getMessage = async (
     const rebuilt = await rebuildFromAppleMessage(remote, fetched, spaceId);
     cacheMessage(cache, rebuilt);
     return rebuilt;
-  } catch {
-    return;
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      return;
+    }
+    throw err;
   }
 };

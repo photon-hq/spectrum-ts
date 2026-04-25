@@ -11,7 +11,6 @@ import { ensureM4a } from "../../../utils/audio";
 import { toVCard } from "../../../utils/vcard";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { vcardFileName } from "../shared/vcard";
-import type { IMessageMessage } from "../types";
 
 const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
   "attachment",
@@ -22,10 +21,50 @@ const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
 type ChatGuid = ReturnType<typeof chatGuid>;
 type ReplyGuid = ReturnType<typeof messageGuid>;
 
-const toSendResult = (receipt: { guid: unknown }): SendResult => ({
-  id: receipt.guid as string,
-  timestamp: new Date(),
-});
+interface SendReceiptLike {
+  date?: unknown;
+  dateCreated?: unknown;
+  guid: unknown;
+  timestamp?: unknown;
+}
+
+export class PartialGroupSendError extends Error {
+  override readonly cause: unknown;
+  readonly groupMembers: readonly SendResult[];
+
+  constructor(groupMembers: readonly SendResult[], cause: unknown) {
+    super("iMessage group send failed after one or more items were sent");
+    this.name = "PartialGroupSendError";
+    this.cause = cause;
+    this.groupMembers = groupMembers;
+  }
+}
+
+const toDate = (value: unknown): Date | undefined => {
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "string") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+};
+
+const receiptTimestamp = (receipt: SendReceiptLike): Date =>
+  toDate(receipt.timestamp) ??
+  toDate(receipt.date) ??
+  toDate(receipt.dateCreated) ??
+  new Date();
+
+const toSendResult = (receipt: SendReceiptLike): SendResult => {
+  if (typeof receipt.guid !== "string" || receipt.guid.length === 0) {
+    throw new Error("iMessage send receipt is missing a message guid");
+  }
+  return {
+    id: receipt.guid,
+    timestamp: receiptTimestamp(receipt),
+  };
+};
 
 const withReply = (
   options: SendOptions,
@@ -90,9 +129,7 @@ const sendContent = async (
   switch (content.type) {
     case "text":
       return toSendResult(
-        replyTo
-          ? await remote.messages.send(chat, content.text, { replyTo })
-          : await remote.messages.send(chat, content.text)
+        await remote.messages.send(chat, content.text, withReply({}, replyTo))
       );
     case "richlink":
       return toSendResult(
@@ -148,7 +185,7 @@ export const validateGroupContent = (
 ): void => {
   // Strict validation: fail before any native send when a group contains items
   // iMessage cannot carry natively.
-  for (const sub of content.items as unknown as IMessageMessage[]) {
+  for (const sub of content.items) {
     const itemType = sub.content.type;
     if (!GROUP_ITEM_ALLOWED.has(itemType)) {
       throw unsupportedRemoteContent(
@@ -159,6 +196,11 @@ export const validateGroupContent = (
   }
 };
 
+/**
+ * Sends iMessage content. Group sends are emulated with sequential native sends
+ * and are non-atomic; `PartialGroupSendError.groupMembers` contains receipts
+ * for children that were sent before a later child failed.
+ */
 export const send = async (
   remote: AdvancedIMessage,
   spaceId: string,
@@ -176,8 +218,12 @@ export const send = async (
     // for each group item. The outer `id` tracks the first child purely for
     // OutboundMessage compatibility: prefer items[i].id for per-item ops.
     const groupMembers: SendResult[] = [];
-    for (const sub of content.items as unknown as IMessageMessage[]) {
-      groupMembers.push(await sendContent(remote, chat, sub.content));
+    try {
+      for (const sub of content.items) {
+        groupMembers.push(await sendContent(remote, chat, sub.content));
+      }
+    } catch (err) {
+      throw new PartialGroupSendError(groupMembers, err);
     }
     const first = groupMembers[0];
     if (!first) {

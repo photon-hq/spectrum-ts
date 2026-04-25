@@ -25,7 +25,22 @@ export const spaceSchema = z.object({
   type: z.enum(["dm", "group"]),
 });
 
+/**
+ * iMessage-specific per-message metadata surfaced on `IMessageMessage`.
+ * - `partIndex`: attachment index within a multi-part message (0 for bare
+ *   or single-attachment messages; 0..N-1 for a group's sub-items).
+ * - `parentId`: guid of the parent message for a group sub-item. Undefined
+ *   when the message itself is the parent.
+ */
+export const messageSchema = z.object({
+  partIndex: z.number().int().nonnegative().optional(),
+  parentId: z.string().optional(),
+});
+
 export type IMessageMessage = SchemaMessage<
   typeof userSchema,
   typeof spaceSchema
->;
+> & {
+  partIndex?: number;
+  parentId?: string;
+};

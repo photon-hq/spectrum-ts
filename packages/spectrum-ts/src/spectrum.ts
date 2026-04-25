@@ -1,6 +1,10 @@
 import z from "zod";
-import type { Content, ContentInput } from "./content/types";
-import { buildMessage, buildSpace } from "./platform/build";
+import type { ContentInput } from "./content/types";
+import {
+  buildSpace,
+  type ProviderMessageRecord,
+  wrapProviderMessage,
+} from "./platform/build";
 import type {
   AnyPlatformDef,
   CustomEventStreams,
@@ -10,22 +14,6 @@ import type {
 import type { InboundMessage, Message, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
 import { type ManagedStream, mergeStreams, stream } from "./utils/stream";
-
-type ProviderMessageRecord = {
-  id: string;
-  content: Content;
-  sender: { id: string } & Record<string, unknown>;
-  space: { id: string } & Record<string, unknown>;
-  timestamp?: Date;
-} & Record<string, unknown>;
-
-const providerMessageCoreKeys = new Set([
-  "content",
-  "id",
-  "sender",
-  "space",
-  "timestamp",
-]);
 
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
@@ -50,19 +38,48 @@ export type SpectrumInstance<
   };
 
 // ---------------------------------------------------------------------------
+// Runtime options
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime behavior tweaks for a Spectrum instance.
+ */
+export interface SpectrumOptions {
+  /**
+   * When `true`, inbound `group` messages are never delivered whole. Instead,
+   * each group item is yielded from `spectrum.messages` as its own
+   * `[space, message]` tuple, in order. Items retain their individual
+   * `id`, `sender`, `timestamp`, and `.react()` / `.reply()` methods.
+   *
+   * Does not affect outbound `group(...)` sends or `space.getMessage(id)`.
+   *
+   * @default false
+   */
+  flattenGroups?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Config validation
 // ---------------------------------------------------------------------------
+
+const spectrumOptionsSchema = z
+  .object({
+    flattenGroups: z.boolean().optional(),
+  })
+  .optional();
 
 const spectrumConfigSchema = z.union([
   z.object({
     projectId: z.string().min(1),
     projectSecret: z.string().min(1),
     providers: z.array(z.custom<PlatformProviderConfig>()),
+    options: spectrumOptionsSchema,
   }),
   z.object({
     projectId: z.undefined().optional(),
     projectSecret: z.undefined().optional(),
     providers: z.array(z.custom<PlatformProviderConfig>()),
+    options: spectrumOptionsSchema,
   }),
 ]);
 
@@ -78,16 +95,24 @@ export async function Spectrum<
         projectId: string;
         projectSecret: string;
         providers: [...Providers];
+        options?: SpectrumOptions;
       }
     | {
         projectId?: never;
         projectSecret?: never;
         providers: [...Providers];
+        options?: SpectrumOptions;
       }
 ): Promise<SpectrumInstance<Providers>> {
   spectrumConfigSchema.parse(options);
 
-  const { projectId, projectSecret, providers } = options;
+  const {
+    projectId,
+    projectSecret,
+    providers,
+    options: runtimeOptions,
+  } = options;
+  const flattenGroups = runtimeOptions?.flattenGroups ?? false;
 
   const platformStates = new Map<
     string,
@@ -155,13 +180,6 @@ export async function Spectrum<
 
     const bindSend = async function* (): AsyncIterable<[Space, Message]> {
       for await (const msg of raw) {
-        const extraEntries = Object.entries(msg).filter(
-          ([key]) => !providerMessageCoreKeys.has(key)
-        );
-        const extra = Object.fromEntries(extraEntries);
-        const parsedExtra = definition.message?.schema
-          ? definition.message.schema.parse(extra)
-          : {};
         const spaceRef = {
           ...msg.space,
           __platform: definition.name,
@@ -175,20 +193,19 @@ export async function Spectrum<
           client,
           config,
         });
-        const normalizedMessage = buildMessage({
-          id: msg.id,
-          content: msg.content,
-          sender: msg.sender,
-          timestamp: msg.timestamp ?? new Date(),
-          extras: parsedExtra as Record<string, unknown>,
-          spaceRef,
-          space,
-          definition,
+        const normalizedMessage = wrapProviderMessage(msg, {
           client,
           config,
-          direction: "inbound",
+          definition,
+          space,
+          spaceRef,
         });
-
+        if (flattenGroups && normalizedMessage.content.type === "group") {
+          for (const item of normalizedMessage.content.items) {
+            yield [space, item];
+          }
+          continue;
+        }
         yield [space, normalizedMessage];
       }
     };

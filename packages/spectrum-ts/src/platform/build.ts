@@ -77,6 +77,107 @@ export interface BuildSpaceParams {
   typingCtx: { space: SpaceRef; client: unknown; config: unknown };
 }
 
+// Raw provider message fields — everything else on a provider-emitted record
+// is platform-specific extras (e.g. `partIndex` for iMessage).
+export const providerMessageCoreKeys: ReadonlySet<string> = new Set([
+  "content",
+  "id",
+  "sender",
+  "space",
+  "timestamp",
+]);
+
+export type ProviderMessageRecord = {
+  id: string;
+  content: Content;
+  sender: { id: string } & Record<string, unknown>;
+  space: { id: string } & Record<string, unknown>;
+  timestamp?: Date;
+} & Record<string, unknown>;
+
+export interface WrapContext {
+  client: unknown;
+  config: unknown;
+  definition: AnyPlatformDef;
+  space: Space;
+  spaceRef: SpaceRef;
+}
+
+const extractExtras = (
+  raw: ProviderMessageRecord,
+  definition: AnyPlatformDef
+): Record<string, unknown> => {
+  const entries = Object.entries(raw).filter(
+    ([key]) => !providerMessageCoreKeys.has(key)
+  );
+  const extra = Object.fromEntries(entries);
+  return (
+    definition.message?.schema ? definition.message.schema.parse(extra) : extra
+  ) as Record<string, unknown>;
+};
+
+/**
+ * Wrap a raw provider message record (and any nested raw targets/items inside
+ * its content) into a fully-built inbound `Message`. The recursion handles
+ * reaction targets and group items, which arrive from providers as raw shapes.
+ */
+export function wrapProviderMessage(
+  raw: ProviderMessageRecord,
+  ctx: WrapContext
+): InboundMessage {
+  const wrappedContent = wrapNestedContent(raw.content, ctx);
+  return buildMessage({
+    id: raw.id,
+    content: wrappedContent,
+    sender: raw.sender,
+    timestamp: raw.timestamp ?? new Date(),
+    extras: extractExtras(raw, ctx.definition),
+    spaceRef: ctx.spaceRef,
+    space: ctx.space,
+    definition: ctx.definition,
+    client: ctx.client,
+    config: ctx.config,
+    direction: "inbound",
+  });
+}
+
+const wrapNestedContent = (content: Content, ctx: WrapContext): Content => {
+  if (content.type === "reaction") {
+    const target = content.target as unknown;
+    if (isRawProviderRecord(target)) {
+      return {
+        ...content,
+        target: wrapProviderMessage(target, ctx),
+      };
+    }
+    return content;
+  }
+  if (content.type === "group") {
+    const items = content.items.map((item) => {
+      const raw = item as unknown;
+      return isRawProviderRecord(raw) ? wrapProviderMessage(raw, ctx) : item;
+    });
+    return { ...content, items };
+  }
+  return content;
+};
+
+const isRawProviderRecord = (v: unknown): v is ProviderMessageRecord => {
+  if (typeof v !== "object" || v === null) {
+    return false;
+  }
+  const record = v as Record<string, unknown>;
+  // A built Message has `react` and `reply` methods; a raw provider record
+  // does not. We use that to distinguish the two when they both satisfy the
+  // `isMessage` guard used by Zod custom validators.
+  return (
+    "id" in record &&
+    "content" in record &&
+    typeof record.react !== "function" &&
+    typeof record.reply !== "function"
+  );
+};
+
 export function buildSpace(params: BuildSpaceParams): Space {
   const { spaceRef, extras, typingCtx, definition, client, config } = params;
   // Declared first so inner arrows can reference it after assignment.
@@ -91,7 +192,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
       }
       await definition.actions.reactToMessage({
         space: spaceRef,
-        messageId: item.target,
+        target: item.target,
         reaction: item.emoji,
         client,
         config,
@@ -126,9 +227,41 @@ export function buildSpace(params: BuildSpaceParams): Space {
         `Platform "${definition.name}" send did not return a message id`
       );
     }
+
+    // If the provider reported per-item send receipts for a group, replace
+    // the placeholder items (produced by the `group()` builder, which cannot
+    // know ids before the send) with real outbound Messages carrying each
+    // native receipt. This is what lets consumers call
+    // `outMsg.content.items[i].react(...)` after a group send.
+    const outboundContent =
+      item.type === "group" && sendResult.groupMembers
+        ? {
+            ...item,
+            items: item.items.map((stub, idx) => {
+              const member = sendResult?.groupMembers?.[idx];
+              if (!member?.id) {
+                return stub;
+              }
+              return buildMessage({
+                id: member.id,
+                content: stub.content,
+                sender: member.sender,
+                timestamp: member.timestamp ?? new Date(),
+                extras: {},
+                spaceRef,
+                space,
+                definition,
+                client,
+                config,
+                direction: "outbound",
+              });
+            }),
+          }
+        : item;
+
     return buildMessage({
       id: sendResult.id,
-      content: item,
+      content: outboundContent,
       sender: sendResult.sender,
       timestamp: sendResult.timestamp ?? new Date(),
       extras: {},
@@ -162,6 +295,41 @@ export function buildSpace(params: BuildSpaceParams): Space {
     return results;
   }
 
+  async function getMessageImpl(id: string): Promise<Message | undefined> {
+    if (!definition.actions.getMessage) {
+      warnUnsupported(
+        UnsupportedError.action("getMessage", definition.name),
+        definition.name
+      );
+      return;
+    }
+    let raw: ProviderMessageRecord | undefined;
+    try {
+      raw = (await definition.actions.getMessage({
+        space: spaceRef,
+        messageId: id,
+        client,
+        config,
+      })) as ProviderMessageRecord | undefined;
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        warnUnsupported(err, definition.name);
+        return;
+      }
+      throw err;
+    }
+    if (!raw) {
+      return;
+    }
+    return wrapProviderMessage(raw, {
+      client,
+      config,
+      definition,
+      space,
+      spaceRef,
+    });
+  }
+
   space = {
     ...extras,
     ...spaceRef,
@@ -172,6 +340,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     ): Promise<void> => {
       await message.edit(newContent);
     },
+    getMessage: getMessageImpl,
     startTyping: async () => {
       await definition.actions.startTyping?.(typingCtx);
     },
@@ -195,6 +364,10 @@ export function buildMessage(params: BuildOutboundParams): OutboundMessage;
 export function buildMessage(params: BuildMessageParams): Message {
   const { definition, client, config, spaceRef, space } = params;
 
+  // Late-bound self reference so `react()` can pass the built Message as the
+  // reaction target.
+  let self: Message | undefined;
+
   const react = async (reaction: string): Promise<void> => {
     if (!definition.actions.reactToMessage) {
       warnUnsupported(
@@ -203,10 +376,15 @@ export function buildMessage(params: BuildMessageParams): Message {
       );
       return;
     }
+    if (!self) {
+      throw new Error(
+        "react() called before message construction completed (internal bug)"
+      );
+    }
     try {
       await definition.actions.reactToMessage({
         space: spaceRef,
-        messageId: params.id,
+        target: self,
         reaction,
         client,
         config,
@@ -288,7 +466,7 @@ export function buildMessage(params: BuildMessageParams): Message {
       : { ...params.sender, __platform: definition.name };
 
   if (params.direction === "outbound") {
-    return {
+    const outbound = {
       ...params.extras,
       id: params.id,
       content: params.content,
@@ -328,9 +506,11 @@ export function buildMessage(params: BuildMessageParams): Message {
       space,
       timestamp: params.timestamp,
     } as OutboundMessage;
+    self = outbound;
+    return outbound;
   }
 
-  return {
+  const inbound = {
     ...params.extras,
     id: params.id,
     content: params.content,
@@ -342,4 +522,6 @@ export function buildMessage(params: BuildMessageParams): Message {
     space,
     timestamp: params.timestamp,
   } as InboundMessage;
+  self = inbound;
+  return inbound;
 }

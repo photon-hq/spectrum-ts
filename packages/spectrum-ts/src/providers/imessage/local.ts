@@ -206,7 +206,18 @@ export const send = async (
       );
       return synthSendResult();
     }
+    case "poll":
+      throw UnsupportedError.content("poll", "iMessage (local mode)");
     default:
       throw UnsupportedError.content(content.type, "iMessage (local mode)");
   }
 };
+
+// Local mode has no by-id SDK lookup and does not surface reactions, so it
+// has no cache to consult. `space.getMessage(id)` always resolves to
+// `undefined` on local — callers with only an id cannot materialize a Message
+// here.
+export const getMessage = async (
+  _client: IMessageSDK,
+  _id: string
+): Promise<IMessageMessage | undefined> => undefined;

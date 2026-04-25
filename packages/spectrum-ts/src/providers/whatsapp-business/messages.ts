@@ -16,14 +16,14 @@ import {
   type ContactPhone as SpectrumContactPhone,
 } from "../../content/contact";
 import { asCustom } from "../../content/custom";
-import { asPollOption } from "../../content/poll";
+import { asPollOption, type Poll } from "../../content/poll";
 import { asReaction } from "../../content/reaction";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { SendResult } from "../../platform/types";
 import { UnsupportedError } from "../../utils/errors";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
-import { pollToInteractive } from "./poll";
+import { pollOptionId, pollToInteractive } from "./poll";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 
 // v1 routes outbound traffic to the first line. When multi-line send becomes a
@@ -42,6 +42,48 @@ type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
 const toSendResult = (result: WaSendResult): SendResult => ({
   id: result.messageId,
 });
+
+const MAX_POLL_CACHE_SIZE = 1000;
+const OPTION_ID_PREFIX = "opt_";
+const pollCaches = new WeakMap<WhatsAppClient, Map<string, Poll>>();
+
+const getPollCache = (client: WhatsAppClient): Map<string, Poll> => {
+  let cache = pollCaches.get(client);
+  if (!cache) {
+    cache = new Map<string, Poll>();
+    pollCaches.set(client, cache);
+  }
+  return cache;
+};
+
+const cachePoll = (
+  client: WhatsAppClient,
+  messageId: string,
+  poll: Poll
+): void => {
+  const cache = getPollCache(client);
+  if (cache.has(messageId)) {
+    cache.delete(messageId);
+  }
+  cache.set(messageId, poll);
+  if (cache.size > MAX_POLL_CACHE_SIZE) {
+    const first = cache.keys().next().value;
+    if (first !== undefined) {
+      cache.delete(first);
+    }
+  }
+};
+
+const optionIndexFromId = (id: string): number | undefined => {
+  if (!id.startsWith(OPTION_ID_PREFIX)) {
+    return;
+  }
+  const index = Number(id.slice(OPTION_ID_PREFIX.length));
+  if (!Number.isInteger(index) || index < 0 || pollOptionId(index) !== id) {
+    return;
+  }
+  return index;
+};
 
 type WaContactName = ContactCard["name"];
 type WaContactPhone = ContactCard["phones"][number];
@@ -208,15 +250,13 @@ const toMessages = (
     {
       ...base,
       id: msg.id,
-      content: mapContent(client, msg.content),
+      content: mapContent(client, msg),
     },
   ];
 };
 
-const mapContent = (
-  client: WhatsAppClient,
-  content: InboundMessage["content"]
-): Content => {
+const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
+  const { content } = msg;
   switch (content.type) {
     case "text":
       return asText(content.body);
@@ -245,7 +285,16 @@ const mapContent = (
     case "interactive": {
       const inter = content.interactive;
       if (inter.type === "button_reply" || inter.type === "list_reply") {
-        return asPollOption({ title: inter.reply.title });
+        const poll =
+          msg.context?.id === undefined
+            ? undefined
+            : getPollCache(client).get(msg.context.id);
+        const optionIndex = optionIndexFromId(inter.reply.id);
+        const option =
+          optionIndex === undefined ? undefined : poll?.options[optionIndex];
+        if (poll && option) {
+          return asPollOption({ poll, option, selected: true });
+        }
       }
       return asCustom({ whatsapp_type: "interactive", ...inter });
     }
@@ -484,13 +533,14 @@ export const send = async (
         } as Parameters<typeof client.messages.send>[0])
       );
     }
-    case "poll":
-      return toSendResult(
-        await client.messages.send({
-          to: spaceId,
-          interactive: pollToInteractive(content),
-        })
-      );
+    case "poll": {
+      const result = await client.messages.send({
+        to: spaceId,
+        interactive: pollToInteractive(content),
+      });
+      cachePoll(client, result.messageId, content);
+      return toSendResult(result);
+    }
     default:
       throw UnsupportedError.content(content.type);
   }
@@ -565,14 +615,15 @@ export const replyToMessage = async (
         } as Parameters<typeof client.messages.send>[0])
       );
     }
-    case "poll":
-      return toSendResult(
-        await client.messages.send({
-          to: spaceId,
-          replyTo: messageId,
-          interactive: pollToInteractive(content),
-        })
-      );
+    case "poll": {
+      const result = await client.messages.send({
+        to: spaceId,
+        replyTo: messageId,
+        interactive: pollToInteractive(content),
+      });
+      cachePoll(client, result.messageId, content);
+      return toSendResult(result);
+    }
     default:
       throw UnsupportedError.content(content.type);
   }

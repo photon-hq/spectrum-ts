@@ -11,11 +11,34 @@ export const pollSchema = z.object({
   options: z.array(pollChoiceSchema).min(2).max(10),
 });
 
-export const pollOptionSchema = z.object({
-  type: z.literal("poll_option"),
-  title: z.string().nonempty(),
-  pollId: z.string().optional(),
-});
+export const pollOptionSchema = z
+  .object({
+    type: z.literal("poll_option"),
+    option: pollChoiceSchema,
+    poll: pollSchema,
+    selected: z.boolean(),
+    title: z.string().nonempty(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.title !== value.option.title) {
+      ctx.addIssue({
+        code: "custom",
+        message: "poll_option title must match option.title",
+        path: ["title"],
+      });
+    }
+    if (
+      !value.poll.options.some(
+        (pollOption) => pollOption.title === value.option.title
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "poll_option option must exist in poll.options",
+        path: ["option"],
+      });
+    }
+  });
 
 export type Poll = z.infer<typeof pollSchema>;
 export type PollChoice = z.infer<typeof pollChoiceSchema>;
@@ -32,9 +55,15 @@ export const asPoll = (input: PollInput): Poll =>
   pollSchema.parse({ type: "poll", ...input });
 
 export const asPollOption = (input: {
-  title: string;
-  pollId?: string;
-}): PollOption => pollOptionSchema.parse({ type: "poll_option", ...input });
+  option: PollChoice;
+  poll: Poll;
+  selected: boolean;
+}): PollOption =>
+  pollOptionSchema.parse({
+    type: "poll_option",
+    ...input,
+    title: input.option.title,
+  });
 
 export const option = (title: string): PollChoice => ({ title });
 

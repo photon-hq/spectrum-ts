@@ -63,6 +63,16 @@ export const buildMessageBase = (
   };
 };
 
+export const receivedEventFromMessage = (
+  message: AppleMessage
+): ReceivedEvent =>
+  ({
+    chatGuid: resolveChatGuid(message, undefined),
+    message,
+    timestamp: message.dateCreated ?? new Date(),
+    type: "message.received",
+  }) as ReceivedEvent;
+
 const toAttachmentContent = (
   client: AdvancedIMessage,
   info: AppleAttachment

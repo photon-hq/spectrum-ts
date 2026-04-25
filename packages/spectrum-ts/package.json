@@ -35,6 +35,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "prepack": "cp ../../README.md ../../LICENSE .",
     "generate:emoji": "bun scripts/generate-emoji.ts"
   },
   "dependencies": {

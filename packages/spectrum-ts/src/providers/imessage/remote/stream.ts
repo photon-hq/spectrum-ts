@@ -41,7 +41,7 @@ const isRetryableIMessageStreamError = (error: unknown): boolean => {
   if (error instanceof IMessageError) {
     return true;
   }
-  return true;
+  return false;
 };
 
 const toMessageItem = async (

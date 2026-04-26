@@ -4,11 +4,13 @@ import type { Space } from "../types/space";
 import { buildSpace } from "./build";
 import type {
   AnyPlatformDef,
+  InboundPlatformMessage,
   Platform,
   PlatformDef,
   PlatformInstance,
   PlatformMessage,
   PlatformProviderConfig,
+  PlatformRuntime,
   PlatformSpace,
   PlatformUser,
   ProviderMessage,
@@ -19,10 +21,7 @@ function createPlatformInstance<
   Def extends AnyPlatformDef,
   _Client,
   _ConfigSchema extends z.ZodType<object>,
->(
-  def: Def,
-  runtime: { client: unknown; config: unknown }
-): PlatformInstance<Def> {
+>(def: Def, runtime: PlatformRuntime): PlatformInstance<Def> {
   const isPlatformUser = (value: unknown): value is PlatformUser<Def> => {
     return (
       typeof value === "object" &&
@@ -157,6 +156,21 @@ function createPlatformInstance<
       });
     }
   }
+
+  // Lazily subscribe to the platform's message broadcast on first read.
+  // Cached so `for await (const x of im.messages)` twice doesn't double-subscribe.
+  let messagesIterable:
+    | AsyncIterable<[PlatformSpace<Def>, InboundPlatformMessage<Def>]>
+    | undefined;
+  Object.defineProperty(base, "messages", {
+    enumerable: true,
+    get() {
+      messagesIterable ??= runtime.subscribeMessages() as AsyncIterable<
+        [PlatformSpace<Def>, InboundPlatformMessage<Def>]
+      >;
+      return messagesIterable;
+    },
+  });
 
   return Object.assign(base, eventProperties) as PlatformInstance<Def>;
 }

@@ -31,11 +31,13 @@ export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,
   EventProducer,
+  InboundPlatformMessage,
   Platform,
   PlatformDef,
   PlatformInstance,
   PlatformMessage,
   PlatformProviderConfig,
+  PlatformRuntime,
   PlatformSpace,
   PlatformUser,
   SchemaMessage,
@@ -57,5 +59,11 @@ export type {
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";
 export { UnsupportedError, type UnsupportedKind } from "./utils/errors";
-export { type ManagedStream, mergeStreams, stream } from "./utils/stream";
+export {
+  type Broadcaster,
+  broadcast,
+  type ManagedStream,
+  mergeStreams,
+  stream,
+} from "./utils/stream";
 export { fromVCard, toVCard } from "./utils/vcard";

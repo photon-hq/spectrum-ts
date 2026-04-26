@@ -9,11 +9,18 @@ import type {
   AnyPlatformDef,
   CustomEventStreams,
   PlatformProviderConfig,
+  PlatformRuntime,
   SpectrumLike,
 } from "./platform/types";
 import type { InboundMessage, Message, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
-import { type ManagedStream, mergeStreams, stream } from "./utils/stream";
+import {
+  type Broadcaster,
+  broadcast,
+  type ManagedStream,
+  mergeStreams,
+  stream,
+} from "./utils/stream";
 
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
@@ -114,34 +121,15 @@ export async function Spectrum<
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
 
-  const platformStates = new Map<
-    string,
-    { client: unknown; config: unknown; definition: AnyPlatformDef }
-  >();
+  const platformStates = new Map<string, PlatformRuntime>();
+
+  // Per-platform message broadcasters (lazy: created on first subscribe).
+  const messageBroadcasters = new Map<string, Broadcaster<[Space, Message]>>();
 
   // Custom event streams keyed by event name
   const customEventStreams = new Map<string, ManagedStream<unknown>>();
 
   let stopped = false;
-
-  // Initialize all provider clients eagerly
-  for (const provider of providers) {
-    const providerConfig = provider as PlatformProviderConfig;
-    const def = providerConfig.__definition;
-    const userConfig = def.config.parse(providerConfig.config);
-
-    const client = await def.lifecycle.createClient({
-      config: userConfig,
-      projectId,
-      projectSecret,
-    });
-
-    platformStates.set(def.name, {
-      client,
-      config: userConfig,
-      definition: def,
-    });
-  }
 
   const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> => {
     return stream<T>((emit, end) => {
@@ -213,10 +201,52 @@ export async function Spectrum<
     return adaptIterable(bindSend());
   };
 
+  const getOrCreateMessageBroadcast = (state: {
+    client: unknown;
+    config: unknown;
+    definition: AnyPlatformDef;
+  }): Broadcaster<[Space, Message]> => {
+    const name = state.definition.name;
+    let broadcaster = messageBroadcasters.get(name);
+    if (!broadcaster) {
+      broadcaster = broadcast(createProviderMessagesStream(state));
+      messageBroadcasters.set(name, broadcaster);
+    }
+    return broadcaster;
+  };
+
+  // Initialize all provider clients eagerly. Each runtime exposes
+  // `subscribeMessages()` that returns a fresh fanout consumer of the
+  // platform's single upstream message stream.
+  for (const provider of providers) {
+    const providerConfig = provider as PlatformProviderConfig;
+    const def = providerConfig.__definition;
+    const userConfig = def.config.parse(providerConfig.config);
+
+    const client = await def.lifecycle.createClient({
+      config: userConfig,
+      projectId,
+      projectSecret,
+    });
+
+    const state = {
+      client,
+      config: userConfig,
+      definition: def,
+    };
+
+    platformStates.set(def.name, {
+      ...state,
+      subscribeMessages: () => getOrCreateMessageBroadcast(state).subscribe(),
+    });
+  }
+
   const createMessagesStream = (): ManagedStream<[Space, Message]> => {
     return stream<[Space, Message]>((emit, end) => {
       const merged = mergeStreams(
-        Array.from(platformStates.values(), createProviderMessagesStream)
+        Array.from(platformStates.values(), (runtime) =>
+          runtime.subscribeMessages()
+        )
       );
 
       const pump = (async () => {
@@ -298,6 +328,9 @@ export async function Spectrum<
       ...Array.from(customEventStreams.values(), (eventStream) =>
         eventStream.close()
       ),
+      ...Array.from(messageBroadcasters.values(), (broadcaster) =>
+        broadcaster.close()
+      ),
     ];
 
     process.off("SIGINT", handleSignal);
@@ -311,6 +344,7 @@ export async function Spectrum<
     );
     await Promise.allSettled(clientShutdowns);
     customEventStreams.clear();
+    messageBroadcasters.clear();
     platformStates.clear();
   };
 

@@ -1,9 +1,10 @@
 import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
 import type { Content } from "../content/types";
-import type { Message } from "../types/message";
+import type { InboundMessage, Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { User } from "../types/user";
+import type { ManagedStream } from "../utils/stream";
 
 type ResolvedSpace = Pick<Space, "id">;
 type SpaceRef = Pick<Space, "id" | "__platform">;
@@ -414,6 +415,12 @@ export type PlatformMessage<Def extends AnyPlatformDef> = Omit<
 > &
   Message<Def["name"], PlatformUser<Def>, PlatformSpace<Def>>;
 
+export type InboundPlatformMessage<Def extends AnyPlatformDef> = Omit<
+  SchemaInfer<Def["message"]>,
+  keyof InboundMessage
+> &
+  InboundMessage<Def["name"], PlatformUser<Def>, PlatformSpace<Def>>;
+
 export type PlatformUser<Def extends AnyPlatformDef> = Omit<
   ResolvedUserOf<Def>,
   keyof User
@@ -425,6 +432,9 @@ export type PlatformUser<Def extends AnyPlatformDef> = Omit<
 // ---------------------------------------------------------------------------
 
 export type PlatformInstance<Def extends AnyPlatformDef> = {
+  readonly messages: AsyncIterable<
+    [PlatformSpace<Def>, InboundPlatformMessage<Def>]
+  >;
   space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
   user(userID: string): Promise<PlatformUser<Def>>;
 } & {
@@ -440,14 +450,18 @@ export type PlatformInstance<Def extends AnyPlatformDef> = {
 // SpectrumLike — minimal interface for platform narrowing
 // ---------------------------------------------------------------------------
 
+export interface PlatformRuntime {
+  client: unknown;
+  config: unknown;
+  definition: AnyPlatformDef;
+  subscribeMessages: () => ManagedStream<[Space, Message]>;
+}
+
 export interface SpectrumLike<
   Providers extends PlatformProviderConfig[] = PlatformProviderConfig[],
 > {
   readonly __internal: {
-    platforms: Map<
-      string,
-      { client: unknown; config: unknown; definition: AnyPlatformDef }
-    >;
+    platforms: Map<string, PlatformRuntime>;
   };
   readonly __providers: Providers;
 }

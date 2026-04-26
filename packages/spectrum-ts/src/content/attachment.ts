@@ -13,6 +13,7 @@ export const attachmentSchema = z.object({
   type: z.literal("attachment"),
   name: z.string().nonempty(),
   mimeType: z.string().nonempty(),
+  path: z.string().optional(),
   size: z.number().int().nonnegative().optional(),
   read: readSchema,
   stream: streamSchema,
@@ -42,6 +43,7 @@ const resolveAttachmentMimeType = (name: string, mimeType?: string): string => {
 export const asAttachment = (input: {
   name: string;
   mimeType: string;
+  path?: string;
   size?: number;
   read: () => Promise<Buffer>;
   stream?: () => Promise<ReadableStream<Uint8Array>>;
@@ -61,6 +63,7 @@ export const asAttachment = (input: {
     type: "attachment",
     name: input.name,
     mimeType: input.mimeType,
+    path: input.path,
     size: input.size,
     read,
     stream,
@@ -81,6 +84,7 @@ export function attachment(
         return asAttachment({
           name,
           mimeType,
+          path: input,
           size: stats.size,
           read: () => readFile(input),
           stream: async () =>

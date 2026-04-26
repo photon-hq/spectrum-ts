@@ -49,18 +49,26 @@ export const stopTyping = async (
 export const send = async (
   clients: AdvancedIMessage[],
   spaceId: string,
-  content: Content
+  content: Content,
+  options?: { nativeMultipartGroups?: boolean }
 ): Promise<SendResult> =>
-  sendRemoteMessage(primaryRemoteClient(clients), spaceId, content);
+  sendRemoteMessage(primaryRemoteClient(clients), spaceId, content, options);
 
 /** Throws when primaryRemoteClient(clients) is unavailable. */
 export const replyToMessage = async (
   clients: AdvancedIMessage[],
   spaceId: string,
   msgId: string,
+  target: IMessageMessage,
   content: Content
 ): Promise<SendResult> =>
-  replyToRemoteMessage(primaryRemoteClient(clients), spaceId, msgId, content);
+  replyToRemoteMessage(
+    primaryRemoteClient(clients),
+    spaceId,
+    msgId,
+    content,
+    target
+  );
 
 /** Throws when primaryRemoteClient(clients) is unavailable. */
 export const editMessage = async (

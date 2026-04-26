@@ -45,12 +45,12 @@ export type ProviderMessage<
 } & TExtra;
 
 export interface SendResult<TSender extends ResolvedUser = ResolvedUser> {
+  extras?: Record<string, unknown>;
   /**
    * Per-item send receipts returned when the dispatched content was a
-   * `group`. Providers that iterate native sends to emulate a group
-   * (e.g. iMessage) populate this so the platform build layer can
+   * `group`. Providers populate this so the platform build layer can
    * replace the outbound group's placeholder items with real Messages
-   * that carry each item's own id.
+   * that carry each item's own id or native part reference.
    */
   groupMembers?: SendResult<TSender>[];
   id: string;

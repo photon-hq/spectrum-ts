@@ -121,11 +121,13 @@ export const imessage = definePlatform("iMessage", {
   },
 
   actions: {
-    send: async ({ space, content, client }) => {
+    send: async ({ space, content, client, config }) => {
       if (isLocal(client)) {
         return await localSend(client, space.id, content);
       }
-      return await remoteSend(client, space.id, content);
+      return await remoteSend(client, space.id, content, {
+        nativeMultipartGroups: "clients" in config && Boolean(config.clients),
+      });
     },
     startTyping: async ({ space, client }) => {
       if (isLocal(client)) {
@@ -168,7 +170,13 @@ export const imessage = definePlatform("iMessage", {
           "iMessage polls do not support replies"
         );
       }
-      return await remoteReplyToMessage(client, space.id, messageId, content);
+      return await remoteReplyToMessage(
+        client,
+        space.id,
+        messageId,
+        target as IMessageMessage,
+        content
+      );
     },
     editMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {

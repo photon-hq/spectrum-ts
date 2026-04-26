@@ -2,6 +2,7 @@ import {
   type AdvancedIMessage,
   type AttachmentGuid,
   chatGuid,
+  type MessagePart,
   messageGuid,
   type SendOptions,
 } from "@photon-ai/advanced-imessage";
@@ -11,15 +12,18 @@ import { ensureM4a } from "../../../utils/audio";
 import { toVCard } from "../../../utils/vcard";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { vcardFileName } from "../shared/vcard";
+import type { IMessageMessage } from "../types";
+import { formatChildId, parseChildId } from "./ids";
 
-const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
-  "attachment",
-  "contact",
-  "voice",
-]);
+const MIN_GROUP_ITEMS = 2;
+const MAX_GROUP_TEXT_ITEMS = 1;
 
 type ChatGuid = ReturnType<typeof chatGuid>;
-type ReplyGuid = ReturnType<typeof messageGuid>;
+type ReplyTarget = NonNullable<SendOptions["replyTo"]>;
+
+export interface SendOptionsInternal {
+  nativeMultipartGroups?: boolean;
+}
 
 interface SendReceiptLike {
   date?: unknown;
@@ -68,11 +72,11 @@ const toSendResult = (receipt: SendReceiptLike): SendResult => {
 
 const withReply = (
   options: SendOptions,
-  replyTo: ReplyGuid | undefined
+  replyTo: ReplyTarget | undefined
 ): SendOptions => (replyTo ? { ...options, replyTo } : options);
 
 const replyOptions = (
-  replyTo: ReplyGuid | undefined
+  replyTo: ReplyTarget | undefined
 ): SendOptions | undefined => (replyTo ? { replyTo } : undefined);
 
 const sendVCardAttachment = (
@@ -124,7 +128,7 @@ const sendContent = async (
   remote: AdvancedIMessage,
   chat: ChatGuid,
   content: Content,
-  replyTo?: ReplyGuid
+  replyTo?: ReplyTarget
 ): Promise<SendResult> => {
   switch (content.type) {
     case "text":
@@ -183,53 +187,144 @@ const sendContent = async (
 export const validateGroupContent = (
   content: Extract<Content, { type: "group" }>
 ): void => {
-  // Strict validation: fail before any native send when a group contains items
-  // iMessage cannot carry natively.
+  if (content.items.length < MIN_GROUP_ITEMS) {
+    throw unsupportedRemoteContent(
+      "group",
+      `iMessage multipart groups require at least ${MIN_GROUP_ITEMS} items`
+    );
+  }
+
+  let attachmentCount = 0;
+  let textCount = 0;
+
   for (const sub of content.items) {
-    const itemType = sub.content.type;
-    if (!GROUP_ITEM_ALLOWED.has(itemType)) {
-      throw unsupportedRemoteContent(
-        "group",
-        `"${itemType}" items are not supported inside a group`
-      );
+    switch (sub.content.type) {
+      case "text":
+        textCount += 1;
+        break;
+      case "attachment":
+        attachmentCount += 1;
+        break;
+      default:
+        throw unsupportedRemoteContent(
+          "group",
+          `iMessage multipart groups support only attachment items plus up to one text item; "${sub.content.type}" is not supported`
+        );
     }
+  }
+
+  if (textCount > MAX_GROUP_TEXT_ITEMS) {
+    throw unsupportedRemoteContent(
+      "group",
+      `iMessage multipart groups support at most ${MAX_GROUP_TEXT_ITEMS} text item`
+    );
+  }
+
+  if (attachmentCount === 0) {
+    throw unsupportedRemoteContent(
+      "group",
+      "iMessage multipart groups require at least one attachment"
+    );
   }
 };
 
+export const toMultipartParts = (
+  content: Extract<Content, { type: "group" }>
+): MessagePart[] => {
+  validateGroupContent(content);
+  return content.items.map((sub, partIndex) => {
+    if (sub.content.type === "text") {
+      return { partIndex, text: sub.content.text };
+    }
+    if (sub.content.type === "attachment" && sub.content.path) {
+      return {
+        attachmentName: sub.content.name,
+        attachmentPath: sub.content.path,
+        partIndex,
+      };
+    }
+    if (sub.content.type === "attachment") {
+      throw unsupportedRemoteContent(
+        "group",
+        "iMessage multipart group attachments must be path-backed; use attachment('/path/to/file') instead of attachment(Buffer)"
+      );
+    }
+    throw unsupportedRemoteContent("group", "invalid iMessage multipart item");
+  });
+};
+
+const groupMembersForMultipart = (
+  receipt: SendResult,
+  memberCount: number
+): SendResult[] => {
+  const timestamp = receipt.timestamp ?? new Date();
+  return Array.from({ length: memberCount }, (_, partIndex) => ({
+    extras: { parentId: receipt.id, partIndex },
+    id: formatChildId(partIndex, receipt.id),
+    sender: receipt.sender,
+    timestamp,
+  }));
+};
+
+const sendGroupSequentially = async (
+  remote: AdvancedIMessage,
+  chat: ChatGuid,
+  content: Extract<Content, { type: "group" }>
+): Promise<SendResult> => {
+  const groupMembers: SendResult[] = [];
+  try {
+    for (const sub of content.items) {
+      groupMembers.push(await sendContent(remote, chat, sub.content));
+    }
+  } catch (err) {
+    throw new PartialGroupSendError(groupMembers, err);
+  }
+
+  const first = groupMembers[0];
+  if (!first) {
+    throw new Error("Empty group");
+  }
+  return { ...first, groupMembers };
+};
+
+const resolveReplyTarget = (
+  msgId: string,
+  target: IMessageMessage | undefined
+): ReplyTarget => {
+  const childRef = parseChildId(msgId);
+  const parentGuid = target?.parentId ?? childRef?.parentGuid ?? msgId;
+  const partIndex = target?.partIndex ?? childRef?.partIndex;
+  const guid = messageGuid(parentGuid);
+  return typeof partIndex === "number" ? { guid, partIndex } : guid;
+};
+
 /**
- * Sends iMessage content. Group sends are emulated with sequential native sends
- * and are non-atomic; `PartialGroupSendError.groupMembers` contains receipts
- * for children that were sent before a later child failed.
+ * Sends iMessage content. Group sends use native multipart iMessage parts, so
+ * attachments must be path-backed and the result's group members are synthetic
+ * child references to the parent guid plus each part index.
  */
 export const send = async (
   remote: AdvancedIMessage,
   spaceId: string,
-  content: Content
+  content: Content,
+  options: SendOptionsInternal = {}
 ): Promise<SendResult> => {
   const chat = chatGuid(spaceId);
 
   if (content.type === "group") {
     validateGroupContent(content);
+    if (!options.nativeMultipartGroups) {
+      return sendGroupSequentially(remote, chat, content);
+    }
 
-    // The SDK has no single multi-attachment send with uploaded bytes
-    // (MessagePart requires server-side paths; upload returns guids only),
-    // so we fall back to N sequential sends. Return per-child receipts on
-    // `groupMembers` so the platform layer can build real outbound Messages
-    // for each group item. The outer `id` tracks the first child purely for
-    // OutboundMessage compatibility: prefer items[i].id for per-item ops.
-    const groupMembers: SendResult[] = [];
-    try {
-      for (const sub of content.items) {
-        groupMembers.push(await sendContent(remote, chat, sub.content));
-      }
-    } catch (err) {
-      throw new PartialGroupSendError(groupMembers, err);
-    }
-    const first = groupMembers[0];
-    if (!first) {
-      throw new Error("Empty group");
-    }
-    return { ...first, groupMembers };
+    const parts = toMultipartParts(content);
+    const receipt = toSendResult(
+      await remote.messages.sendMultipart(chat, parts)
+    );
+    return {
+      ...receipt,
+      groupMembers: groupMembersForMultipart(receipt, parts.length),
+    };
   }
 
   return sendContent(remote, chat, content);
@@ -239,10 +334,11 @@ export const replyToMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
   msgId: string,
-  content: Content
+  content: Content,
+  target?: IMessageMessage
 ): Promise<SendResult> => {
   const chat = chatGuid(spaceId);
-  const replyTo = messageGuid(msgId);
+  const replyTo = resolveReplyTarget(msgId, target);
   return sendContent(remote, chat, content, replyTo);
 };
 

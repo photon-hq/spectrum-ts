@@ -169,6 +169,12 @@ const wrapNestedContent = (
   if (content.type === "reaction") {
     const target = content.target as unknown;
     if (isRawProviderRecord(target)) {
+      // Reaction targets are always wrapped as "inbound": the target refers to
+      // the original received message, not the reaction event itself. So even
+      // when the wrapping reaction is outbound (e.g. our own reaction sent via
+      // `reactToMessage`), the *target* it points at is a message we received.
+      // This differs from `group.items`, which propagate the wrapping
+      // direction because each item is itself one piece of the same send.
       return {
         ...content,
         target: wrapProviderMessage(target, ctx, "inbound"),

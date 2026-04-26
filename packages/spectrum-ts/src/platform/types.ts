@@ -454,7 +454,7 @@ export interface PlatformRuntime {
   client: unknown;
   config: unknown;
   definition: AnyPlatformDef;
-  subscribeMessages: () => ManagedStream<[Space, Message]>;
+  subscribeMessages: () => ManagedStream<[Space, InboundMessage]>;
 }
 
 export interface SpectrumLike<

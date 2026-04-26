@@ -78,6 +78,9 @@ export interface Broadcaster<T> {
 }
 
 interface BroadcastConsumer<T> {
+  // Chain each delivery off the previous one so a slow consumer's pending
+  // emit doesn't block the broadcast pump or other consumers.
+  deliveries: Promise<void>;
   emit: (value: T) => Promise<void>;
   end: (error?: unknown) => void;
 }
@@ -98,18 +101,20 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
     pumpPromise = (async () => {
       try {
         for await (const value of source) {
-          if (consumers.size === 0) {
-            continue;
-          }
-          await Promise.all(
-            Array.from(consumers, (consumer) =>
+          for (const consumer of consumers) {
+            consumer.deliveries = consumer.deliveries.then(() =>
               consumer.emit(value).catch(() => {
-                // consumer closed mid-emit; it will be removed via its cleanup
+                // consumer closed mid-emit; cleanup removes it from the set
               })
-            )
-          );
+            );
+          }
         }
         terminated = true;
+        // Wait for in-flight deliveries to drain before ending each consumer
+        // so values queued just before EOF still reach them.
+        await Promise.allSettled(
+          Array.from(consumers, (consumer) => consumer.deliveries)
+        );
         for (const consumer of consumers) {
           consumer.end();
         }
@@ -132,7 +137,11 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
           end(terminalError);
           return;
         }
-        const consumer: BroadcastConsumer<T> = { emit, end };
+        const consumer: BroadcastConsumer<T> = {
+          emit,
+          end,
+          deliveries: Promise.resolve(),
+        };
         consumers.add(consumer);
         startPump();
         return () => {
@@ -145,16 +154,19 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
         return;
       }
       closed = true;
-      await source.close();
-      if (pumpPromise) {
-        await pumpPromise;
-      }
-      if (!terminated) {
-        terminated = true;
-        for (const consumer of consumers) {
-          consumer.end();
+      try {
+        await source.close();
+        if (pumpPromise) {
+          await pumpPromise;
         }
-        consumers.clear();
+      } finally {
+        if (!terminated) {
+          terminated = true;
+          for (const consumer of consumers) {
+            consumer.end();
+          }
+          consumers.clear();
+        }
       }
     },
   };

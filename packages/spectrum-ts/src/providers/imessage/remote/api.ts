@@ -1,6 +1,6 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import type { Content } from "../../../content/types";
-import type { SendResult } from "../../../platform/types";
+import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ManagedStream } from "../../../utils/stream";
 import type { IMessageMessage } from "../types";
 import { firstRemoteClient, primaryRemoteClient } from "./client";
@@ -50,7 +50,7 @@ export const send = async (
   clients: AdvancedIMessage[],
   spaceId: string,
   content: Content
-): Promise<SendResult> =>
+): Promise<ProviderMessageRecord> =>
   sendRemoteMessage(primaryRemoteClient(clients), spaceId, content);
 
 /** Throws when primaryRemoteClient(clients) is unavailable. */
@@ -59,7 +59,7 @@ export const replyToMessage = async (
   spaceId: string,
   msgId: string,
   content: Content
-): Promise<SendResult> =>
+): Promise<ProviderMessageRecord> =>
   replyToRemoteMessage(primaryRemoteClient(clients), spaceId, msgId, content);
 
 /** Throws when primaryRemoteClient(clients) is unavailable. */

@@ -622,7 +622,12 @@ export const terminal = definePlatform("terminal", {
         "send",
         { spaceId: space.id, content: proto }
       );
-      return { id: result.id, timestamp: parseTimestamp(result.timestamp) };
+      return {
+        id: result.id,
+        content,
+        space: { id: space.id },
+        timestamp: parseTimestamp(result.timestamp),
+      };
     },
 
     startTyping: async ({ client, space }) => {
@@ -651,7 +656,12 @@ export const terminal = definePlatform("terminal", {
         "replyToMessage",
         { spaceId: space.id, messageId, content: proto }
       );
-      return { id: result.id, timestamp: parseTimestamp(result.timestamp) };
+      return {
+        id: result.id,
+        content,
+        space: { id: space.id },
+        timestamp: parseTimestamp(result.timestamp),
+      };
     },
   },
 });

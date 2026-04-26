@@ -186,13 +186,17 @@ export async function Spectrum<
           client,
           config,
         });
-        const normalizedMessage = wrapProviderMessage(msg, {
-          client,
-          config,
-          definition,
-          space,
-          spaceRef,
-        });
+        const normalizedMessage = wrapProviderMessage(
+          msg,
+          {
+            client,
+            config,
+            definition,
+            space,
+            spaceRef,
+          },
+          "inbound"
+        );
         if (flattenGroups && normalizedMessage.content.type === "group") {
           for (const item of normalizedMessage.content.items) {
             // Group items in the inbound flow are wrapped via wrapProviderMessage,

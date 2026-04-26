@@ -1,6 +1,6 @@
 import type { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content } from "../../../content/types";
-import type { SendResult } from "../../../platform/types";
+import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ManagedStream } from "../../../utils/stream";
 import type { IMessageMessage } from "../types";
 import { messages as localMessages } from "./inbound";
@@ -16,7 +16,7 @@ export const send = async (
   client: IMessageSDK,
   spaceId: string,
   content: Content
-): Promise<SendResult> => sendLocalMessage(client, spaceId, content);
+): Promise<ProviderMessageRecord> => sendLocalMessage(client, spaceId, content);
 
 export const getMessage = async (
   client: IMessageSDK,

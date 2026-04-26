@@ -45,19 +45,24 @@ export type ProviderMessage<
   timestamp?: Date;
 } & TExtra;
 
-export interface SendResult<TSender extends ResolvedUser = ResolvedUser> {
-  /**
-   * Per-item send receipts returned when the dispatched content was a
-   * `group`. Providers that iterate native sends to emulate a group
-   * (e.g. iMessage) populate this so the platform build layer can
-   * replace the outbound group's placeholder items with real Messages
-   * that carry each item's own id.
-   */
-  groupMembers?: SendResult<TSender>[];
+/**
+ * A message a provider produced — used for both inbound (`events.messages`,
+ * `getMessage`) and outbound (`send`, `replyToMessage`) flows. Providers
+ * return their native record shape (including platform extras like
+ * `partIndex`/`parentId` for iMessage) and the platform `wrapProviderMessage`
+ * pipeline turns it into a fully-built Message.
+ *
+ * `sender` is optional because outbound sends often can't synthesize one
+ * (the SDK doesn't surface the bot's own handle); inbound providers are
+ * expected to populate it.
+ */
+export type ProviderMessageRecord = {
   id: string;
-  sender?: TSender;
+  content: Content;
+  sender?: { id: string } & Record<string, unknown>;
+  space: { id: string } & Record<string, unknown>;
   timestamp?: Date;
-}
+} & Record<string, unknown>;
 
 type MergeSchema<
   TSchema extends z.ZodType | undefined,
@@ -121,7 +126,7 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
-    }) => Promise<SendResult<_ResolvedUser>>;
+    }) => Promise<ProviderMessageRecord>;
     startTyping?: (_: {
       space: _ResolvedSpace & SpaceRef;
       client: _Client;
@@ -146,7 +151,7 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
-    }) => Promise<SendResult<_ResolvedUser>>;
+    }) => Promise<ProviderMessageRecord>;
     editMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
@@ -212,7 +217,7 @@ export interface PlatformDef<
 export interface AnyPlatformDef {
   actions: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    send: (_: any) => Promise<SendResult>;
+    send: (_: any) => Promise<ProviderMessageRecord>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     startTyping?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
@@ -220,7 +225,7 @@ export interface AnyPlatformDef {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     reactToMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    replyToMessage?: (_: any) => Promise<SendResult>;
+    replyToMessage?: (_: any) => Promise<ProviderMessageRecord>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     editMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action

@@ -39,7 +39,7 @@
     "generate:emoji": "bun scripts/generate-emoji.ts"
   },
   "dependencies": {
-    "@photon-ai/advanced-imessage": "^0.5.1",
+    "@photon-ai/advanced-imessage": "^0.6.0",
     "@photon-ai/imessage-kit": "^3.0.0",
     "@photon-ai/whatsapp-business": "^0.1.1",
     "@repeaterjs/repeater": "^3.0.6",

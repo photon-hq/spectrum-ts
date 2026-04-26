@@ -2,21 +2,28 @@ import {
   type AdvancedIMessage,
   type AttachmentGuid,
   chatGuid,
+  type MessagePart,
   messageGuid,
   type SendOptions,
 } from "@photon-ai/advanced-imessage";
+import { asGroup } from "../../../content/group";
 import type { Content } from "../../../content/types";
-import type { SendResult } from "../../../platform/types";
+import type { ProviderMessageRecord } from "../../../platform/types";
+import type { Message } from "../../../types/message";
 import { ensureM4a } from "../../../utils/audio";
 import { toVCard } from "../../../utils/vcard";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { vcardFileName } from "../shared/vcard";
+import type { IMessageMessage } from "../types";
+import { formatChildId } from "./ids";
 
 const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
+  "text",
   "attachment",
   "contact",
   "voice",
 ]);
+const MAX_GROUP_TEXT_ITEMS = 1;
 
 type ChatGuid = ReturnType<typeof chatGuid>;
 type ReplyGuid = ReturnType<typeof messageGuid>;
@@ -26,18 +33,6 @@ interface SendReceiptLike {
   dateCreated?: unknown;
   guid: unknown;
   timestamp?: unknown;
-}
-
-export class PartialGroupSendError extends Error {
-  override readonly cause: unknown;
-  readonly groupMembers: readonly SendResult[];
-
-  constructor(groupMembers: readonly SendResult[], cause: unknown) {
-    super("iMessage group send failed after one or more items were sent");
-    this.name = "PartialGroupSendError";
-    this.cause = cause;
-    this.groupMembers = groupMembers;
-  }
 }
 
 const toDate = (value: unknown): Date | undefined => {
@@ -56,15 +51,26 @@ const receiptTimestamp = (receipt: SendReceiptLike): Date =>
   toDate(receipt.dateCreated) ??
   new Date();
 
-const toSendResult = (receipt: SendReceiptLike): SendResult => {
+const receiptGuid = (receipt: SendReceiptLike): string => {
   if (typeof receipt.guid !== "string" || receipt.guid.length === 0) {
     throw new Error("iMessage send receipt is missing a message guid");
   }
-  return {
-    id: receipt.guid,
-    timestamp: receiptTimestamp(receipt),
-  };
+  return receipt.guid;
 };
+
+const outboundRecord = (
+  spaceId: string,
+  id: string,
+  content: Content,
+  timestamp: Date,
+  extras?: Pick<IMessageMessage, "partIndex" | "parentId">
+): ProviderMessageRecord => ({
+  id,
+  content,
+  space: { id: spaceId },
+  timestamp,
+  ...extras,
+});
 
 const withReply = (
   options: SendOptions,
@@ -89,78 +95,113 @@ const sendVCardAttachment = (
 const sendContactAttachment = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "contact" }>
-): Promise<AttachmentGuid> => {
+): Promise<{ guid: AttachmentGuid; name: string }> => {
   const vcf = await toVCard(content);
-  const upload = await sendVCardAttachment(remote, vcardFileName(content), vcf);
-  return upload.guid;
+  const name = vcardFileName(content);
+  const upload = await sendVCardAttachment(remote, name, vcf);
+  return { guid: upload.guid, name };
 };
 
 const uploadAttachment = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "attachment" }>
-): Promise<AttachmentGuid> => {
+): Promise<{ guid: AttachmentGuid; name: string }> => {
   const attachment = await remote.attachments.upload({
     data: await content.read(),
     fileName: content.name,
     mimeType: content.mimeType,
   });
-  return attachment.guid;
+  return { guid: attachment.guid, name: content.name };
 };
 
 const uploadVoice = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "voice" }>
-): Promise<AttachmentGuid> => {
+): Promise<{ guid: AttachmentGuid; name: string }> => {
   const { buffer } = await ensureM4a(await content.read(), content.mimeType);
+  const name = content.name ?? "voice.m4a";
   const attachment = await remote.attachments.upload({
     data: buffer,
-    fileName: content.name ?? "voice.m4a",
+    fileName: name,
     mimeType: "audio/x-m4a",
   });
-  return attachment.guid;
+  return { guid: attachment.guid, name };
 };
 
 const sendContent = async (
   remote: AdvancedIMessage,
+  spaceId: string,
   chat: ChatGuid,
   content: Content,
   replyTo?: ReplyGuid
-): Promise<SendResult> => {
+): Promise<ProviderMessageRecord> => {
   switch (content.type) {
-    case "text":
-      return toSendResult(
-        await remote.messages.send(chat, content.text, withReply({}, replyTo))
+    case "text": {
+      const receipt = await remote.messages.send(
+        chat,
+        content.text,
+        withReply({}, replyTo)
       );
-    case "richlink":
-      return toSendResult(
-        await remote.messages.send(
-          chat,
-          content.url,
-          withReply({ richLink: true }, replyTo)
-        )
+      return outboundRecord(
+        spaceId,
+        receiptGuid(receipt),
+        content,
+        receiptTimestamp(receipt)
       );
-    case "attachment":
-      return toSendResult(
-        await remote.messages.send(chat, "", {
-          attachment: await uploadAttachment(remote, content),
-          ...replyOptions(replyTo),
-        })
+    }
+    case "richlink": {
+      const receipt = await remote.messages.send(
+        chat,
+        content.url,
+        withReply({ richLink: true }, replyTo)
       );
-    case "contact":
-      return toSendResult(
-        await remote.messages.send(chat, "", {
-          attachment: await sendContactAttachment(remote, content),
-          ...replyOptions(replyTo),
-        })
+      return outboundRecord(
+        spaceId,
+        receiptGuid(receipt),
+        content,
+        receiptTimestamp(receipt)
       );
-    case "voice":
-      return toSendResult(
-        await remote.messages.send(chat, "", {
-          attachment: await uploadVoice(remote, content),
-          audioMessage: true,
-          ...replyOptions(replyTo),
-        })
+    }
+    case "attachment": {
+      const { guid } = await uploadAttachment(remote, content);
+      const receipt = await remote.messages.send(chat, "", {
+        attachment: guid,
+        ...replyOptions(replyTo),
+      });
+      return outboundRecord(
+        spaceId,
+        receiptGuid(receipt),
+        content,
+        receiptTimestamp(receipt)
       );
+    }
+    case "contact": {
+      const { guid } = await sendContactAttachment(remote, content);
+      const receipt = await remote.messages.send(chat, "", {
+        attachment: guid,
+        ...replyOptions(replyTo),
+      });
+      return outboundRecord(
+        spaceId,
+        receiptGuid(receipt),
+        content,
+        receiptTimestamp(receipt)
+      );
+    }
+    case "voice": {
+      const { guid } = await uploadVoice(remote, content);
+      const receipt = await remote.messages.send(chat, "", {
+        attachment: guid,
+        audioMessage: true,
+        ...replyOptions(replyTo),
+      });
+      return outboundRecord(
+        spaceId,
+        receiptGuid(receipt),
+        content,
+        receiptTimestamp(receipt)
+      );
+    }
     case "poll":
       if (replyTo) {
         throw unsupportedRemoteContent(
@@ -168,12 +209,17 @@ const sendContent = async (
           "polls cannot be sent as replies"
         );
       }
-      return toSendResult(
-        await remote.polls.create(
-          chat,
-          content.title,
-          content.options.map((option) => option.title)
-        )
+      return outboundRecord(
+        spaceId,
+        receiptGuid(
+          await remote.polls.create(
+            chat,
+            content.title,
+            content.options.map((option) => option.title)
+          )
+        ),
+        content,
+        new Date()
       );
     default:
       throw unsupportedRemoteContent(content.type);
@@ -183,8 +229,9 @@ const sendContent = async (
 export const validateGroupContent = (
   content: Extract<Content, { type: "group" }>
 ): void => {
-  // Strict validation: fail before any native send when a group contains items
-  // iMessage cannot carry natively.
+  // Strict validation: fail before any upload when a group contains items
+  // iMessage cannot carry inside a multi-part message.
+  let textCount = 0;
   for (const sub of content.items) {
     const itemType = sub.content.type;
     if (!GROUP_ITEM_ALLOWED.has(itemType)) {
@@ -193,46 +240,103 @@ export const validateGroupContent = (
         `"${itemType}" items are not supported inside a group`
       );
     }
+    if (itemType === "text" && ++textCount > MAX_GROUP_TEXT_ITEMS) {
+      throw unsupportedRemoteContent(
+        "group",
+        `groups can contain at most ${MAX_GROUP_TEXT_ITEMS} text item`
+      );
+    }
+  }
+};
+
+interface ResolvedPart {
+  /** The displayed file name for attachments; undefined for text parts. */
+  attachmentName?: string;
+  part: MessagePart;
+}
+
+const resolvePart = async (
+  remote: AdvancedIMessage,
+  content: Content
+): Promise<ResolvedPart> => {
+  switch (content.type) {
+    case "text":
+      return { part: { text: content.text } };
+    case "attachment": {
+      const { guid, name } = await uploadAttachment(remote, content);
+      return {
+        part: { attachmentGuid: guid, attachmentName: name },
+        attachmentName: name,
+      };
+    }
+    case "contact": {
+      const { guid, name } = await sendContactAttachment(remote, content);
+      return {
+        part: { attachmentGuid: guid, attachmentName: name },
+        attachmentName: name,
+      };
+    }
+    case "voice": {
+      // As a sendMultipart part, voice loses the audio-bubble UI and renders
+      // as a regular audio attachment. Send a single voice message (not in a
+      // group) for the proper UI.
+      const { guid, name } = await uploadVoice(remote, content);
+      return {
+        part: { attachmentGuid: guid, attachmentName: name },
+        attachmentName: name,
+      };
+    }
+    default:
+      throw unsupportedRemoteContent(content.type);
   }
 };
 
 /**
- * Sends iMessage content. Group sends are emulated with sequential native sends
- * and are non-atomic; `PartialGroupSendError.groupMembers` contains receipts
- * for children that were sent before a later child failed.
+ * Sends iMessage content. Group sends compose a single atomic multi-part
+ * message via `sendMultipart`: one parent guid covers all parts, and per-part
+ * operations (reactions, replies) key off `partIndex` against that parent.
  */
 export const send = async (
   remote: AdvancedIMessage,
   spaceId: string,
   content: Content
-): Promise<SendResult> => {
+): Promise<ProviderMessageRecord> => {
   const chat = chatGuid(spaceId);
 
   if (content.type === "group") {
     validateGroupContent(content);
 
-    // The SDK has no single multi-attachment send with uploaded bytes
-    // (MessagePart requires server-side paths; upload returns guids only),
-    // so we fall back to N sequential sends. Return per-child receipts on
-    // `groupMembers` so the platform layer can build real outbound Messages
-    // for each group item. The outer `id` tracks the first child purely for
-    // OutboundMessage compatibility: prefer items[i].id for per-item ops.
-    const groupMembers: SendResult[] = [];
-    try {
-      for (const sub of content.items) {
-        groupMembers.push(await sendContent(remote, chat, sub.content));
-      }
-    } catch (err) {
-      throw new PartialGroupSendError(groupMembers, err);
-    }
-    const first = groupMembers[0];
-    if (!first) {
-      throw new Error("Empty group");
-    }
-    return { ...first, groupMembers };
+    const resolved = await Promise.all(
+      content.items.map((sub) => resolvePart(remote, sub.content))
+    );
+    const receipt = await remote.messages.sendMultipart(
+      chat,
+      resolved.map((r, idx) => ({ ...r.part, partIndex: idx }))
+    );
+    const parentGuid = receiptGuid(receipt);
+    const timestamp = receiptTimestamp(receipt);
+
+    const items = content.items.map((sub, idx) =>
+      outboundRecord(
+        spaceId,
+        formatChildId(idx, parentGuid),
+        sub.content,
+        timestamp,
+        { partIndex: idx, parentId: parentGuid }
+      )
+    );
+    // Items are raw provider records — wrapProviderMessage("outbound") will
+    // turn each into a real OutboundMessage via wrapNestedContent. The Zod
+    // schema's `isMessage` guard is loose enough to accept the raw shape.
+    return outboundRecord(
+      spaceId,
+      parentGuid,
+      asGroup({ items: items as unknown as Message[] }),
+      timestamp
+    );
   }
 
-  return sendContent(remote, chat, content);
+  return sendContent(remote, spaceId, chat, content);
 };
 
 export const replyToMessage = async (
@@ -240,10 +344,10 @@ export const replyToMessage = async (
   spaceId: string,
   msgId: string,
   content: Content
-): Promise<SendResult> => {
+): Promise<ProviderMessageRecord> => {
   const chat = chatGuid(spaceId);
   const replyTo = messageGuid(msgId);
-  return sendContent(remote, chat, content, replyTo);
+  return sendContent(remote, spaceId, chat, content, replyTo);
 };
 
 export const editMessage = async (

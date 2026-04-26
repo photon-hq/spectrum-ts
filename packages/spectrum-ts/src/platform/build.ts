@@ -7,7 +7,9 @@ import type {
 } from "../types/message";
 import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
-import type { AnyPlatformDef, SendResult } from "./types";
+import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
+
+export type { ProviderMessageRecord } from "./types";
 
 type ReplyToMessageAction = NonNullable<
   AnyPlatformDef["actions"]["replyToMessage"]
@@ -91,14 +93,6 @@ export const providerMessageCoreKeys: ReadonlySet<string> = new Set([
   "timestamp",
 ]);
 
-export type ProviderMessageRecord = {
-  id: string;
-  content: Content;
-  sender: { id: string } & Record<string, unknown>;
-  space: { id: string } & Record<string, unknown>;
-  timestamp?: Date;
-} & Record<string, unknown>;
-
 export interface WrapContext {
   client: unknown;
   config: unknown;
@@ -122,18 +116,32 @@ const extractExtras = (
 
 /**
  * Wrap a raw provider message record (and any nested raw targets/items inside
- * its content) into a fully-built inbound `Message`. The recursion handles
- * reaction targets and group items, which arrive from providers as raw shapes.
+ * its content) into a fully-built `Message`. The same path serves inbound
+ * (`events.messages`, `getMessage`) and outbound (`send`, `replyToMessage`)
+ * flows — the only difference is `direction`, which decides whether the
+ * resulting Message exposes inbound (`react`/`reply`) or outbound (`edit`)
+ * affordances. Recursion through `wrapNestedContent` handles reaction targets
+ * and group items, which providers return as nested raw records.
  */
 export function wrapProviderMessage(
   raw: ProviderMessageRecord,
-  ctx: WrapContext
-): InboundMessage {
-  const wrappedContent = wrapNestedContent(raw.content, ctx);
-  return buildMessage({
+  ctx: WrapContext,
+  direction: "inbound"
+): InboundMessage;
+export function wrapProviderMessage(
+  raw: ProviderMessageRecord,
+  ctx: WrapContext,
+  direction: "outbound"
+): OutboundMessage;
+export function wrapProviderMessage(
+  raw: ProviderMessageRecord,
+  ctx: WrapContext,
+  direction: "inbound" | "outbound"
+): Message {
+  const wrappedContent = wrapNestedContent(raw.content, ctx, direction);
+  const base = {
     id: raw.id,
     content: wrappedContent,
-    sender: raw.sender,
     timestamp: raw.timestamp ?? new Date(),
     extras: extractExtras(raw, ctx.definition),
     spaceRef: ctx.spaceRef,
@@ -141,17 +149,29 @@ export function wrapProviderMessage(
     definition: ctx.definition,
     client: ctx.client,
     config: ctx.config,
-    direction: "inbound",
-  });
+  };
+  if (direction === "inbound") {
+    if (!raw.sender) {
+      throw new Error(
+        `Inbound provider message missing sender (platform "${ctx.definition.name}", id "${raw.id}")`
+      );
+    }
+    return buildMessage({ ...base, sender: raw.sender, direction: "inbound" });
+  }
+  return buildMessage({ ...base, sender: raw.sender, direction: "outbound" });
 }
 
-const wrapNestedContent = (content: Content, ctx: WrapContext): Content => {
+const wrapNestedContent = (
+  content: Content,
+  ctx: WrapContext,
+  direction: "inbound" | "outbound"
+): Content => {
   if (content.type === "reaction") {
     const target = content.target as unknown;
     if (isRawProviderRecord(target)) {
       return {
         ...content,
-        target: wrapProviderMessage(target, ctx),
+        target: wrapProviderMessage(target, ctx, "inbound"),
       };
     }
     return content;
@@ -159,7 +179,12 @@ const wrapNestedContent = (content: Content, ctx: WrapContext): Content => {
   if (content.type === "group") {
     const items = content.items.map((item) => {
       const raw = item as unknown;
-      return isRawProviderRecord(raw) ? wrapProviderMessage(raw, ctx) : item;
+      if (!isRawProviderRecord(raw)) {
+        return item;
+      }
+      return direction === "inbound"
+        ? wrapProviderMessage(raw, ctx, "inbound")
+        : wrapProviderMessage(raw, ctx, "outbound");
     });
     return { ...content, items };
   }
@@ -213,12 +238,12 @@ export function buildSpace(params: BuildSpaceParams): Space {
   async function dispatchSend(
     item: Exclude<Content, { type: "reaction" }>
   ): Promise<OutboundMessage | undefined> {
-    let sendResult: SendResult | undefined;
+    let raw: ProviderMessageRecord | undefined;
     try {
-      sendResult = (await definition.actions.send({
+      raw = (await definition.actions.send({
         ...typingCtx,
         content: item,
-      })) as SendResult | undefined;
+      })) as ProviderMessageRecord | undefined;
     } catch (err) {
       if (err instanceof UnsupportedError) {
         warnUnsupported(err, definition.name);
@@ -226,56 +251,16 @@ export function buildSpace(params: BuildSpaceParams): Space {
       }
       throw err;
     }
-    if (!sendResult?.id) {
+    if (!raw?.id) {
       throw new Error(
         `Platform "${definition.name}" send did not return a message id`
       );
     }
-
-    // If the provider reported per-item send receipts for a group, replace
-    // the placeholder items (produced by the `group()` builder, which cannot
-    // know ids before the send) with real outbound Messages carrying each
-    // native receipt. This is what lets consumers call
-    // `outMsg.content.items[i].react(...)` after a group send.
-    const outboundContent =
-      item.type === "group" && sendResult.groupMembers
-        ? {
-            ...item,
-            items: item.items.map((stub, idx) => {
-              const member = sendResult?.groupMembers?.[idx];
-              if (!member?.id) {
-                return stub;
-              }
-              return buildMessage({
-                id: member.id,
-                content: stub.content,
-                sender: member.sender,
-                timestamp: member.timestamp ?? new Date(),
-                extras: {},
-                spaceRef,
-                space,
-                definition,
-                client,
-                config,
-                direction: "outbound",
-              });
-            }),
-          }
-        : item;
-
-    return buildMessage({
-      id: sendResult.id,
-      content: outboundContent,
-      sender: sendResult.sender,
-      timestamp: sendResult.timestamp ?? new Date(),
-      extras: {},
-      spaceRef,
-      space,
-      definition,
-      client,
-      config,
-      direction: "outbound",
-    });
+    return wrapProviderMessage(
+      raw,
+      { client, config, definition, space, spaceRef },
+      "outbound"
+    );
   }
 
   async function sendImpl(
@@ -325,13 +310,11 @@ export function buildSpace(params: BuildSpaceParams): Space {
     if (!raw) {
       return;
     }
-    return wrapProviderMessage(raw, {
-      client,
-      config,
-      definition,
-      space,
-      spaceRef,
-    });
+    return wrapProviderMessage(
+      raw,
+      { client, config, definition, space, spaceRef },
+      "inbound"
+    );
   }
 
   space = {
@@ -416,16 +399,16 @@ export function buildMessage(params: BuildMessageParams): Message {
     target: Message,
     replyToMessage: ReplyToMessageAction
   ): Promise<OutboundMessage | undefined> => {
-    let sendResult: SendResult | undefined;
+    let raw: ProviderMessageRecord | undefined;
     try {
-      sendResult = (await replyToMessage({
+      raw = (await replyToMessage({
         space: spaceRef,
         messageId: params.id,
         target,
         content: item,
         client,
         config,
-      })) as SendResult | undefined;
+      })) as ProviderMessageRecord | undefined;
     } catch (err) {
       if (err instanceof UnsupportedError) {
         warnUnsupported(err, definition.name);
@@ -433,24 +416,16 @@ export function buildMessage(params: BuildMessageParams): Message {
       }
       throw err;
     }
-    if (!sendResult?.id) {
+    if (!raw?.id) {
       throw new Error(
         `Platform "${definition.name}" reply did not return a message id`
       );
     }
-    return buildMessage({
-      id: sendResult.id,
-      content: item,
-      sender: sendResult.sender,
-      timestamp: sendResult.timestamp ?? new Date(),
-      extras: {},
-      spaceRef,
-      space,
-      definition,
-      client,
-      config,
-      direction: "outbound",
-    });
+    return wrapProviderMessage(
+      raw,
+      { client, config, definition, space, spaceRef },
+      "outbound"
+    );
   };
 
   async function reply(

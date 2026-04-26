@@ -19,9 +19,9 @@
     },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "1.0.1",
+      "version": "1.1.1",
       "dependencies": {
-        "@photon-ai/advanced-imessage": "^0.5.1",
+        "@photon-ai/advanced-imessage": "^0.6.0",
         "@photon-ai/imessage-kit": "^3.0.0",
         "@photon-ai/whatsapp-business": "^0.1.1",
         "@repeaterjs/repeater": "^3.0.6",
@@ -145,7 +145,7 @@
 
     "@parseaple/typedstream": ["@parseaple/typedstream@2.0.2", "", { "dependencies": { "@parseaple/bplist": "1.0.1" } }, "sha512-bzKNZjiBtZN2T2U7Nqq/hhv+EezkPnaWoB5WvPuBwNpQvOr3EI0XrDTkFnAzsA9DKdu57es/gcb1d2ctd1u8xw=="],
 
-    "@photon-ai/advanced-imessage": ["@photon-ai/advanced-imessage@0.5.1", "", { "dependencies": { "@grpc/grpc-js": "^1.12.6", "long": "^5.2.4", "nice-grpc": "^2.1.11", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.4.0" } }, "sha512-LBohv663myuJ9WIGgUP/Ksw57PreD5BbpOO9aJTAiCBWFpgrkaaOjgFRW1kIBrN2/x0ghItc6Nn1DGPaYnxxew=="],
+    "@photon-ai/advanced-imessage": ["@photon-ai/advanced-imessage@0.6.0", "", { "dependencies": { "@grpc/grpc-js": "^1.12.6", "long": "^5.2.4", "nice-grpc": "^2.1.11", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.4.0" } }, "sha512-6pkkS9Pb2T4G1pO7dtUfrV7koklFMq16vSG+RNrXGrKtidTM/2j1HdyGc8BhNZgg5OabDWoq2vA6owp2jFy1Iw=="],
 
     "@photon-ai/imessage-kit": ["@photon-ai/imessage-kit@3.0.0", "", { "dependencies": { "@parseaple/typedstream": "^2.0.0" }, "optionalDependencies": { "better-sqlite3": "^12.5.0" } }, "sha512-GGDETlRbrPXP5eaRvswaead7MCBGQkm8f7d3aVbx8+rXhB4GEyPiw7Q1/yz5ix53rmxqKRevWywOfG7n+kZDBw=="],
 

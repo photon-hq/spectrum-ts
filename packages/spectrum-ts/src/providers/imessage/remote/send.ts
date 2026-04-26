@@ -2,6 +2,7 @@ import {
   type AdvancedIMessage,
   type AttachmentGuid,
   chatGuid,
+  type MessageEffect,
   type MessagePart,
   messageGuid,
   type SendOptions,
@@ -12,11 +13,6 @@ import type { ProviderMessageRecord } from "../../../platform/types";
 import type { Message } from "../../../types/message";
 import { ensureM4a } from "../../../utils/audio";
 import { toVCard } from "../../../utils/vcard";
-import {
-  getIMessageMessageEffect,
-  hasIMessageMessageEffect,
-  stripIMessageMessageEffect,
-} from "../content/effect";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { vcardFileName } from "../shared/vcard";
 import type { IMessageMessage } from "../types";
@@ -86,16 +82,9 @@ const replyOptions = (
   replyTo: ReplyGuid | undefined
 ): SendOptions | undefined => (replyTo ? { replyTo } : undefined);
 
-const effectOptions = (content: Content): Pick<SendOptions, "effect"> => {
-  const effect = getIMessageMessageEffect(content);
-  return effect ? { effect } : {};
-};
-
-const rejectMessageEffect = (content: Content, detail: string): void => {
-  if (hasIMessageMessageEffect(content)) {
-    throw unsupportedRemoteContent(content.type, detail);
-  }
-};
+const effectOption = (
+  effect: MessageEffect | undefined
+): Pick<SendOptions, "effect"> => (effect ? { effect } : {});
 
 const sendVCardAttachment = (
   remote: AdvancedIMessage,
@@ -149,28 +138,33 @@ const sendContent = async (
   spaceId: string,
   chat: ChatGuid,
   content: Content,
-  replyTo?: ReplyGuid
+  replyTo?: ReplyGuid,
+  effect?: MessageEffect
 ): Promise<ProviderMessageRecord> => {
   switch (content.type) {
+    case "effect":
+      return sendContent(
+        remote,
+        spaceId,
+        chat,
+        content.content,
+        replyTo,
+        content.effect as MessageEffect
+      );
     case "text": {
-      const sentContent = stripIMessageMessageEffect(content);
       const receipt = await remote.messages.send(
         chat,
-        sentContent.text,
-        withReply(effectOptions(content), replyTo)
+        content.text,
+        withReply(effectOption(effect), replyTo)
       );
       return outboundRecord(
         spaceId,
         receiptGuid(receipt),
-        sentContent,
+        content,
         receiptTimestamp(receipt)
       );
     }
     case "richlink": {
-      rejectMessageEffect(
-        content,
-        "message effects are only supported for text and attachment content"
-      );
       const receipt = await remote.messages.send(
         chat,
         content.url,
@@ -184,25 +178,20 @@ const sendContent = async (
       );
     }
     case "attachment": {
-      const sentContent = stripIMessageMessageEffect(content);
-      const { guid } = await uploadAttachment(remote, sentContent);
+      const { guid } = await uploadAttachment(remote, content);
       const receipt = await remote.messages.send(chat, "", {
         attachment: guid,
-        ...effectOptions(content),
+        ...effectOption(effect),
         ...replyOptions(replyTo),
       });
       return outboundRecord(
         spaceId,
         receiptGuid(receipt),
-        sentContent,
+        content,
         receiptTimestamp(receipt)
       );
     }
     case "contact": {
-      rejectMessageEffect(
-        content,
-        "message effects are only supported for text and attachment content"
-      );
       const { guid } = await sendContactAttachment(remote, content);
       const receipt = await remote.messages.send(chat, "", {
         attachment: guid,
@@ -216,10 +205,6 @@ const sendContent = async (
       );
     }
     case "voice": {
-      rejectMessageEffect(
-        content,
-        "message effects are only supported for text and attachment content"
-      );
       const { guid } = await uploadVoice(remote, content);
       const receipt = await remote.messages.send(chat, "", {
         attachment: guid,
@@ -234,10 +219,6 @@ const sendContent = async (
       );
     }
     case "poll":
-      rejectMessageEffect(
-        content,
-        "message effects are only supported for text and attachment content"
-      );
       if (replyTo) {
         throw unsupportedRemoteContent(
           "poll",
@@ -264,15 +245,10 @@ const sendContent = async (
 export const validateGroupContent = (
   content: Extract<Content, { type: "group" }>
 ): void => {
-  if (hasIMessageMessageEffect(content)) {
-    throw unsupportedRemoteContent(
-      "group",
-      "message effects are not supported inside groups"
-    );
-  }
-
   // Strict validation: fail before any upload when a group contains items
-  // iMessage cannot carry inside a multi-part message.
+  // iMessage cannot carry inside a multi-part message. `effect` is rejected
+  // here too — it isn't in `GROUP_ITEM_ALLOWED` because iMessage does not
+  // apply message effects to multi-part sends.
   let textCount = 0;
   for (const sub of content.items) {
     const itemType = sub.content.type;
@@ -383,11 +359,6 @@ export const editMessage = async (
   msgId: string,
   content: Content
 ): Promise<void> => {
-  rejectMessageEffect(
-    content,
-    "message effects are only supported when sending messages"
-  );
-
   if (content.type !== "text") {
     throw unsupportedRemoteContent(
       content.type,

@@ -323,6 +323,19 @@ export function definePlatform<
     } satisfies PlatformProviderConfig<Def> as PlatformProviderConfig<Def>;
   };
 
+  narrower.is = ((input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      return false;
+    }
+    if ("__platform" in input) {
+      return (input as { __platform?: unknown }).__platform === name;
+    }
+    if ("platform" in input) {
+      return (input as { platform?: unknown }).platform === name;
+    }
+    return false;
+  }) as Platform<Def>["is"];
+
   if (def.static) {
     Object.assign(narrower, def.static);
   }

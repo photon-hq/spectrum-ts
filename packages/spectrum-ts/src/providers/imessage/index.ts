@@ -1,7 +1,15 @@
-import { createClient, directChat } from "@photon-ai/advanced-imessage";
+import {
+  createClient,
+  directChat,
+  MessageEffect,
+} from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
+
+// biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helper
+export { effect, type IMessageMessageEffect } from "./content/effect";
+
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import {
   getMessage as localGetMessage,
@@ -32,6 +40,12 @@ const isPollContent = (content: { type: string }): boolean =>
 
 export const imessage = definePlatform("iMessage", {
   config: configSchema,
+
+  static: {
+    effect: {
+      message: MessageEffect,
+    },
+  },
 
   user: {
     resolve: async ({ input }) => ({ id: input.userID }),

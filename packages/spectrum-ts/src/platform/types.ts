@@ -481,6 +481,9 @@ export interface Platform<Def extends AnyPlatformDef> {
       ? [config?: z.input<Def["config"]>]
       : [config: z.input<Def["config"]>]
   ): PlatformProviderConfig<Def>;
+  is(input: Message): input is PlatformMessage<Def>;
+  is(input: Space): input is PlatformSpace<Def>;
+  is(input: unknown): input is PlatformMessage<Def> | PlatformSpace<Def>;
   <Providers extends PlatformProviderConfig[]>(
     spectrum: SpectrumLike<Providers>
   ): HasProvider<Providers, Def["name"]> extends true

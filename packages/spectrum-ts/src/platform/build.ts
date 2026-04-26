@@ -45,6 +45,54 @@ const warnUnsupported = (err: UnsupportedError, fallbackPlatform: string) => {
   );
 };
 
+const contentPlatform = (content: Content): string | undefined => {
+  const platform = (content as { __platform?: unknown }).__platform;
+  return typeof platform === "string" ? platform : undefined;
+};
+
+const findUnsupportedPlatformContent = (
+  content: Content,
+  platform: string
+): string | undefined => {
+  const scopedPlatform = contentPlatform(content);
+  if (scopedPlatform && scopedPlatform !== platform) {
+    return scopedPlatform;
+  }
+
+  if (content.type !== "group") {
+    return;
+  }
+
+  for (const item of content.items) {
+    const nested = (item as { content?: unknown }).content;
+    if (typeof nested !== "object" || nested === null || !("type" in nested)) {
+      continue;
+    }
+    const unsupported = findUnsupportedPlatformContent(
+      nested as Content,
+      platform
+    );
+    if (unsupported) {
+      return unsupported;
+    }
+  }
+};
+
+const unsupportedPlatformContentError = (
+  content: Content,
+  platform: string
+): UnsupportedError | undefined => {
+  const requiredPlatform = findUnsupportedPlatformContent(content, platform);
+  if (!requiredPlatform) {
+    return;
+  }
+  return UnsupportedError.content(
+    content.type,
+    platform,
+    `requires ${requiredPlatform}`
+  );
+};
+
 export type SpaceRef = {
   id: string;
   __platform: string;
@@ -246,6 +294,13 @@ export function buildSpace(params: BuildSpaceParams): Space {
   ): Promise<OutboundMessage | undefined> {
     let raw: ProviderMessageRecord | undefined;
     try {
+      const platformError = unsupportedPlatformContentError(
+        item,
+        definition.name
+      );
+      if (platformError) {
+        throw platformError;
+      }
       raw = (await definition.actions.send({
         ...typingCtx,
         content: item,
@@ -407,6 +462,13 @@ export function buildMessage(params: BuildMessageParams): Message {
   ): Promise<OutboundMessage | undefined> => {
     let raw: ProviderMessageRecord | undefined;
     try {
+      const platformError = unsupportedPlatformContentError(
+        item,
+        definition.name
+      );
+      if (platformError) {
+        throw platformError;
+      }
       raw = (await replyToMessage({
         space: spaceRef,
         messageId: params.id,
@@ -490,6 +552,14 @@ export function buildMessage(params: BuildMessageParams): Message {
         }
         const [resolved] = await resolveContents([newContent]);
         if (!resolved) {
+          return;
+        }
+        const platformError = unsupportedPlatformContentError(
+          resolved,
+          definition.name
+        );
+        if (platformError) {
+          warnUnsupported(platformError, definition.name);
           return;
         }
         try {

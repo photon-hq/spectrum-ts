@@ -5,6 +5,7 @@ import type { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import { toVCard } from "../../../utils/vcard";
+import { hasIMessageMessageEffect } from "../content/effect";
 import { unsupportedLocalContent } from "../shared/errors";
 import { vcardFileName } from "../shared/vcard";
 import type { IMessageMessage } from "../types";
@@ -46,6 +47,13 @@ export const send = async (
   spaceId: string,
   content: Content
 ): Promise<ProviderMessageRecord> => {
+  if (hasIMessageMessageEffect(content)) {
+    throw unsupportedLocalContent(
+      content.type,
+      "message effects require remote iMessage"
+    );
+  }
+
   switch (content.type) {
     case "text":
       await client.send({ to: spaceId, text: content.text });

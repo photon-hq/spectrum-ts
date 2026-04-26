@@ -9,5 +9,8 @@ export const unsupportedRemoteContent = (
 ): UnsupportedError =>
   UnsupportedError.content(type, IMESSAGE_PLATFORM, detail);
 
-export const unsupportedLocalContent = (type: string): UnsupportedError =>
-  UnsupportedError.content(type, LOCAL_IMESSAGE_PLATFORM);
+export const unsupportedLocalContent = (
+  type: string,
+  detail?: string
+): UnsupportedError =>
+  UnsupportedError.content(type, LOCAL_IMESSAGE_PLATFORM, detail);

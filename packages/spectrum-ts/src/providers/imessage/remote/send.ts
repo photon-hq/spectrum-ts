@@ -249,42 +249,27 @@ export const validateGroupContent = (
   }
 };
 
-interface ResolvedPart {
-  /** The displayed file name for attachments; undefined for text parts. */
-  attachmentName?: string;
-  part: MessagePart;
-}
-
 const resolvePart = async (
   remote: AdvancedIMessage,
   content: Content
-): Promise<ResolvedPart> => {
+): Promise<MessagePart> => {
   switch (content.type) {
     case "text":
-      return { part: { text: content.text } };
+      return { text: content.text };
     case "attachment": {
       const { guid, name } = await uploadAttachment(remote, content);
-      return {
-        part: { attachmentGuid: guid, attachmentName: name },
-        attachmentName: name,
-      };
+      return { attachmentGuid: guid, attachmentName: name };
     }
     case "contact": {
       const { guid, name } = await sendContactAttachment(remote, content);
-      return {
-        part: { attachmentGuid: guid, attachmentName: name },
-        attachmentName: name,
-      };
+      return { attachmentGuid: guid, attachmentName: name };
     }
     case "voice": {
       // As a sendMultipart part, voice loses the audio-bubble UI and renders
       // as a regular audio attachment. Send a single voice message (not in a
       // group) for the proper UI.
       const { guid, name } = await uploadVoice(remote, content);
-      return {
-        part: { attachmentGuid: guid, attachmentName: name },
-        attachmentName: name,
-      };
+      return { attachmentGuid: guid, attachmentName: name };
     }
     default:
       throw unsupportedRemoteContent(content.type);
@@ -311,7 +296,7 @@ export const send = async (
     );
     const receipt = await remote.messages.sendMultipart(
       chat,
-      resolved.map((r, idx) => ({ ...r.part, partIndex: idx }))
+      resolved.map((part, idx) => ({ ...part, partIndex: idx }))
     );
     const parentGuid = receiptGuid(receipt);
     const timestamp = receiptTimestamp(receipt);

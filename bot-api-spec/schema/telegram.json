@@ -2,7 +2,7 @@
   "version": "9.6",
   "baseUrl": "https://api.telegram.org",
   "scope": "spectrum-universal",
-  "scopeNote": "Covers only the cross-platform subset Spectrum needs: plain/rich-link text, media (photo/audio/video/voice/document), contacts, reactions, and long-poll updates. Telegram-specific features introduced in 8.4-9.6 (managed bots, checklists, suggested posts, stories, gifts, polls, mini-app storage, direct-message topics, paid posts, suggested-post approvals) are intentionally out of scope; reviewed against https://core.telegram.org/bots/api-changelog and no in-scope types had breaking changes between 8.3 and 9.6.",
+  "scopeNote": "Covers only the cross-platform subset Spectrum needs: plain/rich-link text, media (photo/audio/video/voice/document), contacts, reactions, polls, and long-poll updates. Telegram-specific features introduced in 8.4-9.6 (managed bots, checklists, suggested posts, stories, gifts, mini-app storage, direct-message topics, paid posts, suggested-post approvals) are intentionally out of scope; reviewed against https://core.telegram.org/bots/api-changelog and no in-scope types had breaking changes between 8.3 and 9.6.",
   "types": {
     "Update": {
       "description": "Incoming update. At most one of the optional parameters can be present in any given update.",
@@ -20,6 +20,18 @@
           "name": "message_reaction",
           "type": "Ref:MessageReactionUpdated",
           "required": false
+        },
+        {
+          "name": "poll",
+          "type": "Ref:Poll",
+          "required": false,
+          "description": "New aggregate poll state. Bots receive only updates about stopped polls and polls they sent."
+        },
+        {
+          "name": "poll_answer",
+          "type": "Ref:PollAnswer",
+          "required": false,
+          "description": "User changed their vote in a non-anonymous poll. Anonymous polls do NOT emit poll_answer."
         }
       ]
     },
@@ -83,7 +95,14 @@
         { "name": "audio", "type": "Ref:Audio", "required": false },
         { "name": "video", "type": "Ref:Video", "required": false },
         { "name": "voice", "type": "Ref:Voice", "required": false },
-        { "name": "contact", "type": "Ref:Contact", "required": false }
+        { "name": "contact", "type": "Ref:Contact", "required": false },
+        { "name": "poll", "type": "Ref:Poll", "required": false },
+        {
+          "name": "media_group_id",
+          "type": "string",
+          "required": false,
+          "description": "Set on each member of an album. All messages sent together share the same id; absent on standalone messages."
+        }
       ]
     },
     "MessageEntity": {
@@ -209,6 +228,72 @@
           "name": "new_reaction",
           "type": "Array:Ref:ReactionType",
           "required": true
+        }
+      ]
+    },
+    "PollOption": {
+      "description": "Option in a Telegram poll.",
+      "fields": [
+        { "name": "text", "type": "string", "required": true },
+        { "name": "voter_count", "type": "integer", "required": true }
+      ]
+    },
+    "InputPollOption": {
+      "description": "Outbound option used by `sendPoll`.",
+      "fields": [{ "name": "text", "type": "string", "required": true }]
+    },
+    "Poll": {
+      "description": "A native Telegram poll (regular or quiz). Spectrum exposes only regular polls; quiz/explanation/period fields are passed through but not modelled in the universal Content.",
+      "fields": [
+        { "name": "id", "type": "string", "required": true },
+        { "name": "question", "type": "string", "required": true },
+        {
+          "name": "options",
+          "type": "Array:Ref:PollOption",
+          "required": true
+        },
+        { "name": "total_voter_count", "type": "integer", "required": true },
+        { "name": "is_closed", "type": "boolean", "required": true },
+        { "name": "is_anonymous", "type": "boolean", "required": true },
+        {
+          "name": "type",
+          "type": "string",
+          "required": true,
+          "enum": ["regular", "quiz"]
+        },
+        {
+          "name": "allows_multiple_answers",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "correct_option_id",
+          "type": "integer",
+          "required": false
+        }
+      ]
+    },
+    "PollAnswer": {
+      "description": "Answer of a user in a non-anonymous poll. Spectrum keys vote-state caches by `poll_id`; chat/message_id are not provided by Telegram in this update so the poll cache must be populated when the poll is created or first observed.",
+      "fields": [
+        { "name": "poll_id", "type": "string", "required": true },
+        {
+          "name": "voter_chat",
+          "type": "Ref:Chat",
+          "required": false,
+          "description": "Set when the vote came from an anonymous channel admin acting on behalf of the channel."
+        },
+        {
+          "name": "user",
+          "type": "Ref:User",
+          "required": false,
+          "description": "Set when the vote came from a regular user. Either `user` or `voter_chat` is present."
+        },
+        {
+          "name": "option_ids",
+          "type": "Array:integer",
+          "required": true,
+          "description": "Zero-based indices into the original poll options. Empty array means the user retracted all of their votes."
         }
       ]
     },
@@ -369,6 +454,51 @@
         }
       ],
       "returns": "Ref:Message"
+    },
+    "sendPoll": {
+      "description": "Sends a native Telegram poll. Spectrum sends regular (non-quiz) polls with `is_anonymous: false` so per-user vote events surface as poll_option content. Polls cannot be sent to private 1:1 chats; the API will reject those with BAD_REQUEST.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "question", "type": "string", "required": true },
+        {
+          "name": "options",
+          "type": "Array:Ref:InputPollOption",
+          "required": true
+        },
+        {
+          "name": "is_anonymous",
+          "type": "boolean",
+          "required": false,
+          "description": "Defaults to true on the Telegram side. Spectrum forces this to `false` on outbound sends so vote events are attributed."
+        },
+        {
+          "name": "type",
+          "type": "string",
+          "required": false,
+          "enum": ["regular", "quiz"]
+        },
+        {
+          "name": "allows_multiple_answers",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "reply_parameters",
+          "type": "Ref:ReplyParameters",
+          "required": false
+        }
+      ],
+      "returns": "Ref:Message"
+    },
+    "stopPoll": {
+      "description": "Stops a poll the bot started. Returns the final Poll state. Not exposed through Spectrum's universal API; available via raw client for callers who need it.",
+      "httpMethod": "POST",
+      "params": [
+        { "name": "chat_id", "type": "Union:integer|string", "required": true },
+        { "name": "message_id", "type": "integer", "required": true }
+      ],
+      "returns": "Ref:Poll"
     },
     "editMessageText": {
       "description": "Edits a text message.",

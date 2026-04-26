@@ -19,11 +19,13 @@ bot-api-spec/
 
 The schema covers only the Bot API subset that maps onto Spectrum's universal `Platform` actions:
 
-- `send` (text, media, contact, voice)
+- `send` (text, media, contact, voice, poll)
 - `replyToMessage`, `editMessage`
 - `reactToMessage`, `startTyping`
 - `events.messages` (via long polling)
 - Lifecycle sanity checks (`getMe`, `getChat`, `getFile`)
+
+Inbound `Update.poll` and `Update.poll_answer` are intentionally **not** mapped to Spectrum's universal `poll_option` events: faithfully resolving a `poll_answer` (which carries only `poll_id` plus a vote vector — no chat, message id, option text, or prior selection) requires a stateful per-poll cache that this provider does not ship. Callers that need vote events can subscribe to the raw client and process those updates themselves.
 
 Features outside this universal set (inline queries, callback queries, payments, passports, forum topics, admin operations, etc.) are **intentionally excluded**. They are surfaced — when needed — as provider-specific custom events, not via this schema.
 
@@ -110,4 +112,4 @@ The `generators/typescript.ts` in this repo is the reference implementation. It 
 
 The schema's `version` field tracks the Telegram Bot API version the subset was written against. Bumping `version` without reviewing the Bot API changelog is discouraged — new features in Telegram may require schema additions, not just a version bump.
 
-Currently tracking **Bot API 9.6** (April 3, 2026). The subset has been reviewed against the 8.3 → 9.6 changelog; none of the in-scope types (`Update`, `Message`, `User`, `Chat`, `Audio`, `Video`, `Voice`, `Document`, `PhotoSize`, `Contact`, `MessageEntity`, `LinkPreviewOptions`, `MessageReactionUpdated`, `ReactionType`, `ReplyParameters`, `ResponseParameters`, `File`, `InputFile`) or methods (`getMe`, `getUpdates`, `sendMessage`, `sendPhoto`, `sendVideo`, `sendAudio`, `sendVoice`, `sendDocument`, `sendContact`, `sendChatAction`, `editMessageText`, `setMessageReaction`, `getChat`, `getFile`) had breaking changes across that span. Features introduced between 8.4 and 9.6 (managed bots, checklists, suggested posts, stories, gifts, polls, mini-app storage, direct-message topics, paid posts) are intentionally out of the universal scope.
+Currently tracking **Bot API 9.6** (April 3, 2026). The subset has been reviewed against the 8.3 → 9.6 changelog; none of the in-scope types (`Update`, `Message`, `User`, `Chat`, `Audio`, `Video`, `Voice`, `Document`, `PhotoSize`, `Contact`, `MessageEntity`, `LinkPreviewOptions`, `MessageReactionUpdated`, `ReactionType`, `Poll`, `PollOption`, `InputPollOption`, `PollAnswer`, `ReplyParameters`, `ResponseParameters`, `File`, `InputFile`) or methods (`getMe`, `getUpdates`, `sendMessage`, `sendPhoto`, `sendVideo`, `sendAudio`, `sendVoice`, `sendDocument`, `sendContact`, `sendPoll`, `stopPoll`, `sendChatAction`, `editMessageText`, `setMessageReaction`, `getChat`, `getFile`) had breaking changes across that span. Features introduced between 8.4 and 9.6 (managed bots, checklists, suggested posts, stories, gifts, mini-app storage, direct-message topics, paid posts) are intentionally out of the universal scope. Poll types are kept in scope because outbound `sendPoll` is a first-class action, but inbound `poll` / `poll_answer` updates are exposed only via the raw client.

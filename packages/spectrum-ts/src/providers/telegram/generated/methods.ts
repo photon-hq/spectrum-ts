@@ -9,11 +9,15 @@ import type {
   Contact,
   Document,
   File,
+  InputPollOption,
   LinkPreviewOptions,
   Message,
   MessageEntity,
   MessageReactionUpdated,
   PhotoSize,
+  Poll,
+  PollAnswer,
+  PollOption,
   ReactionType,
   ReplyParameters,
   ResponseParameters,
@@ -89,6 +93,24 @@ export interface SendContactParams {
   reply_parameters?: ReplyParameters;
 }
 
+/** Sends a native Telegram poll. Spectrum sends regular (non-quiz) polls with `is_anonymous: false` so per-user vote events surface as poll_option content. Polls cannot be sent to private 1:1 chats; the API will reject those with BAD_REQUEST. */
+export interface SendPollParams {
+  chat_id: number | string;
+  question: string;
+  options: Array<InputPollOption>;
+  /** Defaults to true on the Telegram side. Spectrum forces this to `false` on outbound sends so vote events are attributed. */
+  is_anonymous?: boolean;
+  type?: "regular" | "quiz";
+  allows_multiple_answers?: boolean;
+  reply_parameters?: ReplyParameters;
+}
+
+/** Stops a poll the bot started. Returns the final Poll state. Not exposed through Spectrum's universal API; available via raw client for callers who need it. */
+export interface StopPollParams {
+  chat_id: number | string;
+  message_id: number;
+}
+
 /** Edits a text message. */
 export interface EditMessageTextParams {
   chat_id: number | string;
@@ -157,6 +179,14 @@ export interface Methods {
   sendContact: {
     params: SendContactParams;
     result: Message;
+  };
+  sendPoll: {
+    params: SendPollParams;
+    result: Message;
+  };
+  stopPoll: {
+    params: StopPollParams;
+    result: Poll;
   };
   editMessageText: {
     params: EditMessageTextParams;

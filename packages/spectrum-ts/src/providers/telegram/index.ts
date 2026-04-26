@@ -10,6 +10,7 @@ import {
 import { TelegramClient } from "./runtime/client";
 import {
   configSchema,
+  messageSchema,
   spaceParamsSchema,
   spaceSchema,
   type TelegramRuntime,
@@ -25,6 +26,10 @@ export const telegram = definePlatform("Telegram", {
   user: {
     schema: userSchema,
     resolve: async ({ input }) => ({ id: input.userID }),
+  },
+
+  message: {
+    schema: messageSchema,
   },
 
   space: {
@@ -85,7 +90,7 @@ export const telegram = definePlatform("Telegram", {
   events: {
     messages: ({ client, config }) => {
       const runtime = runtimeOf(client);
-      return messages(runtime.client, runtime.abort.signal, {
+      return messages(runtime, runtime.abort.signal, {
         ...(config.pollingTimeout === undefined
           ? {}
           : { timeout: config.pollingTimeout }),
@@ -98,12 +103,12 @@ export const telegram = definePlatform("Telegram", {
 
   actions: {
     send: async ({ space, content, client }) => {
-      return await send(runtimeOf(client).client, space.id, content);
+      return await send(runtimeOf(client), space.id, content);
     },
 
     replyToMessage: async ({ space, messageId, content, client }) => {
       return await replyToMessage(
-        runtimeOf(client).client,
+        runtimeOf(client),
         space.id,
         messageId,
         content
@@ -114,14 +119,21 @@ export const telegram = definePlatform("Telegram", {
       await editMessage(runtimeOf(client).client, space.id, messageId, content);
     },
 
-    reactToMessage: async ({ space, messageId, reaction, client }) => {
+    reactToMessage: async ({ space, target, reaction, client }) => {
       await reactToMessage(
         runtimeOf(client).client,
         space.id,
-        messageId,
+        target.id,
         reaction
       );
     },
+
+    // Telegram's Bot API has no general "fetch message by id" endpoint —
+    // `messages.get` only exists for forwarded/replied-to message echoes
+    // already inside an Update. Returning `undefined` lets `space.getMessage`
+    // callers degrade gracefully (the platform layer treats it as "not found")
+    // and matches the contract used by iMessage local mode.
+    getMessage: async () => undefined,
 
     startTyping: async ({ space, client }) => {
       await startTyping(runtimeOf(client).client, space.id);

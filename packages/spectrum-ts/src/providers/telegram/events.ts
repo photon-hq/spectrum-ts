@@ -1,10 +1,13 @@
 import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
+import { asCustom } from "../../content/custom";
+import { asPoll } from "../../content/poll";
 import { asReaction } from "../../content/reaction";
 import { asRichlink } from "../../content/richlink";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import { asVoice } from "../../content/voice";
+import type { ProviderMessageRecord } from "../../platform/build";
 import { type ManagedStream, stream } from "../../utils/stream";
 import { fromVCard } from "../../utils/vcard";
 import type {
@@ -18,6 +21,7 @@ import type {
   PhotoSize,
   ReactionType,
   Contact as TgContact,
+  Poll as TgPoll,
   Voice as TgVoice,
   Update,
   User,
@@ -25,7 +29,7 @@ import type {
 } from "./generated/types";
 import type { TelegramClient } from "./runtime/client";
 import { pollUpdates } from "./runtime/polling";
-import type { TelegramMessage } from "./types";
+import type { TelegramMessage, TelegramRuntime } from "./types";
 
 const chatIdToSpaceId = (chatId: number): string => String(chatId);
 const userIdToSpectrumId = (userId: number): string => String(userId);
@@ -280,6 +284,28 @@ const richlinkFromMessage = (msg: Message): Content | undefined => {
   }
 };
 
+// Telegram's `Poll.{question, options[].text}` maps cleanly onto Spectrum's
+// `poll.{title, options[].title}`: both cap title at 300 chars and allow 2-10
+// options. Quiz polls are surfaced the same way — Spectrum has no separate
+// quiz content type, and the underlying voting is identical from the bot's
+// perspective. We deliberately do NOT carry the bot-only fields
+// (is_anonymous / total_voter_count / correct_option_id / etc.) — they're
+// reachable on the raw Telegram Message via the underlying client for callers
+// who need them, and Spectrum's `Poll` schema has no place for them.
+const pollFromTelegramPoll = (poll: TgPoll): Content | undefined => {
+  // Telegram in theory enforces these limits server-side, but we guard with
+  // a try/catch around `asPoll` to avoid crashing the whole stream if a future
+  // server change breaks the assumption (e.g. an option title >300 chars).
+  try {
+    return asPoll({
+      title: poll.question,
+      options: poll.options.map((opt) => ({ title: opt.text })),
+    });
+  } catch {
+    return undefined;
+  }
+};
+
 // Spectrum's `Content` is a single discriminated-union value, so a Telegram
 // message carrying both media and a caption can only surface one of them.
 // We prefer the media attachment (the richer payload) and fall back to the
@@ -343,6 +369,9 @@ const messageToContent = (
   if (msg.contact) {
     return contactToContent(msg.contact);
   }
+  if (msg.poll) {
+    return pollFromTelegramPoll(msg.poll);
+  }
   // Caption-only messages (no recognized media) surface the caption as text.
   if (msg.caption !== undefined) {
     return asText(msg.caption);
@@ -367,13 +396,23 @@ const toTelegramMessage = (
   if (!content) {
     return undefined;
   }
-  return {
+  const built: TelegramMessage = {
     id: String(msg.message_id),
     content,
     sender,
     space: chatToSpace(msg.chat),
     timestamp: new Date(msg.date * 1000),
   };
+  if (msg.media_group_id !== undefined) {
+    built.mediaGroupId = msg.media_group_id;
+  }
+  // Caption is surfaced as an extra only when it accompanies media; for the
+  // caption-only case `messageToContent` already returns it as text content
+  // and re-emitting it here would duplicate the same string.
+  if (msg.caption !== undefined && content.type !== "text") {
+    built.caption = msg.caption;
+  }
+  return built;
 };
 
 const pickMessage = (update: Update): Message | undefined =>
@@ -425,6 +464,24 @@ const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
   return added;
 };
 
+// Telegram's `message_reaction` update only gives us the target's message id
+// (not the original sender, content, or anything else). PR #33 narrowed
+// `reaction.target` to `Message`, so we synthesize a minimal raw provider
+// record here and let core's `wrapProviderMessage` inflate it into a full
+// Message (with `react`/`reply`) before agents see the event. Same approach
+// used by the WhatsApp Business and terminal providers.
+const reactionTargetStub = (
+  messageId: number,
+  space: ReturnType<typeof chatToSpace>,
+  timestamp: Date
+): ProviderMessageRecord => ({
+  id: String(messageId),
+  content: asCustom({ telegram_type: "reaction-target", stub: true }),
+  sender: { id: "__unknown__" },
+  space,
+  timestamp,
+});
+
 const reactionEventsFromUpdate = (
   update: MessageReactionUpdated,
   updateId: number
@@ -434,21 +491,52 @@ const reactionEventsFromUpdate = (
   if (!update.user) {
     return [];
   }
-  const target = String(update.message_id);
   const sender = userToSender(update.user);
   const space = chatToSpace(update.chat);
   const timestamp = new Date(update.date * 1000);
+  const target = reactionTargetStub(update.message_id, space, timestamp);
   return newlyAddedEmojis(update).map((emoji, index) => ({
     // update_id is unique per update, message_id is the *target* of the
     // reaction (not the reaction's own id — Telegram doesn't surface one), so
     // compose a stable id per emitted event.
     id: `reaction:${updateId}:${index}`,
-    content: asReaction({ emoji, target }),
+    // The stub deliberately lacks `react`/`reply` methods; `wrapProviderMessage`
+    // detects raw provider records via `isRawProviderRecord` and inflates them
+    // into full Messages before the reaction is emitted to consumers.
+    content: asReaction({
+      emoji,
+      target: target as unknown as Parameters<typeof asReaction>[0]["target"],
+    }),
     sender,
     space,
     timestamp,
   }));
 };
+
+// ---------------------------------------------------------------------------
+// Polls (inbound)
+//
+// Telegram surfaces poll-related state through three update kinds:
+//   1. `Update.message.poll`  — initial poll body when a user sends a poll.
+//                               Mapped to Spectrum's `poll` content via
+//                               `pollFromTelegramPoll` (above). Arrives on
+//                               the regular `message` update — no extra
+//                               `allowed_updates` opt-in needed.
+//   2. `Update.poll`          — aggregate state changes (vote totals,
+//                               closure). Bots only receive `poll` updates
+//                               for polls they sent themselves. Not mapped:
+//                               there is no chat/message id on this update,
+//                               and Spectrum has no "poll snapshot" content.
+//   3. `Update.poll_answer`   — per-user vote diff in non-anonymous polls.
+//                               Not mapped to `poll_option`: faithful
+//                               resolution requires a per-poll cache
+//                               (`poll_answer` omits chat, message id, and
+//                               option text), and we don't ship a stateful
+//                               cache from this provider.
+//
+// Callers wanting (2) or (3) can override `allowedUpdates` and subscribe to
+// the raw client.
+// ---------------------------------------------------------------------------
 
 const buildMessages = (
   client: TelegramClient,
@@ -472,7 +560,7 @@ export interface MessagesOptions {
 }
 
 export const messages = (
-  client: TelegramClient,
+  runtime: TelegramRuntime,
   signal: AbortSignal,
   options: MessagesOptions = {}
 ): ManagedStream<TelegramMessage> =>
@@ -488,11 +576,11 @@ export const messages = (
     const pump = (async () => {
       try {
         for await (const update of pollUpdates(
-          client,
+          runtime.client,
           abortController.signal,
           options
         )) {
-          const built = buildMessages(client, update);
+          const built = buildMessages(runtime.client, update);
           for (const message of built) {
             await emit(message);
           }

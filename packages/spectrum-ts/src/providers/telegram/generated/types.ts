@@ -13,6 +13,10 @@ export interface Update {
   channel_post?: Message;
   edited_channel_post?: Message;
   message_reaction?: MessageReactionUpdated;
+  /** New aggregate poll state. Bots receive only updates about stopped polls and polls they sent. */
+  poll?: Poll;
+  /** User changed their vote in a non-anonymous poll. Anonymous polls do NOT emit poll_answer. */
+  poll_answer?: PollAnswer;
 }
 
 /** Telegram user or bot. */
@@ -52,6 +56,9 @@ export interface Message {
   video?: Video;
   voice?: Voice;
   contact?: Contact;
+  poll?: Poll;
+  /** Set on each member of an album. All messages sent together share the same id; absent on standalone messages. */
+  media_group_id?: string;
 }
 
 /** A special entity in a text message (URL, mention, hashtag, etc.). */
@@ -139,6 +146,41 @@ export interface MessageReactionUpdated {
   actor_chat?: Chat;
   old_reaction: Array<ReactionType>;
   new_reaction: Array<ReactionType>;
+}
+
+/** Option in a Telegram poll. */
+export interface PollOption {
+  text: string;
+  voter_count: number;
+}
+
+/** Outbound option used by `sendPoll`. */
+export interface InputPollOption {
+  text: string;
+}
+
+/** A native Telegram poll (regular or quiz). Spectrum exposes only regular polls; quiz/explanation/period fields are passed through but not modelled in the universal Content. */
+export interface Poll {
+  id: string;
+  question: string;
+  options: Array<PollOption>;
+  total_voter_count: number;
+  is_closed: boolean;
+  is_anonymous: boolean;
+  type: "regular" | "quiz";
+  allows_multiple_answers: boolean;
+  correct_option_id?: number;
+}
+
+/** Answer of a user in a non-anonymous poll. Spectrum keys vote-state caches by `poll_id`; chat/message_id are not provided by Telegram in this update so the poll cache must be populated when the poll is created or first observed. */
+export interface PollAnswer {
+  poll_id: string;
+  /** Set when the vote came from an anonymous channel admin acting on behalf of the channel. */
+  voter_chat?: Chat;
+  /** Set when the vote came from a regular user. Either `user` or `voter_chat` is present. */
+  user?: User;
+  /** Zero-based indices into the original poll options. Empty array means the user retracted all of their votes. */
+  option_ids: Array<number>;
 }
 
 /** Reply parameters for outgoing messages. */

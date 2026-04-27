@@ -70,7 +70,13 @@ const nextDelay = (
     if (error.isRateLimit) {
       const retryAfter = error.retryAfter;
       if (retryAfter !== undefined) {
-        return Math.min(retryAfter * 1000, policy.maxDelayMs);
+        // `retry_after` is Telegram telling us exactly when the rate limit
+        // window opens. Clamping it to `maxDelayMs` would retry too early,
+        // earn another 429, and burn through `maxAttempts` without ever
+        // respecting the limit. Callers wanting to bound how long a single
+        // request can hang can use `TelegramClientOptions.requestTimeoutMs`,
+        // which still applies via the merged abort signal.
+        return retryAfter * 1000;
       }
       return backoffDelay(attempt, policy);
     }

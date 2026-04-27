@@ -67,30 +67,69 @@ interface ApiResponseErr {
 
 type ApiResponse<T> = ApiResponseOk<T> | ApiResponseErr;
 
-const containsBinary = (params: unknown): boolean => {
-  if (params === null || typeof params !== "object") {
-    return false;
-  }
-  // Keep in sync with appendFormField: only Blobs are attached as raw parts.
-  // ReadableStream is intentionally not treated as binary — appendFormField
-  // has no handler for it, so triggering multipart here would JSON.stringify
-  // the stream into "{}" and silently drop the payload.
-  if (params instanceof Blob) {
-    return true;
-  }
-  if (Array.isArray(params)) {
-    return params.some(containsBinary);
-  }
-  for (const value of Object.values(params as Record<string, unknown>)) {
-    if (containsBinary(value)) {
+// Returns true iff a top-level field is a Blob. Nested Blobs (inside arrays
+// or objects) are intentionally rejected by `assertNoNestedBlob` rather than
+// silently triggering multipart and then being JSON.stringify()'d into the
+// parent field.
+//
+// ReadableStream is also rejected at the same boundary: appendFormField only
+// emits raw parts for Blobs, so a stream value would either be dropped here
+// or serialise to "{}" inside a JSON field — both silent data losses worse
+// than a loud error.
+const hasTopLevelBlob = (params: Record<string, unknown>): boolean => {
+  for (const value of Object.values(params)) {
+    if (value instanceof Blob) {
       return true;
     }
   }
   return false;
 };
 
+// Walk into arrays/objects looking for embedded Blobs or ReadableStreams. The
+// only legitimate place for a Blob in a Telegram method today is at the top
+// level (`photo`, `video`, `voice`, etc. on `sendPhoto`/`sendVideo`/...).
+// `sendMediaGroup` *would* need a real `attach://` encoding for nested Blobs;
+// when we add it we'll lift this restriction with explicit support, not by
+// silently allowing the corruption-prone JSON.stringify path.
+const assertNoNestedBlob = (
+  method: string,
+  value: unknown,
+  path: string
+): void => {
+  if (value === null || value === undefined) {
+    return;
+  }
+  if (value instanceof Blob) {
+    throw new Error(
+      `Telegram client cannot serialize Blob at "${path}" of ${method} request: ` +
+        "nested binary fields are not supported. Pass binaries at the top " +
+        "level (e.g. sendPhoto({ photo: blob })) instead."
+    );
+  }
+  if (value instanceof ReadableStream) {
+    throw new Error(
+      `Telegram client cannot serialize ReadableStream at "${path}" of ${method} request: ` +
+        "stream uploads are not supported. Buffer into a Blob first."
+    );
+  }
+  if (Array.isArray(value)) {
+    for (const [idx, item] of value.entries()) {
+      assertNoNestedBlob(method, item, `${path}[${idx}]`);
+    }
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [key, child] of Object.entries(
+      value as Record<string, unknown>
+    )) {
+      assertNoNestedBlob(method, child, `${path}.${key}`);
+    }
+  }
+};
+
 // Nested objects/arrays must be JSON-encoded strings inside multipart fields;
-// only Blobs are attached as raw parts.
+// only top-level Blobs are attached as raw parts. `assertNoNestedBlob` runs
+// before this so any nested Blob has already failed the request loudly.
 const appendFormField = (form: FormData, key: string, value: unknown): void => {
   if (value === undefined || value === null) {
     return;
@@ -111,9 +150,17 @@ const appendFormField = (form: FormData, key: string, value: unknown): void => {
 };
 
 const buildBody = (
+  method: string,
   params: Record<string, unknown>
 ): { body: string | FormData; headers: Record<string, string> } => {
-  if (containsBinary(params)) {
+  // Walk every top-level value's interior first so any embedded Blob or
+  // ReadableStream surfaces as a clear error before we pick a transport.
+  for (const [key, value] of Object.entries(params)) {
+    if (!(value instanceof Blob)) {
+      assertNoNestedBlob(method, value, key);
+    }
+  }
+  if (hasTopLevelBlob(params)) {
     const form = new FormData();
     for (const [key, value] of Object.entries(params)) {
       appendFormField(form, key, value);
@@ -159,7 +206,10 @@ export class TelegramClient {
     migrations: number
   ): Promise<Methods[M]["result"]> {
     const url = `${this.baseUrl}/bot${this.token}/${method}`;
-    const { body, headers } = buildBody(params as Record<string, unknown>);
+    const { body, headers } = buildBody(
+      method,
+      params as Record<string, unknown>
+    );
 
     try {
       return await withRetry(

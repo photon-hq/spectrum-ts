@@ -96,11 +96,10 @@ const sendText = async (
   return toSendResult(message);
 };
 
-// Telegram generates the preview card server-side by scraping OG metadata from
-// the URL, so we don't forward Richlink.title / summary / cover — Telegram
-// fetches its own. Pinning `url` explicitly unlocks prefer_large_media (which
-// is ignored without an explicit url), which is what turns a plain link into a
-// big preview card — i.e. the whole point of a richlink.
+// Pinning `url` explicitly is what unlocks `prefer_large_media` — without an
+// explicit url, Telegram ignores the size hint and may render a tiny thumbnail
+// or no preview at all. Setting it turns a plain link into a big preview card,
+// which is the whole point of a richlink.
 const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
   is_disabled: false,
   url,
@@ -108,6 +107,20 @@ const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
   show_above_text: true,
 });
 
+// Telegram preview cards are produced by a server-side scraper that fetches
+// the URL itself and parses Open Graph / Twitter Card / oEmbed metadata —
+// `sendMessage` exposes no input fields for `title`, `description`, or
+// `image`, only layout knobs (size, position, on/off). That means
+// `Richlink.title` / `Richlink.summary` / `Richlink.cover` are intentionally
+// dropped on Telegram: there is no API to inject them, and faking it via
+// HTML parse_mode would either lose the rich card (Option B in the design
+// notes) or double-display caller text alongside the scraped card while
+// complicating cover handling (Option C).
+//
+// Cross-platform fan-out trade-off: a caller setting `title`/`summary`/`cover`
+// will see those honored on iMessage / WhatsApp Business but see Telegram's
+// scraped metadata instead. This is documented in `bot-api-spec/README.md`
+// under "Scope".
 const sendRichlinkContent = async (
   client: TelegramClient,
   spaceId: string,

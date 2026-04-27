@@ -27,6 +27,8 @@ The schema covers only the Bot API subset that maps onto Spectrum's universal `P
 
 Inbound `Update.poll` and `Update.poll_answer` are intentionally **not** mapped to Spectrum's universal `poll_option` events: faithfully resolving a `poll_answer` (which carries only `poll_id` plus a vote vector — no chat, message id, option text, or prior selection) requires a stateful per-poll cache that this provider does not ship. Callers that need vote events can subscribe to the raw client and process those updates themselves.
 
+Outbound `richlink` content drops `Richlink.title` / `Richlink.summary` / `Richlink.cover` on Telegram. Telegram preview cards are produced by a server-side scraper that fetches the URL and parses Open Graph / Twitter Card / oEmbed metadata; `sendMessage` exposes only layout knobs (size, position, on/off) via `LinkPreviewOptions`, with no input fields for caller-supplied title, description, or image. The richlink is sent as the URL with `prefer_large_media` pinned, so Telegram still renders a big preview card — but the metadata comes from the destination, not the caller. Cross-platform fan-out (e.g. iMessage + Telegram) will therefore show the caller's title on iMessage and the scraped title on Telegram.
+
 Features outside this universal set (inline queries, callback queries, payments, passports, forum topics, admin operations, etc.) are **intentionally excluded**. They are surfaced — when needed — as provider-specific custom events, not via this schema.
 
 ## Schema format

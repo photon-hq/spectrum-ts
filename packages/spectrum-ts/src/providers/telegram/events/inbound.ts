@@ -1,15 +1,11 @@
-import { asAttachment } from "../../content/attachment";
-import { asContact } from "../../content/contact";
-import { asCustom } from "../../content/custom";
-import { asPoll } from "../../content/poll";
-import { asReaction } from "../../content/reaction";
-import { asRichlink } from "../../content/richlink";
-import { asText } from "../../content/text";
-import type { Content } from "../../content/types";
-import { asVoice } from "../../content/voice";
-import type { ProviderMessageRecord } from "../../platform/build";
-import { type ManagedStream, stream } from "../../utils/stream";
-import { fromVCard } from "../../utils/vcard";
+import { asAttachment } from "../../../content/attachment";
+import { asContact } from "../../../content/contact";
+import { asPoll } from "../../../content/poll";
+import { asRichlink } from "../../../content/richlink";
+import { asText } from "../../../content/text";
+import type { Content } from "../../../content/types";
+import { asVoice } from "../../../content/voice";
+import { fromVCard } from "../../../utils/vcard";
 import type {
   Audio,
   Chat,
@@ -17,37 +13,40 @@ import type {
   LinkPreviewOptions,
   Message,
   MessageEntity,
-  MessageReactionUpdated,
   PhotoSize,
-  ReactionType,
   Contact as TgContact,
   Poll as TgPoll,
   Voice as TgVoice,
-  Update,
   User,
   Video,
-} from "./generated/types";
-import type { TelegramClient } from "./runtime/client";
-import { pollUpdates } from "./runtime/polling";
-import type { TelegramMessage, TelegramRuntime } from "./types";
+} from "../generated/types";
+import type { TelegramClient } from "../runtime/client";
+import type { TelegramMessage } from "../types";
+
+// ---------------------------------------------------------------------------
+// Sender / space conversion
+// ---------------------------------------------------------------------------
 
 const chatIdToSpaceId = (chatId: number): string => String(chatId);
 const userIdToSpectrumId = (userId: number): string => String(userId);
 
-const chatToSpace = (
+// Inline anonymous return type (rather than a named alias) so the result
+// satisfies `ProviderMessageRecord["space"]`'s `Record<string, unknown>` index
+// signature when it's used as a stub target — a named `interface` does not.
+export const chatToSpace = (
   chat: Chat
 ): {
-  id: string;
   chatId: number;
-  type: Chat["type"];
+  id: string;
   title?: string;
+  type: Chat["type"];
   username?: string;
 } => {
   const space: {
-    id: string;
     chatId: number;
-    type: Chat["type"];
+    id: string;
     title?: string;
+    type: Chat["type"];
     username?: string;
   } = {
     id: chatIdToSpaceId(chat.id),
@@ -63,7 +62,7 @@ const chatToSpace = (
   return space;
 };
 
-interface Sender {
+export interface Sender {
   chatId: number;
   firstName: string;
   id: string;
@@ -73,7 +72,7 @@ interface Sender {
   username?: string;
 }
 
-const userToSender = (user: User): Sender => {
+export const userToSender = (user: User): Sender => {
   const sender: Sender = {
     id: userIdToSpectrumId(user.id),
     chatId: user.id,
@@ -95,7 +94,7 @@ const userToSender = (user: User): Sender => {
 // Channel posts and anonymous group-admin messages arrive without `from` but
 // with `sender_chat`. Synthesize a Sender from the chat so these updates are
 // delivered end-to-end instead of silently dropped.
-const chatToSender = (chat: Chat): Sender => {
+export const chatToSender = (chat: Chat): Sender => {
   const sender: Sender = {
     id: chatIdToSpaceId(chat.id),
     chatId: chat.id,
@@ -107,6 +106,10 @@ const chatToSender = (chat: Chat): Sender => {
   }
   return sender;
 };
+
+// ---------------------------------------------------------------------------
+// File downloads (lazy)
+// ---------------------------------------------------------------------------
 
 // getFile URLs are valid for ~1h; resolve lazily per read so stale URLs aren't
 // cached and messages that are never consumed cost nothing. The download goes
@@ -196,6 +199,10 @@ const audioName = (audio: Audio): string =>
 const videoName = (video: Video): string =>
   video.file_name ?? `video-${video.file_id}.mp4`;
 
+// ---------------------------------------------------------------------------
+// Contact
+// ---------------------------------------------------------------------------
+
 const parseVCardSafe = (
   vcard: string
 ): Parameters<typeof asContact>[0] | undefined => {
@@ -229,6 +236,10 @@ const contactToContent = (contact: TgContact): Content => {
   }
   return asContact(input);
 };
+
+// ---------------------------------------------------------------------------
+// Richlink (text message that's clearly a link card)
+// ---------------------------------------------------------------------------
 
 // A message is surfaced as a richlink when the sender clearly meant it as
 // a link card: either Telegram points the preview at a specific URL via
@@ -284,6 +295,10 @@ const richlinkFromMessage = (msg: Message): Content | undefined => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Poll (inbound body)
+// ---------------------------------------------------------------------------
+
 // Telegram's `Poll.{question, options[].text}` maps cleanly onto Spectrum's
 // `poll.{title, options[].title}`: both cap title at 300 chars and allow 2-10
 // options. Quiz polls are surfaced the same way — Spectrum has no separate
@@ -306,13 +321,15 @@ const pollFromTelegramPoll = (poll: TgPoll): Content | undefined => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Message → Content dispatcher
+// ---------------------------------------------------------------------------
+
 // Spectrum's `Content` is a single discriminated-union value, so a Telegram
 // message carrying both media and a caption can only surface one of them.
 // We prefer the media attachment (the richer payload) and fall back to the
-// caption only when no media is present. A future compound content type would
-// let us expose both; until then the caption that accompanies media is not
-// lost silently because it's also exposed via `msg.caption` on the raw
-// Telegram `Message` reachable through `startTyping`/webhook helpers.
+// caption only when no media is present. The accompanying caption is also
+// exposed via the `caption` extra on `TelegramMessage` so it isn't lost.
 const messageToContent = (
   client: TelegramClient,
   msg: Message
@@ -379,7 +396,11 @@ const messageToContent = (
   return undefined;
 };
 
-const toTelegramMessage = (
+// ---------------------------------------------------------------------------
+// Top-level message builder
+// ---------------------------------------------------------------------------
+
+export const toTelegramMessage = (
   client: TelegramClient,
   msg: Message
 ): TelegramMessage | undefined => {
@@ -414,190 +435,3 @@ const toTelegramMessage = (
   }
   return built;
 };
-
-const pickMessage = (update: Update): Message | undefined =>
-  update.message ??
-  update.edited_message ??
-  update.channel_post ??
-  update.edited_channel_post;
-
-// ---------------------------------------------------------------------------
-// Reactions (inbound)
-//
-// Telegram's `message_reaction` update carries a diff (`old_reaction` vs
-// `new_reaction`) per user per message. Spectrum's `reaction` content is
-// add-only and plain-unicode, so we only emit the newly-added emoji
-// reactions from each update. Everything else is deliberately skipped with
-// a comment so the gap is grep-able once the schema grows richer.
-//
-// TODO(reactions): when `reactionSchema` gains `action: "add" | "remove"`,
-//   emit remove events for emojis that left `new_reaction`.
-// TODO(reactions): when `reactionSchema` can carry custom emoji (e.g. an
-//   `emojiKind: "custom"` + id field), surface ReactionTypeCustomEmoji.
-//   Paid reactions have no emoji payload and will likely stay dropped.
-// TODO(reactions): consider surfacing `message_reaction_count` as a
-//   separate snapshot content type for anonymous channels.
-// ---------------------------------------------------------------------------
-
-// Defensive against schema drift: `ReactionType{emoji}` declares `emoji` as
-// required, but upstream Telegram payloads have historically omitted fields
-// during API transitions. Treat a missing/empty string as "no reaction" to
-// keep the diff against `old_reaction` correct instead of emitting `""`.
-const extractEmoji = (reaction: ReactionType): string | undefined => {
-  if (reaction.type !== "emoji") {
-    return undefined;
-  }
-  return reaction.emoji ? reaction.emoji : undefined;
-};
-
-const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
-  const previous = new Set(
-    update.old_reaction.map(extractEmoji).filter((e): e is string => !!e)
-  );
-  const added: string[] = [];
-  for (const reaction of update.new_reaction) {
-    const emoji = extractEmoji(reaction);
-    if (emoji && !previous.has(emoji)) {
-      added.push(emoji);
-    }
-  }
-  return added;
-};
-
-// Telegram's `message_reaction` update only gives us the target's message id
-// (not the original sender, content, or anything else). PR #33 narrowed
-// `reaction.target` to `Message`, so we synthesize a minimal raw provider
-// record here and let core's `wrapProviderMessage` inflate it into a full
-// Message (with `react`/`reply`) before agents see the event. Same approach
-// used by the WhatsApp Business and terminal providers.
-const reactionTargetStub = (
-  messageId: number,
-  space: ReturnType<typeof chatToSpace>,
-  timestamp: Date
-): ProviderMessageRecord => ({
-  id: String(messageId),
-  content: asCustom({ telegram_type: "reaction-target", stub: true }),
-  sender: { id: "__unknown__" },
-  space,
-  timestamp,
-});
-
-const reactionEventsFromUpdate = (
-  update: MessageReactionUpdated,
-  updateId: number
-): TelegramMessage[] => {
-  // Anonymous actors (actor_chat, no user) can't produce a Spectrum sender; the
-  // content-type carries no "chat reactor" concept today. Drop for now.
-  if (!update.user) {
-    return [];
-  }
-  const sender = userToSender(update.user);
-  const space = chatToSpace(update.chat);
-  const timestamp = new Date(update.date * 1000);
-  const target = reactionTargetStub(update.message_id, space, timestamp);
-  return newlyAddedEmojis(update).map((emoji, index) => ({
-    // update_id is unique per update, message_id is the *target* of the
-    // reaction (not the reaction's own id — Telegram doesn't surface one), so
-    // compose a stable id per emitted event.
-    id: `reaction:${updateId}:${index}`,
-    // The stub deliberately lacks `react`/`reply` methods; `wrapProviderMessage`
-    // detects raw provider records via `isRawProviderRecord` and inflates them
-    // into full Messages before the reaction is emitted to consumers.
-    content: asReaction({
-      emoji,
-      target: target as unknown as Parameters<typeof asReaction>[0]["target"],
-    }),
-    sender,
-    space,
-    timestamp,
-  }));
-};
-
-// ---------------------------------------------------------------------------
-// Polls (inbound)
-//
-// Telegram surfaces poll-related state through three update kinds:
-//   1. `Update.message.poll`  — initial poll body when a user sends a poll.
-//                               Mapped to Spectrum's `poll` content via
-//                               `pollFromTelegramPoll` (above). Arrives on
-//                               the regular `message` update — no extra
-//                               `allowed_updates` opt-in needed.
-//   2. `Update.poll`          — aggregate state changes (vote totals,
-//                               closure). Bots only receive `poll` updates
-//                               for polls they sent themselves. Not mapped:
-//                               there is no chat/message id on this update,
-//                               and Spectrum has no "poll snapshot" content.
-//   3. `Update.poll_answer`   — per-user vote diff in non-anonymous polls.
-//                               Not mapped to `poll_option`: faithful
-//                               resolution requires a per-poll cache
-//                               (`poll_answer` omits chat, message id, and
-//                               option text), and we don't ship a stateful
-//                               cache from this provider.
-//
-// Callers wanting (2) or (3) can override `allowedUpdates` and subscribe to
-// the raw client.
-// ---------------------------------------------------------------------------
-
-const buildMessages = (
-  client: TelegramClient,
-  update: Update
-): TelegramMessage[] => {
-  if (update.message_reaction) {
-    return reactionEventsFromUpdate(update.message_reaction, update.update_id);
-  }
-  const tgMessage = pickMessage(update);
-  if (!tgMessage) {
-    return [];
-  }
-  const message = toTelegramMessage(client, tgMessage);
-  return message ? [message] : [];
-};
-
-export interface MessagesOptions {
-  allowedUpdates?: string[];
-  dropPendingUpdates?: boolean;
-  timeout?: number;
-}
-
-export const messages = (
-  runtime: TelegramRuntime,
-  signal: AbortSignal,
-  options: MessagesOptions = {}
-): ManagedStream<TelegramMessage> =>
-  stream<TelegramMessage>((emit, end) => {
-    const abortController = new AbortController();
-    const onSignalAbort = () => abortController.abort(signal.reason);
-    if (signal.aborted) {
-      abortController.abort(signal.reason);
-    } else {
-      signal.addEventListener("abort", onSignalAbort, { once: true });
-    }
-
-    const pump = (async () => {
-      try {
-        for await (const update of pollUpdates(
-          runtime.client,
-          abortController.signal,
-          options
-        )) {
-          const built = buildMessages(runtime.client, update);
-          for (const message of built) {
-            await emit(message);
-          }
-        }
-        end();
-      } catch (err) {
-        if (abortController.signal.aborted) {
-          end();
-          return;
-        }
-        end(err);
-      }
-    })();
-
-    return async () => {
-      signal.removeEventListener("abort", onSignalAbort);
-      abortController.abort();
-      await pump;
-    };
-  });

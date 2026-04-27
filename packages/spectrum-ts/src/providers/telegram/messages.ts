@@ -309,7 +309,7 @@ const validatePollOptionTitles = (poll: SpectrumPoll): void => {
 };
 
 // Outbound poll send. Inbound poll *bodies* are mapped to Spectrum's `poll`
-// content in events.ts via `pollFromTelegramPoll`. Inbound `poll_answer`
+// content in `./events/inbound.ts` via `pollFromTelegramPoll`. Inbound `poll_answer`
 // updates (per-vote deltas) and `poll` updates (aggregate state) are
 // intentionally not mapped to `poll_option` — that requires a per-poll cache
 // (`poll_answer` omits chat and message ids), which we don't ship from the

@@ -20,7 +20,7 @@ import { asPollOption, type Poll } from "../../content/poll";
 import { asReaction } from "../../content/reaction";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
-import type { SendResult } from "../../platform/types";
+import type { ProviderMessageRecord } from "../../platform/types";
 import { UnsupportedError } from "../../utils/errors";
 import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
 import { pollOptionId, pollToInteractive } from "./poll";
@@ -39,8 +39,15 @@ const primary = (clients: WhatsAppClients): WhatsAppClient => {
 
 type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
 
-const toSendResult = (result: WaSendResult): SendResult => ({
+const toRecord = (
+  result: WaSendResult,
+  spaceId: string,
+  content: Content
+): ProviderMessageRecord => ({
   id: result.messageId,
+  content,
+  space: { id: spaceId },
+  timestamp: new Date(),
 });
 
 const MAX_POLL_CACHE_SIZE = 1000;
@@ -488,12 +495,14 @@ export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
   content: Content
-): Promise<SendResult> => {
+): Promise<ProviderMessageRecord> => {
   const client = primary(clients);
   switch (content.type) {
     case "text":
-      return toSendResult(
-        await client.messages.send({ to: spaceId, text: content.text })
+      return toRecord(
+        await client.messages.send({ to: spaceId, text: content.text }),
+        spaceId,
+        content
       );
     case "attachment": {
       const { mediaId } = await client.media.upload({
@@ -506,19 +515,23 @@ export const send = async (
         mediaType === "document"
           ? { id: mediaId, filename: content.name }
           : { id: mediaId };
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           [mediaType]: mediaPayload,
-        } as Parameters<typeof client.messages.send>[0])
+        } as Parameters<typeof client.messages.send>[0]),
+        spaceId,
+        content
       );
     }
     case "contact":
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           contacts: [contactToWa(content)],
-        })
+        }),
+        spaceId,
+        content
       );
     case "voice": {
       const { mediaId } = await client.media.upload({
@@ -526,11 +539,13 @@ export const send = async (
         mimeType: content.mimeType,
         filename: voiceFilename(content),
       });
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           audio: { id: mediaId },
-        } as Parameters<typeof client.messages.send>[0])
+        } as Parameters<typeof client.messages.send>[0]),
+        spaceId,
+        content
       );
     }
     case "poll": {
@@ -539,7 +554,7 @@ export const send = async (
         interactive: pollToInteractive(content),
       });
       cachePoll(client, result.messageId, content);
-      return toSendResult(result);
+      return toRecord(result, spaceId, content);
     }
     default:
       throw UnsupportedError.content(content.type);
@@ -563,16 +578,18 @@ export const replyToMessage = async (
   spaceId: string,
   messageId: string,
   content: Content
-): Promise<SendResult> => {
+): Promise<ProviderMessageRecord> => {
   const client = primary(clients);
   switch (content.type) {
     case "text":
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           replyTo: messageId,
           text: content.text,
-        })
+        }),
+        spaceId,
+        content
       );
     case "attachment": {
       const { mediaId } = await client.media.upload({
@@ -585,21 +602,25 @@ export const replyToMessage = async (
         mediaType === "document"
           ? { id: mediaId, filename: content.name }
           : { id: mediaId };
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           replyTo: messageId,
           [mediaType]: mediaPayload,
-        } as Parameters<typeof client.messages.send>[0])
+        } as Parameters<typeof client.messages.send>[0]),
+        spaceId,
+        content
       );
     }
     case "contact":
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           replyTo: messageId,
           contacts: [contactToWa(content)],
-        })
+        }),
+        spaceId,
+        content
       );
     case "voice": {
       const { mediaId } = await client.media.upload({
@@ -607,12 +628,14 @@ export const replyToMessage = async (
         mimeType: content.mimeType,
         filename: voiceFilename(content),
       });
-      return toSendResult(
+      return toRecord(
         await client.messages.send({
           to: spaceId,
           replyTo: messageId,
           audio: { id: mediaId },
-        } as Parameters<typeof client.messages.send>[0])
+        } as Parameters<typeof client.messages.send>[0]),
+        spaceId,
+        content
       );
     }
     case "poll": {
@@ -622,7 +645,7 @@ export const replyToMessage = async (
         interactive: pollToInteractive(content),
       });
       cachePoll(client, result.messageId, content);
-      return toSendResult(result);
+      return toRecord(result, spaceId, content);
     }
     default:
       throw UnsupportedError.content(content.type);

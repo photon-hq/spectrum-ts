@@ -9,11 +9,18 @@ import type {
   AnyPlatformDef,
   CustomEventStreams,
   PlatformProviderConfig,
+  PlatformRuntime,
   SpectrumLike,
 } from "./platform/types";
-import type { InboundMessage, Message, OutboundMessage } from "./types/message";
+import type { InboundMessage, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
-import { type ManagedStream, mergeStreams, stream } from "./utils/stream";
+import {
+  type Broadcaster,
+  broadcast,
+  type ManagedStream,
+  mergeStreams,
+  stream,
+} from "./utils/stream";
 
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
@@ -114,34 +121,18 @@ export async function Spectrum<
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
 
-  const platformStates = new Map<
+  const platformStates = new Map<string, PlatformRuntime>();
+
+  // Per-platform message broadcasters (lazy: created on first subscribe).
+  const messageBroadcasters = new Map<
     string,
-    { client: unknown; config: unknown; definition: AnyPlatformDef }
+    Broadcaster<[Space, InboundMessage]>
   >();
 
   // Custom event streams keyed by event name
   const customEventStreams = new Map<string, ManagedStream<unknown>>();
 
   let stopped = false;
-
-  // Initialize all provider clients eagerly
-  for (const provider of providers) {
-    const providerConfig = provider as PlatformProviderConfig;
-    const def = providerConfig.__definition;
-    const userConfig = def.config.parse(providerConfig.config);
-
-    const client = await def.lifecycle.createClient({
-      config: userConfig,
-      projectId,
-      projectSecret,
-    });
-
-    platformStates.set(def.name, {
-      client,
-      config: userConfig,
-      definition: def,
-    });
-  }
 
   const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> => {
     return stream<T>((emit, end) => {
@@ -171,14 +162,16 @@ export async function Spectrum<
     client: unknown;
     config: unknown;
     definition: AnyPlatformDef;
-  }): ManagedStream<[Space, Message]> => {
+  }): ManagedStream<[Space, InboundMessage]> => {
     const { client, config, definition } = state;
     const raw = definition.events.messages({
       client,
       config,
     }) as AsyncIterable<ProviderMessageRecord>;
 
-    const bindSend = async function* (): AsyncIterable<[Space, Message]> {
+    const bindSend = async function* (): AsyncIterable<
+      [Space, InboundMessage]
+    > {
       for await (const msg of raw) {
         const spaceRef = {
           ...msg.space,
@@ -193,16 +186,23 @@ export async function Spectrum<
           client,
           config,
         });
-        const normalizedMessage = wrapProviderMessage(msg, {
-          client,
-          config,
-          definition,
-          space,
-          spaceRef,
-        });
+        const normalizedMessage = wrapProviderMessage(
+          msg,
+          {
+            client,
+            config,
+            definition,
+            space,
+            spaceRef,
+          },
+          "inbound"
+        );
         if (flattenGroups && normalizedMessage.content.type === "group") {
           for (const item of normalizedMessage.content.items) {
-            yield [space, item];
+            // Group items in the inbound flow are wrapped via wrapProviderMessage,
+            // which always produces InboundMessages — Group.items is just the
+            // wider Message type at the schema level.
+            yield [space, item as InboundMessage];
           }
           continue;
         }
@@ -213,10 +213,57 @@ export async function Spectrum<
     return adaptIterable(bindSend());
   };
 
-  const createMessagesStream = (): ManagedStream<[Space, Message]> => {
-    return stream<[Space, Message]>((emit, end) => {
+  const getOrCreateMessageBroadcast = (state: {
+    client: unknown;
+    config: unknown;
+    definition: AnyPlatformDef;
+  }): Broadcaster<[Space, InboundMessage]> => {
+    if (stopped) {
+      throw new Error(
+        `Spectrum instance has been stopped; cannot subscribe to "${state.definition.name}" messages`
+      );
+    }
+    const name = state.definition.name;
+    let broadcaster = messageBroadcasters.get(name);
+    if (!broadcaster) {
+      broadcaster = broadcast(createProviderMessagesStream(state));
+      messageBroadcasters.set(name, broadcaster);
+    }
+    return broadcaster;
+  };
+
+  // Initialize all provider clients eagerly. Each runtime exposes
+  // `subscribeMessages()` that returns a fresh fanout consumer of the
+  // platform's single upstream message stream.
+  for (const provider of providers) {
+    const providerConfig = provider as PlatformProviderConfig;
+    const def = providerConfig.__definition;
+    const userConfig = def.config.parse(providerConfig.config);
+
+    const client = await def.lifecycle.createClient({
+      config: userConfig,
+      projectId,
+      projectSecret,
+    });
+
+    const state = {
+      client,
+      config: userConfig,
+      definition: def,
+    };
+
+    platformStates.set(def.name, {
+      ...state,
+      subscribeMessages: () => getOrCreateMessageBroadcast(state).subscribe(),
+    });
+  }
+
+  const createMessagesStream = (): ManagedStream<[Space, InboundMessage]> => {
+    return stream<[Space, InboundMessage]>((emit, end) => {
       const merged = mergeStreams(
-        Array.from(platformStates.values(), createProviderMessagesStream)
+        Array.from(platformStates.values(), (runtime) =>
+          runtime.subscribeMessages()
+        )
       );
 
       const pump = (async () => {
@@ -298,6 +345,9 @@ export async function Spectrum<
       ...Array.from(customEventStreams.values(), (eventStream) =>
         eventStream.close()
       ),
+      ...Array.from(messageBroadcasters.values(), (broadcaster) =>
+        broadcaster.close()
+      ),
     ];
 
     process.off("SIGINT", handleSignal);
@@ -311,6 +361,7 @@ export async function Spectrum<
     );
     await Promise.allSettled(clientShutdowns);
     customEventStreams.clear();
+    messageBroadcasters.clear();
     platformStates.clear();
   };
 
@@ -323,7 +374,7 @@ export async function Spectrum<
   process.on("SIGINT", handleSignal);
   process.on("SIGTERM", handleSignal);
 
-  const messages = messagesStream as AsyncIterable<[Space, InboundMessage]>;
+  const messages: AsyncIterable<[Space, InboundMessage]> = messagesStream;
 
   // Proxy for flat custom event access (app.typing, app.readReceipt, etc.)
   const customEventProxy = new Proxy(

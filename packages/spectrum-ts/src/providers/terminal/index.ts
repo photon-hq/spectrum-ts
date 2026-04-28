@@ -366,6 +366,19 @@ function parseTimestamp(s: string): Date {
   return Number.isNaN(t) ? new Date() : new Date(t);
 }
 
+function buildOutboundRecord(
+  result: { id: string; timestamp: string },
+  content: SpectrumContent,
+  spaceId: string
+): ProviderMessageRecord {
+  return {
+    id: result.id,
+    content,
+    space: { id: spaceId },
+    timestamp: parseTimestamp(result.timestamp),
+  };
+}
+
 function reactionTargetFromProtocol(
   reaction: ProtocolReactionNotification
 ): ProviderMessageRecord {
@@ -622,7 +635,7 @@ export const terminal = definePlatform("terminal", {
         "send",
         { spaceId: space.id, content: proto }
       );
-      return { id: result.id, timestamp: parseTimestamp(result.timestamp) };
+      return buildOutboundRecord(result, content, space.id);
     },
 
     startTyping: async ({ client, space }) => {
@@ -651,7 +664,7 @@ export const terminal = definePlatform("terminal", {
         "replyToMessage",
         { spaceId: space.id, messageId, content: proto }
       );
-      return { id: result.id, timestamp: parseTimestamp(result.timestamp) };
+      return buildOutboundRecord(result, content, space.id);
     },
   },
 });

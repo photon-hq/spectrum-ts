@@ -2,6 +2,7 @@ import z from "zod";
 import { attachmentSchema } from "./attachment";
 import { contactSchema } from "./contact";
 import { customSchema } from "./custom";
+import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
 import { pollOptionSchema, pollSchema } from "./poll";
 import { reactionSchema } from "./reaction";
@@ -20,6 +21,7 @@ export const contentSchema = z.discriminatedUnion("type", [
   groupSchema,
   pollSchema,
   pollOptionSchema,
+  messageEffectSchema,
 ]);
 
 export type Content = z.infer<typeof contentSchema>;

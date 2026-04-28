@@ -1,9 +1,10 @@
 import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
 import type { Content } from "../content/types";
-import type { Message } from "../types/message";
+import type { InboundMessage, Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { User } from "../types/user";
+import type { ManagedStream } from "../utils/stream";
 
 type ResolvedSpace = Pick<Space, "id">;
 type SpaceRef = Pick<Space, "id" | "__platform">;
@@ -44,19 +45,24 @@ export type ProviderMessage<
   timestamp?: Date;
 } & TExtra;
 
-export interface SendResult<TSender extends ResolvedUser = ResolvedUser> {
-  /**
-   * Per-item send receipts returned when the dispatched content was a
-   * `group`. Providers that iterate native sends to emulate a group
-   * (e.g. iMessage) populate this so the platform build layer can
-   * replace the outbound group's placeholder items with real Messages
-   * that carry each item's own id.
-   */
-  groupMembers?: SendResult<TSender>[];
+/**
+ * A message a provider produced — used for both inbound (`events.messages`,
+ * `getMessage`) and outbound (`send`, `replyToMessage`) flows. Providers
+ * return their native record shape (including platform extras like
+ * `partIndex`/`parentId` for iMessage) and the platform `wrapProviderMessage`
+ * pipeline turns it into a fully-built Message.
+ *
+ * `sender` is optional because outbound sends often can't synthesize one
+ * (the SDK doesn't surface the bot's own handle); inbound providers are
+ * expected to populate it.
+ */
+export type ProviderMessageRecord = {
   id: string;
-  sender?: TSender;
+  content: Content;
+  sender?: { id: string } & Record<string, unknown>;
+  space: { id: string } & Record<string, unknown>;
   timestamp?: Date;
-}
+} & Record<string, unknown>;
 
 type MergeSchema<
   TSchema extends z.ZodType | undefined,
@@ -120,7 +126,7 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
-    }) => Promise<SendResult<_ResolvedUser>>;
+    }) => Promise<ProviderMessageRecord>;
     startTyping?: (_: {
       space: _ResolvedSpace & SpaceRef;
       client: _Client;
@@ -141,10 +147,11 @@ export interface PlatformDef<
     replyToMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
+      target: _MessageType;
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
-    }) => Promise<SendResult<_ResolvedUser>>;
+    }) => Promise<ProviderMessageRecord>;
     editMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
@@ -210,7 +217,7 @@ export interface PlatformDef<
 export interface AnyPlatformDef {
   actions: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    send: (_: any) => Promise<SendResult>;
+    send: (_: any) => Promise<ProviderMessageRecord>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     startTyping?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
@@ -218,7 +225,7 @@ export interface AnyPlatformDef {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     reactToMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    replyToMessage?: (_: any) => Promise<SendResult>;
+    replyToMessage?: (_: any) => Promise<ProviderMessageRecord>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     editMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
@@ -413,6 +420,12 @@ export type PlatformMessage<Def extends AnyPlatformDef> = Omit<
 > &
   Message<Def["name"], PlatformUser<Def>, PlatformSpace<Def>>;
 
+export type InboundPlatformMessage<Def extends AnyPlatformDef> = Omit<
+  SchemaInfer<Def["message"]>,
+  keyof InboundMessage
+> &
+  InboundMessage<Def["name"], PlatformUser<Def>, PlatformSpace<Def>>;
+
 export type PlatformUser<Def extends AnyPlatformDef> = Omit<
   ResolvedUserOf<Def>,
   keyof User
@@ -424,6 +437,9 @@ export type PlatformUser<Def extends AnyPlatformDef> = Omit<
 // ---------------------------------------------------------------------------
 
 export type PlatformInstance<Def extends AnyPlatformDef> = {
+  readonly messages: AsyncIterable<
+    [PlatformSpace<Def>, InboundPlatformMessage<Def>]
+  >;
   space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
   user(userID: string): Promise<PlatformUser<Def>>;
 } & {
@@ -439,14 +455,18 @@ export type PlatformInstance<Def extends AnyPlatformDef> = {
 // SpectrumLike — minimal interface for platform narrowing
 // ---------------------------------------------------------------------------
 
+export interface PlatformRuntime {
+  client: unknown;
+  config: unknown;
+  definition: AnyPlatformDef;
+  subscribeMessages: () => ManagedStream<[Space, InboundMessage]>;
+}
+
 export interface SpectrumLike<
   Providers extends PlatformProviderConfig[] = PlatformProviderConfig[],
 > {
   readonly __internal: {
-    platforms: Map<
-      string,
-      { client: unknown; config: unknown; definition: AnyPlatformDef }
-    >;
+    platforms: Map<string, PlatformRuntime>;
   };
   readonly __providers: Providers;
 }
@@ -461,6 +481,9 @@ export interface Platform<Def extends AnyPlatformDef> {
       ? [config?: z.input<Def["config"]>]
       : [config: z.input<Def["config"]>]
   ): PlatformProviderConfig<Def>;
+  is(input: Message): input is PlatformMessage<Def>;
+  is(input: Space): input is PlatformSpace<Def>;
+  is(input: unknown): input is PlatformMessage<Def> | PlatformSpace<Def>;
   <Providers extends PlatformProviderConfig[]>(
     spectrum: SpectrumLike<Providers>
   ): HasProvider<Providers, Def["name"]> extends true

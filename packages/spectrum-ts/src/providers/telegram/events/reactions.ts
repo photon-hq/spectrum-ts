@@ -4,7 +4,7 @@ import type { ProviderMessageRecord } from "../../../platform/build";
 import type { MessageReactionUpdated, ReactionType } from "../generated/types";
 import { messageCacheKey, type TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
-import { chatToSpace, userToSender } from "./inbound";
+import { chatToSender, chatToSpace, userToSender } from "./inbound";
 
 // ---------------------------------------------------------------------------
 // Reactions (inbound)
@@ -93,12 +93,20 @@ export const reactionEventsFromUpdate = (
   updateId: number,
   cache: TelegramCache
 ): TelegramMessage[] => {
-  // Anonymous actors (actor_chat, no user) can't produce a Spectrum sender; the
-  // content-type carries no "chat reactor" concept today. Drop for now.
-  if (!update.user) {
+  // Telegram populates either `user` (a real account) or `actor_chat` (an
+  // anonymous channel admin reacting on the channel's behalf). Falling back
+  // to `actor_chat` via `chatToSender` keeps these reactions visible end-to-
+  // end instead of silently dropping them — matches the inbound message path
+  // which already handles `sender_chat` the same way. If both fields are
+  // absent the update is malformed and we bail.
+  let sender: ReturnType<typeof userToSender>;
+  if (update.user) {
+    sender = userToSender(update.user);
+  } else if (update.actor_chat) {
+    sender = chatToSender(update.actor_chat);
+  } else {
     return [];
   }
-  const sender = userToSender(update.user);
   const space = chatToSpace(update.chat);
   const timestamp = new Date(update.date * 1000);
   const target = resolveReactionTarget(

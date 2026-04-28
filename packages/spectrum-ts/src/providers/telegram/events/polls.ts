@@ -2,7 +2,7 @@ import { asPollOption } from "../../../content/poll";
 import type { PollAnswer, Update } from "../generated/types";
 import type { CachedPoll, TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
-import { userToSender } from "./inbound";
+import { chatToSender, userToSender } from "./inbound";
 
 // ---------------------------------------------------------------------------
 // poll_answer → poll_option events
@@ -21,8 +21,11 @@ import { userToSender } from "./inbound";
 // `poll_answer` for polls a bot owns AND that have `is_anonymous: false`,
 // and our `sendPoll` always pins that flag, so this gating is automatic.
 //
-// Anonymous channel votes (`voter_chat`, no `user`) are dropped — Spectrum's
-// `Sender` requires a user-shaped id.
+// Anonymous channel votes (`voter_chat`, no `user`) are surfaced via
+// `chatToSender`, mirroring how anonymous channel-admin reactions and
+// channel posts are handled. The chat's id (negative integer) is stable per
+// channel and disjoint from user ids (positive), so per-voter vote-vector
+// state stays correctly partitioned.
 // ---------------------------------------------------------------------------
 
 const computeDiff = (
@@ -68,26 +71,38 @@ export const pollAnswerEvents = (
   cache: TelegramCache,
   update: Update
 ): TelegramMessage[] => {
-  if (!answer.user) {
+  // Telegram populates either `user` (regular voter) or `voter_chat` (an
+  // anonymous channel admin). Bail only when neither is present — that's a
+  // malformed update.
+  let sender: ReturnType<typeof userToSender>;
+  let voterId: number;
+  if (answer.user) {
+    sender = userToSender(answer.user);
+    voterId = answer.user.id;
+  } else if (answer.voter_chat) {
+    sender = chatToSender(answer.voter_chat);
+    // Chat ids are negative in Telegram and disjoint from user ids, so
+    // using `chat.id` as the per-voter cache key avoids collisions with
+    // any real user voting on the same poll.
+    voterId = answer.voter_chat.id;
+  } else {
     return [];
   }
   const cached = cache.polls.resolvePoll(answer.poll_id);
   if (!cached) {
     return [];
   }
-  const userId = answer.user.id;
-  const prior = cache.polls.priorVote(answer.poll_id, userId);
+  const prior = cache.polls.priorVote(answer.poll_id, voterId);
   const { added, removed } = computeDiff(prior, answer.option_ids);
-  // Persist the new vector so the next `poll_answer` for this user diffs
+  // Persist the new vector so the next `poll_answer` for this voter diffs
   // against the most recent state, not the original empty vector.
-  cache.polls.recordVote(answer.poll_id, userId, answer.option_ids);
+  cache.polls.recordVote(answer.poll_id, voterId, answer.option_ids);
 
   // Telegram doesn't surface chat or timestamp on `poll_answer`. We reuse
   // the chat snapshot captured when the poll was sent and stamp the event
   // with `now`. Same approach iMessage uses (its poll vote events fall
   // back to "now" when the SDK doesn't surface a server timestamp).
   const space = cached.chat;
-  const sender = userToSender(answer.user);
   const timestamp = new Date();
 
   const events: TelegramMessage[] = [];

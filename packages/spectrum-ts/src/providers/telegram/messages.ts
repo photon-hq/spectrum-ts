@@ -495,6 +495,22 @@ const sendPollContent = async (
 // "album parent" concept and we don't synthesize one — picking the first
 // child means a reply or reaction targeting the group resolves to the
 // album's lead message (closest analog to "the group itself").
+
+// Group items are typed as `Message[]` (the rich resolved type with
+// `react()`/`reply()` methods) but at the provider layer we only have raw
+// records — the platform-side `wrapProviderMessage("outbound")` /
+// `wrapNestedContent` flow turns each item into a real `Message` after the
+// group leaves the provider. The `asGroup` builder's `isMessage` Zod guard
+// is structural (`id` + `content`), which our `TelegramMessage` satisfies.
+//
+// We localize the type-erasure here in a single named helper instead of
+// scattering `as unknown as Message[]` casts at call sites: the helper's
+// signature documents that the records are pre-wrap (no methods) and the
+// platform layer is responsible for completing them. Callers pass the array
+// through directly; the helper exists to keep the necessary cast in one
+// reviewable place.
+const toGroupItems = (records: TelegramMessage[]): SpectrumMessage[] =>
+  records as unknown as SpectrumMessage[];
 const sendGroupContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
@@ -525,12 +541,11 @@ const sendGroupContent = async (
   // The platform layer's `wrapProviderMessage("outbound")` will turn each
   // raw provider record under `items` into a real OutboundMessage via
   // `wrapNestedContent`. The Zod `isMessage` guard is loose enough to
-  // accept the bare record shape (id + content + space + timestamp).
+  // accept the bare record shape (id + content + space + timestamp), which
+  // is exactly what `toGroupItems` documents.
   return {
     ...first,
-    content: asGroup({
-      items: childRecords as unknown as SpectrumMessage[],
-    }),
+    content: asGroup({ items: toGroupItems(childRecords) }),
   };
 };
 
@@ -581,11 +596,14 @@ const dispatchSend = async (
         "effect is an iMessage-only content type"
       );
     default: {
-      const _exhaustive: never = content;
-      throw UnsupportedError.content(
-        (_exhaustive as { type: string }).type,
-        PLATFORM_NAME
-      );
+      // Compile-time exhaustiveness: any future addition to the `Content`
+      // union without a matching case above breaks this assignment. The
+      // runtime branch only fires if a caller smuggles in a value that
+      // bypasses the static type — we surface a generic "unknown" label
+      // since the smuggled value's `type` field can't be trusted (no cast
+      // to `{ type: string }` is sound here).
+      content satisfies never;
+      throw UnsupportedError.content("unknown", PLATFORM_NAME);
     }
   }
 };

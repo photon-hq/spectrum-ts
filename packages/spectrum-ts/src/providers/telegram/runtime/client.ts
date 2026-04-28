@@ -14,18 +14,20 @@ export interface TelegramClientOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-// Mutating Bot API methods. Telegram's API does not provide an idempotency
-// key, so when a mutating call fails after the server has already accepted
-// the request (e.g. the bot's response was lost in flight, surfaced to us
-// as a 5xx), retrying creates duplicates. We allow retries on:
-//   - `TelegramNetworkError` (DNS / connect / pre-headers transport failure
-//     where the request never reached Telegram, so it could not have been
-//     processed), and
-//   - 429 rate limits (Telegram itself is asking us to retry after
-//     `retry_after`, so duplicates aren't possible).
-// We disable 5xx retry for these specifically because a 5xx may mean the
-// request was processed but the response failed to deliver. Read methods
-// (`getMe`, `getUpdates`, `getChat`, `getFile`) keep the default policy.
+// Mutating Bot API methods. Telegram's API does not provide an
+// idempotency key, so the client cannot distinguish "request never reached
+// Telegram" (safe to retry) from "Telegram processed it but the response /
+// connection died" (retry creates duplicates). At the network layer that
+// distinction is unobservable — both surface as the same `fetch` error,
+// even genuine pre-header failures can race against header-arrival timing
+// in practice. We therefore default to **at-most-once** semantics for
+// mutating calls: only Telegram-instructed retries (429 with `retry_after`)
+// are honored, since Telegram itself is asking us to retry there. Network
+// errors and 5xx are NOT retried for mutating methods.
+//
+// Read methods (`getMe`, `getUpdates`, `getChat`, `getFile`) keep the full
+// retry policy because they're idempotent: a duplicate read just costs one
+// extra request and returns the same result.
 //
 // Method names are matched by prefix where it's safe to do so; an explicit
 // entry is preferred for methods that don't fit a clean prefix.
@@ -67,10 +69,18 @@ const policyForMethod = (method: string, base: RetryPolicy): RetryPolicy => {
   if (!isMutatingMethod(method)) {
     return base;
   }
-  // 429 retry stays on (Telegram explicitly requested it via `retry_after`).
-  // 5xx retry off so we don't double-write when Telegram processed the call
-  // but failed to return a response.
-  return { ...base, retryServerErrors: false };
+  // 429 retry stays on (Telegram explicitly requested it via `retry_after`,
+  // so duplicates are impossible by construction). Network and 5xx retry
+  // are both off because either failure mode could have already been
+  // processed by Telegram and the client cannot tell — without an
+  // idempotency key we'd risk duplicate writes. At-most-once is the right
+  // default for sends/edits/reactions; callers needing at-least-once can
+  // retry explicitly with their own dedup story.
+  return {
+    ...base,
+    retryNetworkErrors: false,
+    retryServerErrors: false,
+  };
 };
 
 // Combine an optional caller signal with an optional per-request timeout

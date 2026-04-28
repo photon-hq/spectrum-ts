@@ -108,11 +108,41 @@ export interface AlbumBufferOptions {
   flush: (members: TelegramMessage[]) => Promise<void> | void;
 }
 
+// Validates an option that becomes a `setTimeout` argument later. `setTimeout`
+// silently coerces NaN / negatives / non-finite values into "fire immediately"
+// or platform-defined behavior, which is hard to debug after the fact. Catch
+// at construction so misconfiguration throws synchronously at startup.
+const assertNonNegativeFiniteMs = (
+  field: "ceilingMs" | "debounceMs",
+  value: number
+): void => {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(
+      `AlbumBuffer.${field} must be a non-negative finite number; got ${String(value)}`
+    );
+  }
+};
+
 export class AlbumBuffer {
   private readonly inFlight = new Map<string, AlbumBufferEntry>();
   private readonly options: AlbumBufferOptions;
 
   constructor(options: AlbumBufferOptions) {
+    assertNonNegativeFiniteMs("debounceMs", options.debounceMs);
+    assertNonNegativeFiniteMs("ceilingMs", options.ceilingMs);
+    if (options.ceilingMs < options.debounceMs) {
+      throw new RangeError(
+        `AlbumBuffer.ceilingMs (${options.ceilingMs}) must be >= debounceMs (${options.debounceMs})`
+      );
+    }
+    if (
+      !Number.isInteger(options.concurrentCapacity) ||
+      options.concurrentCapacity < DISABLED_CAPACITY
+    ) {
+      throw new RangeError(
+        `AlbumBuffer.concurrentCapacity must be an integer >= ${DISABLED_CAPACITY}; got ${String(options.concurrentCapacity)}`
+      );
+    }
     this.options = options;
   }
 

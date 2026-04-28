@@ -484,7 +484,8 @@
           "name": "type",
           "type": "string",
           "required": false,
-          "enum": ["regular", "quiz"]
+          "enum": ["regular"],
+          "description": "Spectrum only sends regular polls. Quiz mode is intentionally out of scope: it requires `correct_option_id` and Spectrum's universal `poll` content has no notion of a single correct answer. Callers needing quizzes should use the raw client directly."
         },
         {
           "name": "allows_multiple_answers",

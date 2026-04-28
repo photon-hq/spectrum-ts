@@ -1,0 +1,12 @@
+name: Update Docs on Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-docs:
+    uses: photon-hq/buildspace/.github/workflows/update-docs.yaml@main
+    with:
+      docs-path: spectrum-ts
+    secrets: inherit

@@ -306,7 +306,7 @@ const richlinkFromMessage = (msg: Message): Content | undefined => {
 // options. Quiz polls are surfaced the same way — Spectrum has no separate
 // quiz content type, and the underlying voting is identical from the bot's
 // perspective. We deliberately do NOT carry the bot-only fields
-// (is_anonymous / total_voter_count / correct_option_id / etc.) — they're
+// (is_anonymous / total_voter_count / correct_option_ids / etc.) — they're
 // reachable on the raw Telegram Message via the underlying client for callers
 // who need them, and Spectrum's `Poll` schema has no place for them.
 const pollFromTelegramPoll = (poll: TgPoll): Content | undefined => {

@@ -1,6 +1,6 @@
 import { type ManagedStream, stream } from "../../../utils/stream";
 import type { Update } from "../generated/types";
-import { AlbumBuffer } from "../runtime/cache";
+import { AlbumBuffer, messageCacheKey } from "../runtime/cache";
 import { pollUpdates } from "../runtime/polling";
 import type { TelegramMessage, TelegramRuntime } from "../types";
 import { coalesceAlbumGroup, toTelegramMessage } from "./inbound";
@@ -113,7 +113,10 @@ export const messages = (
           const built = buildMessages(runtime, update);
           for (const message of built.messages) {
             if (built.cacheable) {
-              runtime.cache.messages.set(message.id, message);
+              runtime.cache.messages.set(
+                messageCacheKey(message.space.id, message.id),
+                message
+              );
             }
             // Album members go into the buffer instead of emitting directly.
             // Each album member is still cached above so per-item

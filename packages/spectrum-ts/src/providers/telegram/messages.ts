@@ -10,6 +10,7 @@ import type { Message as SpectrumMessage } from "../../types/message";
 import { UnsupportedError } from "../../utils/errors";
 import { toVCard } from "../../utils/vcard";
 import type { LinkPreviewOptions, Message } from "./generated/types";
+import { messageCacheKey } from "./runtime/cache";
 import type { TelegramClient } from "./runtime/client";
 import type { TelegramMessage, TelegramRuntime } from "./types";
 
@@ -112,7 +113,7 @@ const recordOutbound = (
   if (message.caption !== undefined && content.type !== "text") {
     record.caption = message.caption;
   }
-  runtime.cache.messages.set(record.id, record);
+  runtime.cache.messages.set(messageCacheKey(space.id, record.id), record);
   return record;
 };
 
@@ -380,7 +381,9 @@ const sendReactionContent = async (
     // through reactToMessage (we already handle that case there).
     reaction: [{ type: "emoji", emoji: reaction.emoji }],
   });
-  const cachedTarget = runtime.cache.messages.get(targetId);
+  const cachedTarget = runtime.cache.messages.get(
+    messageCacheKey(spaceId, targetId)
+  );
   let space: TelegramMessage["space"];
   if (cachedTarget) {
     space = cachedTarget.space;
@@ -439,6 +442,14 @@ const sendPollContent = async (
     chat_id: toChatId(spaceId),
     question: poll.title,
     options: poll.options.map((o) => ({ text: o.title })),
+    // Telegram defaults polls to anonymous (`is_anonymous: true`), and the
+    // Bot API only delivers `poll_answer` updates for *non-anonymous* polls
+    // sent by the bot itself. Spectrum's `poll_option` event surface
+    // depends on those updates (see `events/polls.ts`), so we pin
+    // `is_anonymous: false` here to keep the vote-diff pipeline functional.
+    // Callers that want anonymous polls would have to bypass Spectrum's
+    // poll content type and call the raw client directly.
+    is_anonymous: false,
     ...replyParams(opts),
   });
   // Telegram echoes the freshly-created poll back as `Message.poll` with the

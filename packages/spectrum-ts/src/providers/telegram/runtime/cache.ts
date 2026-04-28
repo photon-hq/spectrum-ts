@@ -286,6 +286,21 @@ export const DEFAULT_CACHE_OPTIONS: TelegramCacheOptions = {
 // the runtime. The cache exposes the *configuration* (`coalesceAlbums` flag
 // and timings) so the events module can construct an `AlbumBuffer` per
 // stream lifecycle.
+// Composite cache key for the messages LRU. Telegram's `message_id` is just a
+// per-chat counter (it starts at small ints and resets per chat), so the same
+// numeric id can refer to entirely different messages in two different chats
+// the bot is in. Keying on `messageId` alone collides cross-chat — a reaction
+// in chat B targeting message #42 would resolve to message #42 from chat A if
+// chat A's was cached. Composite `${spaceId}:${messageId}` is unique because
+// `spaceId` is `String(chat.id)` (chat ids are globally unique in Telegram).
+//
+// Both numeric and string forms are accepted because call sites variously hold
+// the raw `Update.message_id` (number) or already-stringified ids.
+export const messageCacheKey = (
+  spaceId: string,
+  messageId: number | string
+): string => `${spaceId}:${messageId}`;
+
 export interface TelegramCache {
   readonly albumOptions: Pick<
     AlbumBufferOptions,

@@ -102,6 +102,14 @@ export interface SendPollParams {
   is_anonymous?: boolean;
   type?: "regular" | "quiz";
   allows_multiple_answers?: boolean;
+  /** Bot API 9.6+: pass true to allow voters to change their selection after voting. */
+  allows_revoting?: boolean;
+  /** Bot API 9.6+: pass true to randomize the order of options when displaying the poll. */
+  shuffle_options?: boolean;
+  /** Bot API 9.6+: pass true to let participants add options after creation. Not supported for anonymous polls or quizzes. */
+  allow_adding_options?: boolean;
+  /** Bot API 9.6+: pass true to hide aggregate results until the poll is closed. */
+  hide_results_until_closes?: boolean;
   reply_parameters?: ReplyParameters;
 }
 

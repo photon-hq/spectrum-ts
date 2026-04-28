@@ -267,9 +267,16 @@
           "required": true
         },
         {
-          "name": "correct_option_id",
-          "type": "integer",
-          "required": false
+          "name": "correct_option_ids",
+          "type": "Array:integer",
+          "required": false,
+          "description": "Bot API 9.6+: 0-based identifiers of the correct answer options. Quiz polls only; available when the poll is closed or sent (not forwarded) by the bot. Replaces the pre-9.6 singular `correct_option_id`."
+        },
+        {
+          "name": "allows_revoting",
+          "type": "boolean",
+          "required": false,
+          "description": "Bot API 9.6+: True if the poll allows changing the chosen answer after voting."
         }
       ]
     },
@@ -482,6 +489,30 @@
           "name": "allows_multiple_answers",
           "type": "boolean",
           "required": false
+        },
+        {
+          "name": "allows_revoting",
+          "type": "boolean",
+          "required": false,
+          "description": "Bot API 9.6+: pass true to allow voters to change their selection after voting."
+        },
+        {
+          "name": "shuffle_options",
+          "type": "boolean",
+          "required": false,
+          "description": "Bot API 9.6+: pass true to randomize the order of options when displaying the poll."
+        },
+        {
+          "name": "allow_adding_options",
+          "type": "boolean",
+          "required": false,
+          "description": "Bot API 9.6+: pass true to let participants add options after creation. Not supported for anonymous polls or quizzes."
+        },
+        {
+          "name": "hide_results_until_closes",
+          "type": "boolean",
+          "required": false,
+          "description": "Bot API 9.6+: pass true to hide aggregate results until the poll is closed."
         },
         {
           "name": "reply_parameters",

@@ -10,6 +10,7 @@ import {
 import {
   createTelegramCache,
   DEFAULT_CACHE_OPTIONS,
+  messageCacheKey,
   type TelegramCacheOptions,
 } from "./runtime/cache";
 import { TelegramClient } from "./runtime/client";
@@ -168,8 +169,14 @@ export const telegram = definePlatform("Telegram", {
     // degrade gracefully, matching iMessage local-mode semantics. Disable
     // the cache by setting `config.cache.messages = 0` to restore the
     // pre-cache "always undefined" behaviour.
-    getMessage: async ({ messageId, client }) =>
-      runtimeOf(client).cache.messages.get(messageId),
+    //
+    // The cache is keyed by `${spaceId}:${messageId}` because Telegram
+    // `message_id` is only unique per chat — see `messageCacheKey` in
+    // `runtime/cache.ts` for the rationale.
+    getMessage: async ({ space, messageId, client }) =>
+      runtimeOf(client).cache.messages.get(
+        messageCacheKey(space.id, messageId)
+      ),
 
     startTyping: async ({ space, client }) => {
       await startTyping(runtimeOf(client).client, space.id);

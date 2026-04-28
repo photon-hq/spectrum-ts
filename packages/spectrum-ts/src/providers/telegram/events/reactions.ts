@@ -2,7 +2,7 @@ import { asCustom } from "../../../content/custom";
 import { asReaction } from "../../../content/reaction";
 import type { ProviderMessageRecord } from "../../../platform/build";
 import type { MessageReactionUpdated, ReactionType } from "../generated/types";
-import type { TelegramCache } from "../runtime/cache";
+import { messageCacheKey, type TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
 import { chatToSpace, userToSender } from "./inbound";
 
@@ -78,7 +78,10 @@ const resolveReactionTarget = (
   space: ReturnType<typeof chatToSpace>,
   timestamp: Date
 ): ProviderMessageRecord => {
-  const cached = cache.messages.get(String(messageId));
+  // Composite key: `message_id` is per-chat in Telegram, so include the
+  // space (`String(chat.id)`) to avoid resolving to a same-numbered message
+  // from a different chat the bot is also active in.
+  const cached = cache.messages.get(messageCacheKey(space.id, messageId));
   if (cached) {
     return cached as unknown as ProviderMessageRecord;
   }

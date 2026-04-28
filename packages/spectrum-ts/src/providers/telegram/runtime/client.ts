@@ -390,6 +390,13 @@ const wrapResponseForCleanup = (
         }
         controller.enqueue(value);
       } catch (err) {
+        // Best-effort cancel on the underlying reader so the body stream
+        // unlocks immediately instead of waiting for GC. The caller-facing
+        // error is whatever `reader.read()` threw; cancellation failure
+        // here is incidental and should not mask that.
+        reader.cancel(err).catch(() => {
+          /* swallow — primary error is already routed via controller.error */
+        });
         controller.error(err);
         runOnce();
       }

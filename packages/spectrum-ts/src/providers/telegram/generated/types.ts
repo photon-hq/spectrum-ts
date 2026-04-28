@@ -169,7 +169,10 @@ export interface Poll {
   is_anonymous: boolean;
   type: "regular" | "quiz";
   allows_multiple_answers: boolean;
-  correct_option_id?: number;
+  /** Bot API 9.6+: 0-based identifiers of the correct answer options. Quiz polls only; available when the poll is closed or sent (not forwarded) by the bot. Replaces the pre-9.6 singular `correct_option_id`. */
+  correct_option_ids?: Array<number>;
+  /** Bot API 9.6+: True if the poll allows changing the chosen answer after voting. */
+  allows_revoting?: boolean;
 }
 
 /** Answer of a user in a non-anonymous poll. Spectrum keys vote-state caches by `poll_id`; chat/message_id are not provided by Telegram in this update so the poll cache must be populated when the poll is created or first observed. */

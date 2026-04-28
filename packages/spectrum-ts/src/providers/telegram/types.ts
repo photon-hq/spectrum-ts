@@ -78,16 +78,25 @@ export const spaceParamsSchema = z.object({
  *
  * - `mediaGroupId`: Telegram tags every member of an album (the multi-media
  *   bundle a user can send as a single composition) with a shared
- *   `media_group_id`. Album members still arrive as separate updates — there
- *   is no "album" update kind in the Bot API — so the provider deliberately
- *   does not coalesce them (that would require a stateful debounce cache).
- *   Consumers that want album semantics can group inbound messages by this id
- *   themselves. Absent on standalone messages.
+ *   `media_group_id`. Album members arrive as separate Bot API updates —
+ *   there is no native "album" update kind. The provider's behavior depends
+ *   on the runtime cache option `cache.coalesceAlbums`:
+ *     - `false` (default): each member surfaces as its own `Message` and
+ *       carries `mediaGroupId`, leaving the choice to group cross-stream
+ *       to the consumer.
+ *     - `true`: members are debounced inside the events stream
+ *       (`events/index.ts`) and emitted as a single `Message` whose content
+ *       is `group({ items })`; the wrapper still carries `mediaGroupId`
+ *       (and the lead member's real `message_id`) so it can be replied to
+ *       and reacted to like any other message.
+ *   Absent on standalone messages.
  *
  * - `caption`: Telegram media messages (photo/video/audio/document/voice) can
  *   carry a caption alongside the file. Spectrum's universal content types
  *   model the media itself, not the accompanying caption text, so we surface
- *   the caption verbatim as an extra. Caption-only messages (no media)
+ *   the caption verbatim as an extra on the per-item record (the wrapping
+ *   `group` content, when album coalescing is on, does not aggregate
+ *   captions — each child keeps its own). Caption-only messages (no media)
  *   continue to flow through as `text` content. Absent on plain text and
  *   other captionless messages.
  */

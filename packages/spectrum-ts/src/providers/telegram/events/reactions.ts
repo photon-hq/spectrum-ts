@@ -1,6 +1,7 @@
 import { asCustom } from "../../../content/custom";
 import { asReaction } from "../../../content/reaction";
 import type { ProviderMessageRecord } from "../../../platform/build";
+import type { Message as SpectrumMessage } from "../../../types/message";
 import type { MessageReactionUpdated, ReactionType } from "../generated/types";
 import { messageCacheKey, type TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
@@ -60,6 +61,19 @@ const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
 // (sans the `react`/`reply` closures, which `wrapProviderMessage` adds back
 // during inflation), so passing it as `target` is consistent with the miss
 // path — no double-wrapping, no special casing in `messages.ts`.
+
+// `asReaction({ target })` is typed against the rich `Message` interface
+// (with `react()` / `reply()` closures), but the Zod `isMessage` guard
+// inside `reactionSchema` is structural — only `id` + `content` are
+// checked. Both our cache-hit (`TelegramMessage`) and stub
+// (`ProviderMessageRecord`) shapes satisfy that guard. We localize the
+// erasure here, mirroring the `toGroupItems` helper pattern used for
+// `asGroup`, so the cast lives in one named, commented place instead of
+// scattered through call sites.
+const toReactionTarget = (
+  record: TelegramMessage | ProviderMessageRecord
+): SpectrumMessage => record as unknown as SpectrumMessage;
+
 const reactionTargetStub = (
   messageId: number,
   space: ReturnType<typeof chatToSpace>,
@@ -72,18 +86,22 @@ const reactionTargetStub = (
   timestamp,
 });
 
+// Resolve the reaction's target to whatever we know about it. Cache hits
+// return the rich `TelegramMessage` directly; misses fall back to the
+// minimal `ProviderMessageRecord` stub. Both shapes implement the
+// structural contract `asReaction` requires (see `toReactionTarget`).
 const resolveReactionTarget = (
   cache: TelegramCache,
   messageId: number,
   space: ReturnType<typeof chatToSpace>,
   timestamp: Date
-): ProviderMessageRecord => {
+): TelegramMessage | ProviderMessageRecord => {
   // Composite key: `message_id` is per-chat in Telegram, so include the
   // space (`String(chat.id)`) to avoid resolving to a same-numbered message
   // from a different chat the bot is also active in.
   const cached = cache.messages.get(messageCacheKey(space.id, messageId));
   if (cached) {
-    return cached as unknown as ProviderMessageRecord;
+    return cached;
   }
   return reactionTargetStub(messageId, space, timestamp);
 };
@@ -115,15 +133,13 @@ export const reactionEventsFromUpdate = (
     space,
     timestamp
   );
+  const reactionTarget = toReactionTarget(target);
   return newlyAddedEmojis(update).map((emoji, index) => ({
     // update_id is unique per update, message_id is the *target* of the
     // reaction (not the reaction's own id — Telegram doesn't surface one), so
     // compose a stable id per emitted event.
     id: `reaction:${updateId}:${index}`,
-    content: asReaction({
-      emoji,
-      target: target as unknown as Parameters<typeof asReaction>[0]["target"],
-    }),
+    content: asReaction({ emoji, target: reactionTarget }),
     sender,
     space,
     timestamp,

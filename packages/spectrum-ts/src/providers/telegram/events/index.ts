@@ -103,6 +103,26 @@ export const messages = (
         })
       : undefined;
 
+    // Drain any in-flight album batches through `emit`. Must run *inside*
+    // the pump (before `end()` is called and while no concurrent push can
+    // occur) so we don't race with new members arriving on the next poll
+    // cycle and don't try to emit on a stopped Repeater. Failures here are
+    // logged-and-swallowed by `AlbumBuffer.flushAll` itself, so this never
+    // throws — but we still wrap defensively so a future change can't
+    // accidentally skip the subsequent `end(...)` call.
+    const drainAlbumsSafely = async (): Promise<void> => {
+      if (!albumBuffer) {
+        return;
+      }
+      try {
+        await albumBuffer.flushAll();
+      } catch {
+        // Swallow: individual flush errors are already routed through the
+        // buffer's own catch path; this is just belt-and-braces against an
+        // unexpected throw bubbling up and skipping `end()`.
+      }
+    };
+
     const pump = (async () => {
       try {
         for await (const update of pollUpdates(
@@ -132,27 +152,36 @@ export const messages = (
             await emit(message);
           }
         }
+        // `pollUpdates` returned cleanly (it's an infinite generator under
+        // normal use, so this branch is mostly defensive). Drain any
+        // buffered album batches before signalling end-of-stream.
+        await drainAlbumsSafely();
         end();
       } catch (err) {
+        // Aborted teardown: drain buffered albums first so the final batch
+        // still surfaces, *then* close the stream. Doing the drain inside
+        // the pump (rather than the disposer) means no concurrent
+        // `albumBuffer.push()` from this same loop can race with the
+        // flush — by the time we're in catch, the for-await has stopped
+        // pulling new updates. It also means a flush failure no longer
+        // skips `end()` and leaves the consumer hanging.
         if (abortController.signal.aborted) {
+          await drainAlbumsSafely();
           end();
           return;
         }
+        await drainAlbumsSafely();
         end(err);
       }
     })();
 
     return async () => {
       signal.removeEventListener("abort", onSignalAbort);
-      // CRITICAL: flush before aborting. Aborting the pump's in-flight
-      // `getUpdates` causes the for-await to throw, which makes the pump's
-      // catch call `end()` on the underlying stream. After `end()`, any
-      // emit attempt is a no-op-or-throw on the Repeater (push after
-      // stop), and the buffered final album would be lost. Flushing first
-      // pushes pending album batches through the live `emit` path while
-      // the stream is still open, then we abort so the pump unwinds
-      // cleanly.
-      await albumBuffer?.flushAll();
+      // The pump owns its own teardown sequence (drain → end). Aborting
+      // the controller wakes the in-flight `getUpdates`, the catch block
+      // runs `drainAlbumsSafely() → end()`, and `await pump` waits for
+      // that to settle. No work happens here that could race with the
+      // pump.
       abortController.abort();
       await pump;
     };

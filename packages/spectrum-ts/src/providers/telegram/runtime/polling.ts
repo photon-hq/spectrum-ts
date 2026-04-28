@@ -17,28 +17,36 @@ export interface PollingOptions {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 
-// `message_reaction` and `message_reaction_count` must be explicitly opted
-// into via `allowed_updates`; Telegram silently omits them otherwise. We
-// include `message_reaction` so per-user reactions flow through without
-// extra setup; `message_reaction_count` is not surfaced yet (no actor,
-// snapshot semantics don't fit Spectrum's reaction content).
+// `message_reaction`, `message_reaction_count`, and `poll_answer` must be
+// explicitly opted into via `allowed_updates`; Telegram silently omits them
+// otherwise. We include:
+//
+//   - `message_reaction` so per-user reactions flow through without extra
+//     setup. `message_reaction_count` is NOT requested — its snapshot
+//     semantics don't fit Spectrum's reaction content (no actor).
+//
+//   - `poll_answer` so per-vote diff events surface as `poll_option`
+//     content. Telegram only delivers this for non-anonymous polls a bot
+//     sent itself; resolution requires the runtime cache populated by
+//     `sendPoll`. With the cache disabled (`cache.polls = 0`), updates
+//     still arrive but `pollAnswerEvents` drops them silently.
 //
 // Poll *bodies* (someone sending a poll in chat) arrive via the regular
 // `message` update as `Message.poll` — no opt-in required, and the provider
 // maps them to Spectrum's `poll` content type.
 //
-// The `poll` and `poll_answer` allowed-update kinds are intentionally NOT
-// requested: they carry aggregate state / per-user vote diffs without any
-// chat or message id, so faithful mapping to `poll_option` would require a
-// stateful per-poll cache that this provider does not ship. Callers wanting
-// raw vote events can override `allowedUpdates` and subscribe to the raw
-// client.
+// `poll` (aggregate vote totals / closure) is still NOT requested: Spectrum
+// has no "poll snapshot" content type, and faithfully translating "poll
+// closed" into per-user diffs would require keeping every prior vote vector
+// for every poll, a sharper memory cost than the bounded per-user state we
+// already keep for `poll_answer` resolution.
 const DEFAULT_ALLOWED_UPDATES: readonly string[] = [
   "message",
   "edited_message",
   "channel_post",
   "edited_channel_post",
   "message_reaction",
+  "poll_answer",
 ];
 
 // offset: -1 returns at most the most recent pending update; confirming it

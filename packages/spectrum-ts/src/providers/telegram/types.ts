@@ -1,12 +1,32 @@
 import z from "zod";
 import type { SchemaMessage } from "../../platform/types";
+import type { TelegramCache } from "./runtime/cache";
 import type { TelegramClient } from "./runtime/client";
+
+// Cache capacity knobs. `0` disables a slot (e.g. `messages: 0` makes
+// `getMessage` always return `undefined` and turns reaction-target hydration
+// off). Album coalescing is gated by its own `coalesceAlbums` flag — when
+// false, album members continue to surface as individual messages with a
+// `mediaGroupId` extra (the pre-cache behaviour). See `runtime/cache.ts` for
+// the rationale behind defaults.
+export const cacheConfigSchema = z
+  .object({
+    messages: z.number().int().nonnegative().optional(),
+    polls: z.number().int().nonnegative().optional(),
+    pollVotes: z.number().int().nonnegative().optional(),
+    albumConcurrent: z.number().int().nonnegative().optional(),
+    albumDebounceMs: z.number().int().nonnegative().optional(),
+    albumCeilingMs: z.number().int().nonnegative().optional(),
+    coalesceAlbums: z.boolean().optional(),
+  })
+  .optional();
 
 export const configSchema = z.object({
   token: z.string().min(1),
   apiBaseUrl: z.string().url().optional(),
   pollingTimeout: z.number().int().positive().max(50).optional(),
   dropPendingUpdates: z.boolean().optional(),
+  cache: cacheConfigSchema,
 });
 
 export type TelegramConfig = z.infer<typeof configSchema>;
@@ -58,5 +78,6 @@ export type TelegramMessage = SchemaMessage<
 
 export interface TelegramRuntime {
   abort: AbortController;
+  cache: TelegramCache;
   client: TelegramClient;
 }

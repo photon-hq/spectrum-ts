@@ -1,10 +1,12 @@
 import { asAttachment } from "../../../content/attachment";
 import { asContact } from "../../../content/contact";
+import { asGroup } from "../../../content/group";
 import { asPoll } from "../../../content/poll";
 import { asRichlink } from "../../../content/richlink";
 import { asText } from "../../../content/text";
 import type { Content } from "../../../content/types";
 import { asVoice } from "../../../content/voice";
+import type { Message as SpectrumMessage } from "../../../types/message";
 import { fromVCard } from "../../../utils/vcard";
 import type {
   Audio,
@@ -434,4 +436,58 @@ export const toTelegramMessage = (
     built.caption = msg.caption;
   }
   return built;
+};
+
+// ---------------------------------------------------------------------------
+// Album coalescing
+//
+// Telegram albums arrive as N separate `Update`s sharing a `media_group_id`.
+// When `coalesceAlbums` is enabled, the events module debounces these into a
+// single emission whose content is `asGroup({ items: members })`. Members
+// share `chat`, `from`, and a near-identical timestamp; we anchor the
+// wrapper on the first arrival.
+//
+// Members are sorted by their numeric `message_id` so the group respects
+// the user's intended composition order even if Bot API delivery is briefly
+// out of order. The wrapper's id is `album:<media_group_id>` so callers can
+// identify it as a coalesced bundle (and so it doesn't collide with any
+// individual member's id in the messages cache — we deliberately do *not*
+// cache the wrapper, only its members).
+// ---------------------------------------------------------------------------
+
+export const coalesceAlbumGroup = (
+  members: TelegramMessage[]
+): TelegramMessage | undefined => {
+  if (members.length === 0) {
+    return undefined;
+  }
+  if (members.length === 1) {
+    // Single-member "album" should fall back to the raw message — `asGroup`
+    // requires min 2 items and Spectrum's group semantics don't make sense
+    // for one. Can happen when a hard-ceiling flush fires before the rest
+    // of the album arrives.
+    return members[0];
+  }
+  const sorted = [...members].sort((a, b) => Number(a.id) - Number(b.id));
+  const head = sorted[0];
+  if (!head?.mediaGroupId) {
+    return undefined;
+  }
+  const items = sorted as unknown as SpectrumMessage[];
+  const wrapper: TelegramMessage = {
+    id: `album:${head.mediaGroupId}`,
+    content: asGroup({ items }),
+    sender: head.sender,
+    space: head.space,
+    ...(head.timestamp ? { timestamp: head.timestamp } : {}),
+    mediaGroupId: head.mediaGroupId,
+  };
+  // Telegram captions an album by attaching the caption to *one* member
+  // (typically the first). Surface that on the wrapper so consumers don't
+  // have to scan items themselves.
+  const captioned = sorted.find((m) => m.caption !== undefined);
+  if (captioned?.caption !== undefined) {
+    wrapper.caption = captioned.caption;
+  }
+  return wrapper;
 };

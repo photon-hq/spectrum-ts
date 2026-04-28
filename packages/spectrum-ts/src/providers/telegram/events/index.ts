@@ -1,30 +1,26 @@
 import { type ManagedStream, stream } from "../../../utils/stream";
 import type { Update } from "../generated/types";
-import type { TelegramClient } from "../runtime/client";
+import { AlbumBuffer } from "../runtime/cache";
 import { pollUpdates } from "../runtime/polling";
 import type { TelegramMessage, TelegramRuntime } from "../types";
-import { toTelegramMessage } from "./inbound";
+import { coalesceAlbumGroup, toTelegramMessage } from "./inbound";
+import { pollAnswerEvents } from "./polls";
 import { reactionEventsFromUpdate } from "./reactions";
 
 // ---------------------------------------------------------------------------
 // Update → TelegramMessage[] dispatch
 //
-// Telegram surfaces a few related update kinds we deliberately do NOT map to
-// universal Spectrum events:
-//   - `Update.poll`         — aggregate poll state changes (vote totals,
-//                             closure). Bots only receive these for polls
-//                             they sent themselves. Not mapped: there is no
-//                             chat/message id on this update, and Spectrum
-//                             has no "poll snapshot" content type.
-//   - `Update.poll_answer`  — per-user vote diff in non-anonymous polls.
-//                             Not mapped to `poll_option`: faithful
-//                             resolution requires a per-poll cache
-//                             (`poll_answer` omits chat, message id, and
-//                             option text), and we don't ship a stateful
-//                             cache from this provider.
-// Callers wanting either can override `allowedUpdates` and subscribe to the
-// raw client directly. The poll *body* (Update.message.poll) IS mapped — see
-// `pollFromTelegramPoll` in `./inbound`.
+// `Update.message.poll` (poll *body*) is mapped via `pollFromTelegramPoll` in
+// `./inbound`. `Update.message_reaction` is mapped to add-only reaction
+// events via `./reactions`. `Update.poll_answer` is mapped to per-vote
+// `poll_option` diff events via `./polls`, gated on the bot owning the poll
+// (Telegram only delivers `poll_answer` for outbound non-anonymous polls;
+// our `sendPoll` always pins `is_anonymous: false`). `Update.poll`
+// (aggregate state — `total_voter_count`, `is_closed`) is still NOT mapped:
+// Spectrum has no "poll snapshot" content type, and faithfully resolving
+// "poll closed" into a per-user diff would require storing every prior vote
+// vector, which is a sharper memory cost than the bounded vote-state we
+// already keep for `poll_answer` resolution.
 // ---------------------------------------------------------------------------
 
 const pickMessage = (update: Update) =>
@@ -33,19 +29,41 @@ const pickMessage = (update: Update) =>
   update.channel_post ??
   update.edited_channel_post;
 
+interface BuildOutput {
+  /** True when the messages should be cached individually before emit. */
+  cacheable: boolean;
+  messages: TelegramMessage[];
+}
+
 const buildMessages = (
-  client: TelegramClient,
+  runtime: TelegramRuntime,
   update: Update
-): TelegramMessage[] => {
+): BuildOutput => {
   if (update.message_reaction) {
-    return reactionEventsFromUpdate(update.message_reaction, update.update_id);
+    return {
+      messages: reactionEventsFromUpdate(
+        update.message_reaction,
+        update.update_id,
+        runtime.cache
+      ),
+      cacheable: false,
+    };
+  }
+  if (update.poll_answer) {
+    return {
+      messages: pollAnswerEvents(update.poll_answer, runtime.cache, update),
+      cacheable: false,
+    };
   }
   const tgMessage = pickMessage(update);
   if (!tgMessage) {
-    return [];
+    return { messages: [], cacheable: false };
   }
-  const message = toTelegramMessage(client, tgMessage);
-  return message ? [message] : [];
+  const message = toTelegramMessage(runtime.client, tgMessage);
+  return {
+    messages: message ? [message] : [],
+    cacheable: true,
+  };
 };
 
 export interface MessagesOptions {
@@ -68,6 +86,23 @@ export const messages = (
       signal.addEventListener("abort", onSignalAbort, { once: true });
     }
 
+    // Album coalescing buffer is per-stream-lifetime: its flush callback
+    // closes over `emit`, so it only exists while the consumer is connected.
+    // On teardown we flush whatever is in flight so partial albums still
+    // surface (otherwise an album that arrived right before close would be
+    // dropped).
+    const albumBuffer = runtime.cache.coalesceAlbums
+      ? new AlbumBuffer({
+          ...runtime.cache.albumOptions,
+          flush: async (members) => {
+            const grouped = coalesceAlbumGroup(members);
+            if (grouped) {
+              await emit(grouped);
+            }
+          },
+        })
+      : undefined;
+
     const pump = (async () => {
       try {
         for await (const update of pollUpdates(
@@ -75,8 +110,22 @@ export const messages = (
           abortController.signal,
           options
         )) {
-          const built = buildMessages(runtime.client, update);
-          for (const message of built) {
+          const built = buildMessages(runtime, update);
+          for (const message of built.messages) {
+            if (built.cacheable) {
+              runtime.cache.messages.set(message.id, message);
+            }
+            // Album members go into the buffer instead of emitting directly.
+            // Each album member is still cached above so per-item
+            // `getMessage` keeps working even when the buffer coalesces them.
+            if (
+              albumBuffer &&
+              built.cacheable &&
+              message.mediaGroupId !== undefined
+            ) {
+              albumBuffer.push(message.mediaGroupId, message);
+              continue;
+            }
             await emit(message);
           }
         }
@@ -93,6 +142,7 @@ export const messages = (
     return async () => {
       signal.removeEventListener("abort", onSignalAbort);
       abortController.abort();
+      albumBuffer?.flushAll();
       await pump;
     };
   });

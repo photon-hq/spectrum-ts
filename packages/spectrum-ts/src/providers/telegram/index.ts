@@ -7,18 +7,44 @@ import {
   send,
   startTyping,
 } from "./messages";
+import {
+  createTelegramCache,
+  DEFAULT_CACHE_OPTIONS,
+  type TelegramCacheOptions,
+} from "./runtime/cache";
 import { TelegramClient } from "./runtime/client";
 import {
   configSchema,
   messageSchema,
   spaceParamsSchema,
   spaceSchema,
+  type TelegramConfig,
   type TelegramRuntime,
   userSchema,
 } from "./types";
 
 const runtimeOf = (client: unknown): TelegramRuntime =>
   client as TelegramRuntime;
+
+// Merge user config knobs into a fully-resolved cache options bundle.
+// Any field the user omits falls back to `DEFAULT_CACHE_OPTIONS`. Setting a
+// capacity to 0 disables that slot (e.g. `cache: { messages: 0 }` makes
+// `getMessage` always return `undefined`).
+const resolveCacheOptions = (
+  cfg: TelegramConfig["cache"]
+): TelegramCacheOptions => ({
+  capacity: {
+    messages: cfg?.messages ?? DEFAULT_CACHE_OPTIONS.capacity.messages,
+    polls: cfg?.polls ?? DEFAULT_CACHE_OPTIONS.capacity.polls,
+    pollVotes: cfg?.pollVotes ?? DEFAULT_CACHE_OPTIONS.capacity.pollVotes,
+    albumConcurrent:
+      cfg?.albumConcurrent ?? DEFAULT_CACHE_OPTIONS.capacity.albumConcurrent,
+  },
+  albumDebounceMs:
+    cfg?.albumDebounceMs ?? DEFAULT_CACHE_OPTIONS.albumDebounceMs,
+  albumCeilingMs: cfg?.albumCeilingMs ?? DEFAULT_CACHE_OPTIONS.albumCeilingMs,
+  coalesceAlbums: cfg?.coalesceAlbums ?? DEFAULT_CACHE_OPTIONS.coalesceAlbums,
+});
 
 export const telegram = definePlatform("Telegram", {
   config: configSchema,
@@ -79,11 +105,14 @@ export const telegram = definePlatform("Telegram", {
         ...(config.apiBaseUrl ? { baseUrl: config.apiBaseUrl } : {}),
       });
       await client.invoke("getMe", {});
-      return { client, abort: new AbortController() };
+      const cache = createTelegramCache(resolveCacheOptions(config.cache));
+      return { client, abort: new AbortController(), cache };
     },
 
     destroyClient: async ({ client }) => {
-      runtimeOf(client).abort.abort();
+      const runtime = runtimeOf(client);
+      runtime.abort.abort();
+      runtime.cache.destroy();
     },
   },
 
@@ -116,7 +145,7 @@ export const telegram = definePlatform("Telegram", {
     },
 
     editMessage: async ({ space, messageId, content, client }) => {
-      await editMessage(runtimeOf(client).client, space.id, messageId, content);
+      await editMessage(runtimeOf(client), space.id, messageId, content);
     },
 
     reactToMessage: async ({ space, target, reaction, client }) => {
@@ -130,10 +159,14 @@ export const telegram = definePlatform("Telegram", {
 
     // Telegram's Bot API has no general "fetch message by id" endpoint —
     // `messages.get` only exists for forwarded/replied-to message echoes
-    // already inside an Update. Returning `undefined` lets `space.getMessage`
-    // callers degrade gracefully (the platform layer treats it as "not found")
-    // and matches the contract used by iMessage local mode.
-    getMessage: async () => undefined,
+    // already inside an Update. We back `getMessage` with the runtime's
+    // in-process LRU (every inbound and every outbound send/reply/edit
+    // writes through it). Cold ids return `undefined` so callers can
+    // degrade gracefully, matching iMessage local-mode semantics. Disable
+    // the cache by setting `config.cache.messages = 0` to restore the
+    // pre-cache "always undefined" behaviour.
+    getMessage: async ({ messageId, client }) =>
+      runtimeOf(client).cache.messages.get(messageId),
 
     startTyping: async ({ space, client }) => {
       await startTyping(runtimeOf(client).client, space.id);

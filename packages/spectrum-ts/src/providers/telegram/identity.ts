@@ -63,26 +63,32 @@ export const chatToSender = (
   return sender;
 };
 
-// Inline anonymous return type (rather than a named alias) so the result
-// satisfies `ProviderMessageRecord["space"]`'s `Record<string, unknown>`
-// index signature when it's used as a stub target — a named `interface`
-// does not.
-export const chatToSpace = (
-  chat: Chat
-): {
+// Named shape used both as the return type and the local builder variable
+// type to dedupe the inline anonymous shape that previously appeared twice.
+//
+// Why `type` instead of `interface` (and the matching biome-ignore):
+// `chatToSpace`'s result is consumed by `events/reactions.ts` as a stub
+// target for `ProviderMessageRecord["space"]`, whose schema-level type
+// extends `Record<string, unknown>`. TS treats `interface` declarations
+// as potentially extensible and therefore *not* assignable to a closed
+// index signature like `Record<string, unknown>`, while a `type` alias
+// is structurally closed and is assignable. We verified this empirically
+// — switching to `interface` produces:
+//   reactions.ts(73,3): TS2322 — Type ... is not assignable to type
+//   '{ id: string; } & Record<string, unknown>'.
+// So we keep `type` here and disable `useConsistentTypeDefinitions` for
+// this single declaration.
+// biome-ignore lint/style/useConsistentTypeDefinitions: see comment above.
+type TelegramSpaceShape = {
   chatId: number;
   id: string;
   title?: string;
   type: Chat["type"];
   username?: string;
-} => {
-  const space: {
-    chatId: number;
-    id: string;
-    title?: string;
-    type: Chat["type"];
-    username?: string;
-  } = {
+};
+
+export const chatToSpace = (chat: Chat): TelegramSpaceShape => {
+  const space: TelegramSpaceShape = {
     id: chatIdToSpaceId(chat.id),
     chatId: chat.id,
     type: chat.type,

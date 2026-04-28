@@ -6,7 +6,6 @@ import { asRichlink } from "../../../content/richlink";
 import { asText } from "../../../content/text";
 import type { Content } from "../../../content/types";
 import { asVoice } from "../../../content/voice";
-import type { Message as SpectrumMessage } from "../../../types/message";
 import { fromVCard } from "../../../utils/vcard";
 import type {
   Audio,
@@ -22,6 +21,7 @@ import type {
   User,
   Video,
 } from "../generated/types";
+import { toGroupItems } from "../messages";
 import type { TelegramClient } from "../runtime/client";
 import type { TelegramMessage } from "../types";
 
@@ -488,7 +488,7 @@ export const coalesceAlbumGroup = (
   if (!head?.mediaGroupId) {
     return undefined;
   }
-  const items = sorted as unknown as SpectrumMessage[];
+  const items = toGroupItems(sorted);
   // The wrapper's `id` stays anchored to the first member's real
   // `message_id` (numerically smallest in the album, since Telegram assigns
   // sequential ids to album members). Telegram operations like

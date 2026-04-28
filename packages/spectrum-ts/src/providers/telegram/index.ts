@@ -24,8 +24,27 @@ import {
   userSchema,
 } from "./types";
 
-const runtimeOf = (client: unknown): TelegramRuntime =>
-  client as TelegramRuntime;
+// `definePlatform` guarantees this cast is safe by construction (only the
+// `createClient` we register can produce the runtime), but a defensive
+// shape check turns any future framework misuse into a clear synchronous
+// error instead of a confusing crash deep in an action handler. Cheap, runs
+// once per action call, and the assertion message names exactly what's
+// missing.
+const runtimeOf = (client: unknown): TelegramRuntime => {
+  if (
+    typeof client !== "object" ||
+    client === null ||
+    !("client" in client) ||
+    !("cache" in client) ||
+    !("abort" in client) ||
+    !("me" in client)
+  ) {
+    throw new Error(
+      "Telegram action invoked with an invalid runtime — expected the value returned by `createClient` (must carry `client`, `cache`, `abort`, and `me`)."
+    );
+  }
+  return client as TelegramRuntime;
+};
 
 // Merge user config knobs into a fully-resolved cache options bundle.
 // Any field the user omits falls back to `DEFAULT_CACHE_OPTIONS`. Setting a

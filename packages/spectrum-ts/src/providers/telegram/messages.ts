@@ -508,8 +508,9 @@ const sendPollContent = async (
 // signature documents that the records are pre-wrap (no methods) and the
 // platform layer is responsible for completing them. Callers pass the array
 // through directly; the helper exists to keep the necessary cast in one
-// reviewable place.
-const toGroupItems = (records: TelegramMessage[]): SpectrumMessage[] =>
+// reviewable place. Exported so `events/inbound.ts` can reuse the same
+// erasure for inbound album coalescing.
+export const toGroupItems = (records: TelegramMessage[]): SpectrumMessage[] =>
   records as unknown as SpectrumMessage[];
 const sendGroupContent = async (
   runtime: TelegramRuntime,

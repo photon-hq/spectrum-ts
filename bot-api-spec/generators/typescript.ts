@@ -150,6 +150,19 @@ const renderTypes = (schema: Schema): string => {
   return lines.join("\n");
 };
 
+// Build the TS interface name for a method's params (e.g. `sendMessage` →
+// `SendMessageParams`). The schema is hand-written, but we still fail loudly
+// on an empty key so a malformed entry can't silently produce an unusable
+// `undefinedParams` interface that compiles but is broken at every call site.
+const paramsInterfaceName = (methodName: string): string => {
+  if (!methodName) {
+    throw new Error(
+      "Telegram schema contains a method with an empty name; refusing to generate"
+    );
+  }
+  return `${methodName[0]?.toUpperCase()}${methodName.slice(1)}Params`;
+};
+
 const renderMethods = (schema: Schema): string => {
   const lines: string[] = [];
   lines.push(FILE_BANNER);
@@ -167,7 +180,7 @@ const renderMethods = (schema: Schema): string => {
 
   // Emit one params interface per method.
   for (const [methodName, def] of Object.entries(schema.methods)) {
-    const interfaceName = `${methodName[0]?.toUpperCase()}${methodName.slice(1)}Params`;
+    const interfaceName = paramsInterfaceName(methodName);
     if (def.description) {
       lines.push(`/** ${def.description} */`);
     }

@@ -206,7 +206,7 @@ const renderMethods = (schema: Schema): string => {
   );
   lines.push("export interface Methods {");
   for (const [methodName, def] of Object.entries(schema.methods)) {
-    const paramsName = `${methodName[0]?.toUpperCase()}${methodName.slice(1)}Params`;
+    const paramsName = paramsInterfaceName(methodName);
     const returnType = toTs(def.returns);
     lines.push(`  ${methodName}: {`);
     lines.push(`    params: ${paramsName};`);

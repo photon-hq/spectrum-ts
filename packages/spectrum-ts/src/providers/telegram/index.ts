@@ -200,5 +200,17 @@ export const telegram = definePlatform("Telegram", {
     startTyping: async ({ space, client }) => {
       await startTyping(runtimeOf(client).client, space.id);
     },
+
+    // Telegram's `sendChatAction` is a one-shot indicator that the server
+    // auto-expires after ~5 seconds; the Bot API has no "cancel typing"
+    // counterpart. Implementing this as a no-op (rather than omitting the
+    // action) keeps `space.stopTyping()` available on every platform with
+    // consistent behavior — callers writing cross-platform code don't have
+    // to feature-detect — and matches the contract documented in the PR.
+    // The platform builder also calls this internally as part of the
+    // `await space.startTyping(); ...; await space.stopTyping();` cleanup
+    // pattern, so a no-op here just means the server-side timeout takes
+    // care of dismissing the indicator naturally.
+    stopTyping: () => Promise.resolve(),
   },
 });

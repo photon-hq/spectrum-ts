@@ -78,18 +78,55 @@ const buildOutboundSender = (
   return sender;
 };
 
+// Channel-post / anonymous-admin echoes return `sender_chat` (the channel)
+// instead of `from`. We synthesize a sender from the chat so the cached
+// outbound record correctly attributes authorship to the channel —
+// otherwise downstream consumers would see the bot's user identity even
+// though the post is canonically *the channel's*. Mirrors the inbound
+// `chatToSender` path, kept local here to avoid a circular import.
+const buildChatSender = (
+  chat: NonNullable<Message["sender_chat"]>
+): TelegramMessage["sender"] => {
+  const sender: TelegramMessage["sender"] = {
+    id: String(chat.id),
+    chatId: chat.id,
+    isBot: false,
+    firstName: chat.title ?? chat.username ?? "Telegram chat",
+  };
+  if (chat.username !== undefined) {
+    sender.username = chat.username;
+  }
+  return sender;
+};
+
 const recordOutbound = (
   runtime: TelegramRuntime,
   message: Message,
   content: Content
 ): TelegramMessage => {
-  // Telegram echoes `from` for most outbound responses, but the Bot API
-  // explicitly documents that `from` may be empty for messages sent to
-  // channels (and for anonymous group-admin sends). When that happens, the
-  // message is still ours — we fall back to the bot identity captured at
-  // `createClient` time via `getMe`. This makes channel sends produce
-  // proper records instead of throwing.
-  const fromUser = message.from ?? runtime.me;
+  // Sender selection mirrors the inbound flow precisely (see
+  // `events/inbound.ts:toTelegramMessage`):
+  //   1. `from` (regular user account, including bots) — most common case.
+  //   2. `sender_chat` (channel post / anonymous-admin send on behalf of a
+  //      group) — Bot API populates this when `from` is omitted; the
+  //      channel is the canonical author and must be reflected as such.
+  //   3. `runtime.me` (the bot itself) — last-resort fallback for the rare
+  //      case where Telegram returns neither field. Without this the
+  //      record would have no sender, and `TelegramMessage["sender"]` is
+  //      required by Spectrum's universal contract.
+  // The earlier shortcut `message.from ?? runtime.me` would silently
+  // rewrite channel posts as bot-authored, breaking the round-trip
+  // identity invariant: a message we send to a channel should appear in
+  // the cache with the channel as sender, the same way the inbound stream
+  // would have surfaced it.
+  let sender: TelegramMessage["sender"];
+  if (message.from) {
+    sender = buildOutboundSender(message.from);
+  } else if (message.sender_chat) {
+    sender = buildChatSender(message.sender_chat);
+  } else {
+    sender = buildOutboundSender(runtime.me);
+  }
   const space: TelegramMessage["space"] = {
     id: String(message.chat.id),
     chatId: message.chat.id,
@@ -102,7 +139,7 @@ const recordOutbound = (
   const record: TelegramMessage = {
     id: String(message.message_id),
     content,
-    sender: buildOutboundSender(fromUser),
+    sender,
     space,
     timestamp: new Date(message.date * 1000),
   };

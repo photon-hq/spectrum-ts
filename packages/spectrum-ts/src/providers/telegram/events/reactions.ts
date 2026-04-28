@@ -62,18 +62,6 @@ const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
 // during inflation), so passing it as `target` is consistent with the miss
 // path — no double-wrapping, no special casing in `messages.ts`.
 
-// `asReaction({ target })` is typed against the rich `Message` interface
-// (with `react()` / `reply()` closures), but the Zod `isMessage` guard
-// inside `reactionSchema` is structural — only `id` + `content` are
-// checked. Both our cache-hit (`TelegramMessage`) and stub
-// (`ProviderMessageRecord`) shapes satisfy that guard. We localize the
-// erasure here, mirroring the `toGroupItems` helper pattern used for
-// `asGroup`, so the cast lives in one named, commented place instead of
-// scattered through call sites.
-const toReactionTarget = (
-  record: TelegramMessage | ProviderMessageRecord
-): SpectrumMessage => record as unknown as SpectrumMessage;
-
 const reactionTargetStub = (
   messageId: number,
   space: ReturnType<typeof chatToSpace>,
@@ -88,8 +76,11 @@ const reactionTargetStub = (
 
 // Resolve the reaction's target to whatever we know about it. Cache hits
 // return the rich `TelegramMessage` directly; misses fall back to the
-// minimal `ProviderMessageRecord` stub. Both shapes implement the
-// structural contract `asReaction` requires (see `toReactionTarget`).
+// minimal `ProviderMessageRecord` stub. Both shapes carry the `id` +
+// `content` fields the reaction-target Zod guard validates at runtime
+// (see `reactionSchema` in `content/reaction.ts`), but neither is the
+// fully-wrapped `Message` with `react()` / `reply()` closures — those are
+// added by the platform's `wrapProviderMessage` pipeline downstream.
 const resolveReactionTarget = (
   cache: TelegramCache,
   messageId: number,
@@ -133,13 +124,22 @@ export const reactionEventsFromUpdate = (
     space,
     timestamp
   );
-  const reactionTarget = toReactionTarget(target);
+  // The `as unknown as SpectrumMessage` cast is intentional and confined
+  // to this single boundary: `asReaction` is typed against the rich
+  // `Message` interface (which advertises `react()` / `reply()` closures
+  // and a `platform` tag), but at the provider layer we only have a raw
+  // record. The platform's `wrapProviderMessage` materializes the missing
+  // fields downstream during inflation. Restricting the cast to this one
+  // call site (rather than baking it into a helper return type) keeps the
+  // *rest* of this file honest: `target` is typed as the union of what we
+  // actually have (`TelegramMessage | ProviderMessageRecord`), so anything
+  // that touches it before the asReaction call gets accurate types.
   return newlyAddedEmojis(update).map((emoji, index) => ({
-    // update_id is unique per update, message_id is the *target* of the
-    // reaction (not the reaction's own id — Telegram doesn't surface one), so
-    // compose a stable id per emitted event.
     id: `reaction:${updateId}:${index}`,
-    content: asReaction({ emoji, target: reactionTarget }),
+    content: asReaction({
+      emoji,
+      target: target as unknown as SpectrumMessage,
+    }),
     sender,
     space,
     timestamp,

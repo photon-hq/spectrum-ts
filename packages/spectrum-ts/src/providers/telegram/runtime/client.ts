@@ -83,6 +83,35 @@ const policyForMethod = (method: string, base: RetryPolicy): RetryPolicy => {
   };
 };
 
+// Detect a caller-initiated cancellation. We check both the canonical
+// `AbortError` name (raised by `fetch`, `response.json()`, and stream
+// reader operations when their abort signal fires) AND the caller's
+// signal — the latter catches edge cases where the runtime surfaces a
+// different error class but the abort *did* propagate.
+//
+// Treating these as control flow rather than transport failures matters:
+// without this, `await response.json()` after the caller aborts gets
+// wrapped into `TelegramNetworkError`, which retries (for read methods)
+// and ultimately surfaces a misleading "network error" instead of the
+// expected `AbortError`. Same story for `downloadFile` body reads.
+const isCallerAbort = (err: unknown, signal?: AbortSignal): boolean => {
+  if (signal?.aborted) {
+    return true;
+  }
+  if (err instanceof Error && err.name === "AbortError") {
+    return true;
+  }
+  // DOMException with name "AbortError" — the spec-mandated shape from
+  // platform fetch implementations. Defensive `Object.prototype` check
+  // because some runtimes wrap it differently.
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name: unknown }).name === "AbortError"
+  );
+};
+
 // Combine an optional caller signal with an optional per-request timeout
 // signal into a single signal we can pass to `fetch`. Filters undefineds,
 // short-circuits to the original signal when only one is present, and
@@ -288,7 +317,7 @@ export class TelegramClient {
               signal: combined,
             });
           } catch (err) {
-            if (signal?.aborted) {
+            if (isCallerAbort(err, signal)) {
               throw err;
             }
             throw new TelegramNetworkError(method, err);
@@ -300,6 +329,15 @@ export class TelegramClient {
               Methods[M]["result"]
             >;
           } catch (err) {
+            // If the caller aborted between `fetch` returning headers and
+            // `response.json()` finishing, the body read throws an
+            // `AbortError` we must propagate untouched — wrapping it into
+            // `TelegramNetworkError` would (a) trigger a misleading retry
+            // for read-only methods and (b) lose the caller's cancellation
+            // semantics on the way back up the stack.
+            if (isCallerAbort(err, signal)) {
+              throw err;
+            }
             throw new TelegramNetworkError(method, err);
           }
 
@@ -353,7 +391,7 @@ export class TelegramClient {
         try {
           response = await this.fetchImpl(url, { signal: combined });
         } catch (err) {
-          if (signal?.aborted) {
+          if (isCallerAbort(err, signal)) {
             throw err;
           }
           throw new TelegramNetworkError("downloadFile", err);
@@ -363,7 +401,16 @@ export class TelegramClient {
           // Read the error body so the per-request timeout still applies to
           // the body read; a tiny JSON "description" is typical and far
           // more debuggable than a bare status code.
-          const snippet = await readErrorSnippet(response);
+          const snippet = await readErrorSnippet(response, signal);
+          // If the caller aborted while we were reading the error body,
+          // surface the abort instead of a synthesized API error: the
+          // request never completed in any meaningful sense from the
+          // caller's perspective.
+          if (signal?.aborted) {
+            // Use the signal's reason if available so callers get the
+            // exact cancellation cause they raised.
+            throw signal.reason ?? new DOMException("Aborted", "AbortError");
+          }
           const base = `Telegram file download failed with HTTP ${response.status}`;
           throw new TelegramApiError({
             method: "downloadFile",
@@ -388,8 +435,13 @@ const ERROR_SNIPPET_MAX_LEN = 200;
 
 // Best-effort body read for error messages. Returns undefined on empty bodies
 // or read failures — callers fall back to a bare status-code message.
+//
+// Caller-initiated aborts surfacing during the body read are NOT swallowed:
+// they re-throw so the upstream `downloadFile` can return the cancellation
+// to the caller instead of synthesizing a misleading `TelegramApiError`.
 const readErrorSnippet = async (
-  response: Response
+  response: Response,
+  signal?: AbortSignal
 ): Promise<string | undefined> => {
   try {
     const text = await response.text();
@@ -399,7 +451,10 @@ const readErrorSnippet = async (
     return text.length > ERROR_SNIPPET_MAX_LEN
       ? `${text.slice(0, ERROR_SNIPPET_MAX_LEN)}…`
       : text;
-  } catch {
+  } catch (err) {
+    if (isCallerAbort(err, signal)) {
+      throw err;
+    }
     return undefined;
   }
 };

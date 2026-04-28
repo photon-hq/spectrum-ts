@@ -34,15 +34,26 @@ export type TelegramConfig = z.infer<typeof configSchema>;
 
 // Telegram users carry richer metadata than Spectrum's `User.id` — the bot
 // API surfaces a numeric `id`, a bot/human flag, and free-form names. We
-// surface those as schema-declared extras so they're TS-visible on the
+// declare those as schema-level extras so they're TS-visible on the
 // resolved `User` (and therefore on `TelegramMessage["sender"]`) without
-// requiring a cast at every construction site. Inbound mappers in
-// `events/inbound.ts` populate the same shape, and outbound `messages.ts`
-// builds it from the API response's `from` field.
+// requiring a cast at every construction site.
+//
+// All extras are *optional*, including `chatId` / `firstName` / `isBot`
+// that are always populated for inbound messages and outbound sends. The
+// reason is the third population path: `telegram.user({ userID })`, where
+// Spectrum hands the resolver only the user id and there is no Bot API
+// endpoint that fetches an arbitrary user by id without chat context.
+// Marking these required would let TS callers assume `sender.firstName`
+// is always a string when in resolver-only paths it's not — better to
+// admit the truth and force callers to `?? "unknown"` or guard.
+//
+// Inbound mappers in `events/inbound.ts` and outbound builders in
+// `messages.ts` populate every field they have, so the rich shape *is*
+// available everywhere a Telegram message originated from the wire.
 export const userSchema = z.object({
-  chatId: z.number().int(),
-  firstName: z.string(),
-  isBot: z.boolean(),
+  chatId: z.number().int().optional(),
+  firstName: z.string().optional(),
+  isBot: z.boolean().optional(),
   lastName: z.string().optional(),
   username: z.string().optional(),
   languageCode: z.string().optional(),

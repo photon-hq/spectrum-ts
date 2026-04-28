@@ -146,25 +146,41 @@ export class AlbumBuffer {
   }
 
   /**
-   * Flush every in-flight buffer immediately and clear timers. Called on
-   * provider teardown so the parent stream sees a final batch instead of
-   * losing an in-progress album.
+   * Flush every in-flight buffer immediately and clear timers, awaiting all
+   * pending flush callbacks. Called on provider teardown so the parent
+   * stream sees the final batches instead of losing in-progress albums to
+   * the race between teardown and the debounce/ceiling timers.
+   *
+   * Errors from individual flushes are swallowed (and logged) inside
+   * `flush()` itself — same fire-and-forget contract as the timer-driven
+   * paths — so the returned promise resolves once all callbacks settle,
+   * regardless of individual outcomes.
    */
-  flushAll(): void {
-    for (const key of [...this.inFlight.keys()]) {
-      this.flush(key);
-    }
+  async flushAll(): Promise<void> {
+    await Promise.all([...this.inFlight.keys()].map((key) => this.flush(key)));
   }
 
+  // Timer paths intentionally do not await `flush()` — there is no consumer
+  // to surface a rejection to. `flush()` swallows + logs internally, so the
+  // returned promise can only resolve; we attach a no-op `.catch` purely to
+  // satisfy the lint that disallows orphaned floating promises.
   private armDebounce(mediaGroupId: string): ReturnType<typeof setTimeout> {
-    return setTimeout(() => this.flush(mediaGroupId), this.options.debounceMs);
+    return setTimeout(() => {
+      this.flush(mediaGroupId).catch(() => {
+        /* swallowed inside flush() */
+      });
+    }, this.options.debounceMs);
   }
 
   private armCeiling(mediaGroupId: string): ReturnType<typeof setTimeout> {
-    return setTimeout(() => this.flush(mediaGroupId), this.options.ceilingMs);
+    return setTimeout(() => {
+      this.flush(mediaGroupId).catch(() => {
+        /* swallowed inside flush() */
+      });
+    }, this.options.ceilingMs);
   }
 
-  private flush(mediaGroupId: string): void {
+  private async flush(mediaGroupId: string): Promise<void> {
     const entry = this.inFlight.get(mediaGroupId);
     if (!entry) {
       return;
@@ -172,15 +188,17 @@ export class AlbumBuffer {
     clearTimeout(entry.debounceTimer);
     clearTimeout(entry.ceilingTimer);
     this.inFlight.delete(mediaGroupId);
-    // Fire-and-forget the flush callback. Any rejection is swallowed and
-    // logged via `console.error` rather than bubbled — the album buffer is
-    // driven by timers (no awaiter exists), and re-throwing here would
-    // surface as an unhandled rejection that crashes the host process. The
-    // emit path inside the events module already retries naturally on the
-    // next update; a single dropped album is better than a hard crash.
-    Promise.resolve(this.options.flush(entry.members)).catch((err) => {
+    // Errors are swallowed and logged rather than re-thrown: timer-driven
+    // paths have no awaiter to receive the rejection, and re-throwing
+    // would surface as an unhandled rejection that crashes the host
+    // process. `flushAll()` callers awaiting this promise see resolution
+    // (with a logged failure) instead of a thrown error — same effective
+    // contract whether the call originated from a timer or teardown.
+    try {
+      await this.options.flush(entry.members);
+    } catch (err) {
       console.error("Telegram album flush failed:", err);
-    });
+    }
   }
 }
 

@@ -145,7 +145,11 @@ export const messages = (
     return async () => {
       signal.removeEventListener("abort", onSignalAbort);
       abortController.abort();
-      albumBuffer?.flushAll();
+      // Await `flushAll` so any final coalesced album batches make it
+      // through `emit(...)` before teardown finishes. Without the await,
+      // the parent stream would close while flush callbacks were still
+      // mid-flight and the last album would be dropped.
+      await albumBuffer?.flushAll();
       await pump;
     };
   });

@@ -14,43 +14,29 @@ export interface TelegramClientOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-interface MergedSignal {
-  /** Always call once the awaited operation settles so listeners on caller
-   * signals don't leak on the happy path. Safe to call multiple times. */
-  cleanup: () => void;
-  signal: AbortSignal | undefined;
-}
-
-const mergeSignals = (signals: (AbortSignal | undefined)[]): MergedSignal => {
+// Combine an optional caller signal with an optional per-request timeout
+// signal into a single signal we can pass to `fetch`. Filters undefineds,
+// short-circuits to the original signal when only one is present, and
+// otherwise delegates to the standard `AbortSignal.any()` (Node ≥20.4,
+// Bun ≥1.0 — same baseline as `AbortSignal.timeout()` already used here).
+//
+// `AbortSignal.any` handles listener wiring + abort-reason propagation
+// internally and registers itself as a weakref so the unused timeout
+// signal becomes GC-eligible after the request settles. We deliberately
+// drop the explicit `cleanup()` API the previous custom helper exposed:
+// callers that previously had to invoke it are now inside try/finally
+// blocks where the awaited operation settling is the cleanup boundary.
+const combineSignals = (
+  signals: (AbortSignal | undefined)[]
+): AbortSignal | undefined => {
   const present = signals.filter((s): s is AbortSignal => s !== undefined);
   if (present.length === 0) {
-    return { signal: undefined, cleanup: () => {} };
+    return;
   }
   if (present.length === 1) {
-    return { signal: present[0], cleanup: () => {} };
+    return present[0];
   }
-  const controller = new AbortController();
-  const handlers: { signal: AbortSignal; handler: () => void }[] = [];
-  const cleanup = () => {
-    for (const { signal, handler } of handlers) {
-      signal.removeEventListener("abort", handler);
-    }
-    handlers.length = 0;
-  };
-  for (const signal of present) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      cleanup();
-      return { signal: controller.signal, cleanup: () => {} };
-    }
-    const handler = () => {
-      cleanup();
-      controller.abort(signal.reason);
-    };
-    handlers.push({ signal, handler });
-    signal.addEventListener("abort", handler, { once: true });
-  }
-  return { signal: controller.signal, cleanup };
+  return AbortSignal.any(present);
 };
 
 interface ApiResponseOk<T> {
@@ -218,50 +204,46 @@ export class TelegramClient {
             this.requestTimeoutMs === null
               ? undefined
               : AbortSignal.timeout(this.requestTimeoutMs);
-          const merged = mergeSignals([signal, timeoutSignal]);
-
-          // `cleanup()` must stay deferred until the response body is fully
-          // consumed — otherwise the per-request timeout and caller signal
-          // stop applying once the headers arrive, and a slow/stuck body can
+          // The combined signal stays in scope for the entire body read so
+          // the per-request timeout and caller signal continue applying
+          // after the headers arrive. A slow/stuck body would otherwise
           // hang the call indefinitely.
+          const combined = combineSignals([signal, timeoutSignal]);
+
+          let response: Response;
           try {
-            let response: Response;
-            try {
-              response = await this.fetchImpl(url, {
-                method: "POST",
-                headers,
-                body,
-                signal: merged.signal,
-              });
-            } catch (err) {
-              if (signal?.aborted) {
-                throw err;
-              }
-              throw new TelegramNetworkError(method, err);
+            response = await this.fetchImpl(url, {
+              method: "POST",
+              headers,
+              body,
+              signal: combined,
+            });
+          } catch (err) {
+            if (signal?.aborted) {
+              throw err;
             }
-
-            let payload: ApiResponse<Methods[M]["result"]>;
-            try {
-              payload = (await response.json()) as ApiResponse<
-                Methods[M]["result"]
-              >;
-            } catch (err) {
-              throw new TelegramNetworkError(method, err);
-            }
-
-            if (!payload.ok) {
-              throw new TelegramApiError({
-                method,
-                errorCode: payload.error_code,
-                description: payload.description,
-                parameters: payload.parameters,
-              });
-            }
-
-            return payload.result;
-          } finally {
-            merged.cleanup();
+            throw new TelegramNetworkError(method, err);
           }
+
+          let payload: ApiResponse<Methods[M]["result"]>;
+          try {
+            payload = (await response.json()) as ApiResponse<
+              Methods[M]["result"]
+            >;
+          } catch (err) {
+            throw new TelegramNetworkError(method, err);
+          }
+
+          if (!payload.ok) {
+            throw new TelegramApiError({
+              method,
+              errorCode: payload.error_code,
+              description: payload.description,
+              parameters: payload.parameters,
+            });
+          }
+
+          return payload.result;
         },
         { policy: this.retryPolicy, signal }
       );
@@ -296,13 +278,12 @@ export class TelegramClient {
           this.requestTimeoutMs === null
             ? undefined
             : AbortSignal.timeout(this.requestTimeoutMs);
-        const merged = mergeSignals([signal, timeoutSignal]);
+        const combined = combineSignals([signal, timeoutSignal]);
 
         let response: Response;
         try {
-          response = await this.fetchImpl(url, { signal: merged.signal });
+          response = await this.fetchImpl(url, { signal: combined });
         } catch (err) {
-          merged.cleanup();
           if (signal?.aborted) {
             throw err;
           }
@@ -310,11 +291,10 @@ export class TelegramClient {
         }
 
         if (!response.ok) {
-          // Read the error body before cleanup so the per-request timeout
-          // still applies to the body read; a tiny JSON "description" is
-          // typical and far more debuggable than a bare status code.
+          // Read the error body so the per-request timeout still applies to
+          // the body read; a tiny JSON "description" is typical and far
+          // more debuggable than a bare status code.
           const snippet = await readErrorSnippet(response);
-          merged.cleanup();
           const base = `Telegram file download failed with HTTP ${response.status}`;
           throw new TelegramApiError({
             method: "downloadFile",
@@ -323,12 +303,12 @@ export class TelegramClient {
           });
         }
 
-        // Keep the merged signal live until the caller finishes consuming the
-        // response body — otherwise the per-request timeout and caller signal
-        // stop applying mid-transfer. We wrap the body so cleanup runs exactly
-        // once whether the stream completes, errors, or is cancelled. For
-        // bodyless responses, clean up immediately.
-        return wrapResponseForCleanup(response, merged.cleanup);
+        // The combined signal remains effective for the body stream because
+        // `fetch` keeps it referenced internally until the body is fully
+        // consumed (or aborted). No explicit body wrapping needed: the
+        // `AbortSignal.any` wiring releases its own listeners on the source
+        // signals as soon as the request settles.
+        return response;
       },
       { policy: this.retryPolicy, signal }
     );
@@ -353,67 +333,6 @@ const readErrorSnippet = async (
   } catch {
     return undefined;
   }
-};
-
-const wrapResponseForCleanup = (
-  response: Response,
-  cleanup: () => void
-): Response => {
-  let done = false;
-  const runOnce = () => {
-    if (done) {
-      return;
-    }
-    done = true;
-    cleanup();
-  };
-
-  const body = response.body;
-  if (!body) {
-    runOnce();
-    return response;
-  }
-
-  // `TransformStream` transformers expose only `start/transform/flush` — no
-  // `cancel` hook — so we wrap the body in a ReadableStream adapter whose
-  // `pull`/`cancel` fire cleanup exactly once whether the stream completes,
-  // errors, or the consumer aborts mid-read.
-  const reader = body.getReader();
-  const wrapped = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { value, done: streamDone } = await reader.read();
-        if (streamDone) {
-          controller.close();
-          runOnce();
-          return;
-        }
-        controller.enqueue(value);
-      } catch (err) {
-        // Best-effort cancel on the underlying reader so the body stream
-        // unlocks immediately instead of waiting for GC. The caller-facing
-        // error is whatever `reader.read()` threw; cancellation failure
-        // here is incidental and should not mask that.
-        reader.cancel(err).catch(() => {
-          /* swallow — primary error is already routed via controller.error */
-        });
-        controller.error(err);
-        runOnce();
-      }
-    },
-    async cancel(reason) {
-      try {
-        await reader.cancel(reason);
-      } finally {
-        runOnce();
-      }
-    },
-  });
-  return new Response(wrapped, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
 };
 
 const migrationTargetFor = (err: unknown): number | undefined => {

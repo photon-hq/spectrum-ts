@@ -133,7 +133,18 @@ const fetchFileBytes = async (
       `Telegram getFile returned no file_path for file_id=${fileId}`
     );
   }
-  return await client.downloadFile(file.file_path);
+  // `client.downloadFile` already throws `TelegramApiError` on non-2xx
+  // responses (see `runtime/client.ts`), so this returns only a 200 OK
+  // body. The redundant guard here is defense-in-depth: if the transport
+  // contract ever changes, attachment `read()`/`stream()` should fail
+  // loudly rather than hand back an HTML error page as if it were bytes.
+  const response = await client.downloadFile(file.file_path);
+  if (!response.ok) {
+    throw new Error(
+      `Telegram file download for file_id=${fileId} returned HTTP ${response.status}`
+    );
+  }
+  return response;
 };
 
 const attachmentFromFile = (
@@ -474,8 +485,16 @@ export const coalesceAlbumGroup = (
     return undefined;
   }
   const items = sorted as unknown as SpectrumMessage[];
+  // The wrapper's `id` stays anchored to the first member's real
+  // `message_id` (numerically smallest in the album, since Telegram assigns
+  // sequential ids to album members). Telegram operations like
+  // `replyToMessage`, `editMessage`, and `setMessageReaction` only accept
+  // numeric `message_id`s, so a synthetic `album:${mediaGroupId}` would
+  // make the coalesced message unreplyable / unreactable. The
+  // `mediaGroupId` extra still uniquely identifies the album for
+  // consumers that want to group messages cross-stream.
   const wrapper: TelegramMessage = {
-    id: `album:${head.mediaGroupId}`,
+    id: head.id,
     content: asGroup({ items }),
     sender: head.sender,
     space: head.space,

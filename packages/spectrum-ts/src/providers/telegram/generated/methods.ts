@@ -93,7 +93,7 @@ export interface SendContactParams {
   reply_parameters?: ReplyParameters;
 }
 
-/** Sends a native Telegram poll. Spectrum sends regular (non-quiz) polls with `is_anonymous: false` so per-user vote events surface as poll_option content. Polls cannot be sent to private 1:1 chats; the API will reject those with BAD_REQUEST. */
+/** Sends a native Telegram poll. Spectrum sends regular (non-quiz) polls with `is_anonymous: false` so per-user vote events surface as poll_option content. Private 1:1 chats, groups, supergroups, and channels are all supported; the only chat type Telegram rejects is channel direct-message chats (the per-user threads on top of broadcast channels), which return BAD_REQUEST. */
 export interface SendPollParams {
   chat_id: number | string;
   question: string;

@@ -104,9 +104,12 @@ export const telegram = definePlatform("Telegram", {
         token: config.token,
         ...(config.apiBaseUrl ? { baseUrl: config.apiBaseUrl } : {}),
       });
-      await client.invoke("getMe", {});
+      // `getMe` doubles as a token-validity probe and a place to capture the
+      // bot's own User. We hold onto the User to synthesize senders on
+      // outbound records that don't echo `from` (reactions).
+      const me = await client.invoke("getMe", {});
       const cache = createTelegramCache(resolveCacheOptions(config.cache));
-      return { client, abort: new AbortController(), cache };
+      return { client, abort: new AbortController(), cache, me };
     },
 
     destroyClient: async ({ client }) => {

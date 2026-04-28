@@ -1,12 +1,12 @@
 import type { Attachment } from "../../content/attachment";
 import type { Contact } from "../../content/contact";
-import type { Group } from "../../content/group";
+import { asGroup, type Group } from "../../content/group";
 import type { Poll as SpectrumPoll } from "../../content/poll";
 import type { Reaction } from "../../content/reaction";
 import type { Richlink } from "../../content/richlink";
 import type { Content } from "../../content/types";
 import type { Voice } from "../../content/voice";
-import type { SendResult } from "../../platform/types";
+import type { Message as SpectrumMessage } from "../../types/message";
 import { UnsupportedError } from "../../utils/errors";
 import { toVCard } from "../../utils/vcard";
 import type { LinkPreviewOptions, Message } from "./generated/types";
@@ -36,33 +36,59 @@ const toMessageId = (messageId: string): number => {
   return parsed;
 };
 
-const toSendResult = (message: Message): SendResult => ({
-  id: String(message.message_id),
-  timestamp: new Date(message.date * 1000),
-});
-
-// Build a `TelegramMessage`-shaped record for the messages cache so
-// `getMessage(<our outbound id>)` returns a real entry — not just inbound
-// messages. The bot's `User` is present on the API response's `from` for
-// every send/reply method we use, so we can construct a real `sender`.
+// Build a `TelegramMessage` record from a Bot API response and the original
+// caller-supplied `Content`. The returned value is both:
+//
+//   - the `ProviderMessageRecord` returned to the platform layer (PR #38
+//     unified `send` / `replyToMessage` to return a record so
+//     `wrapProviderMessage("outbound")` can stitch outbound `OutboundMessage`s
+//     through the same pipeline as inbound messages); and
+//
+//   - written through to the runtime's messages cache so `getMessage(id)`
+//     for an id we just sent returns a real entry.
 //
 // `content` is the universal `Content` value the caller passed in (carrying
-// any live closures for attachments/voice). We deliberately do NOT
-// re-derive content from the API response: re-deriving an `attachment`
-// would point its `read()` at Telegram's `getFile`/CDN, breaking caller
-// expectations of "I sent these bytes; reading the cached message gives me
-// those bytes back". Reusing the original content keeps closures cheap and
-// faithful.
-const cacheOutbound = (
+// any live closures for attachments/voice). We deliberately do NOT re-derive
+// content from the API response: re-deriving an `attachment` would point its
+// `read()` at Telegram's `getFile`/CDN, breaking caller expectations of "I
+// sent these bytes; reading the cached message gives me those bytes back".
+// Reusing the original content keeps closures cheap and faithful.
+const buildOutboundSender = (
+  from: NonNullable<Message["from"]>
+): TelegramMessage["sender"] => {
+  // Mirror the inbound `userToSender` shape exactly so consumers see the
+  // same fields regardless of whether the message came from a poll update or
+  // from our own send/reply API response.
+  const sender: TelegramMessage["sender"] = {
+    id: String(from.id),
+    chatId: from.id,
+    isBot: from.is_bot,
+    firstName: from.first_name,
+  };
+  if (from.last_name !== undefined) {
+    sender.lastName = from.last_name;
+  }
+  if (from.username !== undefined) {
+    sender.username = from.username;
+  }
+  if (from.language_code !== undefined) {
+    sender.languageCode = from.language_code;
+  }
+  return sender;
+};
+
+const recordOutbound = (
   runtime: TelegramRuntime,
   message: Message,
   content: Content
-): void => {
-  const sender = message.from
-    ? { id: String(message.from.id), chatId: message.from.id }
-    : undefined;
-  if (!sender) {
-    return;
+): TelegramMessage => {
+  // Telegram always echoes `from` for messages our bot sends. If it ever
+  // doesn't, that's an API contract break and we'd rather fail loudly than
+  // silently invent a fake sender.
+  if (!message.from) {
+    throw new Error(
+      "Telegram outbound message response missing `from` (bot identity)"
+    );
   }
   const space: TelegramMessage["space"] = {
     id: String(message.chat.id),
@@ -76,7 +102,7 @@ const cacheOutbound = (
   const record: TelegramMessage = {
     id: String(message.message_id),
     content,
-    sender,
+    sender: buildOutboundSender(message.from),
     space,
     timestamp: new Date(message.date * 1000),
   };
@@ -87,6 +113,7 @@ const cacheOutbound = (
     record.caption = message.caption;
   }
   runtime.cache.messages.set(record.id, record);
+  return record;
 };
 
 const attachmentToFile = async (att: Attachment): Promise<File> => {
@@ -135,14 +162,13 @@ const sendText = async (
   spaceId: string,
   content: Content & { type: "text" },
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   const message = await runtime.client.invoke("sendMessage", {
     chat_id: toChatId(spaceId),
     text: content.text,
     ...replyParams(opts),
   });
-  cacheOutbound(runtime, message, content);
-  return toSendResult(message);
+  return recordOutbound(runtime, message, content);
 };
 
 // Pinning `url` explicitly is what unlocks `prefer_large_media` — without an
@@ -175,15 +201,14 @@ const sendRichlinkContent = async (
   spaceId: string,
   richlink: Richlink,
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   const message = await runtime.client.invoke("sendMessage", {
     chat_id: toChatId(spaceId),
     text: richlink.url,
     link_preview_options: richlinkPreviewOptions(richlink.url),
     ...replyParams(opts),
   });
-  cacheOutbound(runtime, message, richlink);
-  return toSendResult(message);
+  return recordOutbound(runtime, message, richlink);
 };
 
 const sendAttachment = async (
@@ -191,7 +216,7 @@ const sendAttachment = async (
   spaceId: string,
   att: Attachment,
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   const chat_id = toChatId(spaceId);
   const file = await attachmentToFile(att);
   const reply = replyParams(opts);
@@ -233,8 +258,7 @@ const sendAttachment = async (
       throw new Error(`Unhandled attachment route: ${String(_exhaustive)}`);
     }
   }
-  cacheOutbound(runtime, message, att);
-  return toSendResult(message);
+  return recordOutbound(runtime, message, att);
 };
 
 const sendVoiceContent = async (
@@ -242,7 +266,7 @@ const sendVoiceContent = async (
   spaceId: string,
   voice: Voice,
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   const file = await voiceFile(voice);
   const message = await runtime.client.invoke("sendVoice", {
     chat_id: toChatId(spaceId),
@@ -252,8 +276,7 @@ const sendVoiceContent = async (
       : { duration: Math.round(voice.duration) }),
     ...replyParams(opts),
   });
-  cacheOutbound(runtime, message, voice);
-  return toSendResult(message);
+  return recordOutbound(runtime, message, voice);
 };
 
 const VCARD_MAX_BYTES = 2048;
@@ -296,7 +319,7 @@ const sendContactContent = async (
   spaceId: string,
   contact: Contact,
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   const phone = contact.phones?.[0]?.value;
   if (!phone) {
     throw new Error(
@@ -328,17 +351,27 @@ const sendContactContent = async (
     params.reply_parameters = reply.reply_parameters;
   }
   const message = await runtime.client.invoke("sendContact", params);
-  cacheOutbound(runtime, message, contact);
-  return toSendResult(message);
+  return recordOutbound(runtime, message, contact);
 };
 
+// Reactions are first-class outbound content but Telegram's
+// `setMessageReaction` returns only a boolean, not a Message. To honour
+// PR #38's "send returns ProviderMessageRecord" contract we synthesize a
+// record that points back at the reaction target: id is the target
+// message id, content echoes the input reaction, sender is the bot
+// (captured at createClient time via getMe), and space is hydrated from
+// the cached target if we have it, falling back to a getChat round-trip
+// otherwise. Timestamp is "now" since the API offers no server-side
+// reaction timestamp. The synthesized record is intentionally NOT written
+// to `runtime.cache.messages` — there is no new message to remember; the
+// original target is what callers `getMessage()` for.
 const sendReactionContent = async (
-  client: TelegramClient,
+  runtime: TelegramRuntime,
   spaceId: string,
   reaction: Reaction
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   const targetId = reaction.target.id;
-  await client.invoke("setMessageReaction", {
+  await runtime.client.invoke("setMessageReaction", {
     chat_id: toChatId(spaceId),
     message_id: toMessageId(targetId),
     // Telegram setMessageReaction overwrites the bot's reaction set on this
@@ -347,7 +380,33 @@ const sendReactionContent = async (
     // through reactToMessage (we already handle that case there).
     reaction: [{ type: "emoji", emoji: reaction.emoji }],
   });
-  return { id: targetId, timestamp: new Date() };
+  const cachedTarget = runtime.cache.messages.get(targetId);
+  let space: TelegramMessage["space"];
+  if (cachedTarget) {
+    space = cachedTarget.space;
+  } else {
+    // Cold path: target isn't in cache (likely a stale reference from a
+    // previous process). One getChat call hydrates a faithful space; this
+    // happens at most once per cold reaction target and is well worth the
+    // synthetic-record fidelity.
+    const chat = await runtime.client.invoke("getChat", {
+      chat_id: toChatId(spaceId),
+    });
+    space = {
+      id: String(chat.id),
+      chatId: chat.id,
+      type: chat.type,
+      ...(chat.title === undefined ? {} : { title: chat.title }),
+      ...(chat.username === undefined ? {} : { username: chat.username }),
+    };
+  }
+  return {
+    id: targetId,
+    content: reaction,
+    sender: buildOutboundSender(runtime.me),
+    space,
+    timestamp: new Date(),
+  };
 };
 
 const validatePollOptionTitles = (poll: SpectrumPoll): void => {
@@ -374,7 +433,7 @@ const sendPollContent = async (
   spaceId: string,
   poll: SpectrumPoll,
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   validatePollOptionTitles(poll);
   const message = await runtime.client.invoke("sendPoll", {
     chat_id: toChatId(spaceId),
@@ -404,31 +463,35 @@ const sendPollContent = async (
       poll,
     });
   }
-  cacheOutbound(runtime, message, poll);
-  return toSendResult(message);
+  return recordOutbound(runtime, message, poll);
 };
 
 // Telegram's Bot API has `sendMediaGroup` for native album sends, but it only
 // accepts homogeneous photo+video / audio / document bundles modelled through
 // `InputMediaPhoto` / `InputMediaVideo` etc., which our spec does not yet
 // cover. For now we ship the universal fallback used by other providers
-// (iMessage remote): iterate the group's items, dispatch each one through the
-// normal send pipeline, and report per-item receipts via `groupMembers` so
-// the platform layer can hydrate `outbound.content.items[i].id` for
-// per-child reactions / replies.
+// Telegram's Bot API exposes `sendMediaGroup` for native albums, but it
+// only supports homogeneous photo/video/audio/document buckets and rejects
+// text/contact/poll mixed in. Since Spectrum's `group` is heterogeneous, we
+// fall back to lazy iteration: dispatch each item through the normal send
+// pipeline and report per-item records via `asGroup({ items: childRecords })`.
 //
 // Trade-off: items arrive in Telegram as separate messages instead of a
-// single album. Caller-visible semantics are preserved (each item is its
-// own Message with a real id) and any mix of types is supported. A native
-// `sendMediaGroup` fast-path can be added later behind the same surface
-// without changing this function's contract.
+// single album bubble. Caller-visible semantics are preserved (each item is
+// its own message with a real id) and any mix of types works. A
+// `sendMediaGroup` fast-path could be added later behind the same surface.
+//
+// The parent record's id is the first child's id. Telegram has no native
+// "album parent" concept and we don't synthesize one — picking the first
+// child means a reply or reaction targeting the group resolves to the
+// album's lead message (closest analog to "the group itself").
 const sendGroupContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
   group: Group,
   opts: SendOpts
-): Promise<SendResult> => {
-  const groupMembers: SendResult[] = [];
+): Promise<TelegramMessage> => {
+  const childRecords: TelegramMessage[] = [];
   // Reply-parent only attaches to the first child: Telegram threads a single
   // reply edge per message, and "all children reply to the same parent"
   // would clutter the chat without adding meaning.
@@ -442,14 +505,23 @@ const sendGroupContent = async (
         `nested ${child.type} inside group is not allowed`
       );
     }
-    groupMembers.push(await dispatchSend(runtime, spaceId, child, firstOpts));
+    childRecords.push(await dispatchSend(runtime, spaceId, child, firstOpts));
     firstOpts = {};
   }
-  const first = groupMembers[0];
+  const first = childRecords[0];
   if (!first) {
     throw new Error("Telegram group send: empty items");
   }
-  return { ...first, groupMembers };
+  // The platform layer's `wrapProviderMessage("outbound")` will turn each
+  // raw provider record under `items` into a real OutboundMessage via
+  // `wrapNestedContent`. The Zod `isMessage` guard is loose enough to
+  // accept the bare record shape (id + content + space + timestamp).
+  return {
+    ...first,
+    content: asGroup({
+      items: childRecords as unknown as SpectrumMessage[],
+    }),
+  };
 };
 
 const dispatchSend = async (
@@ -457,7 +529,7 @@ const dispatchSend = async (
   spaceId: string,
   content: Content,
   opts: SendOpts
-): Promise<SendResult> => {
+): Promise<TelegramMessage> => {
   switch (content.type) {
     case "text":
       return await sendText(runtime, spaceId, content, opts);
@@ -472,13 +544,7 @@ const dispatchSend = async (
     case "poll":
       return await sendPollContent(runtime, spaceId, content, opts);
     case "reaction":
-      // Reactions bypass the normal send flow: Telegram's setMessageReaction
-      // returns a boolean, not a Message, and the reaction carries its own
-      // target. We surface the target's id in SendResult so callers don't
-      // get a fabricated message id, and the timestamp is "now" since the
-      // API offers no server-side reaction timestamp. No outbound cache
-      // write — there is no new message to remember.
-      return await sendReactionContent(runtime.client, spaceId, content);
+      return await sendReactionContent(runtime, spaceId, content);
     case "custom":
       throw UnsupportedError.content("custom", PLATFORM_NAME);
     case "group":
@@ -491,6 +557,18 @@ const dispatchSend = async (
         "poll_option",
         PLATFORM_NAME,
         "poll_option is an inbound-only content type"
+      );
+    case "effect":
+      // `effect` (PR #39) is iMessage-only — it wraps inner content with a
+      // visual effect like "Slam" or "Confetti" that has no analog in the
+      // Telegram Bot API. The platform layer's `__platform`-tagged content
+      // walker (also from PR #39) routes effect-wrapped content here only
+      // when the inner content's `__platform` doesn't match Telegram, but
+      // we still need an explicit case for the union exhaustiveness check.
+      throw UnsupportedError.content(
+        "effect",
+        PLATFORM_NAME,
+        "effect is an iMessage-only content type"
       );
     default: {
       const _exhaustive: never = content;
@@ -506,14 +584,14 @@ export const send = (
   runtime: TelegramRuntime,
   spaceId: string,
   content: Content
-): Promise<SendResult> => dispatchSend(runtime, spaceId, content, {});
+): Promise<TelegramMessage> => dispatchSend(runtime, spaceId, content, {});
 
 export const replyToMessage = (
   runtime: TelegramRuntime,
   spaceId: string,
   messageId: string,
   content: Content
-): Promise<SendResult> =>
+): Promise<TelegramMessage> =>
   dispatchSend(runtime, spaceId, content, {
     replyToMessageId: toMessageId(messageId),
   });
@@ -551,7 +629,7 @@ export const editMessage = async (
       : {}),
   });
   if (typeof result !== "boolean") {
-    cacheOutbound(runtime, result, content);
+    recordOutbound(runtime, result, content);
   }
 };
 

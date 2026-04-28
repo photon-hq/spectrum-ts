@@ -1,5 +1,6 @@
 import z from "zod";
 import type { SchemaMessage } from "../../platform/types";
+import type { User } from "./generated/types";
 import type { TelegramCache } from "./runtime/cache";
 import type { TelegramClient } from "./runtime/client";
 
@@ -31,7 +32,21 @@ export const configSchema = z.object({
 
 export type TelegramConfig = z.infer<typeof configSchema>;
 
-export const userSchema = z.object({});
+// Telegram users carry richer metadata than Spectrum's `User.id` — the bot
+// API surfaces a numeric `id`, a bot/human flag, and free-form names. We
+// surface those as schema-declared extras so they're TS-visible on the
+// resolved `User` (and therefore on `TelegramMessage["sender"]`) without
+// requiring a cast at every construction site. Inbound mappers in
+// `events/inbound.ts` populate the same shape, and outbound `messages.ts`
+// builds it from the API response's `from` field.
+export const userSchema = z.object({
+  chatId: z.number().int(),
+  firstName: z.string(),
+  isBot: z.boolean(),
+  lastName: z.string().optional(),
+  username: z.string().optional(),
+  languageCode: z.string().optional(),
+});
 
 export const spaceSchema = z.object({
   id: z.string(),
@@ -80,4 +95,8 @@ export interface TelegramRuntime {
   abort: AbortController;
   cache: TelegramCache;
   client: TelegramClient;
+  // Bot identity captured at `createClient` time via `getMe`. Used to
+  // synthesize a sender on outbound records that don't carry one in the
+  // API response (notably reactions, where Telegram returns a boolean).
+  me: User;
 }

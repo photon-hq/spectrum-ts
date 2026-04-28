@@ -100,15 +100,13 @@ export interface SendPollParams {
   options: Array<InputPollOption>;
   /** Defaults to true on the Telegram side. Spectrum forces this to `false` on outbound sends so vote events are attributed. */
   is_anonymous?: boolean;
-  /** Spectrum only sends regular polls. Quiz mode is intentionally out of scope: it requires `correct_option_id` and Spectrum's universal `poll` content has no notion of a single correct answer. Callers needing quizzes should use the raw client directly. */
+  /** Spectrum only sends regular polls. Quiz mode is intentionally out of scope: it requires `correct_option_ids`, and Spectrum's universal `poll` content has no notion of quiz correct-answer metadata. Callers needing quizzes should use the raw client directly. */
   type?: "regular";
   allows_multiple_answers?: boolean;
   /** Bot API 9.6+: pass true to allow voters to change their selection after voting. */
   allows_revoting?: boolean;
   /** Bot API 9.6+: pass true to randomize the order of options when displaying the poll. */
   shuffle_options?: boolean;
-  /** Bot API 9.6+: pass true to let participants add options after creation. Not supported for anonymous polls or quizzes. */
-  allow_adding_options?: boolean;
   /** Bot API 9.6+: pass true to hide aggregate results until the poll is closed. */
   hide_results_until_closes?: boolean;
   reply_parameters?: ReplyParameters;

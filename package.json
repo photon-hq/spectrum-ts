@@ -10,7 +10,8 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "check": "ultracite check",
+    "check": "ultracite check && bun run check:gen:telegram",
+    "check:gen:telegram": "bun run gen:telegram && git diff HEAD --exit-code -- packages/spectrum-ts/src/providers/telegram/generated",
     "fix": "ultracite fix",
     "gen:telegram": "bun run bot-api-spec/generators/typescript.ts"
   },

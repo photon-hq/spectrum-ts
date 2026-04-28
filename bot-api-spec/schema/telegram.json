@@ -485,7 +485,7 @@
           "type": "string",
           "required": false,
           "enum": ["regular"],
-          "description": "Spectrum only sends regular polls. Quiz mode is intentionally out of scope: it requires `correct_option_id` and Spectrum's universal `poll` content has no notion of a single correct answer. Callers needing quizzes should use the raw client directly."
+          "description": "Spectrum only sends regular polls. Quiz mode is intentionally out of scope: it requires `correct_option_ids`, and Spectrum's universal `poll` content has no notion of quiz correct-answer metadata. Callers needing quizzes should use the raw client directly."
         },
         {
           "name": "allows_multiple_answers",
@@ -503,12 +503,6 @@
           "type": "boolean",
           "required": false,
           "description": "Bot API 9.6+: pass true to randomize the order of options when displaying the poll."
-        },
-        {
-          "name": "allow_adding_options",
-          "type": "boolean",
-          "required": false,
-          "description": "Bot API 9.6+: pass true to let participants add options after creation. Not supported for anonymous polls or quizzes."
         },
         {
           "name": "hide_results_until_closes",

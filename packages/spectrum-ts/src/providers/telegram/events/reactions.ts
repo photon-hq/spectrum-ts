@@ -3,9 +3,9 @@ import { asReaction } from "../../../content/reaction";
 import type { ProviderMessageRecord } from "../../../platform/build";
 import type { Message as SpectrumMessage } from "../../../types/message";
 import type { MessageReactionUpdated, ReactionType } from "../generated/types";
+import { chatToSender, chatToSpace, userToSender } from "../identity";
 import { messageCacheKey, type TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
-import { chatToSender, chatToSpace, userToSender } from "./inbound";
 
 // ---------------------------------------------------------------------------
 // Reactions (inbound)

@@ -1,8 +1,8 @@
 import { asPollOption } from "../../../content/poll";
 import type { PollAnswer, Update } from "../generated/types";
+import { chatToSender, userToSender } from "../identity";
 import type { CachedPoll, TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
-import { chatToSender, userToSender } from "./inbound";
 
 // ---------------------------------------------------------------------------
 // poll_answer → poll_option events

@@ -10,6 +10,7 @@ import type { Message as SpectrumMessage } from "../../types/message";
 import { UnsupportedError } from "../../utils/errors";
 import { toVCard } from "../../utils/vcard";
 import type { LinkPreviewOptions, Message } from "./generated/types";
+import { chatToSender, chatToSpace, userToSender } from "./identity";
 import { messageCacheKey } from "./runtime/cache";
 import type { TelegramClient } from "./runtime/client";
 import type { TelegramMessage, TelegramRuntime } from "./types";
@@ -54,58 +55,14 @@ const toMessageId = (messageId: string): number => {
 // `read()` at Telegram's `getFile`/CDN, breaking caller expectations of "I
 // sent these bytes; reading the cached message gives me those bytes back".
 // Reusing the original content keeps closures cheap and faithful.
-const buildOutboundSender = (
-  from: NonNullable<Message["from"]>
-): TelegramMessage["sender"] => {
-  // Mirror the inbound `userToSender` shape exactly so consumers see the
-  // same fields regardless of whether the message came from a poll update or
-  // from our own send/reply API response.
-  const sender: TelegramMessage["sender"] = {
-    id: String(from.id),
-    chatId: from.id,
-    isBot: from.is_bot,
-    firstName: from.first_name,
-  };
-  if (from.last_name !== undefined) {
-    sender.lastName = from.last_name;
-  }
-  if (from.username !== undefined) {
-    sender.username = from.username;
-  }
-  if (from.language_code !== undefined) {
-    sender.languageCode = from.language_code;
-  }
-  return sender;
-};
-
-// Channel-post / anonymous-admin echoes return `sender_chat` (the channel)
-// instead of `from`. We synthesize a sender from the chat so the cached
-// outbound record correctly attributes authorship to the channel —
-// otherwise downstream consumers would see the bot's user identity even
-// though the post is canonically *the channel's*. Mirrors the inbound
-// `chatToSender` path, kept local here to avoid a circular import.
-const buildChatSender = (
-  chat: NonNullable<Message["sender_chat"]>
-): TelegramMessage["sender"] => {
-  const sender: TelegramMessage["sender"] = {
-    id: String(chat.id),
-    chatId: chat.id,
-    isBot: false,
-    firstName: chat.title ?? chat.username ?? "Telegram chat",
-  };
-  if (chat.username !== undefined) {
-    sender.username = chat.username;
-  }
-  return sender;
-};
-
 const recordOutbound = (
   runtime: TelegramRuntime,
   message: Message,
   content: Content
 ): TelegramMessage => {
   // Sender selection mirrors the inbound flow precisely (see
-  // `events/inbound.ts:toTelegramMessage`):
+  // `events/inbound.ts:toTelegramMessage`) by reusing the same `userToSender`
+  // and `chatToSender` mappers from `../identity`:
   //   1. `from` (regular user account, including bots) — most common case.
   //   2. `sender_chat` (channel post / anonymous-admin send on behalf of a
   //      group) — Bot API populates this when `from` is omitted; the
@@ -121,26 +78,17 @@ const recordOutbound = (
   // would have surfaced it.
   let sender: TelegramMessage["sender"];
   if (message.from) {
-    sender = buildOutboundSender(message.from);
+    sender = userToSender(message.from);
   } else if (message.sender_chat) {
-    sender = buildChatSender(message.sender_chat);
+    sender = chatToSender(message.sender_chat);
   } else {
-    sender = buildOutboundSender(runtime.me);
+    sender = userToSender(runtime.me);
   }
-  const space: TelegramMessage["space"] = {
-    id: String(message.chat.id),
-    chatId: message.chat.id,
-    type: message.chat.type,
-    ...(message.chat.title === undefined ? {} : { title: message.chat.title }),
-    ...(message.chat.username === undefined
-      ? {}
-      : { username: message.chat.username }),
-  };
   const record: TelegramMessage = {
     id: String(message.message_id),
     content,
     sender,
-    space,
+    space: chatToSpace(message.chat),
     timestamp: new Date(message.date * 1000),
   };
   if (message.media_group_id !== undefined) {
@@ -149,7 +97,10 @@ const recordOutbound = (
   if (message.caption !== undefined && content.type !== "text") {
     record.caption = message.caption;
   }
-  runtime.cache.messages.set(messageCacheKey(space.id, record.id), record);
+  runtime.cache.messages.set(
+    messageCacheKey(record.space.id, record.id),
+    record
+  );
   return record;
 };
 
@@ -438,18 +389,12 @@ const sendReactionContent = async (
     const chat = await runtime.client.invoke("getChat", {
       chat_id: toChatId(spaceId),
     });
-    space = {
-      id: String(chat.id),
-      chatId: chat.id,
-      type: chat.type,
-      ...(chat.title === undefined ? {} : { title: chat.title }),
-      ...(chat.username === undefined ? {} : { username: chat.username }),
-    };
+    space = chatToSpace(chat);
   }
   return {
     id: targetId,
     content: reaction,
-    sender: buildOutboundSender(runtime.me),
+    sender: userToSender(runtime.me),
     space,
     timestamp: new Date(),
   };
@@ -562,11 +507,14 @@ const sendGroupContent = async (
   group: Group,
   opts: SendOpts
 ): Promise<TelegramMessage> => {
-  const childRecords: TelegramMessage[] = [];
-  // Reply-parent only attaches to the first child: Telegram threads a single
-  // reply edge per message, and "all children reply to the same parent"
-  // would clutter the chat without adding meaning.
-  let firstOpts: SendOpts = opts;
+  // Pre-validate the entire group BEFORE posting any child. Without this,
+  // a heterogeneous group like `[photo, reaction, contact]` would push
+  // `photo` to Telegram first, *then* throw when it reached `reaction` —
+  // leaving an orphan media message in the chat with no group context and
+  // no way to atomically undo the send. We catch every type `dispatchSend`
+  // throws on synchronously (the same set, in the same order, so the
+  // user-facing error message is identical to what they'd see today; only
+  // the *timing* of the throw moves).
   for (const item of group.items) {
     const child = item.content;
     if (child.type === "group" || child.type === "reaction") {
@@ -576,6 +524,35 @@ const sendGroupContent = async (
         `nested ${child.type} inside group is not allowed`
       );
     }
+    // Mirror the explicit `dispatchSend` rejections for these types so the
+    // user-facing error and detail string are identical — only the *timing*
+    // of the throw moves earlier (before any child is posted).
+    if (child.type === "custom") {
+      throw UnsupportedError.content("custom", PLATFORM_NAME);
+    }
+    if (child.type === "poll_option") {
+      throw UnsupportedError.content(
+        "poll_option",
+        PLATFORM_NAME,
+        "poll_option is an inbound-only content type"
+      );
+    }
+    if (child.type === "effect") {
+      throw UnsupportedError.content(
+        "effect",
+        PLATFORM_NAME,
+        "effect is an iMessage-only content type"
+      );
+    }
+  }
+
+  const childRecords: TelegramMessage[] = [];
+  // Reply-parent only attaches to the first child: Telegram threads a single
+  // reply edge per message, and "all children reply to the same parent"
+  // would clutter the chat without adding meaning.
+  let firstOpts: SendOpts = opts;
+  for (const item of group.items) {
+    const child = item.content;
     childRecords.push(await dispatchSend(runtime, spaceId, child, firstOpts));
     firstOpts = {};
   }

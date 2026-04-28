@@ -9,7 +9,6 @@ import { asVoice } from "../../../content/voice";
 import { fromVCard } from "../../../utils/vcard";
 import type {
   Audio,
-  Chat,
   Document,
   LinkPreviewOptions,
   Message,
@@ -18,96 +17,18 @@ import type {
   Contact as TgContact,
   Poll as TgPoll,
   Voice as TgVoice,
-  User,
   Video,
 } from "../generated/types";
+
+// Sender/space mappers live in a leaf module (`../identity`) so `messages.ts`
+// and sibling event files can import them too without forming a cycle. We
+// only import locally here; sibling event files (`reactions.ts`,
+// `polls.ts`) import directly from `../identity`.
+import { chatToSender, chatToSpace, userToSender } from "../identity";
+
 import { toGroupItems } from "../messages";
 import type { TelegramClient } from "../runtime/client";
 import type { TelegramMessage } from "../types";
-
-// ---------------------------------------------------------------------------
-// Sender / space conversion
-// ---------------------------------------------------------------------------
-
-const chatIdToSpaceId = (chatId: number): string => String(chatId);
-const userIdToSpectrumId = (userId: number): string => String(userId);
-
-// Inline anonymous return type (rather than a named alias) so the result
-// satisfies `ProviderMessageRecord["space"]`'s `Record<string, unknown>` index
-// signature when it's used as a stub target — a named `interface` does not.
-export const chatToSpace = (
-  chat: Chat
-): {
-  chatId: number;
-  id: string;
-  title?: string;
-  type: Chat["type"];
-  username?: string;
-} => {
-  const space: {
-    chatId: number;
-    id: string;
-    title?: string;
-    type: Chat["type"];
-    username?: string;
-  } = {
-    id: chatIdToSpaceId(chat.id),
-    chatId: chat.id,
-    type: chat.type,
-  };
-  if (chat.title !== undefined) {
-    space.title = chat.title;
-  }
-  if (chat.username !== undefined) {
-    space.username = chat.username;
-  }
-  return space;
-};
-
-export interface Sender {
-  chatId: number;
-  firstName: string;
-  id: string;
-  isBot: boolean;
-  languageCode?: string;
-  lastName?: string;
-  username?: string;
-}
-
-export const userToSender = (user: User): Sender => {
-  const sender: Sender = {
-    id: userIdToSpectrumId(user.id),
-    chatId: user.id,
-    isBot: user.is_bot,
-    firstName: user.first_name,
-  };
-  if (user.last_name !== undefined) {
-    sender.lastName = user.last_name;
-  }
-  if (user.username !== undefined) {
-    sender.username = user.username;
-  }
-  if (user.language_code !== undefined) {
-    sender.languageCode = user.language_code;
-  }
-  return sender;
-};
-
-// Channel posts and anonymous group-admin messages arrive without `from` but
-// with `sender_chat`. Synthesize a Sender from the chat so these updates are
-// delivered end-to-end instead of silently dropped.
-export const chatToSender = (chat: Chat): Sender => {
-  const sender: Sender = {
-    id: chatIdToSpaceId(chat.id),
-    chatId: chat.id,
-    isBot: false,
-    firstName: chat.title ?? chat.username ?? "Telegram chat",
-  };
-  if (chat.username !== undefined) {
-    sender.username = chat.username;
-  }
-  return sender;
-};
 
 // ---------------------------------------------------------------------------
 // File downloads (lazy)
@@ -421,7 +342,7 @@ export const toTelegramMessage = (
   client: TelegramClient,
   msg: Message
 ): TelegramMessage | undefined => {
-  let sender: Sender | undefined;
+  let sender: TelegramMessage["sender"] | undefined;
   if (msg.from) {
     sender = userToSender(msg.from);
   } else if (msg.sender_chat) {

@@ -33,20 +33,13 @@ interface Schema {
 }
 
 const SCHEMA_PATH = resolve(import.meta.dir, "..", "schema", "telegram.json");
-const OUTPUT_DIR = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "packages",
-  "spectrum-ts",
-  "src",
-  "providers",
-  "telegram",
-  "generated"
-);
+// `bot-api-spec/` lives under the Telegram provider directory, so the
+// generated output sits as a sibling (`../../generated`) of the bot-api-spec
+// folder rather than far away in the package tree.
+const OUTPUT_DIR = resolve(import.meta.dir, "..", "..", "generated");
 
 const FILE_BANNER = `// GENERATED FILE — do not edit by hand.
-// Source: bot-api-spec/schema/telegram.json
+// Source: providers/telegram/bot-api-spec/schema/telegram.json
 // Regenerate with: bun run gen:telegram
 `;
 
@@ -65,7 +58,7 @@ const loadSchema = async (): Promise<Schema> => {
       `Invalid schema at ${SCHEMA_PATH}: expected object with "types" and "methods" object maps`
     );
   }
-  return parsed as Schema;
+  return parsed as unknown as Schema;
 };
 
 // Translate the schema's TypeRef DSL into a TypeScript type expression.

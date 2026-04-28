@@ -1,5 +1,5 @@
 // GENERATED FILE — do not edit by hand.
-// Source: bot-api-spec/schema/telegram.json
+// Source: providers/telegram/bot-api-spec/schema/telegram.json
 // Regenerate with: bun run gen:telegram
 
 

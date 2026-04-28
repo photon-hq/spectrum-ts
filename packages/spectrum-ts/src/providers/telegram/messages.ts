@@ -189,8 +189,8 @@ const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
 //
 // Cross-platform fan-out trade-off: a caller setting `title`/`summary`/`cover`
 // will see those honored on iMessage / WhatsApp Business but see Telegram's
-// scraped metadata instead. This is documented in `bot-api-spec/README.md`
-// under "Scope".
+// scraped metadata instead. This is documented in
+// `./bot-api-spec/README.md` under "Scope".
 const sendRichlinkContent = async (
   runtime: TelegramRuntime,
   spaceId: string,

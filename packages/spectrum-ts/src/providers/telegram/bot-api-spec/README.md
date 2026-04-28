@@ -2,12 +2,12 @@
 
 Single source of truth for the Telegram Bot API surface that Spectrum exposes across all language ports (`spectrum-ts`, `spectrum-go`, `spectrum-py`, `spectrum-swift`, …).
 
-This directory is **not** a package. It is a plain folder in the `spectrum-ts` repo. Other language repos consume it via git submodule or manual sync.
+This directory is **not** a package. It is a plain folder co-located with the Telegram provider in the `spectrum-ts` repo. Other language repos consume it via git submodule or manual sync.
 
 ## Layout
 
 ```text
-bot-api-spec/
+packages/spectrum-ts/src/providers/telegram/bot-api-spec/
 ├── schema/
 │   └── telegram.json       ← authoritative schema (hand-written)
 ├── generators/
@@ -114,7 +114,7 @@ When other language repos are in scope, they must pick up the updated schema and
 
 Each language port owns its own generator, in its own repo. A generator must:
 
-1. Read `bot-api-spec/schema/telegram.json`.
+1. Read `packages/spectrum-ts/src/providers/telegram/bot-api-spec/schema/telegram.json` (or its equivalent path in this repo's port).
 2. Emit types and a method map into the target language.
 3. Map `InputFile` to that language's file/upload abstraction.
 4. Honor required/optional semantics natively (omitempty / Optional / nullable).

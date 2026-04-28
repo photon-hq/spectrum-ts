@@ -12,7 +12,7 @@
     "dev": "turbo dev",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "gen:telegram": "bun run bot-api-spec/generators/typescript.ts"
+    "gen:telegram": "bun run packages/spectrum-ts/src/providers/telegram/bot-api-spec/generators/typescript.ts"
   },
   "workspaces": [
     "packages/*",

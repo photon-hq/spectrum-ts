@@ -180,6 +180,7 @@
         { "name": "phone_number", "type": "string", "required": true },
         { "name": "first_name", "type": "string", "required": true },
         { "name": "last_name", "type": "string", "required": false },
+        { "name": "user_id", "type": "integer", "required": false },
         { "name": "vcard", "type": "string", "required": false }
       ]
     },

@@ -234,7 +234,11 @@ const contactToContent = (contact: TgContact): Content => {
     contact.vcard === undefined ? undefined : parseVCardSafe(contact.vcard);
   const input: Parameters<typeof asContact>[0] = {
     ...(fromCard ?? {}),
-    raw: contact.vcard ?? contact,
+    // Always keep the full Telegram `Contact` object as `raw`. Using just
+    // the vCard string would drop `phone_number`, `user_id`, names, and any
+    // Telegram-specific fields. Callers that want the original vCard can
+    // still read it via `raw.vcard`.
+    raw: contact,
     name: {
       ...(fromCard?.name ?? {}),
       formatted: formatted || contact.first_name,

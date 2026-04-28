@@ -83,14 +83,13 @@ const recordOutbound = (
   message: Message,
   content: Content
 ): TelegramMessage => {
-  // Telegram always echoes `from` for messages our bot sends. If it ever
-  // doesn't, that's an API contract break and we'd rather fail loudly than
-  // silently invent a fake sender.
-  if (!message.from) {
-    throw new Error(
-      "Telegram outbound message response missing `from` (bot identity)"
-    );
-  }
+  // Telegram echoes `from` for most outbound responses, but the Bot API
+  // explicitly documents that `from` may be empty for messages sent to
+  // channels (and for anonymous group-admin sends). When that happens, the
+  // message is still ours — we fall back to the bot identity captured at
+  // `createClient` time via `getMe`. This makes channel sends produce
+  // proper records instead of throwing.
+  const fromUser = message.from ?? runtime.me;
   const space: TelegramMessage["space"] = {
     id: String(message.chat.id),
     chatId: message.chat.id,
@@ -103,7 +102,7 @@ const recordOutbound = (
   const record: TelegramMessage = {
     id: String(message.message_id),
     content,
-    sender: buildOutboundSender(message.from),
+    sender: buildOutboundSender(fromUser),
     space,
     timestamp: new Date(message.date * 1000),
   };

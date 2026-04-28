@@ -23,8 +23,10 @@ export const cacheConfigSchema = z
   .optional();
 
 export const configSchema = z.object({
-  token: z.string().min(1),
-  apiBaseUrl: z.string().url().optional(),
+  // Trim before length-check so a whitespace-only secret fails validation
+  // up front rather than producing a 401 from Telegram on first request.
+  token: z.string().trim().min(1),
+  apiBaseUrl: z.string().trim().url().optional(),
   pollingTimeout: z.number().int().positive().max(50).optional(),
   dropPendingUpdates: z.boolean().optional(),
   cache: cacheConfigSchema,

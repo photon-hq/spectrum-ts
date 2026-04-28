@@ -144,12 +144,16 @@ export const messages = (
 
     return async () => {
       signal.removeEventListener("abort", onSignalAbort);
-      abortController.abort();
-      // Await `flushAll` so any final coalesced album batches make it
-      // through `emit(...)` before teardown finishes. Without the await,
-      // the parent stream would close while flush callbacks were still
-      // mid-flight and the last album would be dropped.
+      // CRITICAL: flush before aborting. Aborting the pump's in-flight
+      // `getUpdates` causes the for-await to throw, which makes the pump's
+      // catch call `end()` on the underlying stream. After `end()`, any
+      // emit attempt is a no-op-or-throw on the Repeater (push after
+      // stop), and the buffered final album would be lost. Flushing first
+      // pushes pending album batches through the live `emit` path while
+      // the stream is still open, then we abort so the pump unwinds
+      // cleanly.
       await albumBuffer?.flushAll();
+      abortController.abort();
       await pump;
     };
   });

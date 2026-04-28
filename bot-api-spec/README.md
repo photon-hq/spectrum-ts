@@ -21,9 +21,11 @@ The schema covers only the Bot API subset that maps onto Spectrum's universal `P
 
 - `send` (text, media, contact, voice, poll)
 - `replyToMessage`, `editMessage`
-- `reactToMessage`, `startTyping`
+- `reactToMessage`, `startTyping`, `stopTyping`
 - `events.messages` (via long polling)
 - Lifecycle sanity checks (`getMe`, `getChat`, `getFile`)
+
+`stopTyping` is implemented as a no-op on Telegram: `sendChatAction` is one-shot, the Bot API has no "cancel typing" endpoint, and the server-side indicator auto-expires after ~5 seconds. The action is still wired into the platform definition so cross-platform callers don't have to feature-detect — the universal `space.stopTyping()` contract is honored on every provider.
 
 Inbound `Update.poll_answer` is mapped to Spectrum's universal `poll_option` events using a per-runtime in-process cache populated when the bot sends a poll via `sendPoll` (which always pins `is_anonymous: false`). Each `poll_answer` is diffed against the user's previously cached vote vector to produce the `selected: true` / `selected: false` events Spectrum's `poll_option` schema expects, matching the contract iMessage and WhatsApp Business already implement under PR #35. Vote events therefore surface only for polls a bot owns; polls sent by other clients in a chat continue to be observable as `poll` content (the body) but produce no per-vote events. `Update.poll` (aggregate vote totals / closure state) is still **not** mapped — Spectrum has no "poll snapshot" content type and translating "poll closed" into per-user diffs would require keeping every prior vote vector for every poll, a sharper memory cost than the bounded per-user state used for `poll_answer` resolution.
 

@@ -166,12 +166,16 @@ const voiceFile = async (voice: Voice): Promise<File> => {
 
 type AttachmentRoute = "photo" | "video" | "audio" | "document";
 
+// `sendPhoto` only reliably accepts JPEG / PNG / WEBP. Other image MIME
+// types (HEIC, SVG, TIFF, AVIF, BMP, ICO, …) get silently rejected with
+// inscrutable "PHOTO_INVALID_DIMENSIONS" / "WRONG_FILE_FORMAT" errors —
+// route those through `sendDocument` instead so the file ships intact and
+// the recipient can still open it. The `image/gif` case is already
+// handled (Telegram has separate animation semantics; sendPhoto rejects).
+const PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 const routeAttachment = (mime: string): AttachmentRoute => {
-  if (mime.startsWith("image/")) {
-    // GIFs go via sendDocument; sendPhoto rejects them.
-    if (mime === "image/gif") {
-      return "document";
-    }
+  if (PHOTO_MIME_TYPES.has(mime)) {
     return "photo";
   }
   if (mime.startsWith("video/")) {
@@ -180,6 +184,9 @@ const routeAttachment = (mime: string): AttachmentRoute => {
   if (mime.startsWith("audio/")) {
     return "audio";
   }
+  // Everything else (other image/* subtypes, application/*, text/*, …)
+  // falls through to `sendDocument`, which is Telegram's universal
+  // file-send endpoint with no MIME constraints.
   return "document";
 };
 
@@ -581,10 +588,24 @@ const sendGroupContent = async (
   // `wrapNestedContent`. The Zod `isMessage` guard is loose enough to
   // accept the bare record shape (id + content + space + timestamp), which
   // is exactly what `toGroupItems` documents.
-  return {
+  const wrapper: TelegramMessage = {
     ...first,
     content: asGroup({ items: toGroupItems(childRecords) }),
   };
+  // Replace the lead child's individual cache entry with the group
+  // wrapper so `getMessage(first.id)` returns the same value the caller
+  // got back from `send`. Without this overwrite, the wrapper and the
+  // first child collide on `first.id`: `dispatchSend` already wrote the
+  // child via `recordOutbound`, so the cache would still resolve to the
+  // child's text/media content rather than the `group` content the
+  // wrapper carries. The remaining children stay individually addressable
+  // under their own ids (album members can still be replied to / reacted
+  // to one-by-one).
+  runtime.cache.messages.set(
+    messageCacheKey(first.space.id, wrapper.id),
+    wrapper
+  );
+  return wrapper;
 };
 
 const dispatchSend = async (

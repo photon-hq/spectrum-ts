@@ -295,19 +295,25 @@ export class TelegramClient {
       params as Record<string, unknown>
     );
 
+    // Build the per-call deadline ONCE, outside `withRetry`, so the
+    // documented `requestTimeoutMs` actually bounds the *whole logical
+    // call* (all attempts + their backoff sleeps), not just a single
+    // attempt. Without this hoist, a method hitting N retries would get
+    // up to N×requestTimeoutMs of cumulative wall-clock budget, which
+    // wildly exceeds the user-facing contract: "60s timeout" should mean
+    // "I'll see a result within 60s, success or failure", not "each try
+    // gets 60s and we'll keep retrying for minutes." The combined signal
+    // is also passed to `withRetry` so the inter-attempt `sleep` honors
+    // the deadline; previously only the caller `signal` did.
+    const timeoutSignal =
+      this.requestTimeoutMs === null
+        ? undefined
+        : AbortSignal.timeout(this.requestTimeoutMs);
+    const combined = combineSignals([signal, timeoutSignal]);
+
     try {
       return await withRetry(
         async () => {
-          const timeoutSignal =
-            this.requestTimeoutMs === null
-              ? undefined
-              : AbortSignal.timeout(this.requestTimeoutMs);
-          // The combined signal stays in scope for the entire body read so
-          // the per-request timeout and caller signal continue applying
-          // after the headers arrive. A slow/stuck body would otherwise
-          // hang the call indefinitely.
-          const combined = combineSignals([signal, timeoutSignal]);
-
           let response: Response;
           try {
             response = await this.fetchImpl(url, {
@@ -352,7 +358,7 @@ export class TelegramClient {
 
           return payload.result;
         },
-        { policy: policyForMethod(method, this.retryPolicy), signal }
+        { policy: policyForMethod(method, this.retryPolicy), signal: combined }
       );
     } catch (err) {
       const newChatId = migrationTargetFor(err);
@@ -379,14 +385,17 @@ export class TelegramClient {
     signal?: AbortSignal
   ): Promise<Response> {
     const url = this.fileUrl(filePath);
+    // Same per-call deadline shape as `invokeOnce`: hoist the timeout
+    // signal outside `withRetry` so the budget covers the entire
+    // download (including retry backoffs), not just a single attempt.
+    const timeoutSignal =
+      this.requestTimeoutMs === null
+        ? undefined
+        : AbortSignal.timeout(this.requestTimeoutMs);
+    const combined = combineSignals([signal, timeoutSignal]);
+
     return await withRetry(
       async () => {
-        const timeoutSignal =
-          this.requestTimeoutMs === null
-            ? undefined
-            : AbortSignal.timeout(this.requestTimeoutMs);
-        const combined = combineSignals([signal, timeoutSignal]);
-
         let response: Response;
         try {
           response = await this.fetchImpl(url, { signal: combined });
@@ -426,7 +435,7 @@ export class TelegramClient {
         // signals as soon as the request settles.
         return response;
       },
-      { policy: this.retryPolicy, signal }
+      { policy: this.retryPolicy, signal: combined }
     );
   }
 }

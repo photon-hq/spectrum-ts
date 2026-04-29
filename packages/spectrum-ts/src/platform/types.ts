@@ -27,11 +27,29 @@ type InputSchema<TSchema> =
 // Event system types
 // ---------------------------------------------------------------------------
 
+/**
+ * Every provider event yields records that carry a `space: { id }` field.
+ * Spectrum extracts `space`, builds a full `Space`, and yields `[Space, rest]`
+ * tuples downstream — so consumers see `for await (const [space, payload] of
+ * platform(app).<event>)`. `messages` is the canonical example.
+ */
+export interface ProviderEventRecord {
+  space: { id: string };
+}
+
 export type EventProducer<
-  TPayload = unknown,
+  TPayload extends ProviderEventRecord = ProviderEventRecord,
   TClient = unknown,
   TConfig = unknown,
 > = (ctx: { client: TClient; config: TConfig }) => AsyncIterable<TPayload>;
+
+/**
+ * The shape consumers see as the second tuple element — the producer's record
+ * with `space` stripped (it lives in the first tuple element instead).
+ */
+export type EventPayload<P> = P extends { space: unknown }
+  ? Omit<P, "space">
+  : P;
 
 export type ProviderMessage<
   TSender extends ResolvedUser = ResolvedUser,
@@ -116,6 +134,11 @@ export interface PlatformDef<
   >,
   _Events extends {
     messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
+    [key: string]: EventProducer<
+      ProviderEventRecord,
+      _Client,
+      z.infer<_ConfigSchema>
+    >;
   } = {
     messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
   },
@@ -306,7 +329,12 @@ interface ExtractCustomEventNames extends Fn {
 interface ToCustomEventVariant<EventName extends string> extends Fn {
   return: this["arg0"] extends PlatformProviderConfig<infer Def>
     ? EventName extends keyof Def["events"]
-      ? InferEventPayload<Def["events"][EventName]> & { platform: Def["name"] }
+      ? [
+          Space,
+          EventPayload<InferEventPayload<Def["events"][EventName]>> & {
+            platform: Def["name"];
+          },
+        ]
       : never
     : never;
 }
@@ -336,9 +364,16 @@ export type ExtractProviderDef<
 // AllCustomEventNames — union of all non-messages event names across providers
 // ---------------------------------------------------------------------------
 
-type AllCustomEventNames<Providers extends PlatformProviderConfig[]> = Pipe<
-  Providers,
-  [Tuples.Map<ExtractDef>, Tuples.Map<ExtractCustomEventNames>, Tuples.ToUnion]
+type AllCustomEventNames<Providers extends PlatformProviderConfig[]> = Exclude<
+  Pipe<
+    Providers,
+    [
+      Tuples.Map<ExtractDef>,
+      Tuples.Map<ExtractCustomEventNames>,
+      Tuples.ToUnion,
+    ]
+  >,
+  ReservedNames
 >;
 
 // ---------------------------------------------------------------------------
@@ -358,8 +393,9 @@ type UnifiedCustomEvent<
 // ---------------------------------------------------------------------------
 
 export type CustomEventStreams<Providers extends PlatformProviderConfig[]> = {
-  [K in Exclude<AllCustomEventNames<Providers>, ReservedNames> &
-    string]: AsyncIterable<UnifiedCustomEvent<Providers, K>>;
+  [K in AllCustomEventNames<Providers> & string]: AsyncIterable<
+    UnifiedCustomEvent<Providers, K>
+  >;
 };
 
 // ---------------------------------------------------------------------------
@@ -447,7 +483,7 @@ export type PlatformInstance<Def extends AnyPlatformDef> = {
     keyof Def["events"],
     "messages" | symbol | number
   > as K extends ReservedNames ? never : K]: AsyncIterable<
-    InferEventPayload<Def["events"][K]>
+    [PlatformSpace<Def>, EventPayload<InferEventPayload<Def["events"][K]>>]
   >;
 };
 
@@ -459,7 +495,17 @@ export interface PlatformRuntime {
   client: unknown;
   config: unknown;
   definition: AnyPlatformDef;
-  subscribeMessages: () => ManagedStream<[Space, InboundMessage]>;
+  /**
+   * Returns a fresh fanout consumer of the platform's `[Space, payload]` event
+   * stream for `eventName`, or `undefined` if the platform doesn't define
+   * that event. Both `messages` and any custom event flow through this single
+   * entry point — Spectrum lazily creates one broadcaster per
+   * `(platform, event)` pair so multiple consumers share a single upstream
+   * subscription.
+   */
+  subscribeEvent: (
+    eventName: string
+  ) => ManagedStream<[Space, unknown]> | undefined;
 }
 
 export interface SpectrumLike<

@@ -7,7 +7,6 @@ import {
 } from "./platform/build";
 import type {
   AnyPlatformDef,
-  CustomEventStreams,
   PlatformProviderConfig,
   PlatformRuntime,
   ProviderEventRecord,
@@ -29,21 +28,20 @@ import {
 
 export type SpectrumInstance<
   Providers extends PlatformProviderConfig[] = PlatformProviderConfig[],
-> = SpectrumLike<Providers> &
-  CustomEventStreams<Providers> & {
-    readonly messages: AsyncIterable<[Space, InboundMessage]>;
-    stop(): Promise<void>;
-    send(
-      space: Space,
-      content: ContentInput
-    ): Promise<OutboundMessage | undefined>;
-    send(
-      space: Space,
-      ...content: [ContentInput, ContentInput, ...ContentInput[]]
-    ): Promise<OutboundMessage[]>;
-    edit(message: OutboundMessage, newContent: ContentInput): Promise<void>;
-    responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
-  };
+> = SpectrumLike<Providers> & {
+  readonly messages: AsyncIterable<[Space, InboundMessage]>;
+  stop(): Promise<void>;
+  send(
+    space: Space,
+    content: ContentInput
+  ): Promise<OutboundMessage | undefined>;
+  send(
+    space: Space,
+    ...content: [ContentInput, ContentInput, ...ContentInput[]]
+  ): Promise<OutboundMessage[]>;
+  edit(message: OutboundMessage, newContent: ContentInput): Promise<void>;
+  responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
+};
 
 // ---------------------------------------------------------------------------
 // Runtime options
@@ -136,11 +134,6 @@ export async function Spectrum<
   // consumes the stream.
   const eventBroadcasters = new Map<string, Broadcaster<[Space, unknown]>>();
 
-  // Spectrum-level merged streams (one per event name) that fan in across
-  // every platform. Cached so multiple `for await (...of app.typing)`
-  // consumers share one merge.
-  const mergedEventStreams = new Map<string, ManagedStream<unknown>>();
-
   let stopped = false;
 
   const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> => {
@@ -174,8 +167,9 @@ export async function Spectrum<
    * groups when `flattenGroups` is set; every other event yields the raw
    * record minus its `space` field.
    *
-   * Returns `undefined` when the platform doesn't define `eventName`, so the
-   * spectrum-level merge can simply skip it.
+   * Returns `undefined` when the platform doesn't define `eventName`, so
+   * downstream consumers (the messages merge and platform-level event
+   * accessors) can simply skip it.
    */
   const createProviderEventStream = (
     state: {
@@ -293,79 +287,38 @@ export async function Spectrum<
   }
 
   /**
-   * Merge every platform's `subscribeEvent(eventName)` into one stream.
-   * For the canonical `messages` event no per-tuple annotation is added —
-   * `InboundMessage` already carries `.platform`. For any other event the
-   * payload (second tuple element) is annotated with `{ platform: name }`
-   * so spectrum-level consumers can branch.
+   * Merge every platform's `messages` stream into one. No per-tuple
+   * annotation is added — `InboundMessage` already carries `.platform`.
+   * Non-`messages` events are only consumable through the platform-specific
+   * accessor (e.g. `imessage(app).typing`); they never fan in here.
    */
-  const createMergedEventStream = (
-    eventName: string
-  ): ManagedStream<unknown> => {
-    return stream<unknown>((emit, end) => {
-      const isMessages = eventName === MESSAGES_EVENT;
-
-      const wrap = (
-        runtime: PlatformRuntime
-      ): ManagedStream<[Space, unknown]> | undefined => {
-        const source = runtime.subscribeEvent(eventName);
-        if (!source) {
-          return undefined;
-        }
-        if (isMessages) {
-          return source;
-        }
-        const platformName = runtime.definition.name;
-        const annotate = async function* (): AsyncIterable<[Space, unknown]> {
-          for await (const [space, payload] of source) {
-            yield [
-              space,
-              {
-                ...(payload as Record<string, unknown>),
-                platform: platformName,
-              },
-            ];
-          }
-        };
-        return adaptIterable(annotate());
-      };
-
-      const perPlatform = Array.from(platformStates.values(), wrap).filter(
-        (value): value is ManagedStream<[Space, unknown]> => value !== undefined
-      );
-
-      const merged = mergeStreams(perPlatform);
-
-      const pump = (async () => {
-        try {
-          for await (const value of merged) {
-            await emit(value);
-          }
-          end();
-        } catch (error) {
-          end(error);
-        }
-      })();
-
-      return async () => {
-        await merged.close();
-        await pump;
-      };
-    });
-  };
-
-  const getMergedEventStream = (eventName: string): ManagedStream<unknown> => {
-    let merged = mergedEventStreams.get(eventName);
-    if (!merged) {
-      merged = createMergedEventStream(eventName);
-      mergedEventStreams.set(eventName, merged);
-    }
-    return merged;
-  };
-
-  const messagesStream = getMergedEventStream(MESSAGES_EVENT) as ManagedStream<
+  const messagesStream: ManagedStream<[Space, InboundMessage]> = stream<
     [Space, InboundMessage]
-  >;
+  >((emit, end) => {
+    const perPlatform = Array.from(platformStates.values(), (runtime) =>
+      runtime.subscribeEvent(MESSAGES_EVENT)
+    ).filter(
+      (value): value is ManagedStream<[Space, unknown]> => value !== undefined
+    ) as ManagedStream<[Space, InboundMessage]>[];
+
+    const merged = mergeStreams(perPlatform);
+
+    const pump = (async () => {
+      try {
+        for await (const value of merged) {
+          await emit(value);
+        }
+        end();
+      } catch (error) {
+        end(error);
+      }
+    })();
+
+    return async () => {
+      await merged.close();
+      await pump;
+    };
+  });
 
   const stopOnce = async () => {
     if (stopped) {
@@ -374,9 +327,7 @@ export async function Spectrum<
     stopped = true;
 
     const streamShutdowns = [
-      ...Array.from(mergedEventStreams.values(), (eventStream) =>
-        eventStream.close()
-      ),
+      messagesStream.close(),
       ...Array.from(eventBroadcasters.values(), (broadcaster) =>
         broadcaster.close()
       ),
@@ -392,7 +343,6 @@ export async function Spectrum<
       })
     );
     await Promise.allSettled(clientShutdowns);
-    mergedEventStreams.clear();
     eventBroadcasters.clear();
     platformStates.clear();
   };
@@ -408,23 +358,7 @@ export async function Spectrum<
 
   const messages: AsyncIterable<[Space, InboundMessage]> = messagesStream;
 
-  // Lazy proxy for flat custom event access (`app.typing`, etc.). Each event
-  // name resolves to a cached merged stream that fans in across platforms.
-  const customEventProxy = new Proxy(
-    {} as Record<string, AsyncIterable<unknown>>,
-    {
-      get(_target, prop) {
-        // Avoid spawning streams for thenable / introspection probes that the
-        // SpectrumInstance Proxy may forward here.
-        if (typeof prop !== "string" || prop === "then") {
-          return;
-        }
-        return getMergedEventStream(prop);
-      },
-    }
-  );
-
-  const base = {
+  return {
     __providers: providers,
     __internal: { platforms: platformStates },
     messages,
@@ -448,18 +382,5 @@ export async function Spectrum<
     ): Promise<T> => {
       return space.responding(fn);
     },
-  };
-
-  // Merge base instance with custom event proxy
-  return new Proxy(base, {
-    get(target, prop, receiver) {
-      if (prop in target) {
-        return Reflect.get(target, prop, receiver);
-      }
-      if (typeof prop === "string") {
-        return customEventProxy[prop];
-      }
-      return;
-    },
-  }) as SpectrumInstance<Providers>;
+  } as SpectrumInstance<Providers>;
 }

@@ -317,29 +317,6 @@ interface ExtractDefByName<Name extends string> extends Fn {
 }
 
 // ---------------------------------------------------------------------------
-// HotScript Fn's for custom event operations
-// ---------------------------------------------------------------------------
-
-interface ExtractCustomEventNames extends Fn {
-  return: this["arg0"] extends AnyPlatformDef
-    ? Exclude<keyof this["arg0"]["events"], "messages" | symbol | number>
-    : never;
-}
-
-interface ToCustomEventVariant<EventName extends string> extends Fn {
-  return: this["arg0"] extends PlatformProviderConfig<infer Def>
-    ? EventName extends keyof Def["events"]
-      ? [
-          Space,
-          EventPayload<InferEventPayload<Def["events"][EventName]>> & {
-            platform: Def["name"];
-          },
-        ]
-      : never
-    : never;
-}
-
-// ---------------------------------------------------------------------------
 // HasProvider — check if a platform name exists in providers tuple
 // ---------------------------------------------------------------------------
 
@@ -359,44 +336,6 @@ export type ExtractProviderDef<
   Providers,
   [Tuples.Map<ExtractDef>, Tuples.Find<ExtractDefByName<Name>>]
 >;
-
-// ---------------------------------------------------------------------------
-// AllCustomEventNames — union of all non-messages event names across providers
-// ---------------------------------------------------------------------------
-
-type AllCustomEventNames<Providers extends PlatformProviderConfig[]> = Exclude<
-  Pipe<
-    Providers,
-    [
-      Tuples.Map<ExtractDef>,
-      Tuples.Map<ExtractCustomEventNames>,
-      Tuples.ToUnion,
-    ]
-  >,
-  ReservedNames
->;
-
-// ---------------------------------------------------------------------------
-// UnifiedCustomEvent — for a given event name, union of payloads across providers
-// ---------------------------------------------------------------------------
-
-type UnifiedCustomEvent<
-  Providers extends PlatformProviderConfig[],
-  EventName extends string,
-> = Pipe<
-  Providers,
-  [Tuples.Map<ToCustomEventVariant<EventName>>, Tuples.ToUnion]
->;
-
-// ---------------------------------------------------------------------------
-// CustomEventStreams — mapped type producing async iterables for each custom event
-// ---------------------------------------------------------------------------
-
-export type CustomEventStreams<Providers extends PlatformProviderConfig[]> = {
-  [K in AllCustomEventNames<Providers> & string]: AsyncIterable<
-    UnifiedCustomEvent<Providers, K>
-  >;
-};
 
 // ---------------------------------------------------------------------------
 // Platform-specific Space, Message, and User types

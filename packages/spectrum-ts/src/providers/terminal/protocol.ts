@@ -35,6 +35,13 @@ export type ProtocolContent =
       };
       vcard?: string;
     }
+  | {
+      type: "richlink";
+      url: string;
+      title?: string;
+      summary?: string;
+      cover?: { mimeType?: string; bytes?: string };
+    }
   | { type: "custom"; raw: unknown };
 
 export interface ProtocolMessageNotification {

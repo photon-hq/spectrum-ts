@@ -15,10 +15,12 @@ import { asAttachment } from "../../content/attachment";
 import { asContact } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { reactionSchema } from "../../content/reaction";
+import { type RichlinkCover, richlinkSchema } from "../../content/richlink";
 import { asVoice } from "../../content/voice";
 import type { ProviderMessageRecord } from "../../platform/build";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
+import { bufferToStream } from "../../utils/io";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import {
   type ProtocolContent,
@@ -448,8 +450,35 @@ async function spectrumToProtocol(
       vcard: await toVCard(content),
     };
   }
+  if (content.type === "richlink") {
+    // Resolve the lazy accessors eagerly so the protocol carries plain
+    // values. Cover bytes are inlined as base64; an empty buffer (e.g. the
+    // image fetch failed) is dropped so we don't waste wire space.
+    const [title, summary, cover] = await Promise.all([
+      content.title(),
+      content.summary(),
+      content.cover(),
+    ]);
+    let coverPayload: { mimeType?: string; bytes: string } | undefined;
+    if (cover) {
+      const buf = await cover.read();
+      if (buf.length > 0) {
+        coverPayload = {
+          mimeType: cover.mimeType,
+          bytes: buf.toString("base64"),
+        };
+      }
+    }
+    return {
+      type: "richlink",
+      url: content.url,
+      title,
+      summary,
+      cover: coverPayload,
+    };
+  }
   // Surface the failure as an UnsupportedError — the platform builder
-  // catches those and warns+skips, so an agent sending e.g. `richlink` on
+  // catches those and warns+skips, so an agent sending e.g. `effect` on
   // this provider gets a warning rather than an uncaught throw that
   // crashes the whole process.
   throw UnsupportedError.content(
@@ -530,6 +559,59 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
       }
     }
     return asContact({ name: p.name }) as SpectrumContent;
+  }
+  if (p.type === "richlink") {
+    // Wrap the static wire values back into the lazy-accessor shape that
+    // `richlinkSchema` requires. The protocol already eagerly resolved
+    // these on the sender side, so the accessors here are trivial — they
+    // just hand back what came in. No network call is made on the
+    // receiver, mirroring how `attachment` decode keeps `read()` lazy.
+    //
+    // Normalize empty strings to `undefined` at this wire boundary: the
+    // protocol type permits `""` (JSON has no min-length), but
+    // `richlinkSchema` enforces `z.string().min(1).optional()` on title /
+    // summary / mimeType and validates the accessor return value at call
+    // time. Without this normalization, a peer that sends an empty string
+    // would defer a `ZodError` into the agent's `await decoded.title()`.
+    const url = p.url;
+    const title = p.title || undefined;
+    const summary = p.summary || undefined;
+    const coverWire = p.cover;
+    const titleAccessor = (): Promise<string | undefined> =>
+      Promise.resolve(title);
+    const summaryAccessor = (): Promise<string | undefined> =>
+      Promise.resolve(summary);
+    let coverAccessor: () => Promise<RichlinkCover | undefined>;
+    // Guard against a peer that sends `cover: { mimeType: "..." }` without
+    // bytes — `bytes` is optional in the protocol type, so undefined here
+    // would otherwise crash `Buffer.from(undefined, "base64")` at call
+    // time. Treat a cover with no bytes as no cover at all.
+    if (coverWire?.bytes) {
+      const bytesB64 = coverWire.bytes;
+      const mimeType = coverWire.mimeType || undefined;
+      let cached: Promise<Buffer> | undefined;
+      const readCover = (): Promise<Buffer> => {
+        cached ??= Promise.resolve(Buffer.from(bytesB64, "base64") as Buffer);
+        return cached;
+      };
+      const streamCover = async (): Promise<ReadableStream<Uint8Array>> =>
+        bufferToStream(await readCover());
+      const cover: RichlinkCover = {
+        mimeType,
+        read: readCover,
+        stream: streamCover,
+      };
+      coverAccessor = () => Promise.resolve(cover);
+    } else {
+      coverAccessor = () => Promise.resolve(undefined);
+    }
+    return richlinkSchema.parse({
+      type: "richlink",
+      url,
+      title: titleAccessor,
+      summary: summaryAccessor,
+      cover: coverAccessor,
+    }) as SpectrumContent;
   }
   // Fallback so unknown future shapes don't crash the agent.
   return { type: "custom", raw: p } as SpectrumContent;

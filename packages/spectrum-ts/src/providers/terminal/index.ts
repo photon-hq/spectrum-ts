@@ -605,13 +605,20 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
     } else {
       coverAccessor = () => Promise.resolve(undefined);
     }
-    return richlinkSchema.parse({
-      type: "richlink",
-      url,
-      title: titleAccessor,
-      summary: summaryAccessor,
-      cover: coverAccessor,
-    }) as SpectrumContent;
+    try {
+      return richlinkSchema.parse({
+        type: "richlink",
+        url,
+        title: titleAccessor,
+        summary: summaryAccessor,
+        cover: coverAccessor,
+      }) as SpectrumContent;
+    } catch {
+      // If the schema rejects the constructed object — most likely a
+      // malformed `url` from a non-conforming peer — fall through to a
+      // `custom` payload so a single bad wire shape doesn't halt the
+      // event stream. Mirrors the contact-decode try/catch above.
+    }
   }
   // Fallback so unknown future shapes don't crash the agent.
   return { type: "custom", raw: p } as SpectrumContent;

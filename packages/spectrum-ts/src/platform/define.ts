@@ -4,7 +4,6 @@ import type { Space } from "../types/space";
 import { buildSpace } from "./build";
 import type {
   AnyPlatformDef,
-  InboundPlatformMessage,
   Platform,
   PlatformDef,
   PlatformInstance,
@@ -140,39 +139,30 @@ function createPlatformInstance<
     },
   };
 
-  // Add flat event properties for custom events (non-messages)
-  const eventProperties: Record<string, AsyncIterable<unknown>> = {};
+  // Lazily resolve every event (including `messages`) through the runtime's
+  // single `subscribeEvent` entry point. Cached per-name so a second
+  // `for await (...of im.<event>)` reuses the broadcaster's existing
+  // subscription instead of opening a new upstream stream.
+  const eventCache = new Map<string, AsyncIterable<[Space, unknown]>>();
   for (const eventName of Object.keys(def.events)) {
-    if (eventName === "messages") {
-      continue;
-    }
-    const producer = def.events[eventName] as
-      | ((ctx: { client: unknown; config: unknown }) => AsyncIterable<unknown>)
-      | undefined;
-    if (producer) {
-      eventProperties[eventName] = producer({
-        client: runtime.client,
-        config: runtime.config,
-      });
-    }
+    Object.defineProperty(base, eventName, {
+      enumerable: true,
+      get() {
+        let cached = eventCache.get(eventName);
+        if (!cached) {
+          const subscription = runtime.subscribeEvent(eventName);
+          if (!subscription) {
+            return;
+          }
+          cached = subscription;
+          eventCache.set(eventName, cached);
+        }
+        return cached;
+      },
+    });
   }
 
-  // Lazily subscribe to the platform's message broadcast on first read.
-  // Cached so `for await (const x of im.messages)` twice doesn't double-subscribe.
-  let messagesIterable:
-    | AsyncIterable<[PlatformSpace<Def>, InboundPlatformMessage<Def>]>
-    | undefined;
-  Object.defineProperty(base, "messages", {
-    enumerable: true,
-    get() {
-      messagesIterable ??= runtime.subscribeMessages() as AsyncIterable<
-        [PlatformSpace<Def>, InboundPlatformMessage<Def>]
-      >;
-      return messagesIterable;
-    },
-  });
-
-  return Object.assign(base, eventProperties) as PlatformInstance<Def>;
+  return base as PlatformInstance<Def>;
 }
 
 export function definePlatform<

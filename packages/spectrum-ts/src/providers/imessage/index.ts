@@ -26,6 +26,7 @@ import {
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
 } from "./remote/api";
+import { subscribeTyping as remoteTyping } from "./remote/typing-events";
 import {
   configSchema,
   type IMessageClient,
@@ -132,6 +133,8 @@ export const imessage = definePlatform("iMessage", {
   events: {
     messages: ({ client }) =>
       isLocal(client) ? localMessages(client) : remoteMessages(client),
+    typing: ({ client }: { client: IMessageClient }) =>
+      isLocal(client) ? (async function* () {})() : remoteTyping(client),
   },
 
   actions: {

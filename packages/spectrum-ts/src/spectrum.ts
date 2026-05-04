@@ -14,6 +14,7 @@ import type {
 } from "./platform/types";
 import type { InboundMessage, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
+import { createStore, type Store } from "./utils/store";
 import {
   type Broadcaster,
   broadcast,
@@ -162,11 +163,13 @@ export async function Spectrum<
     client: unknown;
     config: unknown;
     definition: AnyPlatformDef;
+    store: Store;
   }): ManagedStream<[Space, InboundMessage]> => {
-    const { client, config, definition } = state;
+    const { client, config, definition, store } = state;
     const raw = definition.events.messages({
       client,
       config,
+      store,
     }) as AsyncIterable<ProviderMessageRecord>;
 
     const bindSend = async function* (): AsyncIterable<
@@ -177,7 +180,7 @@ export async function Spectrum<
           ...msg.space,
           __platform: definition.name,
         };
-        const typingCtx = { space: spaceRef, client, config };
+        const typingCtx = { space: spaceRef, client, config, store };
         const space = buildSpace({
           spaceRef,
           extras: {},
@@ -185,6 +188,7 @@ export async function Spectrum<
           definition,
           client,
           config,
+          store,
         });
         const normalizedMessage = wrapProviderMessage(
           msg,
@@ -194,6 +198,7 @@ export async function Spectrum<
             definition,
             space,
             spaceRef,
+            store,
           },
           "inbound"
         );
@@ -217,6 +222,7 @@ export async function Spectrum<
     client: unknown;
     config: unknown;
     definition: AnyPlatformDef;
+    store: Store;
   }): Broadcaster<[Space, InboundMessage]> => {
     if (stopped) {
       throw new Error(
@@ -239,17 +245,20 @@ export async function Spectrum<
     const providerConfig = provider as PlatformProviderConfig;
     const def = providerConfig.__definition;
     const userConfig = def.config.parse(providerConfig.config);
+    const store = createStore();
 
     const client = await def.lifecycle.createClient({
       config: userConfig,
       projectId,
       projectSecret,
+      store,
     });
 
     const state = {
       client,
       config: userConfig,
       definition: def,
+      store,
     };
 
     platformStates.set(def.name, {
@@ -289,18 +298,19 @@ export async function Spectrum<
   ): ManagedStream<unknown> => {
     return stream<unknown>((emit, end) => {
       const providerStreams = Array.from(platformStates.values(), (state) => {
-        const { client, config, definition } = state;
+        const { client, config, definition, store } = state;
         const producer = definition.events[eventName] as
           | ((ctx: {
               client: unknown;
               config: unknown;
+              store: Store;
             }) => AsyncIterable<unknown>)
           | undefined;
         if (!producer) {
           return undefined;
         }
 
-        const providerEvents = producer({ client, config });
+        const providerEvents = producer({ client, config, store });
         const annotatePlatform = async function* (): AsyncIterable<unknown> {
           for await (const value of providerEvents) {
             yield { ...(value as object), platform: definition.name };
@@ -357,6 +367,7 @@ export async function Spectrum<
     const clientShutdowns = Array.from(platformStates.values(), (state) =>
       state.definition.lifecycle.destroyClient({
         client: state.client,
+        store: state.store,
       })
     );
     await Promise.allSettled(clientShutdowns);

@@ -20,6 +20,7 @@ export interface SharedTokenData {
 export interface DedicatedTokenData {
   auth: Record<string, string>;
   expiresIn: number;
+  numbers: Record<string, string | null>;
   type: "dedicated";
 }
 

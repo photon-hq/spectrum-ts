@@ -94,6 +94,7 @@ export const imessage = definePlatform("iMessage", {
       config,
       projectId,
       projectSecret,
+      store,
     }): Promise<IMessageClient> => {
       if (config.local) {
         return new IMessageSDK();
@@ -116,7 +117,7 @@ export const imessage = definePlatform("iMessage", {
         );
       }
 
-      return await createCloudClients(projectId, projectSecret);
+      return await createCloudClients(projectId, projectSecret, store);
     },
 
     destroyClient: async ({ client }: { client: IMessageClient }) => {

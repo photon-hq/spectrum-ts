@@ -4,6 +4,7 @@ import type { Content } from "../content/types";
 import type { InboundMessage, Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { User } from "../types/user";
+import type { Store } from "../utils/store";
 import type { ManagedStream } from "../utils/stream";
 
 type ResolvedSpace = Pick<Space, "id">;
@@ -31,7 +32,11 @@ export type EventProducer<
   TPayload = unknown,
   TClient = unknown,
   TConfig = unknown,
-> = (ctx: { client: TClient; config: TConfig }) => AsyncIterable<TPayload>;
+> = (ctx: {
+  client: TClient;
+  config: TConfig;
+  store: Store;
+}) => AsyncIterable<TPayload>;
 
 export type ProviderMessage<
   TSender extends ResolvedUser = ResolvedUser,
@@ -126,16 +131,19 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<ProviderMessageRecord>;
     startTyping?: (_: {
       space: _ResolvedSpace & SpaceRef;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<void>;
     stopTyping?: (_: {
       space: _ResolvedSpace & SpaceRef;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<void>;
     reactToMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
@@ -143,6 +151,7 @@ export interface PlatformDef<
       reaction: string;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<void>;
     replyToMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
@@ -151,6 +160,7 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<ProviderMessageRecord>;
     editMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
@@ -158,12 +168,14 @@ export interface PlatformDef<
       content: Content;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<void>;
     getMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<_MessageType | undefined>;
   };
 
@@ -176,8 +188,9 @@ export interface PlatformDef<
       config: z.infer<_ConfigSchema>;
       projectId: string | undefined;
       projectSecret: string | undefined;
+      store: Store;
     }) => Promise<_Client>;
-    destroyClient: (ctx: { client: _Client }) => Promise<void>;
+    destroyClient: (ctx: { client: _Client; store: Store }) => Promise<void>;
   };
 
   message?: {
@@ -197,6 +210,7 @@ export interface PlatformDef<
       };
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<_ResolvedSpace>;
   };
 
@@ -206,6 +220,7 @@ export interface PlatformDef<
       input: { userID: string };
       client: _Client;
       config: z.infer<_ConfigSchema>;
+      store: Store;
     }) => Promise<_ResolvedUser>;
   };
 }
@@ -459,6 +474,7 @@ export interface PlatformRuntime {
   client: unknown;
   config: unknown;
   definition: AnyPlatformDef;
+  store: Store;
   subscribeMessages: () => ManagedStream<[Space, InboundMessage]>;
 }
 

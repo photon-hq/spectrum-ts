@@ -7,10 +7,21 @@ import {
   type DedicatedTokenData,
   type SharedTokenData,
 } from "../../utils/cloud";
+import type { Store } from "../../utils/store";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
 const RETRY_DELAY_MS = 30_000;
+
+export const NUMBERS_KEY = "numbers";
+
+/**
+ * Read the bidirectional phone↔instance mapping written by the iMessage cloud
+ * auth path. Returns `{}` for local mode, BYO clients, or before the first
+ * token issuance completes.
+ */
+export const getNumbers = (store: Store): Record<string, string> =>
+  store.object<Record<string, string>>(NUMBERS_KEY) ?? {};
 
 interface CloudAuth {
   dispose: () => void;
@@ -18,14 +29,39 @@ interface CloudAuth {
 
 const cloudAuthState = new WeakMap<AdvancedIMessage[], CloudAuth>();
 
+const buildNumbersMap = (data: DedicatedTokenData): Record<string, string> => {
+  const mapping: Record<string, string> = {};
+  for (const [instanceId, phone] of Object.entries(data.numbers ?? {})) {
+    if (phone) {
+      mapping[phone] = instanceId;
+      mapping[instanceId] = phone;
+    }
+  }
+  return mapping;
+};
+
+const writeNumbers = (
+  store: Store,
+  data: DedicatedTokenData | SharedTokenData
+): void => {
+  if (data.type === "dedicated") {
+    store.set(NUMBERS_KEY, buildNumbersMap(data));
+    return;
+  }
+  store.delete(NUMBERS_KEY);
+};
+
 export async function createCloudClients(
   projectId: string,
-  projectSecret: string
+  projectSecret: string,
+  store: Store
 ): Promise<AdvancedIMessage[]> {
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+
+  writeNumbers(store, tokenData);
 
   const scheduleRenewal = () => {
     if (disposed) {
@@ -38,6 +74,7 @@ export async function createCloudClients(
       try {
         tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
         tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
+        writeNumbers(store, tokenData);
         scheduleRenewal();
       } catch {
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
@@ -55,6 +92,7 @@ export async function createCloudClients(
     }
     tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
+    writeNumbers(store, tokenData);
     scheduleRenewal();
   };
 

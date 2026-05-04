@@ -7,6 +7,7 @@ import type {
 } from "../types/message";
 import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
+import type { Store } from "../utils/store";
 import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
 
 export type { ProviderMessageRecord } from "./types";
@@ -107,6 +108,7 @@ interface BaseBuildParams {
   id: string;
   space: Space;
   spaceRef: SpaceRef;
+  store: Store;
   timestamp: Date;
 }
 
@@ -128,7 +130,13 @@ export interface BuildSpaceParams {
   definition: AnyPlatformDef;
   extras: Record<string, unknown>;
   spaceRef: SpaceRef;
-  typingCtx: { space: SpaceRef; client: unknown; config: unknown };
+  store: Store;
+  typingCtx: {
+    space: SpaceRef;
+    client: unknown;
+    config: unknown;
+    store: Store;
+  };
 }
 
 // Raw provider message fields — everything else on a provider-emitted record
@@ -147,6 +155,7 @@ export interface WrapContext {
   definition: AnyPlatformDef;
   space: Space;
   spaceRef: SpaceRef;
+  store: Store;
 }
 
 const extractExtras = (
@@ -197,6 +206,7 @@ export function wrapProviderMessage(
     definition: ctx.definition,
     client: ctx.client,
     config: ctx.config,
+    store: ctx.store,
   };
   if (direction === "inbound") {
     if (!raw.sender) {
@@ -262,7 +272,8 @@ const isRawProviderRecord = (v: unknown): v is ProviderMessageRecord => {
 };
 
 export function buildSpace(params: BuildSpaceParams): Space {
-  const { spaceRef, extras, typingCtx, definition, client, config } = params;
+  const { spaceRef, extras, typingCtx, definition, client, config, store } =
+    params;
   // Declared first so inner arrows can reference it after assignment.
   let space: Space;
 
@@ -279,6 +290,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
         reaction: item.emoji,
         client,
         config,
+        store,
       });
     } catch (err) {
       if (err instanceof UnsupportedError) {
@@ -319,7 +331,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     }
     return wrapProviderMessage(
       raw,
-      { client, config, definition, space, spaceRef },
+      { client, config, definition, space, spaceRef, store },
       "outbound"
     );
   }
@@ -360,6 +372,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
         messageId: id,
         client,
         config,
+        store,
       })) as ProviderMessageRecord | undefined;
     } catch (err) {
       if (err instanceof UnsupportedError) {
@@ -373,7 +386,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     }
     return wrapProviderMessage(
       raw,
-      { client, config, definition, space, spaceRef },
+      { client, config, definition, space, spaceRef, store },
       "inbound"
     );
   }
@@ -410,7 +423,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
 export function buildMessage(params: BuildInboundParams): InboundMessage;
 export function buildMessage(params: BuildOutboundParams): OutboundMessage;
 export function buildMessage(params: BuildMessageParams): Message {
-  const { definition, client, config, spaceRef, space } = params;
+  const { definition, client, config, spaceRef, space, store } = params;
 
   // Late-bound self reference so `react()` can pass the built Message as the
   // reaction target.
@@ -436,6 +449,7 @@ export function buildMessage(params: BuildMessageParams): Message {
         reaction,
         client,
         config,
+        store,
       });
     } catch (err) {
       if (err instanceof UnsupportedError) {
@@ -476,6 +490,7 @@ export function buildMessage(params: BuildMessageParams): Message {
         content: item,
         client,
         config,
+        store,
       })) as ProviderMessageRecord | undefined;
     } catch (err) {
       if (err instanceof UnsupportedError) {
@@ -491,7 +506,7 @@ export function buildMessage(params: BuildMessageParams): Message {
     }
     return wrapProviderMessage(
       raw,
-      { client, config, definition, space, spaceRef },
+      { client, config, definition, space, spaceRef, store },
       "outbound"
     );
   };
@@ -569,6 +584,7 @@ export function buildMessage(params: BuildMessageParams): Message {
             content: resolved,
             client,
             config,
+            store,
           });
         } catch (err) {
           if (err instanceof UnsupportedError) {

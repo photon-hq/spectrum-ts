@@ -1,6 +1,7 @@
 import type z from "zod";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import type { Store } from "../utils/store";
 import { buildSpace } from "./build";
 import type {
   AnyPlatformDef,
@@ -36,6 +37,7 @@ function createPlatformInstance<
       input: { userID },
       client: runtime.client as _Client,
       config: runtime.config as z.infer<_ConfigSchema>,
+      store: runtime.store,
     });
     return {
       ...resolved,
@@ -98,6 +100,7 @@ function createPlatformInstance<
         input: { userID },
         client: runtime.client as _Client,
         config: runtime.config as z.infer<_ConfigSchema>,
+        store: runtime.store,
       });
       return {
         ...resolved,
@@ -116,6 +119,7 @@ function createPlatformInstance<
         input: { users, params: parsedParams },
         client: runtime.client as _Client,
         config: runtime.config as z.infer<_ConfigSchema>,
+        store: runtime.store,
       });
       const parsedSpace = def.space.schema
         ? def.space.schema.parse(resolved)
@@ -128,6 +132,7 @@ function createPlatformInstance<
         space: spaceRef,
         client: runtime.client as _Client,
         config: runtime.config as z.infer<_ConfigSchema>,
+        store: runtime.store,
       };
       return buildSpace({
         spaceRef,
@@ -136,6 +141,7 @@ function createPlatformInstance<
         definition: def as unknown as AnyPlatformDef,
         client: runtime.client,
         config: runtime.config,
+        store: runtime.store,
       }) as PlatformSpace<Def>;
     },
   };
@@ -147,12 +153,17 @@ function createPlatformInstance<
       continue;
     }
     const producer = def.events[eventName] as
-      | ((ctx: { client: unknown; config: unknown }) => AsyncIterable<unknown>)
+      | ((ctx: {
+          client: unknown;
+          config: unknown;
+          store: Store;
+        }) => AsyncIterable<unknown>)
       | undefined;
     if (producer) {
       eventProperties[eventName] = producer({
         client: runtime.client,
         config: runtime.config,
+        store: runtime.store,
       });
     }
   }

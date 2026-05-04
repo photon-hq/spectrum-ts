@@ -2,8 +2,7 @@ import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ManagedStream } from "../../../utils/stream";
-import type { IMessageMessage } from "../types";
-import { firstRemoteClient, primaryRemoteClient } from "./client";
+import type { IMessageMessage, RemoteClient } from "../types";
 import { getMessage as getRemoteMessage } from "./inbound";
 import { reactToMessage as reactToRemoteMessage } from "./reactions";
 import {
@@ -18,82 +17,58 @@ import {
 } from "./typing";
 
 export const messages = (
-  clients: AdvancedIMessage[]
+  clients: RemoteClient[]
 ): ManagedStream<IMessageMessage> => remoteMessages(clients);
 
-/** Best-effort no-op when firstRemoteClient(clients) is unavailable. */
 export const startTyping = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string
 ): Promise<void> => {
-  const remote = firstRemoteClient(clients);
-  if (!remote) {
-    return;
-  }
   await startRemoteTyping(remote, spaceId);
 };
 
-/** Best-effort no-op when firstRemoteClient(clients) is unavailable. */
 export const stopTyping = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string
 ): Promise<void> => {
-  const remote = firstRemoteClient(clients);
-  if (!remote) {
-    return;
-  }
   await stopRemoteTyping(remote, spaceId);
 };
 
-/** Throws when primaryRemoteClient(clients) is unavailable. */
 export const send = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string,
   content: Content
 ): Promise<ProviderMessageRecord> =>
-  sendRemoteMessage(primaryRemoteClient(clients), spaceId, content);
+  sendRemoteMessage(remote, spaceId, content);
 
-/** Throws when primaryRemoteClient(clients) is unavailable. */
 export const replyToMessage = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string,
   msgId: string,
   content: Content
 ): Promise<ProviderMessageRecord> =>
-  replyToRemoteMessage(primaryRemoteClient(clients), spaceId, msgId, content);
+  replyToRemoteMessage(remote, spaceId, msgId, content);
 
-/** Throws when primaryRemoteClient(clients) is unavailable. */
 export const editMessage = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string,
   msgId: string,
   content: Content
-): Promise<void> =>
-  editRemoteMessage(primaryRemoteClient(clients), spaceId, msgId, content);
+): Promise<void> => editRemoteMessage(remote, spaceId, msgId, content);
 
-/** Best-effort no-op when firstRemoteClient(clients) is unavailable. */
 export const reactToMessage = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string,
   target: IMessageMessage,
   reaction: string
 ): Promise<void> => {
-  const remote = firstRemoteClient(clients);
-  if (!remote) {
-    return;
-  }
   await reactToRemoteMessage(remote, spaceId, target, reaction);
 };
 
-/** Best-effort undefined when firstRemoteClient(clients) is unavailable. */
 export const getMessage = async (
-  clients: AdvancedIMessage[],
+  remote: AdvancedIMessage,
   spaceId: string,
-  msgId: string
-): Promise<IMessageMessage | undefined> => {
-  const remote = firstRemoteClient(clients);
-  if (!remote) {
-    return;
-  }
-  return getRemoteMessage(remote, spaceId, msgId);
-};
+  msgId: string,
+  phone: string
+): Promise<IMessageMessage | undefined> =>
+  getRemoteMessage(remote, spaceId, msgId, phone);

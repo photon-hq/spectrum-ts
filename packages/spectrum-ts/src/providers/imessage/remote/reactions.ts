@@ -95,13 +95,14 @@ const resolveReactionTarget = async (
   client: AdvancedIMessage,
   cache: MessageCache,
   strippedGuid: string,
-  partIndex: number
+  partIndex: number,
+  phone: string
 ): Promise<IMessageMessage | undefined> => {
   let candidate = cache.get(strippedGuid);
   if (!candidate) {
     try {
       const fetched = await client.messages.get(messageGuid(strippedGuid));
-      candidate = await rebuildFromAppleMessage(client, fetched);
+      candidate = await rebuildFromAppleMessage(client, fetched, phone);
       cacheMessage(cache, candidate);
     } catch {
       return;
@@ -122,7 +123,8 @@ export const toReactionMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
   event: ReceivedEvent,
-  target: string
+  target: string,
+  phone: string
 ): Promise<IMessageMessage[]> => {
   const type = getAssociatedMessageType(event.message);
   if (type && isTapbackRemoval(type)) {
@@ -140,7 +142,8 @@ export const toReactionMessages = async (
     client,
     cache,
     strippedGuid,
-    partIndex
+    partIndex,
+    phone
   );
   if (!resolved) {
     return [];
@@ -149,7 +152,12 @@ export const toReactionMessages = async (
   if (typeof messageId !== "string" || messageId.length === 0) {
     return [];
   }
-  const base = buildMessageBase(event.message, event.chatGuid, event.timestamp);
+  const base = buildMessageBase(
+    event.message,
+    event.chatGuid,
+    event.timestamp,
+    phone
+  );
   return [
     {
       ...base,

@@ -18,7 +18,7 @@ import {
   stream,
 } from "../../../utils/stream";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
-import type { IMessageMessage } from "../types";
+import type { IMessageMessage, RemoteClient } from "../types";
 import {
   type AppleMessage,
   type ReceivedEvent,
@@ -47,6 +47,7 @@ const isRetryableIMessageStreamError = (error: unknown): boolean => {
 const toMessageItem = async (
   client: AdvancedIMessage,
   event: ReceivedEvent,
+  phone: string,
   cursor?: string
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
   const id = event.message.guid as string;
@@ -54,24 +55,27 @@ const toMessageItem = async (
     return { cursor, id, values: [] };
   }
 
+  // Per-AdvancedIMessage cache: keyed off the inner client object so each
+  // phone has its own message cache.
   const cache = getMessageCache(client);
   const target = event.message.associatedMessageGuid as string | undefined;
   const values = target
-    ? await toReactionMessages(client, cache, event, target)
-    : await toInboundMessages(client, cache, event);
+    ? await toReactionMessages(client, cache, event, target, phone)
+    : await toInboundMessages(client, cache, event, phone);
   return { cursor, id, values };
 };
 
 const messageStream = (
-  client: AdvancedIMessage
+  client: AdvancedIMessage,
+  phone: string
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<ReceivedEvent, AppleMessage, IMessageMessage>({
     fetchMissed: (cursor, { limit }) =>
       client.messages.fetchMissed(cursor, { limit }),
     isRetryableError: isRetryableIMessageStreamError,
-    processLive: (event) => toMessageItem(client, event, event.cursor),
+    processLive: (event) => toMessageItem(client, event, phone, event.cursor),
     processMissed: (message) =>
-      toMessageItem(client, receivedEventFromMessage(message)),
+      toMessageItem(client, receivedEventFromMessage(message), phone),
     subscribeLive: () => client.messages.subscribe("message.received"),
   });
 
@@ -86,13 +90,14 @@ const emitPollMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
   event: PollEvent,
+  phone: string,
   emit: (message: IMessageMessage) => Promise<void>
 ): Promise<void> => {
   cachePollEvent(pollCache, event);
   if (event.actor.isFromMe) {
     return;
   }
-  const messages = await toPollDeltaMessages(client, pollCache, event);
+  const messages = await toPollDeltaMessages(client, pollCache, event, phone);
   for (const vote of messages) {
     await emit(vote);
   }
@@ -102,18 +107,20 @@ const runPollSubscription = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
   subscription: ReturnType<AdvancedIMessage["polls"]["subscribe"]>,
+  phone: string,
   emit: (message: IMessageMessage) => Promise<void>,
   onEvent: () => void
 ): Promise<void> => {
   for await (const event of subscription) {
     onEvent();
-    await emitPollMessages(client, pollCache, event, emit);
+    await emitPollMessages(client, pollCache, event, phone, emit);
   }
 };
 
 const pollStream = (
   client: AdvancedIMessage,
-  pollCache: PollCache
+  pollCache: PollCache,
+  phone: string
 ): ManagedStream<IMessageMessage> =>
   stream<IMessageMessage>((emit, end) => {
     let active = client.polls.subscribe();
@@ -146,9 +153,16 @@ const pollStream = (
     const pump = (async () => {
       while (!closed) {
         try {
-          await runPollSubscription(client, pollCache, active, emit, () => {
-            retryDelayMs = RECONNECT_INITIAL_DELAY_MS;
-          });
+          await runPollSubscription(
+            client,
+            pollCache,
+            active,
+            phone,
+            emit,
+            () => {
+              retryDelayMs = RECONNECT_INITIAL_DELAY_MS;
+            }
+          );
         } catch (e) {
           if (!closed) {
             logPollStreamError(e);
@@ -176,14 +190,23 @@ const pollStream = (
 
 const clientStream = (
   client: AdvancedIMessage,
-  pollCache: PollCache
+  pollCache: PollCache,
+  phone: string
 ): ManagedStream<IMessageMessage> => {
-  return mergeStreams([messageStream(client), pollStream(client, pollCache)]);
+  return mergeStreams([
+    messageStream(client, phone),
+    pollStream(client, pollCache, phone),
+  ]);
 };
 
 export const messages = (
-  clients: AdvancedIMessage[]
+  clients: RemoteClient[]
 ): ManagedStream<IMessageMessage> => {
+  // Outer-array poll cache: shared across all per-phone streams to dedupe
+  // poll events that fan out to every client. Keyed off the RemoteClient[]
+  // identity, so each iMessage provider instance has its own.
   const pollCache = getPollCache(clients);
-  return mergeStreams(clients.map((client) => clientStream(client, pollCache)));
+  return mergeStreams(
+    clients.map((entry) => clientStream(entry.client, pollCache, entry.phone))
+  );
 };

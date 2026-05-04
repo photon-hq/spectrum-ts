@@ -1,67 +1,54 @@
-import {
-  type AdvancedIMessage,
-  createClient,
-} from "@photon-ai/advanced-imessage";
-import {
-  cloud,
-  type DedicatedTokenData,
-  type SharedTokenData,
-} from "../../utils/cloud";
-import type { Store } from "../../utils/store";
+import { createClient } from "@photon-ai/advanced-imessage";
+import { cloud, type DedicatedTokenData } from "../../utils/cloud";
+import { UnsupportedError } from "../../utils/errors";
+import type { RemoteClient } from "./types";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
 const RETRY_DELAY_MS = 30_000;
 
-export const NUMBERS_KEY = "numbers";
-
-/**
- * Read the bidirectional phone↔instance mapping written by the iMessage cloud
- * auth path. Returns `{}` for local mode, BYO clients, or before the first
- * token issuance completes.
- */
-export const getNumbers = (store: Store): Record<string, string> =>
-  store.object<Record<string, string>>(NUMBERS_KEY) ?? {};
-
 interface CloudAuth {
   dispose: () => void;
 }
 
-const cloudAuthState = new WeakMap<AdvancedIMessage[], CloudAuth>();
+const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
 
-const buildNumbersMap = (data: DedicatedTokenData): Record<string, string> => {
-  const mapping: Record<string, string> = {};
-  for (const [instanceId, phone] of Object.entries(data.numbers ?? {})) {
-    if (phone) {
-      mapping[phone] = instanceId;
-      mapping[instanceId] = phone;
-    }
+const requirePhone = (data: DedicatedTokenData, instanceId: string): string => {
+  const phone = data.numbers?.[instanceId];
+  if (!phone) {
+    throw new Error(`iMessage instance ${instanceId} has no phone assigned`);
   }
-  return mapping;
-};
-
-const writeNumbers = (
-  store: Store,
-  data: DedicatedTokenData | SharedTokenData
-): void => {
-  if (data.type === "dedicated") {
-    store.set(NUMBERS_KEY, buildNumbersMap(data));
-    return;
-  }
-  store.delete(NUMBERS_KEY);
+  return phone;
 };
 
 export async function createCloudClients(
   projectId: string,
-  projectSecret: string,
-  store: Store
-): Promise<AdvancedIMessage[]> {
+  projectSecret: string
+): Promise<RemoteClient[]> {
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
 
-  writeNumbers(store, tokenData);
+  if (tokenData.type === "shared") {
+    throw UnsupportedError.action(
+      "multi-phone",
+      "iMessage shared mode",
+      "use dedicated-token cloud mode"
+    );
+  }
+
+  // Captured outside `buildClients` so renewal can mutate `entry.phone` in
+  // place, keeping live client refs and merged streams alive across renewals.
+  // The instanceId stays in this closure (paired with the entry) so it does
+  // not leak onto the public RemoteClient shape.
+  const records: { entry: RemoteClient; instanceId: string }[] = [];
+
+  const syncPhones = (data: DedicatedTokenData) => {
+    for (const { entry, instanceId } of records) {
+      entry.phone = requirePhone(data, instanceId);
+    }
+  };
 
   const scheduleRenewal = () => {
     if (disposed) {
@@ -73,8 +60,15 @@ export async function createCloudClients(
     renewalTimer = setTimeout(async () => {
       try {
         tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+        if (tokenData.type === "shared") {
+          throw UnsupportedError.action(
+            "multi-phone",
+            "iMessage shared mode",
+            "use dedicated-token cloud mode"
+          );
+        }
         tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-        writeNumbers(store, tokenData);
+        syncPhones(tokenData);
         scheduleRenewal();
       } catch {
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
@@ -91,31 +85,23 @@ export async function createCloudClients(
       return;
     }
     tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+    if (tokenData.type === "shared") {
+      throw UnsupportedError.action(
+        "multi-phone",
+        "iMessage shared mode",
+        "use dedicated-token cloud mode"
+      );
+    }
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-    writeNumbers(store, tokenData);
+    syncPhones(tokenData);
     scheduleRenewal();
   };
 
-  const buildClients = (): AdvancedIMessage[] => {
-    if (tokenData.type === "shared") {
-      const address =
-        process.env.SPECTRUM_IMESSAGE_ADDRESS ??
-        "imessage.spectrum.photon.codes:443";
-
-      return [
-        createClient({
-          address,
-          tls: true,
-          token: async () => {
-            await refreshIfNeeded();
-            return (tokenData as SharedTokenData).token;
-          },
-        }),
-      ];
-    }
-
-    return Object.entries(tokenData.auth).map(([instanceId, token]) =>
-      createClient({
+  const dedicated = tokenData;
+  for (const [instanceId, token] of Object.entries(dedicated.auth)) {
+    const entry: RemoteClient = {
+      phone: requirePhone(dedicated, instanceId),
+      client: createClient({
         address: `${instanceId}.imsg.photon.codes:443`,
         tls: true,
         token: async () => {
@@ -123,13 +109,13 @@ export async function createCloudClients(
           const data = tokenData as DedicatedTokenData;
           return data.auth[instanceId] ?? token;
         },
-      })
-    );
-  };
+      }),
+    };
+    records.push({ entry, instanceId });
+  }
+  const entries = records.map((r) => r.entry);
 
-  const clients = buildClients();
-
-  cloudAuthState.set(clients, {
+  cloudAuthState.set(entries, {
     dispose: () => {
       disposed = true;
       if (renewalTimer !== undefined) {
@@ -139,12 +125,10 @@ export async function createCloudClients(
     },
   });
 
-  return clients;
+  return entries;
 }
 
-export async function disposeCloudAuth(
-  clients: AdvancedIMessage[]
-): Promise<void> {
+export async function disposeCloudAuth(clients: RemoteClient[]): Promise<void> {
   const auth = cloudAuthState.get(clients);
   if (auth) {
     auth.dispose();

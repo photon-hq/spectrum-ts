@@ -27,7 +27,12 @@ export const toMessages = async (
 
   const base: Omit<IMessageMessage, "id" | "content"> = {
     sender: { id: message.participant ?? "" },
-    space: { id: chatId, type: chatKind === "group" ? "group" : "dm" },
+    // Local mode has no concept of "which-of-my-phones"; phone is empty.
+    space: {
+      id: chatId,
+      type: chatKind === "group" ? "group" : "dm",
+      phone: "",
+    },
     timestamp: message.createdAt,
   };
 

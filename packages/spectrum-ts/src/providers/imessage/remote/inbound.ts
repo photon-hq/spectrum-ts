@@ -72,7 +72,8 @@ const asProviderGroup = (items: readonly RawProviderMessage[]): Group =>
 export const buildMessageBase = (
   message: AppleMessage,
   chatGuidHint: string | undefined,
-  timestamp: Date
+  timestamp: Date,
+  phone: string
 ): RemoteMessageBase => {
   const chat = resolveChatGuid(message, chatGuidHint);
   return {
@@ -80,6 +81,7 @@ export const buildMessageBase = (
     space: {
       id: chat,
       type: chat.includes(";+;") ? "group" : "dm",
+      phone,
     },
     timestamp,
   };
@@ -175,11 +177,12 @@ const toRichlinkMessage = (
 export const rebuildFromAppleMessage = async (
   client: AdvancedIMessage,
   message: AppleMessage,
+  phone: string,
   chatGuidHint?: string
 ): Promise<IMessageMessage> => {
   const messageGuidStr = message.guid as string;
   const timestamp = message.dateCreated ?? new Date();
-  const base = buildMessageBase(message, chatGuidHint, timestamp);
+  const base = buildMessageBase(message, chatGuidHint, timestamp, phone);
 
   if (message.attachments.length === 1) {
     const info = message.attachments[0];
@@ -243,9 +246,15 @@ export const cacheMessage = (
 export const toInboundMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
-  event: ReceivedEvent
+  event: ReceivedEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
-  const base = buildMessageBase(event.message, event.chatGuid, event.timestamp);
+  const base = buildMessageBase(
+    event.message,
+    event.chatGuid,
+    event.timestamp,
+    phone
+  );
   const messageGuidStr = event.message.guid as string;
 
   if (getBalloonBundleId(event.message) === URL_BALLOON_BUNDLE_ID) {
@@ -310,8 +319,11 @@ export const toInboundMessages = async (
 export const getMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
-  msgId: string
+  msgId: string,
+  phone: string
 ): Promise<IMessageMessage | undefined> => {
+  // Per-AdvancedIMessage cache: keyed off the inner client object so each
+  // phone has its own message cache.
   const cache = getMessageCache(remote);
   const cached = cache.get(msgId);
   if (cached) {
@@ -327,7 +339,12 @@ export const getMessage = async (
       const fetched = await remote.messages.get(
         messageGuid(childRef.parentGuid)
       );
-      const parent = await rebuildFromAppleMessage(remote, fetched, spaceId);
+      const parent = await rebuildFromAppleMessage(
+        remote,
+        fetched,
+        phone,
+        spaceId
+      );
       cacheMessage(cache, parent);
       if (parent.content.type !== "group") {
         return;
@@ -344,7 +361,12 @@ export const getMessage = async (
 
   try {
     const fetched = await remote.messages.get(messageGuid(msgId));
-    const rebuilt = await rebuildFromAppleMessage(remote, fetched, spaceId);
+    const rebuilt = await rebuildFromAppleMessage(
+      remote,
+      fetched,
+      phone,
+      spaceId
+    );
     cacheMessage(cache, rebuilt);
     return rebuilt;
   } catch (err) {

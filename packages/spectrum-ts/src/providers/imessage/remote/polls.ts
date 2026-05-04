@@ -27,6 +27,7 @@ interface PollOptionMessageInput {
   chatGuid: string;
   event: Pick<PollEvent, "at" | "pollMessageGuid">;
   optionId: string;
+  phone: string;
   selected: boolean;
   senderAddress: string;
 }
@@ -36,6 +37,7 @@ interface PollOptionMessagesInput {
   chatGuid: string;
   deltas: readonly PollSelectionDelta[];
   event: Pick<PollEvent, "at" | "pollMessageGuid">;
+  phone: string;
   senderAddress: string;
 }
 
@@ -137,6 +139,7 @@ const buildPollOptionMessage = (
     space: {
       id: input.chatGuid,
       type: input.chatGuid.includes(";+;") ? "group" : "dm",
+      phone: input.phone,
     },
     timestamp: input.event.at,
     content: asPollOption({
@@ -157,6 +160,7 @@ const buildPollOptionMessages = (
       chatGuid: input.chatGuid,
       event: input.event,
       optionId: delta.optionId,
+      phone: input.phone,
       selected: delta.selected,
       senderAddress: input.senderAddress,
     });
@@ -196,7 +200,8 @@ const refreshPollMetadata = async (
 const toPollVoteMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: VotedPollEvent
+  event: VotedPollEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
   const senderAddress = event.actor.address;
   if (!senderAddress) {
@@ -245,6 +250,7 @@ const toPollVoteMessages = async (
     chatGuid: chatGuidStr,
     deltas,
     event,
+    phone,
     senderAddress,
   });
 
@@ -261,7 +267,8 @@ const toPollVoteMessages = async (
 const toPollUnvoteMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: UnvotedPollEvent
+  event: UnvotedPollEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
   const senderAddress = event.actor.address;
   if (!senderAddress) {
@@ -282,6 +289,7 @@ const toPollUnvoteMessages = async (
     chatGuid: chatGuidStr,
     deltas,
     event,
+    phone,
     senderAddress,
   });
   pollCache.commitActorSelection(pollId, senderAddress, [], event.at);
@@ -291,13 +299,14 @@ const toPollUnvoteMessages = async (
 export const toPollDeltaMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: PollEvent
+  event: PollEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
   if (isVotedPollEvent(event)) {
-    return toPollVoteMessages(client, pollCache, event);
+    return toPollVoteMessages(client, pollCache, event, phone);
   }
   if (isUnvotedPollEvent(event)) {
-    return toPollUnvoteMessages(client, pollCache, event);
+    return toPollUnvoteMessages(client, pollCache, event, phone);
   }
   return [];
 };

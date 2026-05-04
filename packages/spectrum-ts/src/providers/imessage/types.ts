@@ -3,12 +3,21 @@ import { IMessageSDK } from "@photon-ai/imessage-kit";
 import z from "zod";
 import type { SchemaMessage } from "../../platform/types";
 
-export type IMessageClient = IMessageSDK | AdvancedIMessage[];
+export interface RemoteClient {
+  client: AdvancedIMessage;
+  phone: string;
+}
+
+export type IMessageClient = IMessageSDK | RemoteClient[];
 
 export const isLocal = (client: IMessageClient): client is IMessageSDK =>
   client instanceof IMessageSDK;
 
-const clientEntry = z.object({ address: z.string(), token: z.string() });
+const clientEntry = z.object({
+  address: z.string(),
+  token: z.string(),
+  phone: z.string(),
+});
 
 export const configSchema = z.union([
   z.object({ local: z.literal(true) }),
@@ -23,6 +32,11 @@ export const userSchema = z.object({});
 export const spaceSchema = z.object({
   id: z.string(),
   type: z.enum(["dm", "group"]),
+  phone: z.string(),
+});
+
+export const spaceParamsSchema = z.object({
+  phone: z.string().optional(),
 });
 
 /**

@@ -47,6 +47,47 @@ export const imessage = definePlatform("iMessage", {
     },
   },
 
+  lifecycle: {
+    createClient: async ({
+      config,
+      projectId,
+      projectSecret,
+      store,
+    }): Promise<IMessageClient> => {
+      if (config.local) {
+        return new IMessageSDK();
+      }
+
+      if (config.clients) {
+        const entries = Array.isArray(config.clients)
+          ? config.clients
+          : [config.clients];
+        return entries.map((e) =>
+          createClient({ address: e.address, tls: true, token: e.token })
+        );
+      }
+
+      if (!(projectId && projectSecret)) {
+        throw new Error(
+          "iMessage requires projectId and projectSecret. " +
+            "Either pass credentials to Spectrum(), use local mode: imessage.config({ local: true }), " +
+            "or provide explicit client config: imessage.config({ clients: [...] })"
+        );
+      }
+
+      return await createCloudClients(projectId, projectSecret, store);
+    },
+
+    destroyClient: async ({ client }) => {
+      if (isLocal(client)) {
+        await client.close();
+        return;
+      }
+      await disposeCloudAuth(client);
+      await Promise.all(client.map((c) => c.close()));
+    },
+  },
+
   user: {
     resolve: async ({ input }) => ({ id: input.userID }),
   },
@@ -87,47 +128,6 @@ export const imessage = definePlatform("iMessage", {
 
   message: {
     schema: messageSchema,
-  },
-
-  lifecycle: {
-    createClient: async ({
-      config,
-      projectId,
-      projectSecret,
-      store,
-    }): Promise<IMessageClient> => {
-      if (config.local) {
-        return new IMessageSDK();
-      }
-
-      if (config.clients) {
-        const entries = Array.isArray(config.clients)
-          ? config.clients
-          : [config.clients];
-        return entries.map((e) =>
-          createClient({ address: e.address, tls: true, token: e.token })
-        );
-      }
-
-      if (!(projectId && projectSecret)) {
-        throw new Error(
-          "iMessage requires projectId and projectSecret. " +
-            "Either pass credentials to Spectrum(), use local mode: imessage.config({ local: true }), " +
-            "or provide explicit client config: imessage.config({ clients: [...] })"
-        );
-      }
-
-      return await createCloudClients(projectId, projectSecret, store);
-    },
-
-    destroyClient: async ({ client }: { client: IMessageClient }) => {
-      if (isLocal(client)) {
-        await client.close();
-        return;
-      }
-      await disposeCloudAuth(client);
-      await Promise.all(client.map((c) => c.close()));
-    },
   },
 
   events: {

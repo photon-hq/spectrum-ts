@@ -13,31 +13,6 @@ import {
 export const whatsappBusiness = definePlatform("WhatsApp Business", {
   config: configSchema,
 
-  user: {
-    resolve: async ({ input }) => ({ id: input.userID }),
-  },
-
-  space: {
-    schema: spaceSchema,
-    resolve: async ({ input }) => {
-      if (input.users.length === 0) {
-        throw new Error("WhatsApp space creation requires at least one user");
-      }
-      if (input.users.length > 1) {
-        throw UnsupportedError.action(
-          "createSpace",
-          "WhatsApp Business",
-          "only 1:1 conversations are supported"
-        );
-      }
-      const user = input.users[0];
-      if (!user) {
-        throw new Error("WhatsApp space creation requires a user");
-      }
-      return { id: user.id };
-    },
-  },
-
   lifecycle: {
     createClient: async ({
       config,
@@ -65,37 +40,52 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
       return await createCloudClients(projectId, projectSecret);
     },
 
-    destroyClient: async ({ client }: { client: WhatsAppClients }) => {
+    destroyClient: async ({ client }) => {
       await disposeCloudAuth(client);
       await Promise.all(client.map((c) => c.close()));
     },
   },
 
+  user: {
+    resolve: async ({ input }) => ({ id: input.userID }),
+  },
+
+  space: {
+    schema: spaceSchema,
+    resolve: async ({ input }) => {
+      if (input.users.length === 0) {
+        throw new Error("WhatsApp space creation requires at least one user");
+      }
+      if (input.users.length > 1) {
+        throw UnsupportedError.action(
+          "createSpace",
+          "WhatsApp Business",
+          "only 1:1 conversations are supported"
+        );
+      }
+      const user = input.users[0];
+      if (!user) {
+        throw new Error("WhatsApp space creation requires a user");
+      }
+      return { id: user.id };
+    },
+  },
+
   events: {
-    messages: ({ client }) => messages(client as WhatsAppClients),
+    messages: ({ client }) => messages(client),
   },
 
   actions: {
     send: async ({ space, content, client }) => {
-      return await send(client as WhatsAppClients, space.id, content);
+      return await send(client, space.id, content);
     },
 
     reactToMessage: async ({ space, target, reaction, client }) => {
-      await reactToMessage(
-        client as WhatsAppClients,
-        space.id,
-        target.id,
-        reaction
-      );
+      await reactToMessage(client, space.id, target.id, reaction);
     },
 
     replyToMessage: async ({ space, messageId, content, client }) => {
-      return await replyToMessage(
-        client as WhatsAppClients,
-        space.id,
-        messageId,
-        content
-      );
+      return await replyToMessage(client, space.id, messageId, content);
     },
   },
 });

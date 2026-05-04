@@ -550,6 +550,34 @@ export const terminal = definePlatform("terminal", {
     }),
   },
 
+  lifecycle: {
+    createClient: async ({ config }) => {
+      return await spawnClient({ commands: config.commands });
+    },
+
+    destroyClient: async ({ client }) => {
+      // Restore console FIRST so any further logs in this teardown go to the
+      // real stderr instead of a closing socket.
+      client.hijack.restore();
+      try {
+        // Bounded so an unresponsive subprocess can't hang destroyClient.
+        await client.session.request(
+          "shutdown",
+          undefined,
+          SHUTDOWN_TIMEOUT_MS
+        );
+      } catch {
+        // best-effort
+      }
+      client.session.close();
+      try {
+        client.proc.kill("SIGTERM");
+      } catch {
+        // best-effort
+      }
+    },
+  },
+
   user: {
     resolve: async ({ input }) => ({
       id: input.userID,
@@ -558,43 +586,16 @@ export const terminal = definePlatform("terminal", {
 
   space: {
     params: z.object({ id: z.string().optional() }),
-    resolve: async (ctx) => {
-      const client = ctx.client as TerminalClient;
-      const id = ctx.input.params?.id ?? generateChatId(client);
+    resolve: async ({ client, input }) => {
+      const id = input.params?.id ?? generateChatId(client);
       client.knownChats.add(id);
       await client.session.request("ensureSpace", { id });
       return { id };
     },
   },
 
-  lifecycle: {
-    createClient: async ({ config }) => {
-      return await spawnClient({ commands: config.commands });
-    },
-
-    destroyClient: async ({ client }) => {
-      const c = client as TerminalClient;
-      // Restore console FIRST so any further logs in this teardown go to the
-      // real stderr instead of a closing socket.
-      c.hijack.restore();
-      try {
-        // Bounded so an unresponsive subprocess can't hang destroyClient.
-        await c.session.request("shutdown", undefined, SHUTDOWN_TIMEOUT_MS);
-      } catch {
-        // best-effort
-      }
-      c.session.close();
-      try {
-        c.proc.kill("SIGTERM");
-      } catch {
-        // best-effort
-      }
-    },
-  },
-
   events: {
-    async *messages(ctx) {
-      const client = ctx.client as TerminalClient;
+    async *messages({ client }) {
       for await (const evt of client.events) {
         if (evt.kind === "message") {
           const msg = evt.value;
@@ -629,28 +630,24 @@ export const terminal = definePlatform("terminal", {
 
   actions: {
     send: async ({ client, content, space }) => {
-      const c = client as TerminalClient;
       const proto = await spectrumToProtocol(content);
-      const result = await c.session.request<{ id: string; timestamp: string }>(
-        "send",
-        { spaceId: space.id, content: proto }
-      );
+      const result = await client.session.request<{
+        id: string;
+        timestamp: string;
+      }>("send", { spaceId: space.id, content: proto });
       return buildOutboundRecord(result, content, space.id);
     },
 
     startTyping: async ({ client, space }) => {
-      const c = client as TerminalClient;
-      await c.session.request("startTyping", { spaceId: space.id });
+      await client.session.request("startTyping", { spaceId: space.id });
     },
 
     stopTyping: async ({ client, space }) => {
-      const c = client as TerminalClient;
-      await c.session.request("stopTyping", { spaceId: space.id });
+      await client.session.request("stopTyping", { spaceId: space.id });
     },
 
     reactToMessage: async ({ client, space, target, reaction }) => {
-      const c = client as TerminalClient;
-      await c.session.request("reactToMessage", {
+      await client.session.request("reactToMessage", {
         spaceId: space.id,
         messageId: target.id,
         reaction,
@@ -658,12 +655,11 @@ export const terminal = definePlatform("terminal", {
     },
 
     replyToMessage: async ({ client, space, messageId, content }) => {
-      const c = client as TerminalClient;
       const proto = await spectrumToProtocol(content);
-      const result = await c.session.request<{ id: string; timestamp: string }>(
-        "replyToMessage",
-        { spaceId: space.id, messageId, content: proto }
-      );
+      const result = await client.session.request<{
+        id: string;
+        timestamp: string;
+      }>("replyToMessage", { spaceId: space.id, messageId, content: proto });
       return buildOutboundRecord(result, content, space.id);
     },
   },

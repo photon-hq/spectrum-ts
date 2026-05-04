@@ -365,11 +365,11 @@ export async function Spectrum<
 
     await Promise.allSettled(streamShutdowns);
     const clientShutdowns = Array.from(platformStates.values(), (state) =>
-      state.definition.lifecycle.destroyClient({
+      state.definition.lifecycle.destroyClient?.({
         client: state.client,
         store: state.store,
       })
-    );
+    ).filter((shutdown): shutdown is Promise<void> => shutdown !== undefined);
     await Promise.allSettled(clientShutdowns);
     customEventStreams.clear();
     messageBroadcasters.clear();

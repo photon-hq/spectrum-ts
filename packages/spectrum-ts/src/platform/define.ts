@@ -129,6 +129,7 @@ function createPlatformInstance<
         ? def.space.schema.parse(resolved)
         : resolved;
       const spaceRef = {
+        ...(parsedSpace as Record<string, unknown>),
         id: parsedSpace.id,
         __platform: def.name,
       };

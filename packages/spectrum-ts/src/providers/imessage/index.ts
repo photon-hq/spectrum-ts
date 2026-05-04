@@ -26,13 +26,14 @@ import {
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
 } from "./remote/api";
-import { clientForPhone, randomPhone } from "./remote/client";
+import { clientForPhone, isSharedMode, randomPhone } from "./remote/client";
 import {
   configSchema,
   type IMessageClient,
   type IMessageMessage,
   isLocal,
   messageSchema,
+  SHARED_PHONE,
   spaceParamsSchema,
   spaceSchema,
 } from "./types";
@@ -117,7 +118,11 @@ export const imessage = definePlatform("iMessage", {
       if (client.length === 0) {
         throw new Error("No iMessage clients configured");
       }
-      const phone = input.params?.phone ?? randomPhone(client);
+      // Shared mode: ignore any user-supplied phone — there is only one
+      // identity, tagged at the SHARED_PHONE sentinel.
+      const phone = isSharedMode(client)
+        ? SHARED_PHONE
+        : (input.params?.phone ?? randomPhone(client));
       const remote = clientForPhone(client, phone);
       const addresses = input.users.map((u) => u.id);
 

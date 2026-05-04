@@ -1,7 +1,10 @@
 import { createClient } from "@photon-ai/advanced-imessage";
-import { cloud, type DedicatedTokenData } from "../../utils/cloud";
-import { UnsupportedError } from "../../utils/errors";
-import type { RemoteClient } from "./types";
+import {
+  cloud,
+  type DedicatedTokenData,
+  type SharedTokenData,
+} from "../../utils/cloud";
+import { type RemoteClient, SHARED_PHONE } from "./types";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
@@ -30,18 +33,9 @@ export async function createCloudClients(
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
 
-  if (tokenData.type === "shared") {
-    throw UnsupportedError.action(
-      "multi-phone",
-      "iMessage shared mode",
-      "use dedicated-token cloud mode"
-    );
-  }
-
-  // Captured outside `buildClients` so renewal can mutate `entry.phone` in
-  // place, keeping live client refs and merged streams alive across renewals.
-  // The instanceId stays in this closure (paired with the entry) so it does
-  // not leak onto the public RemoteClient shape.
+  // The instanceId stays paired with each entry in this closure so renewal
+  // can rewrite `entry.phone` in place without leaking instanceId onto the
+  // public RemoteClient shape. Empty in shared mode.
   const records: { entry: RemoteClient; instanceId: string }[] = [];
 
   const syncPhones = (data: DedicatedTokenData) => {
@@ -60,15 +54,10 @@ export async function createCloudClients(
     renewalTimer = setTimeout(async () => {
       try {
         tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-        if (tokenData.type === "shared") {
-          throw UnsupportedError.action(
-            "multi-phone",
-            "iMessage shared mode",
-            "use dedicated-token cloud mode"
-          );
-        }
         tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-        syncPhones(tokenData);
+        if (tokenData.type === "dedicated") {
+          syncPhones(tokenData);
+        }
         scheduleRenewal();
       } catch {
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
@@ -85,17 +74,43 @@ export async function createCloudClients(
       return;
     }
     tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-    if (tokenData.type === "shared") {
-      throw UnsupportedError.action(
-        "multi-phone",
-        "iMessage shared mode",
-        "use dedicated-token cloud mode"
-      );
-    }
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-    syncPhones(tokenData);
+    if (tokenData.type === "dedicated") {
+      syncPhones(tokenData);
+    }
     scheduleRenewal();
   };
+
+  if (tokenData.type === "shared") {
+    const address =
+      process.env.SPECTRUM_IMESSAGE_ADDRESS ??
+      "imessage.spectrum.photon.codes:443";
+    const entries: RemoteClient[] = [
+      {
+        phone: SHARED_PHONE,
+        client: createClient({
+          address,
+          tls: true,
+          token: async () => {
+            await refreshIfNeeded();
+            return (tokenData as SharedTokenData).token;
+          },
+        }),
+      },
+    ];
+
+    cloudAuthState.set(entries, {
+      dispose: () => {
+        disposed = true;
+        if (renewalTimer !== undefined) {
+          clearTimeout(renewalTimer);
+          renewalTimer = undefined;
+        }
+      },
+    });
+
+    return entries;
+  }
 
   const dedicated = tokenData;
   for (const [instanceId, token] of Object.entries(dedicated.auth)) {

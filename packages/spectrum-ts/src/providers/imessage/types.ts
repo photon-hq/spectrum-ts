@@ -10,6 +10,13 @@ export interface RemoteClient {
 
 export type IMessageClient = IMessageSDK | RemoteClient[];
 
+/**
+ * Sentinel phone for shared-token mode. The single shared client serves an
+ * unknown set of numbers (the SDK exposes no recipient field on inbound and
+ * no `from` parameter on send), so all routing through it tags this sentinel.
+ */
+export const SHARED_PHONE = "shared";
+
 export const isLocal = (client: IMessageClient): client is IMessageSDK =>
   client instanceof IMessageSDK;
 

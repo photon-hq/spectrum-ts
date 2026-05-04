@@ -22,6 +22,14 @@ export interface Store {
   string(key: string): string | undefined;
 }
 
+const isRecordObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
 export function createStore(): Store {
   const data = new Map<string, unknown>();
 
@@ -58,7 +66,7 @@ export function createStore(): Store {
     },
     object<T = Record<string, unknown>>(key: string): T | undefined {
       const v = data.get(key);
-      if (typeof v !== "object" || v === null || Array.isArray(v)) {
+      if (!isRecordObject(v)) {
         return;
       }
       return v as T;

@@ -2,31 +2,52 @@ import { createClient } from "@photon-ai/whatsapp-business";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
 import { createCloudClients, disposeCloudAuth } from "./auth";
-import { messages, reactToMessage, replyToMessage, send } from "./messages";
+import {
+  messages,
+  reactToMessage,
+  replyToMessage,
+  send,
+  webhookMessages,
+} from "./messages";
 import {
   configSchema,
   isCloudConfig,
+  isWebhookIngress,
   spaceSchema,
   type WhatsAppClients,
 } from "./types";
+import { getWebhookInbound, initWebhookState, webhook } from "./webhook";
 
 export const whatsappBusiness = definePlatform("WhatsApp Business", {
   config: configSchema,
+
+  static: {
+    webhook,
+  },
 
   lifecycle: {
     createClient: async ({
       config,
       projectId,
       projectSecret,
+      store,
     }): Promise<WhatsAppClients> => {
       if (!isCloudConfig(config)) {
-        return [
-          createClient({
-            accessToken: config.accessToken,
-            appSecret: config.appSecret ?? "",
-            phoneNumberId: config.phoneNumberId,
-          }),
-        ];
+        if (isWebhookIngress(config) && !config.appSecret) {
+          throw new Error(
+            "WhatsApp Business webhook ingress requires `appSecret` for HMAC verification. " +
+              "Set it on whatsappBusiness.config({ accessToken, appSecret, phoneNumberId, ingress: { mode: 'webhook', verifyToken } })."
+          );
+        }
+        const client = createClient({
+          accessToken: config.accessToken,
+          appSecret: config.appSecret ?? "",
+          phoneNumberId: config.phoneNumberId,
+        });
+        if (isWebhookIngress(config)) {
+          initWebhookState(store, config.ingress, config.appSecret ?? "");
+        }
+        return [client];
       }
 
       if (!(projectId && projectSecret)) {
@@ -72,7 +93,12 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
   },
 
   events: {
-    messages: ({ client }) => messages(client),
+    messages: ({ client, config, store }) => {
+      if (isWebhookIngress(config)) {
+        return webhookMessages(client, getWebhookInbound(store));
+      }
+      return messages(client);
+    },
   },
 
   actions: {

@@ -491,6 +491,41 @@ export const messages = (
   clients: WhatsAppClients
 ): ManagedStream<WhatsAppMessage> => mergeStreams(clients.map(clientStream));
 
+/**
+ * Webhook-mode counterpart to {@link messages}. Drains the inbound queue
+ * fed by `whatsappBusiness.webhook(app)` and runs each `InboundMessage`
+ * through the same `toMessages` pipeline used by the subscription path,
+ * so downstream code can't tell the difference.
+ *
+ * Single-client by design: the queue is a per-platform-instance singleton
+ * (one `appSecret`/`verifyToken` per provider config), so multi-line fanout
+ * doesn't apply here.
+ */
+export const webhookMessages = (
+  clients: WhatsAppClients,
+  inbound: AsyncIterable<InboundMessage> & { close: () => void }
+): ManagedStream<WhatsAppMessage> => {
+  const client = primary(clients);
+  return stream<WhatsAppMessage>((emit, end) => {
+    const pump = (async () => {
+      try {
+        for await (const inboundMsg of inbound) {
+          for (const m of toMessages(client, inboundMsg)) {
+            await emit(m);
+          }
+        }
+        end();
+      } catch (e) {
+        end(e);
+      }
+    })();
+    return async () => {
+      inbound.close();
+      await pump;
+    };
+  });
+};
+
 export const send = async (
   clients: WhatsAppClients,
   spaceId: string,

@@ -5,6 +5,7 @@ export default defineConfig({
     index: "src/index.ts",
     "providers/imessage/index": "src/providers/imessage/index.ts",
     "providers/terminal/index": "src/providers/terminal/index.ts",
+    "providers/voice/index": "src/providers/voice/index.ts",
     "providers/whatsapp-business/index":
       "src/providers/whatsapp-business/index.ts",
   },

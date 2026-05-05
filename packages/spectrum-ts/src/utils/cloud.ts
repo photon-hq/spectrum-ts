@@ -43,6 +43,11 @@ export interface WhatsappBusinessTokenData {
   numbers: Record<string, string | null>;
 }
 
+export interface VoiceTokenData {
+  expiresIn: number;
+  token: string;
+}
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -138,6 +143,15 @@ export const cloud = {
     projectSecret: string
   ): Promise<WhatsappBusinessTokenData> =>
     request(`/projects/${projectId}/whatsapp-business/tokens`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
+  issueVoiceTokens: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<VoiceTokenData> =>
+    request(`/projects/${projectId}/voice/tokens`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

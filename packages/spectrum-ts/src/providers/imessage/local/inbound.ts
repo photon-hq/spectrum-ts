@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type {
   IMessageSDK,
   Message as LocalIMessage,
@@ -5,6 +6,42 @@ import type {
 import { type ManagedStream, stream } from "../../../utils/stream";
 import type { IMessageMessage } from "../types";
 import { localAttachmentContent } from "./attachments";
+
+const ATTACHMENT_PLACEHOLDER = "\uFFFC";
+const ATTACHMENT_JOIN_RETRY_DELAY_MS = 250;
+const ATTACHMENT_JOIN_RETRY_LIMIT = 8;
+const ATTACHMENT_JOIN_FETCH_LIMIT = 10;
+
+const hasAttachmentPlaceholder = (message: LocalIMessage): boolean =>
+  message.text?.includes(ATTACHMENT_PLACEHOLDER) ?? false;
+
+const isPendingAttachmentJoin = (message: LocalIMessage): boolean =>
+  message.attachments.length === 0 &&
+  (message.hasAttachments || hasAttachmentPlaceholder(message));
+
+const refetchUntilAttachmentsSettle = async (
+  client: IMessageSDK,
+  message: LocalIMessage
+): Promise<LocalIMessage> => {
+  if (!message.chatId) {
+    return message;
+  }
+
+  for (let attempt = 0; attempt < ATTACHMENT_JOIN_RETRY_LIMIT; attempt += 1) {
+    await sleep(ATTACHMENT_JOIN_RETRY_DELAY_MS);
+    const rows = await client.getMessages({
+      chatId: message.chatId,
+      limit: ATTACHMENT_JOIN_FETCH_LIMIT,
+      since: message.createdAt,
+    });
+    const refreshed = rows.find((row) => row.id === message.id);
+    if (refreshed && !isPendingAttachmentJoin(refreshed)) {
+      return refreshed;
+    }
+  }
+
+  return message;
+};
 
 export const toMessages = async (
   message: LocalIMessage
@@ -22,6 +59,10 @@ export const toMessages = async (
     message.kind !== "text" ||
     message.retractedAt !== null
   ) {
+    return [];
+  }
+
+  if (isPendingAttachmentJoin(message)) {
     return [];
   }
 
@@ -59,16 +100,21 @@ export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
   stream((emit, end) => {
     let lastPromise: Promise<void> = Promise.resolve();
 
+    const handleIncoming = async (message: LocalIMessage): Promise<void> => {
+      const stableMessage = isPendingAttachmentJoin(message)
+        ? await refetchUntilAttachmentsSettle(client, message)
+        : message;
+      const ms = await toMessages(stableMessage);
+      for (const m of ms) {
+        await emit(m);
+      }
+    };
+
     const startPromise = client
       .startWatching({
         onIncomingMessage: (message) => {
           lastPromise = lastPromise
-            .then(() => toMessages(message))
-            .then(async (ms) => {
-              for (const m of ms) {
-                await emit(m);
-              }
-            })
+            .then(() => handleIncoming(message))
             .catch(end);
         },
         onError: end,

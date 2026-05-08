@@ -1,8 +1,7 @@
-import {
-  type AdvancedIMessage,
-  chatGuid,
-  messageGuid,
-  Reaction,
+import type {
+  AdvancedIMessage,
+  MessageEvent,
+  SettableMessageReaction,
 } from "@photon-ai/advanced-imessage";
 import {
   type Reaction as ReactionContent,
@@ -10,76 +9,39 @@ import {
 } from "../../../content/reaction";
 import type { MessageCache } from "../cache";
 import type { IMessageMessage } from "../types";
-import { parseTapbackTarget } from "./ids";
+import { toChatGuid, toMessageGuid } from "./ids";
 import {
-  buildMessageBase,
   cacheMessage,
   isIMessageMessage,
-  type ReceivedEvent,
   rebuildFromAppleMessage,
 } from "./inbound";
 
-// Emoji ↔ classic tapback (Apple's six fixed reactions). On send, these six
-// emoji use the native tapback API; anything else falls through to the
-// emoji-reaction API (iOS 17+). On receive, classic tapbacks surface as
-// their emoji equivalent so callers never see platform-specific strings.
-const EMOJI_TO_TAPBACK: Readonly<Record<string, Reaction>> = {
-  "❤️": Reaction.love,
-  "👍": Reaction.like,
-  "👎": Reaction.dislike,
-  "😂": Reaction.laugh,
-  "‼️": Reaction.emphasize,
-  "❓": Reaction.question,
+type ReactionAddedEvent = Extract<
+  MessageEvent,
+  { type: "message.reactionAdded" }
+>;
+
+type TapbackKind = Exclude<SettableMessageReaction["kind"], "emoji">;
+
+const EMOJI_TO_TAPBACK: Readonly<Record<string, TapbackKind>> = {
+  "❤️": "love",
+  "👍": "like",
+  "👎": "dislike",
+  "😂": "laugh",
+  "‼️": "emphasize",
+  "❓": "question",
 };
 
 const TAPBACK_TO_EMOJI: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(EMOJI_TO_TAPBACK).map(([emoji, kind]) => [kind, emoji])
 );
 
-// Apple `associatedMessageType` raw codes (IMItemType):
-//   2000–2005 add classic tapback, 2006 add emoji, 2007 add sticker.
-//   3000–3007 mirror but remove the reaction; we drop removals for now.
-const TAPBACK_CODE_TO_KIND: Readonly<Record<string, Reaction>> = {
-  "2000": Reaction.love,
-  "2001": Reaction.like,
-  "2002": Reaction.dislike,
-  "2003": Reaction.laugh,
-  "2004": Reaction.emphasize,
-  "2005": Reaction.question,
-  "2006": Reaction.emoji,
-  "2007": Reaction.sticker,
-};
-
-const isTapbackRemoval = (code: string): boolean => code.startsWith("3");
-
-const resolveReactionEmoji = (
-  type: string | undefined,
-  emoji: string | undefined
-): string | null => {
-  if (emoji) {
-    return emoji;
-  }
-  if (!type) {
-    return null;
-  }
-  const kind = TAPBACK_CODE_TO_KIND[type] ?? (type as Reaction);
-  return TAPBACK_TO_EMOJI[kind] ?? null;
-};
-
-const getAssociatedMessageType = (
-  message: ReceivedEvent["message"]
-): string | undefined => {
-  const direct = (message as { associatedMessageType?: unknown })
-    .associatedMessageType;
-  if (typeof direct === "string") {
-    return direct;
-  }
-  const raw = (message as { _raw?: { associatedMessageType?: unknown } })._raw;
-  const fromRaw = raw?.associatedMessageType;
-  return typeof fromRaw === "string" ? fromRaw : undefined;
-};
-
 type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
+
+const reactionEmoji = (
+  reaction: ReactionAddedEvent["reaction"]
+): string | undefined =>
+  reaction.kind === "emoji" ? reaction.emoji : TAPBACK_TO_EMOJI[reaction.kind];
 
 const asProviderReaction = (
   emoji: string,
@@ -94,15 +56,19 @@ const asProviderReaction = (
 const resolveReactionTarget = async (
   client: AdvancedIMessage,
   cache: MessageCache,
-  strippedGuid: string,
-  partIndex: number,
+  chat: string,
+  targetGuid: string,
+  partIndex: number | undefined,
   phone: string
 ): Promise<IMessageMessage | undefined> => {
-  let candidate = cache.get(strippedGuid);
+  let candidate = cache.get(targetGuid);
   if (!candidate) {
     try {
-      const fetched = await client.messages.get(messageGuid(strippedGuid));
-      candidate = await rebuildFromAppleMessage(client, fetched, phone);
+      const fetched = await client.messages.get(
+        toChatGuid(chat),
+        toMessageGuid(targetGuid)
+      );
+      candidate = await rebuildFromAppleMessage(client, fetched, phone, chat);
       cacheMessage(cache, candidate);
     } catch {
       return;
@@ -113,7 +79,7 @@ const resolveReactionTarget = async (
     if (!Array.isArray(items)) {
       return candidate;
     }
-    const item = items[partIndex];
+    const item = items[partIndex ?? 0];
     return isIMessageMessage(item) ? item : candidate;
   }
   return candidate;
@@ -122,46 +88,40 @@ const resolveReactionTarget = async (
 export const toReactionMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
-  event: ReceivedEvent,
-  target: string,
+  event: ReactionAddedEvent,
   phone: string
 ): Promise<IMessageMessage[]> => {
-  const type = getAssociatedMessageType(event.message);
-  if (type && isTapbackRemoval(type)) {
-    return [];
-  }
-  const emoji = resolveReactionEmoji(
-    type,
-    event.message.associatedMessageEmoji
-  );
+  const emoji = reactionEmoji(event.reaction);
   if (!emoji) {
     return [];
   }
-  const { guid: strippedGuid, partIndex } = parseTapbackTarget(target);
   const resolved = await resolveReactionTarget(
     client,
     cache,
-    strippedGuid,
-    partIndex,
+    event.chatGuid,
+    event.messageGuid,
+    event.targetPartIndex,
     phone
   );
   if (!resolved) {
     return [];
   }
-  const messageId = event.message.guid;
-  if (typeof messageId !== "string" || messageId.length === 0) {
-    return [];
-  }
-  const base = buildMessageBase(
-    event.message,
-    event.chatGuid,
-    event.timestamp,
-    phone
-  );
+
+  const partSuffix =
+    typeof event.targetPartIndex === "number"
+      ? `:${event.targetPartIndex}`
+      : "";
+
   return [
     {
-      ...base,
-      id: messageId,
+      sender: { id: event.actor?.address ?? "" },
+      space: {
+        id: event.chatGuid,
+        type: event.chatGuid.includes(";+;") ? "group" : "dm",
+        phone,
+      },
+      timestamp: event.occurredAt,
+      id: `${event.messageGuid}:reaction:${event.sequence}${partSuffix}`,
       content: asProviderReaction(emoji, resolved),
     },
   ];
@@ -173,12 +133,9 @@ export const reactToMessage = async (
   target: IMessageMessage,
   reaction: string
 ): Promise<void> => {
-  const chat = chatGuid(spaceId);
-  // A group sub-item carries the parent's guid in `parentId`; top-level
-  // messages reuse their own id. Apple's tapback API keys off the parent
-  // guid and disambiguates via `partIndex`.
+  const chat = toChatGuid(spaceId);
   const parentGuid = target.parentId ?? target.id;
-  const guid = messageGuid(parentGuid);
+  const guid = toMessageGuid(parentGuid);
   const opts =
     typeof target.partIndex === "number"
       ? { partIndex: target.partIndex }
@@ -186,8 +143,14 @@ export const reactToMessage = async (
 
   const native = EMOJI_TO_TAPBACK[reaction];
   if (native) {
-    await remote.messages.react(chat, guid, native, opts);
+    await remote.messages.setReaction(chat, guid, { kind: native }, true, opts);
   } else {
-    await remote.messages.reactEmoji(chat, guid, reaction, opts);
+    await remote.messages.setReaction(
+      chat,
+      guid,
+      { kind: "emoji", emoji: reaction },
+      true,
+      opts
+    );
   }
 };

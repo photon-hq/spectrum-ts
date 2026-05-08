@@ -1,5 +1,15 @@
 const PART_PREFIX = /^p:(\d+)\//;
 
+export type AttachmentGuid = string;
+export type ChatGuid = string;
+export type MessageGuid = string;
+
+export const dmChatGuid = (address: string): ChatGuid => `any;-;${address}`;
+
+export const toChatGuid = (value: string): ChatGuid => value;
+
+export const toMessageGuid = (value: string): MessageGuid => value;
+
 export const formatChildId = (partIndex: number, parentGuid: string): string =>
   `p:${partIndex}/${parentGuid}`;
 

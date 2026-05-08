@@ -1,8 +1,4 @@
-import {
-  createClient,
-  directChat,
-  MessageEffect,
-} from "@photon-ai/advanced-imessage";
+import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
@@ -27,6 +23,7 @@ import {
   stopTyping as remoteStopTyping,
 } from "./remote/api";
 import { clientForPhone, isSharedMode, randomPhone } from "./remote/client";
+import { dmChatGuid } from "./remote/ids";
 import {
   configSchema,
   type IMessageClient,
@@ -128,7 +125,7 @@ export const imessage = definePlatform("iMessage", {
 
       if (input.users.length === 1) {
         return {
-          id: directChat(addresses[0] ?? "") as string,
+          id: dmChatGuid(addresses[0] ?? ""),
           type: "dm" as const,
           phone,
         };

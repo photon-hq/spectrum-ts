@@ -135,8 +135,8 @@ async function* catchUpEvents<T extends MessageEvent | PollEvent>(
   cursor: string,
   isWanted: (event: CatchUpEvent) => event is T
 ): AsyncGenerator<T | CatchUpCompleteEvent> {
-  const since = Number(cursor);
-  if (!Number.isFinite(since)) {
+  const since = toResumeAfter(cursor);
+  if (since === undefined) {
     return;
   }
 

@@ -109,8 +109,11 @@ const downloadPrimaryAttachmentStream = (
       return;
     }
     closed = true;
-    await iterator.return?.();
-    await frames.close();
+    try {
+      await iterator.return?.();
+    } finally {
+      await frames.close();
+    }
   };
 
   return new ReadableStream<Uint8Array>({

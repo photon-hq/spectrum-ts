@@ -102,23 +102,38 @@ const downloadPrimaryAttachmentStream = (
 ): ReadableStream<Uint8Array> => {
   const frames = client.attachments.downloadStream(attachmentGuid);
   const iterator = frames[Symbol.asyncIterator]();
+  let closed = false;
+
+  const closeFrames = async (): Promise<void> => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    await iterator.return?.();
+    await frames.close();
+  };
 
   return new ReadableStream<Uint8Array>({
     async cancel() {
-      await iterator.return?.();
-      await frames.close();
+      await closeFrames();
     },
     async pull(controller) {
-      while (true) {
-        const result = await iterator.next();
-        if (result.done) {
-          controller.close();
-          return;
+      try {
+        while (true) {
+          const result = await iterator.next();
+          if (result.done) {
+            controller.close();
+            await closeFrames();
+            return;
+          }
+          if (result.value.type === "primaryChunk") {
+            controller.enqueue(result.value.data);
+            return;
+          }
         }
-        if (result.value.type === "primaryChunk") {
-          controller.enqueue(result.value.data);
-          return;
-        }
+      } catch (error) {
+        await closeFrames();
+        throw error;
       }
     },
   });
@@ -129,10 +144,15 @@ const downloadPrimaryAttachment = async (
   attachmentGuid: string
 ): Promise<Buffer> => {
   const chunks: Buffer[] = [];
-  for await (const frame of client.attachments.downloadStream(attachmentGuid)) {
-    if (frame.type === "primaryChunk") {
-      chunks.push(Buffer.from(frame.data));
+  const frames = client.attachments.downloadStream(attachmentGuid);
+  try {
+    for await (const frame of frames) {
+      if (frame.type === "primaryChunk") {
+        chunks.push(Buffer.from(frame.data));
+      }
     }
+  } finally {
+    await frames.close();
   }
   return Buffer.concat(chunks);
 };

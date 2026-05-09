@@ -95,6 +95,10 @@ export const toReactionMessages = async (
   if (!emoji) {
     return [];
   }
+  const senderAddress = event.actor?.address;
+  if (!senderAddress) {
+    return [];
+  }
   const resolved = await resolveReactionTarget(
     client,
     cache,
@@ -114,7 +118,7 @@ export const toReactionMessages = async (
 
   return [
     {
-      sender: { id: event.actor?.address ?? "" },
+      sender: { id: senderAddress },
       space: {
         id: event.chatGuid,
         type: event.chatGuid.includes(";+;") ? "group" : "dm",

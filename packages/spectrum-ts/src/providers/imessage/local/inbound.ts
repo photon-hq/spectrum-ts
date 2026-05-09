@@ -29,11 +29,16 @@ const refetchUntilAttachmentsSettle = async (
 
   for (let attempt = 0; attempt < ATTACHMENT_JOIN_RETRY_LIMIT; attempt += 1) {
     await sleep(ATTACHMENT_JOIN_RETRY_DELAY_MS);
-    const rows = await client.getMessages({
-      chatId: message.chatId,
-      limit: ATTACHMENT_JOIN_FETCH_LIMIT,
-      since: message.createdAt,
-    });
+    let rows: LocalIMessage[];
+    try {
+      rows = await client.getMessages({
+        chatId: message.chatId,
+        limit: ATTACHMENT_JOIN_FETCH_LIMIT,
+        since: message.createdAt,
+      });
+    } catch {
+      continue;
+    }
     const refreshed = rows.find((row) => row.id === message.id);
     if (refreshed && !isPendingAttachmentJoin(refreshed)) {
       return refreshed;

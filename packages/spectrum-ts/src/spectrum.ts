@@ -23,6 +23,8 @@ import {
   stream,
 } from "./utils/stream";
 
+const ignoreCleanupError = () => undefined;
+
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
 // ---------------------------------------------------------------------------
@@ -154,7 +156,7 @@ export async function Spectrum<
 
       return async () => {
         await iterator.return?.();
-        await pump;
+        void pump.catch(ignoreCleanupError);
       };
     });
   };
@@ -288,7 +290,7 @@ export async function Spectrum<
 
       return async () => {
         await merged.close();
-        await pump;
+        void pump.catch(ignoreCleanupError);
       };
     });
   };
@@ -337,7 +339,7 @@ export async function Spectrum<
 
       return async () => {
         await merged.close();
-        await pump;
+        void pump.catch(ignoreCleanupError);
       };
     });
   };

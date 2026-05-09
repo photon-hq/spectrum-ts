@@ -6,6 +6,8 @@ export interface ManagedStream<T> extends AsyncIterable<T> {
 
 type StreamCleanup = void | (() => void | Promise<void>);
 
+const ignoreCleanupError = () => undefined;
+
 export function stream<T>(
   setup: (
     emit: (value: T) => Promise<void>,
@@ -35,7 +37,7 @@ export function stream<T>(
 
   return Object.assign(repeater, {
     close: async () => {
-      await repeater.return(undefined);
+      void repeater.return(undefined).catch(ignoreCleanupError);
     },
   });
 }
@@ -67,7 +69,7 @@ export function mergeStreams<T>(
 
     return async () => {
       await Promise.allSettled(streams.map((source) => source.close()));
-      await Promise.allSettled(workers);
+      void Promise.allSettled(workers).catch(ignoreCleanupError);
     };
   });
 }
@@ -157,7 +159,7 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
       try {
         await source.close();
         if (pumpPromise) {
-          await pumpPromise;
+          void pumpPromise.catch(ignoreCleanupError);
         }
       } finally {
         if (!terminated) {

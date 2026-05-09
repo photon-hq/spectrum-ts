@@ -57,6 +57,8 @@ const closeIterable = async <T>(
   await iterable.close?.();
 };
 
+const ignoreCleanupError = () => undefined;
+
 const jitterDelay = (delayMs: number): number => Math.random() * delayMs;
 
 const numericCursor = (cursor: string | undefined): number | undefined => {
@@ -294,7 +296,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
           activeLive = undefined;
         }
         await closeIterable(live);
-        await livePump.pump.catch(() => undefined);
+        void livePump.pump.catch(ignoreCleanupError);
       }
     };
 
@@ -332,6 +334,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       closed = true;
       cancelSleep();
       await closeIterable(activeLive);
-      await pump;
+      void pump.catch(ignoreCleanupError);
     };
   });

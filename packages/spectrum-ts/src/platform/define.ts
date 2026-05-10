@@ -148,13 +148,14 @@ function createPlatformInstance<
     },
   };
 
-  // Add flat event properties for custom events (non-messages)
+  // Add flat event properties for custom events. The core `messages` stream
+  // lives at the top level of the def — only the optional `events?` slot
+  // (custom platform events like presence, read receipts, etc.) is projected
+  // onto the instance here.
   const eventProperties: Record<string, AsyncIterable<unknown>> = {};
-  for (const eventName of Object.keys(def.events)) {
-    if (eventName === "messages") {
-      continue;
-    }
-    const producer = def.events[eventName] as
+  const customEvents = def.events ?? {};
+  for (const eventName of Object.keys(customEvents)) {
+    const producer = customEvents[eventName] as
       | ((ctx: {
           client: unknown;
           config: unknown;
@@ -211,11 +212,12 @@ export function definePlatform<
       ? z.infer<_MessageSchema>
       : Record<never, never>
   >,
-  _Events extends {
-    messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
-  } = {
-    messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
-  },
+  _Events extends
+    | (Record<
+        string,
+        EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
+      > & { messages?: never })
+    | undefined = undefined,
   _Static extends Record<string, unknown> = Record<never, never>,
 >(
   name: _Name,

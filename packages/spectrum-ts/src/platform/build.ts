@@ -129,8 +129,9 @@ type BuildOutboundParams = BaseBuildParams & {
 export type BuildMessageParams = BuildInboundParams | BuildOutboundParams;
 
 export interface BuildSpaceParams {
-  // Pre-built context object passed to `definition.actions.send`. Sites that
-  // dispatch actions spread this and add per-call fields (e.g. `content`).
+  // Pre-built context object passed to `definition.send`. Sites that dispatch
+  // through the send pipeline spread this and add per-call fields (e.g.
+  // `content`).
   actionCtx: {
     space: SpaceRef;
     client: unknown;
@@ -180,7 +181,7 @@ const extractExtras = (
 /**
  * Wrap a raw provider message record (and any nested raw targets/items inside
  * its content) into a fully-built `Message`. The same path serves inbound
- * (`events.messages`, `getMessage`) and outbound (`send`) flows — the only
+ * (`messages`, `actions.getMessage`) and outbound (`send`) flows — the only
  * difference is `direction`, which decides whether the resulting Message
  * exposes inbound (`react`/`reply`) or outbound (`edit`) affordances.
  * Recursion through `wrapNestedContent` handles reaction targets and group
@@ -311,7 +312,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
       if (platformError) {
         throw platformError;
       }
-      raw = (await definition.actions.send({
+      raw = (await definition.send({
         ...actionCtx,
         content: item,
       })) as ProviderMessageRecord | undefined;
@@ -362,7 +363,8 @@ export function buildSpace(params: BuildSpaceParams): Space {
   }
 
   async function getMessageImpl(id: string): Promise<Message | undefined> {
-    if (!definition.actions.getMessage) {
+    const getMessage = definition.actions?.getMessage;
+    if (!getMessage) {
       warnUnsupported(
         UnsupportedError.action("getMessage", definition.name),
         definition.name
@@ -371,7 +373,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     }
     let raw: ProviderMessageRecord | undefined;
     try {
-      raw = (await definition.actions.getMessage({
+      raw = (await getMessage({
         space: spaceRef,
         messageId: id,
         client,

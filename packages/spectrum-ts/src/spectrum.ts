@@ -167,7 +167,7 @@ export async function Spectrum<
     store: Store;
   }): ManagedStream<[Space, InboundMessage]> => {
     const { client, config, definition, store } = state;
-    const raw = definition.events.messages({
+    const raw = definition.messages({
       client,
       config,
       store,
@@ -298,7 +298,7 @@ export async function Spectrum<
       const providerStreams: ManagedStream<unknown>[] = [];
       for (const state of platformStates.values()) {
         const { client, config, definition, store } = state;
-        const producer = definition.events[eventName] as
+        const producer = definition.events?.[eventName] as
           | ((ctx: {
               client: unknown;
               config: unknown;

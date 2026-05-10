@@ -593,75 +593,71 @@ export const terminal = definePlatform("terminal", {
     },
   },
 
-  events: {
-    async *messages({ client }) {
-      for await (const evt of client.events) {
-        if (evt.kind === "message") {
-          const msg = evt.value;
-          client.knownChats.add(msg.spaceId);
-          yield {
-            id: msg.id,
-            content: protocolToSpectrum(msg.content),
-            sender: { id: msg.senderId },
-            space: { id: msg.spaceId },
-            timestamp: parseTimestamp(msg.timestamp),
-            // replyTo is a terminal-specific extra — agents inspect via a
-            // cast until Spectrum's message model grows first-class support.
-            ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-          };
-          continue;
-        }
-        // Reactions ride the messages stream as first-class `reaction`
-        // content. The protocol only provides the target id, so synthesize a
-        // minimal raw target for core to wrap into a full Message at emit time.
-        const r = evt.value;
-        client.knownChats.add(r.spaceId);
+  async *messages({ client }) {
+    for await (const evt of client.events) {
+      if (evt.kind === "message") {
+        const msg = evt.value;
+        client.knownChats.add(msg.spaceId);
         yield {
-          id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
-          content: reactionContentFromProtocol(r),
-          sender: { id: r.senderId },
-          space: { id: r.spaceId },
-          timestamp: parseTimestamp(r.timestamp),
+          id: msg.id,
+          content: protocolToSpectrum(msg.content),
+          sender: { id: msg.senderId },
+          space: { id: msg.spaceId },
+          timestamp: parseTimestamp(msg.timestamp),
+          // replyTo is a terminal-specific extra — agents inspect via a
+          // cast until Spectrum's message model grows first-class support.
+          ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
         };
+        continue;
       }
-    },
+      // Reactions ride the messages stream as first-class `reaction`
+      // content. The protocol only provides the target id, so synthesize a
+      // minimal raw target for core to wrap into a full Message at emit time.
+      const r = evt.value;
+      client.knownChats.add(r.spaceId);
+      yield {
+        id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
+        content: reactionContentFromProtocol(r),
+        sender: { id: r.senderId },
+        space: { id: r.spaceId },
+        timestamp: parseTimestamp(r.timestamp),
+      };
+    }
   },
 
-  actions: {
-    send: async ({ client, content, space }) => {
-      if (content.type === "reply") {
-        const inner = await spectrumToProtocol(content.content);
-        const result = await client.session.request<{
-          id: string;
-          timestamp: string;
-        }>("replyToMessage", {
-          spaceId: space.id,
-          messageId: content.target.id,
-          content: inner,
-        });
-        return buildOutboundRecord(result, content.content, space.id);
-      }
-      if (content.type === "reaction") {
-        await client.session.request("reactToMessage", {
-          spaceId: space.id,
-          messageId: content.target.id,
-          reaction: content.emoji,
-        });
-        return;
-      }
-      if (content.type === "typing") {
-        // Tuichat exposes start/stop as separate notifications; we keep the
-        // wire protocol unchanged so existing binaries still work.
-        const method = content.state === "start" ? "startTyping" : "stopTyping";
-        await client.session.request(method, { spaceId: space.id });
-        return;
-      }
-      const proto = await spectrumToProtocol(content);
+  send: async ({ client, content, space }) => {
+    if (content.type === "reply") {
+      const inner = await spectrumToProtocol(content.content);
       const result = await client.session.request<{
         id: string;
         timestamp: string;
-      }>("send", { spaceId: space.id, content: proto });
-      return buildOutboundRecord(result, content, space.id);
-    },
+      }>("replyToMessage", {
+        spaceId: space.id,
+        messageId: content.target.id,
+        content: inner,
+      });
+      return buildOutboundRecord(result, content.content, space.id);
+    }
+    if (content.type === "reaction") {
+      await client.session.request("reactToMessage", {
+        spaceId: space.id,
+        messageId: content.target.id,
+        reaction: content.emoji,
+      });
+      return;
+    }
+    if (content.type === "typing") {
+      // Tuichat exposes start/stop as separate notifications; we keep the
+      // wire protocol unchanged so existing binaries still work.
+      const method = content.state === "start" ? "startTyping" : "stopTyping";
+      await client.session.request(method, { spaceId: space.id });
+      return;
+    }
+    const proto = await spectrumToProtocol(content);
+    const result = await client.session.request<{
+      id: string;
+      timestamp: string;
+    }>("send", { spaceId: space.id, content: proto });
+    return buildOutboundRecord(result, content, space.id);
   },
 });

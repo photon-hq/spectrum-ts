@@ -162,79 +162,78 @@ export const imessage = definePlatform("iMessage", {
     schema: messageSchema,
   },
 
-  events: {
-    messages: ({ client }) =>
-      isLocal(client) ? localMessages(client) : remoteMessages(client),
+  messages: ({ client }) =>
+    isLocal(client) ? localMessages(client) : remoteMessages(client),
+
+  send: async ({ space, content, client }) => {
+    if (content.type === "reply") {
+      if (isLocal(client)) {
+        throw UnsupportedError.action("reply", "iMessage (local mode)");
+      }
+      if (isPollContent(content.target.content)) {
+        throw UnsupportedError.action(
+          "reply",
+          "iMessage",
+          "iMessage polls do not support replies"
+        );
+      }
+      const remote = clientForPhone(client, space.phone);
+      return await remoteReplyToMessage(
+        remote,
+        space.id,
+        content.target.id,
+        content.content
+      );
+    }
+    if (content.type === "reaction") {
+      if (isLocal(client)) {
+        throw UnsupportedError.action("react", "iMessage (local mode)");
+      }
+      if (isPollContent(content.target.content)) {
+        throw UnsupportedError.action(
+          "react",
+          "iMessage",
+          "iMessage polls do not support reactions"
+        );
+      }
+      const remote = clientForPhone(client, space.phone);
+      // `content.target` is statically typed as the generic `Message`, but
+      // execution only reaches this iMessage `send` action when the target
+      // came from the iMessage stream — hence the unknown-cast widen.
+      await remoteReactToMessage(
+        remote,
+        space.id,
+        content.target as unknown as IMessageMessage,
+        content.emoji
+      );
+      return;
+    }
+    if (content.type === "typing") {
+      // Local mode has no typing API — silently no-op so callers can use
+      // `space.startTyping()` uniformly across modes.
+      if (isLocal(client)) {
+        return;
+      }
+      const remote = clientForPhone(client, space.phone);
+      if (content.state === "start") {
+        await remoteStartTyping(remote, space.id);
+      } else {
+        await remoteStopTyping(remote, space.id);
+      }
+      return;
+    }
+    if (content.type === "edit") {
+      await handleEdit(client, space, content);
+      return;
+    }
+    if (isLocal(client)) {
+      return await localSend(client, space.id, content);
+    }
+    const remote = clientForPhone(client, space.phone);
+    return await remoteSend(remote, space.id, content);
   },
 
   actions: {
-    send: async ({ space, content, client }) => {
-      if (content.type === "reply") {
-        if (isLocal(client)) {
-          throw UnsupportedError.action("reply", "iMessage (local mode)");
-        }
-        if (isPollContent(content.target.content)) {
-          throw UnsupportedError.action(
-            "reply",
-            "iMessage",
-            "iMessage polls do not support replies"
-          );
-        }
-        const remote = clientForPhone(client, space.phone);
-        return await remoteReplyToMessage(
-          remote,
-          space.id,
-          content.target.id,
-          content.content
-        );
-      }
-      if (content.type === "reaction") {
-        if (isLocal(client)) {
-          throw UnsupportedError.action("react", "iMessage (local mode)");
-        }
-        if (isPollContent(content.target.content)) {
-          throw UnsupportedError.action(
-            "react",
-            "iMessage",
-            "iMessage polls do not support reactions"
-          );
-        }
-        const remote = clientForPhone(client, space.phone);
-        // `content.target` is statically typed as the generic `Message`, but
-        // execution only reaches this iMessage `send` action when the target
-        // came from the iMessage stream — hence the unknown-cast widen.
-        await remoteReactToMessage(
-          remote,
-          space.id,
-          content.target as unknown as IMessageMessage,
-          content.emoji
-        );
-        return;
-      }
-      if (content.type === "typing") {
-        // Local mode has no typing API — silently no-op so callers can use
-        // `space.startTyping()` uniformly across modes.
-        if (isLocal(client)) {
-          return;
-        }
-        const remote = clientForPhone(client, space.phone);
-        if (content.state === "start") {
-          await remoteStartTyping(remote, space.id);
-        } else {
-          await remoteStopTyping(remote, space.id);
-        }
-        return;
-      }
-      if (content.type === "edit") {
-        await handleEdit(client, space, content);
-        return;
-      }
-      if (isLocal(client)) {
-        return await localSend(client, space.id, content);
-      }
-      const remote = clientForPhone(client, space.phone);
-      return await remoteSend(remote, space.id, content);
-    },
     getMessage: async ({ space, messageId, client }) => {
       if (isLocal(client)) {
         return localGetMessage(client, messageId);

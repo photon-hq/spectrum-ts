@@ -52,8 +52,8 @@ export type ProviderMessage<
 } & TExtra;
 
 /**
- * A message a provider produced — used for both inbound (`events.messages`,
- * `getMessage`) and outbound (`send`) flows. Providers return their native
+ * A message a provider produced — used for both inbound (`messages`,
+ * `actions.getMessage`) and outbound (`send`) flows. Providers return their native
  * record shape (including platform extras like `partIndex`/`parentId` for
  * iMessage) and the platform `wrapProviderMessage` pipeline turns it into a
  * fully-built Message.
@@ -108,6 +108,22 @@ export interface CreateClientContext<_ConfigSchema extends z.ZodType<object>> {
   store: Store;
 }
 
+/**
+ * The full definition of a platform adapter.
+ *
+ * Spectrum's platform API is shaped around the universal messaging contract:
+ * **`messages` (inbound stream) + `send` (outbound dispatcher)**. Together
+ * they handle 99% of what any platform integration needs to do — every
+ * higher-level affordance (`message.reply`, `message.react`, `space.edit`,
+ * `space.startTyping`, etc.) is sugar that routes through `send`.
+ *
+ * Everything beyond those two is optional: `getMessage` is a known capability
+ * that lives inside `actions?`; platform-specific event streams live inside
+ * `events?` and surface as flat properties on the platform instance.
+ *
+ * Minimum viable platform integration:
+ * `name`, `config`, `lifecycle`, `user`, `space`, `messages`, `send`.
+ */
 export interface PlatformDef<
   _Name extends string = string,
   _ConfigSchema extends z.ZodType<object> = z.ZodType<object>,
@@ -127,20 +143,25 @@ export interface PlatformDef<
     _ResolvedSpace,
     InferSchema<_MessageSchema>
   >,
-  _Events extends {
-    messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
-  } = {
-    messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
-  },
+  _Events extends
+    | (Record<
+        string,
+        EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
+      > & { messages?: never })
+    | undefined = undefined,
 > {
-  actions: {
-    send: (_: {
-      space: _ResolvedSpace & SpaceRef;
-      content: Content;
-      client: NoInferClient<_Client>;
-      config: z.infer<_ConfigSchema>;
-      store: Store;
-    }) => Promise<ProviderMessageRecord | undefined>;
+  /**
+   * Optional escape hatch: platform actions beyond `send`. Currently the
+   * framework recognizes one slot:
+   *
+   * - **`getMessage?`** — fetch a message by id from a space. Powers
+   *   `space.getMessage(id)`. When omitted, `space.getMessage()` warns and
+   *   returns `undefined`.
+   *
+   * 99% of integrations don't need this — `messages` + `send` is the
+   * universal contract.
+   */
+  actions?: {
     getMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
@@ -152,7 +173,19 @@ export interface PlatformDef<
 
   config: _ConfigSchema;
 
-  events: _Events;
+  /**
+   * Optional escape hatch: platform-specific event streams beyond the core
+   * `messages` stream (e.g. presence updates, read receipts). Each producer
+   * is surfaced as a flat property on both `spectrum` and the platform
+   * instance (e.g. `spectrum.presence`, `slack.readReceipt`).
+   *
+   * The key `messages` is reserved — the core inbound stream lives at the
+   * top level, not inside `events?`.
+   *
+   * 99% of integrations don't need this — `messages` + `send` is the
+   * universal contract.
+   */
+  events?: _Events;
 
   lifecycle: {
     createClient: (ctx: CreateClientContext<_ConfigSchema>) => Promise<_Client>;
@@ -165,7 +198,37 @@ export interface PlatformDef<
   message?: {
     schema?: _MessageSchema;
   };
+
+  /**
+   * Inbound message stream. Returns an `AsyncIterable<ProviderMessageRecord>`
+   * — Spectrum wraps each emitted record into a fully-built `Message` and
+   * fans it out via `spectrum.messages`.
+   *
+   * One of the two universal platform contracts (along with `send`). 99% of
+   * integrations only need to implement `messages` + `send`.
+   */
+  messages: EventProducer<_MessageType, _Client, z.infer<_ConfigSchema>>;
   name: _Name;
+
+  /**
+   * Send a piece of `Content` to a space. The provider inspects
+   * `content.type` and dispatches accordingly — text, attachments, reactions,
+   * replies, edits, typing indicators, and any other content type all flow
+   * through this single action.
+   *
+   * Returns a `ProviderMessageRecord` (id + timestamp) for content that
+   * produces a message; returns `undefined` for fire-and-forget control
+   * signals (reactions, typing, edits) on platforms that don't return ids.
+   *
+   * One of the two universal platform contracts (along with `messages`).
+   */
+  send: (_: {
+    space: _ResolvedSpace & SpaceRef;
+    content: Content;
+    client: NoInferClient<_Client>;
+    config: z.infer<_ConfigSchema>;
+    store: Store;
+  }) => Promise<ProviderMessageRecord | undefined>;
 
   space: {
     schema?: _SpaceSchema;
@@ -199,16 +262,14 @@ export interface PlatformDef<
 // ---------------------------------------------------------------------------
 
 export interface AnyPlatformDef {
-  actions: {
-    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    send: (_: any) => Promise<ProviderMessageRecord | undefined>;
+  actions?: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     getMessage?: (_: any) => Promise<any>;
   };
   config: z.ZodType<object>;
-  events: {
-    // biome-ignore lint/suspicious/noExplicitAny: wildcard event
-    messages: (ctx: any) => AsyncIterable<any>;
+
+  // Optional escape hatches.
+  events?: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard event
     [key: string]: (ctx: any) => AsyncIterable<any>;
   };
@@ -219,7 +280,13 @@ export interface AnyPlatformDef {
     destroyClient?: (ctx: any) => Promise<void>;
   };
   message?: { schema?: z.ZodType<object> };
+
+  // Required core message I/O — the universal contract.
+  // biome-ignore lint/suspicious/noExplicitAny: wildcard event
+  messages: (ctx: any) => AsyncIterable<any>;
   name: string;
+  // biome-ignore lint/suspicious/noExplicitAny: wildcard action
+  send: (_: any) => Promise<ProviderMessageRecord | undefined>;
   space: {
     schema?: z.ZodType<object>;
     params?: z.ZodType<object>;
@@ -273,14 +340,20 @@ interface ExtractDefByName<Name extends string> extends Fn {
 
 interface ExtractCustomEventNames extends Fn {
   return: this["arg0"] extends AnyPlatformDef
-    ? Exclude<keyof this["arg0"]["events"], "messages" | symbol | number>
+    ? this["arg0"]["events"] extends Record<string, unknown>
+      ? Exclude<keyof this["arg0"]["events"], symbol | number>
+      : never
     : never;
 }
 
 interface ToCustomEventVariant<EventName extends string> extends Fn {
   return: this["arg0"] extends PlatformProviderConfig<infer Def>
-    ? EventName extends keyof Def["events"]
-      ? InferEventPayload<Def["events"][EventName]> & { platform: Def["name"] }
+    ? Def["events"] extends Record<string, unknown>
+      ? EventName extends keyof Def["events"]
+        ? InferEventPayload<Def["events"][EventName]> & {
+            platform: Def["name"];
+          }
+        : never
       : never
     : never;
 }
@@ -307,7 +380,7 @@ export type ExtractProviderDef<
 >;
 
 // ---------------------------------------------------------------------------
-// AllCustomEventNames — union of all non-messages event names across providers
+// AllCustomEventNames — union of all custom event names across providers
 // ---------------------------------------------------------------------------
 
 type AllCustomEventNames<Providers extends PlatformProviderConfig[]> = Pipe<
@@ -416,14 +489,22 @@ export type PlatformInstance<Def extends AnyPlatformDef> = {
   >;
   space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
   user(userID: string): Promise<PlatformUser<Def>>;
-} & {
-  [K in Exclude<
-    keyof Def["events"],
-    "messages" | symbol | number
-  > as K extends ReservedNames ? never : K]: AsyncIterable<
-    InferEventPayload<Def["events"][K]>
-  >;
-};
+} & CustomEventInstanceProperties<Def>;
+
+// Project the optional `events?` slot onto the platform instance as flat
+// async-iterable properties. When `events` is undefined (the 99% case), this
+// resolves to `Record<never, never>` — no extra keys on the instance.
+type CustomEventInstanceProperties<Def extends AnyPlatformDef> =
+  Def["events"] extends Record<string, unknown>
+    ? {
+        [K in Exclude<
+          keyof Def["events"],
+          symbol | number
+        > as K extends ReservedNames ? never : K]: AsyncIterable<
+          InferEventPayload<NonNullable<Def["events"]>[K]>
+        >;
+      }
+    : Record<never, never>;
 
 // ---------------------------------------------------------------------------
 // SpectrumLike — minimal interface for platform narrowing

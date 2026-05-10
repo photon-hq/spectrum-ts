@@ -495,7 +495,7 @@ export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
   content: Content
-): Promise<ProviderMessageRecord> => {
+): Promise<ProviderMessageRecord | undefined> => {
   if (content.type === "reply") {
     return await replyToMessage(
       clients,
@@ -503,6 +503,10 @@ export const send = async (
       content.target.id,
       content.content
     );
+  }
+  if (content.type === "reaction") {
+    await reactToMessage(clients, spaceId, content.target.id, content.emoji);
+    return;
   }
   const client = primary(clients);
   switch (content.type) {
@@ -569,7 +573,7 @@ export const send = async (
   }
 };
 
-export const reactToMessage = async (
+const reactToMessage = async (
   clients: WhatsAppClients,
   spaceId: string,
   messageId: string,

@@ -641,6 +641,14 @@ export const terminal = definePlatform("terminal", {
         });
         return buildOutboundRecord(result, content.content, space.id);
       }
+      if (content.type === "reaction") {
+        await client.session.request("reactToMessage", {
+          spaceId: space.id,
+          messageId: content.target.id,
+          reaction: content.emoji,
+        });
+        return;
+      }
       const proto = await spectrumToProtocol(content);
       const result = await client.session.request<{
         id: string;
@@ -655,14 +663,6 @@ export const terminal = definePlatform("terminal", {
 
     stopTyping: async ({ client, space }) => {
       await client.session.request("stopTyping", { spaceId: space.id });
-    },
-
-    reactToMessage: async ({ client, space, target, reaction }) => {
-      await client.session.request("reactToMessage", {
-        spaceId: space.id,
-        messageId: target.id,
-        reaction,
-      });
     },
   },
 });

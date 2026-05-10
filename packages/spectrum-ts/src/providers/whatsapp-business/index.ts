@@ -2,7 +2,7 @@ import { createClient } from "@photon-ai/whatsapp-business";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
 import { createCloudClients, disposeCloudAuth } from "./auth";
-import { messages, reactToMessage, send } from "./messages";
+import { messages, send } from "./messages";
 import {
   configSchema,
   isCloudConfig,
@@ -78,9 +78,5 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
   actions: {
     send: async ({ space, content, client }) =>
       await send(client, space.id, content),
-
-    reactToMessage: async ({ space, target, reaction, client }) => {
-      await reactToMessage(client, space.id, target.id, reaction);
-    },
   },
 });

@@ -166,6 +166,29 @@ export const imessage = definePlatform("iMessage", {
           content.content
         );
       }
+      if (content.type === "reaction") {
+        if (isLocal(client)) {
+          throw UnsupportedError.action("react", "iMessage (local mode)");
+        }
+        if (isPollContent(content.target.content)) {
+          throw UnsupportedError.action(
+            "react",
+            "iMessage",
+            "iMessage polls do not support reactions"
+          );
+        }
+        const remote = clientForPhone(client, space.phone);
+        // `content.target` is statically typed as the generic `Message`, but
+        // execution only reaches this iMessage `send` action when the target
+        // came from the iMessage stream — hence the unknown-cast widen.
+        await remoteReactToMessage(
+          remote,
+          space.id,
+          content.target as unknown as IMessageMessage,
+          content.emoji
+        );
+        return;
+      }
       if (isLocal(client)) {
         return await localSend(client, space.id, content);
       }
@@ -185,25 +208,6 @@ export const imessage = definePlatform("iMessage", {
       }
       const remote = clientForPhone(client, space.phone);
       await remoteStopTyping(remote, space.id);
-    },
-    reactToMessage: async ({ space, target, reaction, client }) => {
-      if (isLocal(client)) {
-        throw UnsupportedError.action("react", "iMessage (local mode)");
-      }
-      if (isPollContent(target.content)) {
-        throw UnsupportedError.action(
-          "react",
-          "iMessage",
-          "iMessage polls do not support reactions"
-        );
-      }
-      const remote = clientForPhone(client, space.phone);
-      await remoteReactToMessage(
-        remote,
-        space.id,
-        target as IMessageMessage,
-        reaction
-      );
     },
     editMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {

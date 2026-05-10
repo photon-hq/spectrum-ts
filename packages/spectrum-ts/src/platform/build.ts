@@ -1,3 +1,4 @@
+import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
 import type { Content, ContentInput } from "../content/types";
@@ -231,9 +232,10 @@ const wrapNestedContent = (
       // Reaction targets are always wrapped as "inbound": the target refers to
       // the original received message, not the reaction event itself. So even
       // when the wrapping reaction is outbound (e.g. our own reaction sent via
-      // `reactToMessage`), the *target* it points at is a message we received.
-      // This differs from `group.items`, which propagate the wrapping
-      // direction because each item is itself one piece of the same send.
+      // `space.send(reaction(...))`), the *target* it points at is a message
+      // we received. This differs from `group.items`, which propagate the
+      // wrapping direction because each item is itself one piece of the same
+      // send.
       return {
         ...content,
         target: wrapProviderMessage(target, ctx, "inbound"),
@@ -278,32 +280,8 @@ export function buildSpace(params: BuildSpaceParams): Space {
   // Declared first so inner arrows can reference it after assignment.
   let space: Space;
 
-  async function dispatchReaction(
-    item: Extract<Content, { type: "reaction" }>
-  ): Promise<void> {
-    try {
-      if (!definition.actions.reactToMessage) {
-        throw UnsupportedError.action("react", definition.name);
-      }
-      await definition.actions.reactToMessage({
-        space: spaceRef,
-        target: item.target,
-        reaction: item.emoji,
-        client,
-        config,
-        store,
-      });
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
-  }
-
   async function dispatchSend(
-    item: Exclude<Content, { type: "reaction" }>
+    item: Content
   ): Promise<OutboundMessage | undefined> {
     let raw: ProviderMessageRecord | undefined;
     try {
@@ -326,6 +304,11 @@ export function buildSpace(params: BuildSpaceParams): Space {
       throw err;
     }
     if (!raw?.id) {
+      // Reactions are fire-and-forget on most platforms — providers may return
+      // `void` from `send`. Every other content type must produce a message id.
+      if (item.type === "reaction") {
+        return;
+      }
       throw new Error(
         `Platform "${definition.name}" send did not return a message id`
       );
@@ -343,10 +326,6 @@ export function buildSpace(params: BuildSpaceParams): Space {
     const resolved = await resolveContents(content);
     const results: OutboundMessage[] = [];
     for (const item of resolved) {
-      if (item.type === "reaction") {
-        await dispatchReaction(item);
-        continue;
-      }
       const sent = await dispatchSend(item);
       if (sent) {
         results.push(sent);
@@ -430,35 +409,13 @@ export function buildMessage(params: BuildMessageParams): Message {
   // reaction target.
   let self: Message | undefined;
 
-  const react = async (reaction: string): Promise<void> => {
-    if (!definition.actions.reactToMessage) {
-      warnUnsupported(
-        UnsupportedError.action("react", definition.name),
-        definition.name
-      );
-      return;
-    }
-    if (!self) {
-      throw new Error(
-        "react() called before message construction completed (internal bug)"
-      );
-    }
-    try {
-      await definition.actions.reactToMessage({
-        space: spaceRef,
-        target: self,
-        reaction,
-        client,
-        config,
-        store,
-      });
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
+  const react = async (emoji: string): Promise<void> => {
+    const target = requireBuiltMessage("react");
+    // Sugar for `space.send(reaction(emoji, target))`. The canonical form
+    // returns `OutboundMessage | undefined`; this surface discards it because
+    // reactions are fire-and-forget on most platforms (callers reach for the
+    // canonical form when they need the result).
+    await space.send(reactionContent(emoji, target));
   };
 
   const requireBuiltMessage = (action: "react" | "reply"): Message => {

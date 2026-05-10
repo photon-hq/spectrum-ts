@@ -496,6 +496,14 @@ export const send = async (
   spaceId: string,
   content: Content
 ): Promise<ProviderMessageRecord> => {
+  if (content.type === "reply") {
+    return await replyToMessage(
+      clients,
+      spaceId,
+      content.target.id,
+      content.content
+    );
+  }
   const client = primary(clients);
   switch (content.type) {
     case "text":

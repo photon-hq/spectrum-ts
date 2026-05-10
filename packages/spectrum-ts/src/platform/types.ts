@@ -53,10 +53,10 @@ export type ProviderMessage<
 
 /**
  * A message a provider produced — used for both inbound (`events.messages`,
- * `getMessage`) and outbound (`send`, `replyToMessage`) flows. Providers
- * return their native record shape (including platform extras like
- * `partIndex`/`parentId` for iMessage) and the platform `wrapProviderMessage`
- * pipeline turns it into a fully-built Message.
+ * `getMessage`) and outbound (`send`) flows. Providers return their native
+ * record shape (including platform extras like `partIndex`/`parentId` for
+ * iMessage) and the platform `wrapProviderMessage` pipeline turns it into a
+ * fully-built Message.
  *
  * `sender` is optional because outbound sends often can't synthesize one
  * (the SDK doesn't surface the bot's own handle); inbound providers are
@@ -161,15 +161,6 @@ export interface PlatformDef<
       config: z.infer<_ConfigSchema>;
       store: Store;
     }) => Promise<void>;
-    replyToMessage?: (_: {
-      space: _ResolvedSpace & SpaceRef;
-      messageId: string;
-      target: _MessageType;
-      content: Content;
-      client: NoInferClient<_Client>;
-      config: z.infer<_ConfigSchema>;
-      store: Store;
-    }) => Promise<ProviderMessageRecord>;
     editMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
@@ -245,8 +236,6 @@ export interface AnyPlatformDef {
     stopTyping?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     reactToMessage?: (_: any) => Promise<void>;
-    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    replyToMessage?: (_: any) => Promise<ProviderMessageRecord>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     editMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action

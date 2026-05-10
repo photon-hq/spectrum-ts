@@ -629,6 +629,18 @@ export const terminal = definePlatform("terminal", {
 
   actions: {
     send: async ({ client, content, space }) => {
+      if (content.type === "reply") {
+        const inner = await spectrumToProtocol(content.content);
+        const result = await client.session.request<{
+          id: string;
+          timestamp: string;
+        }>("replyToMessage", {
+          spaceId: space.id,
+          messageId: content.target.id,
+          content: inner,
+        });
+        return buildOutboundRecord(result, content.content, space.id);
+      }
       const proto = await spectrumToProtocol(content);
       const result = await client.session.request<{
         id: string;
@@ -651,15 +663,6 @@ export const terminal = definePlatform("terminal", {
         messageId: target.id,
         reaction,
       });
-    },
-
-    replyToMessage: async ({ client, space, messageId, content }) => {
-      const proto = await spectrumToProtocol(content);
-      const result = await client.session.request<{
-        id: string;
-        timestamp: string;
-      }>("replyToMessage", { spaceId: space.id, messageId, content: proto });
-      return buildOutboundRecord(result, content, space.id);
     },
   },
 });

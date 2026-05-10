@@ -21,6 +21,7 @@ export {
   poll,
 } from "./content/poll";
 export { type Reaction, reaction } from "./content/reaction";
+export { type Reply, reply } from "./content/reply";
 export { resolveContents } from "./content/resolve";
 export { type Richlink, richlink } from "./content/richlink";
 export { text } from "./content/text";

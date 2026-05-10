@@ -147,6 +147,25 @@ export const imessage = definePlatform("iMessage", {
 
   actions: {
     send: async ({ space, content, client }) => {
+      if (content.type === "reply") {
+        if (isLocal(client)) {
+          throw UnsupportedError.action("reply", "iMessage (local mode)");
+        }
+        if (isPollContent(content.target.content)) {
+          throw UnsupportedError.action(
+            "reply",
+            "iMessage",
+            "iMessage polls do not support replies"
+          );
+        }
+        const remote = clientForPhone(client, space.phone);
+        return await remoteReplyToMessage(
+          remote,
+          space.id,
+          content.target.id,
+          content.content
+        );
+      }
       if (isLocal(client)) {
         return await localSend(client, space.id, content);
       }
@@ -185,20 +204,6 @@ export const imessage = definePlatform("iMessage", {
         target as IMessageMessage,
         reaction
       );
-    },
-    replyToMessage: async ({ space, messageId, target, content, client }) => {
-      if (isLocal(client)) {
-        throw UnsupportedError.action("reply", "iMessage (local mode)");
-      }
-      if (isPollContent(target.content)) {
-        throw UnsupportedError.action(
-          "reply",
-          "iMessage",
-          "iMessage polls do not support replies"
-        );
-      }
-      const remote = clientForPhone(client, space.phone);
-      return await remoteReplyToMessage(remote, space.id, messageId, content);
     },
     editMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {

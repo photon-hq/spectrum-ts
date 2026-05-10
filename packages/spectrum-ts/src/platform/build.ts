@@ -1,3 +1,4 @@
+import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
 import type { Content, ContentInput } from "../content/types";
 import type {
@@ -11,10 +12,6 @@ import type { Store } from "../utils/store";
 import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
 
 export type { ProviderMessageRecord } from "./types";
-
-type ReplyToMessageAction = NonNullable<
-  AnyPlatformDef["actions"]["replyToMessage"]
->;
 
 const ANSI_YELLOW = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
@@ -58,6 +55,10 @@ const findUnsupportedPlatformContent = (
   const scopedPlatform = contentPlatform(content);
   if (scopedPlatform && scopedPlatform !== platform) {
     return scopedPlatform;
+  }
+
+  if (content.type === "reply") {
+    return findUnsupportedPlatformContent(content.content, platform);
   }
 
   if (content.type !== "group") {
@@ -174,11 +175,11 @@ const extractExtras = (
 /**
  * Wrap a raw provider message record (and any nested raw targets/items inside
  * its content) into a fully-built `Message`. The same path serves inbound
- * (`events.messages`, `getMessage`) and outbound (`send`, `replyToMessage`)
- * flows — the only difference is `direction`, which decides whether the
- * resulting Message exposes inbound (`react`/`reply`) or outbound (`edit`)
- * affordances. Recursion through `wrapNestedContent` handles reaction targets
- * and group items, which providers return as nested raw records.
+ * (`events.messages`, `getMessage`) and outbound (`send`) flows — the only
+ * difference is `direction`, which decides whether the resulting Message
+ * exposes inbound (`react`/`reply`) or outbound (`edit`) affordances.
+ * Recursion through `wrapNestedContent` handles reaction targets and group
+ * items, which providers return as nested raw records.
  */
 export function wrapProviderMessage(
   raw: ProviderMessageRecord,
@@ -469,48 +470,6 @@ export function buildMessage(params: BuildMessageParams): Message {
     return self;
   };
 
-  const dispatchReplyItem = async (
-    item: Content,
-    target: Message,
-    replyToMessage: ReplyToMessageAction
-  ): Promise<OutboundMessage | undefined> => {
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      const platformError = unsupportedPlatformContentError(
-        item,
-        definition.name
-      );
-      if (platformError) {
-        throw platformError;
-      }
-      raw = (await replyToMessage({
-        space: spaceRef,
-        messageId: params.id,
-        target,
-        content: item,
-        client,
-        config,
-        store,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
-    if (!raw?.id) {
-      throw new Error(
-        `Platform "${definition.name}" reply did not return a message id`
-      );
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef, store },
-      "outbound"
-    );
-  };
-
   async function reply(
     content: ContentInput
   ): Promise<OutboundMessage | undefined>;
@@ -520,27 +479,19 @@ export function buildMessage(params: BuildMessageParams): Message {
   async function reply(
     ...content: [ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
-    const replyToMessage = definition.actions.replyToMessage;
-    if (!replyToMessage) {
-      warnUnsupported(
-        UnsupportedError.action("reply", definition.name),
-        definition.name
-      );
-      return content.length === 1 ? undefined : [];
-    }
-    const resolved = await resolveContents(content);
     const target = requireBuiltMessage("reply");
-    const results: OutboundMessage[] = [];
-    for (const item of resolved) {
-      const sent = await dispatchReplyItem(item, target, replyToMessage);
-      if (sent) {
-        results.push(sent);
-      }
-    }
-    if (content.length === 1) {
-      return results[0];
-    }
-    return results;
+    const wrapped = content.map((c) => replyContent(c, target)) as [
+      ContentInput,
+      ...ContentInput[],
+    ];
+    // The cast mirrors the existing `sendImpl as Space["send"]` below —
+    // overload resolution can't pick the right shape from a generic
+    // spread, but the runtime delegates 1:1.
+    return (
+      space.send as (
+        ...c: [ContentInput, ...ContentInput[]]
+      ) => Promise<OutboundMessage | OutboundMessage[] | undefined>
+    )(...wrapped);
   }
 
   const senderWithPlatform =

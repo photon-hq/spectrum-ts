@@ -508,6 +508,12 @@ export const send = async (
     await reactToMessage(clients, spaceId, content.target.id, content.emoji);
     return;
   }
+  if (content.type === "typing") {
+    // WhatsApp Business has no typing-indicator API. Silently ignore so
+    // `space.startTyping()` / `space.responding()` work portably across
+    // platforms — typing is a hint, not a critical message.
+    return;
+  }
   const client = primary(clients);
   switch (content.type) {
     case "text":

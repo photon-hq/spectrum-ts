@@ -9,6 +9,7 @@ import { reactionSchema } from "./reaction";
 import { replySchema } from "./reply";
 import { richlinkSchema } from "./richlink";
 import { textSchema } from "./text";
+import { typingSchema } from "./typing";
 import { voiceSchema } from "./voice";
 
 // `baseContentSchema` is everything except `reply`. It exists so the inner
@@ -27,6 +28,7 @@ const baseContentSchemas = [
   pollSchema,
   pollOptionSchema,
   messageEffectSchema,
+  typingSchema,
 ] as const;
 
 export const baseContentSchema = z.discriminatedUnion(

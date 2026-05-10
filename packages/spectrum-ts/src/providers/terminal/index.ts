@@ -649,20 +649,19 @@ export const terminal = definePlatform("terminal", {
         });
         return;
       }
+      if (content.type === "typing") {
+        // Tuichat exposes start/stop as separate notifications; we keep the
+        // wire protocol unchanged so existing binaries still work.
+        const method = content.state === "start" ? "startTyping" : "stopTyping";
+        await client.session.request(method, { spaceId: space.id });
+        return;
+      }
       const proto = await spectrumToProtocol(content);
       const result = await client.session.request<{
         id: string;
         timestamp: string;
       }>("send", { spaceId: space.id, content: proto });
       return buildOutboundRecord(result, content, space.id);
-    },
-
-    startTyping: async ({ client, space }) => {
-      await client.session.request("startTyping", { spaceId: space.id });
-    },
-
-    stopTyping: async ({ client, space }) => {
-      await client.session.request("stopTyping", { spaceId: space.id });
     },
   },
 });

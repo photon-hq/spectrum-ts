@@ -130,7 +130,7 @@ function createPlatformInstance<
         id: parsedSpace.id,
         __platform: def.name,
       };
-      const typingCtx = {
+      const actionCtx = {
         space: spaceRef,
         client: runtime.client as _Client,
         config: runtime.config as z.infer<_ConfigSchema>,
@@ -139,7 +139,7 @@ function createPlatformInstance<
       return buildSpace({
         spaceRef,
         extras: parsedSpace as Record<string, unknown>,
-        typingCtx,
+        actionCtx,
         definition: def as unknown as AnyPlatformDef,
         client: runtime.client,
         config: runtime.config,

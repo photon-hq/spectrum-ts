@@ -2,6 +2,7 @@ import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
 import type { Content, ContentInput } from "../content/types";
+import { typing as typingContent } from "../content/typing";
 import type {
   InboundMessage,
   Message,
@@ -127,18 +128,20 @@ type BuildOutboundParams = BaseBuildParams & {
 export type BuildMessageParams = BuildInboundParams | BuildOutboundParams;
 
 export interface BuildSpaceParams {
+  // Pre-built context object passed to `definition.actions.send`. Sites that
+  // dispatch actions spread this and add per-call fields (e.g. `content`).
+  actionCtx: {
+    space: SpaceRef;
+    client: unknown;
+    config: unknown;
+    store: Store;
+  };
   client: unknown;
   config: unknown;
   definition: AnyPlatformDef;
   extras: Record<string, unknown>;
   spaceRef: SpaceRef;
   store: Store;
-  typingCtx: {
-    space: SpaceRef;
-    client: unknown;
-    config: unknown;
-    store: Store;
-  };
 }
 
 // Raw provider message fields — everything else on a provider-emitted record
@@ -275,7 +278,7 @@ const isRawProviderRecord = (v: unknown): v is ProviderMessageRecord => {
 };
 
 export function buildSpace(params: BuildSpaceParams): Space {
-  const { spaceRef, extras, typingCtx, definition, client, config, store } =
+  const { spaceRef, extras, actionCtx, definition, client, config, store } =
     params;
   // Declared first so inner arrows can reference it after assignment.
   let space: Space;
@@ -293,7 +296,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
         throw platformError;
       }
       raw = (await definition.actions.send({
-        ...typingCtx,
+        ...actionCtx,
         content: item,
       })) as ProviderMessageRecord | undefined;
     } catch (err) {
@@ -304,9 +307,10 @@ export function buildSpace(params: BuildSpaceParams): Space {
       throw err;
     }
     if (!raw?.id) {
-      // Reactions are fire-and-forget on most platforms — providers may return
-      // `void` from `send`. Every other content type must produce a message id.
-      if (item.type === "reaction") {
+      // Reactions and typing indicators are fire-and-forget control signals —
+      // providers may return `void` from `send` for them. Every other content
+      // type must produce a message id.
+      if (item.type === "reaction" || item.type === "typing") {
         return;
       }
       throw new Error(
@@ -383,17 +387,20 @@ export function buildSpace(params: BuildSpaceParams): Space {
     },
     getMessage: getMessageImpl,
     startTyping: async () => {
-      await definition.actions.startTyping?.(typingCtx);
+      // Sugar for `space.send(typing("start"))`. Typing is fire-and-forget;
+      // providers handle it inside their `send` action and any platforms
+      // without a typing API silently no-op.
+      await space.send(typingContent("start"));
     },
     stopTyping: async () => {
-      await definition.actions.stopTyping?.(typingCtx);
+      await space.send(typingContent("stop"));
     },
     responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
-      await definition.actions.startTyping?.(typingCtx);
+      await space.send(typingContent("start"));
       try {
         return await fn();
       } finally {
-        await definition.actions.stopTyping?.(typingCtx).catch(() => {});
+        await space.send(typingContent("stop")).catch(() => {});
       }
     },
   };

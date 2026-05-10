@@ -189,25 +189,25 @@ export const imessage = definePlatform("iMessage", {
         );
         return;
       }
+      if (content.type === "typing") {
+        // Local mode has no typing API — silently no-op so callers can use
+        // `space.startTyping()` uniformly across modes.
+        if (isLocal(client)) {
+          return;
+        }
+        const remote = clientForPhone(client, space.phone);
+        if (content.state === "start") {
+          await remoteStartTyping(remote, space.id);
+        } else {
+          await remoteStopTyping(remote, space.id);
+        }
+        return;
+      }
       if (isLocal(client)) {
         return await localSend(client, space.id, content);
       }
       const remote = clientForPhone(client, space.phone);
       return await remoteSend(remote, space.id, content);
-    },
-    startTyping: async ({ space, client }) => {
-      if (isLocal(client)) {
-        return;
-      }
-      const remote = clientForPhone(client, space.phone);
-      await remoteStartTyping(remote, space.id);
-    },
-    stopTyping: async ({ space, client }) => {
-      if (isLocal(client)) {
-        return;
-      }
-      const remote = clientForPhone(client, space.phone);
-      await remoteStopTyping(remote, space.id);
     },
     editMessage: async ({ space, messageId, content, client }) => {
       if (isLocal(client)) {

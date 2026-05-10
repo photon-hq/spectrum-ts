@@ -181,11 +181,11 @@ export async function Spectrum<
           ...msg.space,
           __platform: definition.name,
         };
-        const typingCtx = { space: spaceRef, client, config, store };
+        const actionCtx = { space: spaceRef, client, config, store };
         const space = buildSpace({
           spaceRef,
           extras: {},
-          typingCtx,
+          actionCtx,
           definition,
           client,
           config,

@@ -53,6 +53,7 @@ export function reply(content: ContentInput, target: Message): ContentBuilder {
       }
       if (
         resolved.type === "reply" ||
+        resolved.type === "edit" ||
         resolved.type === "reaction" ||
         resolved.type === "group" ||
         resolved.type === "typing"

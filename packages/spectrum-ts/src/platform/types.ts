@@ -141,14 +141,6 @@ export interface PlatformDef<
       config: z.infer<_ConfigSchema>;
       store: Store;
     }) => Promise<ProviderMessageRecord | undefined>;
-    editMessage?: (_: {
-      space: _ResolvedSpace & SpaceRef;
-      messageId: string;
-      content: Content;
-      client: NoInferClient<_Client>;
-      config: z.infer<_ConfigSchema>;
-      store: Store;
-    }) => Promise<void>;
     getMessage?: (_: {
       space: _ResolvedSpace & SpaceRef;
       messageId: string;
@@ -210,8 +202,6 @@ export interface AnyPlatformDef {
   actions: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     send: (_: any) => Promise<ProviderMessageRecord | undefined>;
-    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    editMessage?: (_: any) => Promise<void>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard action
     getMessage?: (_: any) => Promise<any>;
   };

@@ -1,5 +1,6 @@
 import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
+import type { Edit } from "../../content/edit";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
 
@@ -37,6 +38,27 @@ import {
 
 const isPollContent = (content: { type: string }): boolean =>
   content.type === "poll" || content.type === "poll_option";
+
+const handleEdit = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  content: Edit
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action("edit", "iMessage (local mode)");
+  }
+  if (content.content.type !== "text") {
+    // Mirrors `remoteEditMessage`'s own check — surface as an
+    // UnsupportedError so dispatchSend warn-and-skips uniformly.
+    throw UnsupportedError.content(
+      "edit",
+      "iMessage",
+      `only text content can be edited (got "${content.content.type}")`
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteEditMessage(remote, space.id, content.target.id, content.content);
+};
 
 export const imessage = definePlatform("iMessage", {
   config: configSchema,
@@ -203,18 +225,15 @@ export const imessage = definePlatform("iMessage", {
         }
         return;
       }
+      if (content.type === "edit") {
+        await handleEdit(client, space, content);
+        return;
+      }
       if (isLocal(client)) {
         return await localSend(client, space.id, content);
       }
       const remote = clientForPhone(client, space.phone);
       return await remoteSend(remote, space.id, content);
-    },
-    editMessage: async ({ space, messageId, content, client }) => {
-      if (isLocal(client)) {
-        throw UnsupportedError.action("edit", "iMessage (local mode)");
-      }
-      const remote = clientForPhone(client, space.phone);
-      await remoteEditMessage(remote, space.id, messageId, content);
     },
     getMessage: async ({ space, messageId, client }) => {
       if (isLocal(client)) {

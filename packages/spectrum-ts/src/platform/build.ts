@@ -1,3 +1,4 @@
+import { edit as editContent } from "../content/edit";
 import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
@@ -59,7 +60,7 @@ const findUnsupportedPlatformContent = (
     return scopedPlatform;
   }
 
-  if (content.type === "reply") {
+  if (content.type === "reply" || content.type === "edit") {
     return findUnsupportedPlatformContent(content.content, platform);
   }
 
@@ -246,6 +247,21 @@ const wrapNestedContent = (
     }
     return content;
   }
+  if (content.type === "edit") {
+    const target = content.target as unknown;
+    if (isRawProviderRecord(target)) {
+      // The target of an edit is always one of *our* outbound messages —
+      // the message being rewritten. Wrap as outbound so its `.edit`
+      // affordance is available downstream. Defensive parity with the
+      // reaction branch above; in practice providers return `undefined`
+      // from `send` for edits, so this rarely fires.
+      return {
+        ...content,
+        target: wrapProviderMessage(target, ctx, "outbound"),
+      };
+    }
+    return content;
+  }
   if (content.type === "group") {
     const items = content.items.map((item) => {
       const raw = item as unknown;
@@ -307,10 +323,14 @@ export function buildSpace(params: BuildSpaceParams): Space {
       throw err;
     }
     if (!raw?.id) {
-      // Reactions and typing indicators are fire-and-forget control signals —
-      // providers may return `void` from `send` for them. Every other content
-      // type must produce a message id.
-      if (item.type === "reaction" || item.type === "typing") {
+      // Reactions, typing indicators, and edits are fire-and-forget control
+      // signals — providers may return `void` from `send` for them. Every
+      // other content type must produce a message id.
+      if (
+        item.type === "reaction" ||
+        item.type === "typing" ||
+        item.type === "edit"
+      ) {
         return;
       }
       throw new Error(
@@ -383,7 +403,9 @@ export function buildSpace(params: BuildSpaceParams): Space {
       message: OutboundMessage,
       newContent: ContentInput
     ): Promise<void> => {
-      await message.edit(newContent);
+      // Sugar for `space.send(edit(newContent, message))`. Edits are
+      // fire-and-forget; the (always-undefined) result is discarded.
+      await space.send(editContent(newContent, message));
     },
     getMessage: getMessageImpl,
     startTyping: async () => {
@@ -410,7 +432,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
 export function buildMessage(params: BuildInboundParams): InboundMessage;
 export function buildMessage(params: BuildOutboundParams): OutboundMessage;
 export function buildMessage(params: BuildMessageParams): Message {
-  const { definition, client, config, spaceRef, space, store } = params;
+  const { definition, space } = params;
 
   // Late-bound self reference so `react()` can pass the built Message as the
   // reaction target.
@@ -425,7 +447,7 @@ export function buildMessage(params: BuildMessageParams): Message {
     await space.send(reactionContent(emoji, target));
   };
 
-  const requireBuiltMessage = (action: "react" | "reply"): Message => {
+  const requireBuiltMessage = (action: "react" | "reply" | "edit"): Message => {
     if (!self) {
       throw new Error(
         `${action}() called before message construction completed (internal bug)`
@@ -473,41 +495,11 @@ export function buildMessage(params: BuildMessageParams): Message {
       react,
       reply,
       edit: async (newContent: ContentInput): Promise<void> => {
-        if (!definition.actions.editMessage) {
-          warnUnsupported(
-            UnsupportedError.action("edit", definition.name),
-            definition.name
-          );
-          return;
-        }
-        const [resolved] = await resolveContents([newContent]);
-        if (!resolved) {
-          return;
-        }
-        const platformError = unsupportedPlatformContentError(
-          resolved,
-          definition.name
-        );
-        if (platformError) {
-          warnUnsupported(platformError, definition.name);
-          return;
-        }
-        try {
-          await definition.actions.editMessage({
-            space: spaceRef,
-            messageId: params.id,
-            content: resolved,
-            client,
-            config,
-            store,
-          });
-        } catch (err) {
-          if (err instanceof UnsupportedError) {
-            warnUnsupported(err, definition.name);
-            return;
-          }
-          throw err;
-        }
+        // Sugar for `space.send(edit(newContent, self))`. Unsupported-content
+        // checks, fire-and-forget dispatch, and provider delegation all flow
+        // through the canonical send pipeline.
+        const target = requireBuiltMessage("edit") as OutboundMessage;
+        await space.send(editContent(newContent, target));
       },
       sender: senderWithPlatform,
       space,

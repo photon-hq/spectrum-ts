@@ -11,6 +11,7 @@ export {
   contact,
 } from "./content/contact";
 export { custom } from "./content/custom";
+export { type Edit, edit } from "./content/edit";
 export { type Group, group } from "./content/group";
 export {
   option,

@@ -2,6 +2,7 @@ import z from "zod";
 import { attachmentSchema } from "./attachment";
 import { contactSchema } from "./contact";
 import { customSchema } from "./custom";
+import { editSchema } from "./edit";
 import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
 import { pollOptionSchema, pollSchema } from "./poll";
@@ -12,10 +13,11 @@ import { textSchema } from "./text";
 import { typingSchema } from "./typing";
 import { voiceSchema } from "./voice";
 
-// `baseContentSchema` is everything except `reply`. It exists so the inner
-// content of a `Reply` can be typed against this non-circular union without
-// `Content` referencing itself via `Reply.content`. Reply rejects nested
-// `reply` in its builder anyway, so the looser typing here is also correct.
+// `baseContentSchema` is everything except `reply` and `edit`. It exists so
+// the inner content of a `Reply` (and `Edit`) can be typed against this
+// non-circular union without `Content` referencing itself via
+// `Reply.content` / `Edit.content`. Both builders reject nested wrapping
+// in their reject-lists, so the looser typing here is also correct.
 const baseContentSchemas = [
   textSchema,
   customSchema,
@@ -41,6 +43,7 @@ export type BaseContent = z.infer<typeof baseContentSchema>;
 export const contentSchema = z.discriminatedUnion("type", [
   ...baseContentSchemas,
   replySchema,
+  editSchema,
 ]);
 
 export type Content = z.infer<typeof contentSchema>;

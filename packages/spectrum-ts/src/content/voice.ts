@@ -36,7 +36,7 @@ const resolveVoiceName = (
   if (typeof input === "string") {
     return basename(input);
   }
-  return undefined;
+  return;
 };
 
 const resolveVoiceMimeType = (

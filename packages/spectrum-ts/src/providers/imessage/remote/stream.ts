@@ -153,7 +153,7 @@ async function* catchUpEvents<T extends MessageEvent | PollEvent>(
 
 const toResumeAfter = (cursor: string | undefined): number | undefined => {
   if (!cursor) {
-    return undefined;
+    return;
   }
   const sequence = Number(cursor);
   return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : undefined;

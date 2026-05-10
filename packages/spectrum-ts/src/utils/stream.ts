@@ -37,7 +37,7 @@ export function stream<T>(
 
   return Object.assign(repeater, {
     close: async () => {
-      void repeater.return(undefined).catch(ignoreCleanupError);
+      await repeater.return(undefined).catch(ignoreCleanupError);
     },
   });
 }
@@ -69,7 +69,7 @@ export function mergeStreams<T>(
 
     return async () => {
       await Promise.allSettled(streams.map((source) => source.close()));
-      void Promise.allSettled(workers).catch(ignoreCleanupError);
+      await Promise.allSettled(workers).catch(ignoreCleanupError);
     };
   });
 }
@@ -159,7 +159,7 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
       try {
         await source.close();
         if (pumpPromise) {
-          void pumpPromise.catch(ignoreCleanupError);
+          await pumpPromise.catch(ignoreCleanupError);
         }
       } finally {
         if (!terminated) {

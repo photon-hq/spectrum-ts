@@ -103,7 +103,7 @@ const mapWaPhoneType = (
   type: string | undefined
 ): SpectrumContactPhone["type"] => {
   if (!type) {
-    return undefined;
+    return;
   }
   const upper = type.toUpperCase();
   if (upper === "CELL" || upper === "MOBILE" || upper === "IPHONE") {
@@ -122,7 +122,7 @@ const mapWaSimpleType = (
   type: string | undefined
 ): "home" | "work" | "other" | undefined => {
   if (!type) {
-    return undefined;
+    return;
   }
   const upper = type.toUpperCase();
   if (upper === "HOME") {
@@ -380,7 +380,7 @@ const spectrumPhoneTypeToWa = (
   if (type === "home" || type === "work" || type === "other") {
     return type.toUpperCase();
   }
-  return undefined;
+  return;
 };
 
 const spectrumSimpleTypeToWa = (

@@ -165,8 +165,9 @@ const buildClientProxy = (
 ): WhatsAppClient => {
   const forwarder = <T extends object>(pick: (c: WhatsAppClient) => T): T =>
     new Proxy({} as T, {
-      get: (_, prop: string | symbol) => {
-        return async (...args: unknown[]) => {
+      get:
+        (_, prop: string | symbol) =>
+        async (...args: unknown[]) => {
           await refresh();
           const target = pick(state.current) as Record<
             string | symbol,
@@ -174,8 +175,7 @@ const buildClientProxy = (
           >;
           const fn = target[prop] as (...a: unknown[]) => unknown;
           return Reflect.apply(fn, pick(state.current), args);
-        };
-      },
+        },
     });
 
   const events = {

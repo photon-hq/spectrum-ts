@@ -29,7 +29,7 @@ const refetchUntilAttachmentsSettle = async (
 
   for (let attempt = 0; attempt < ATTACHMENT_JOIN_RETRY_LIMIT; attempt += 1) {
     await sleep(ATTACHMENT_JOIN_RETRY_DELAY_MS);
-    let rows: LocalIMessage[];
+    let rows: readonly LocalIMessage[];
     try {
       rows = await client.getMessages({
         chatId: message.chatId,

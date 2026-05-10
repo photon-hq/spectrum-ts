@@ -27,14 +27,11 @@ function createPlatformInstance<
   _Client,
   _ConfigSchema extends z.ZodType<object>,
 >(def: Def, runtime: PlatformRuntime): PlatformInstance<Def> {
-  const isPlatformUser = (value: unknown): value is PlatformUser<Def> => {
-    return (
-      typeof value === "object" &&
-      value !== null &&
-      "__platform" in value &&
-      (value as { __platform?: unknown }).__platform === def.name
-    );
-  };
+  const isPlatformUser = (value: unknown): value is PlatformUser<Def> =>
+    typeof value === "object" &&
+    value !== null &&
+    "__platform" in value &&
+    (value as { __platform?: unknown }).__platform === def.name;
 
   const resolveUserID = async (userID: string): Promise<PlatformUser<Def>> => {
     const resolved = await def.user.resolve({

@@ -45,7 +45,7 @@ const tryStaticBinary = async (): Promise<string | undefined> => {
     const mod = await import("ffmpeg-static");
     return mod.default ?? undefined;
   } catch {
-    return undefined;
+    return;
   }
 };
 
@@ -99,7 +99,7 @@ const DURATION_PATTERN = /Duration:\s*(\d+):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/;
 const parseDuration = (stderr: string): number | undefined => {
   const match = stderr.match(DURATION_PATTERN);
   if (!match) {
-    return undefined;
+    return;
   }
   const [, hh, mm, ss, frac] = match;
   const seconds =

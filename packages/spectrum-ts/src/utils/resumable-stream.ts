@@ -296,7 +296,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
           activeLive = undefined;
         }
         await closeIterable(live);
-        void livePump.pump.catch(ignoreCleanupError);
+        await livePump.pump.catch(ignoreCleanupError);
       }
     };
 
@@ -334,6 +334,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       closed = true;
       cancelSleep();
       await closeIterable(activeLive);
-      void pump.catch(ignoreCleanupError);
+      await pump.catch(ignoreCleanupError);
     };
   });

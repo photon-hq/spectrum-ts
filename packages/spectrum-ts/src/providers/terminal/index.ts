@@ -551,9 +551,8 @@ export const terminal = definePlatform("terminal", {
   },
 
   lifecycle: {
-    createClient: async ({ config }) => {
-      return await spawnClient({ commands: config.commands });
-    },
+    createClient: async ({ config }) =>
+      await spawnClient({ commands: config.commands }),
 
     destroyClient: async ({ client }) => {
       // Restore console FIRST so any further logs in this teardown go to the

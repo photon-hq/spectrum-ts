@@ -85,10 +85,16 @@ export const messages = (
           flush: async (members) => {
             const grouped = coalesceAlbumGroup(members);
             if (grouped) {
-              runtime.cache.messages.set(
-                messageCacheKey(grouped.space.id, grouped.id),
-                grouped
-              );
+              // Each album member was cached individually as it streamed in;
+              // overwrite every member's slot with the coalesced wrapper so
+              // later lookups (reactions, edits) on any child id resolve to
+              // the group instead of a stale standalone record.
+              for (const member of members) {
+                runtime.cache.messages.set(
+                  messageCacheKey(grouped.space.id, member.id),
+                  grouped
+                );
+              }
               await emit(grouped);
             }
           },

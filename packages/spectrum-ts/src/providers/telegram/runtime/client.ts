@@ -1,7 +1,7 @@
 import type { MethodName, Methods } from "../generated/methods";
 import { BASE_URL } from "../generated/methods";
 import { TelegramApiError, TelegramNetworkError } from "./errors";
-import { DEFAULT_RETRY_POLICY, type RetryPolicy, withRetry } from "./retry";
+import { mergeRetryPolicy, type RetryPolicy, withRetry } from "./retry";
 
 export interface TelegramClientOptions {
   baseUrl?: string;
@@ -197,7 +197,7 @@ export class TelegramClient {
     }
     this.token = token;
     this.baseUrl = (opts.baseUrl ?? BASE_URL).replace(/\/+$/, "");
-    this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.retry };
+    this.retryPolicy = mergeRetryPolicy(opts.retry);
     this.fetchImpl = opts.fetch ?? fetch;
     const requestTimeoutMs =
       opts.requestTimeoutMs === undefined

@@ -16,6 +16,28 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   retryNetworkErrors: true,
 };
 
+// Naive `{ ...defaults, ...override }` lets an explicit `undefined` in
+// `override` blow away the default. Drop undefined entries first so
+// callers can spread a sparse partial without breaking the policy.
+export const mergeRetryPolicy = (
+  override: Partial<RetryPolicy> | undefined
+): RetryPolicy => {
+  if (!override) {
+    return { ...DEFAULT_RETRY_POLICY };
+  }
+  const merged: RetryPolicy = { ...DEFAULT_RETRY_POLICY };
+  for (const [key, value] of Object.entries(override) as [
+    keyof RetryPolicy,
+    RetryPolicy[keyof RetryPolicy] | undefined,
+  ][]) {
+    if (value !== undefined) {
+      (merged[key] as RetryPolicy[typeof key]) =
+        value as RetryPolicy[typeof key];
+    }
+  }
+  return merged;
+};
+
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
     let settled = false;
@@ -95,7 +117,7 @@ export const withRetry = async <T>(
   op: () => Promise<T>,
   opts: { policy?: Partial<RetryPolicy>; signal?: AbortSignal } = {}
 ): Promise<T> => {
-  const policy: RetryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.policy };
+  const policy: RetryPolicy = mergeRetryPolicy(opts.policy);
   let attempt = 1;
 
   while (true) {

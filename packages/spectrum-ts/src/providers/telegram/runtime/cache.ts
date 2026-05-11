@@ -1,20 +1,10 @@
 import type { Poll as SpectrumPoll } from "../../../content/poll";
 import type { TelegramMessage } from "../types";
 
-// ---------------------------------------------------------------------------
-// LRU primitive
-//
-// In-process, capacity-bounded LRU. No TTL — a cached `TelegramMessage` does
-// not expire in any meaningful way: ids, content, sender and timestamp are
-// stable; the lazy `getFile` closure on attachments re-fetches a fresh URL
-// on every `read()` so the ~1h Telegram file-URL window doesn't leak in.
-// Bounding by capacity is enough; eviction is silent (no events, no counters).
-//
-// Implementation note: leverages the insertion-order guarantee on `Map` —
-// every read deletes-and-reinserts the entry to mark it as most-recent, every
-// write evicts the oldest key when over capacity. O(1) per operation.
-// ---------------------------------------------------------------------------
-
+// Capacity-bounded LRU built on `Map`'s insertion-order guarantee:
+// delete-and-reinsert on read marks an entry most-recent; over-capacity
+// writes evict the oldest key. No TTL — attachment `read()` re-fetches the
+// file URL lazily, so the cached values themselves don't expire.
 const DISABLED_CAPACITY = 0;
 
 export class TelegramLRU<K, V> {
@@ -46,7 +36,6 @@ export class TelegramLRU<K, V> {
     if (value === undefined) {
       return;
     }
-    // Reinsert to mark as most-recently-used.
     this.entries.delete(key);
     this.entries.set(key, value);
     return value;
@@ -78,22 +67,11 @@ export class TelegramLRU<K, V> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Album-buffer slot
-//
-// Telegram albums (multiple media composed into a single user-facing post)
-// arrive as separate `Update`s sharing a `media_group_id`. The Bot API gives
-// no "album finished" signal, so we debounce: each new member arms a flush
-// timer; if no new member arrives within `debounceMs`, we emit the buffer as
-// a single `group`. A hard `ceilingMs` ensures a stuck buffer never leaks
-// (e.g. if the upstream stream pauses mid-album for a network blip).
-//
-// This slot is structurally different from `TelegramLRU` — entries are keyed
-// by `media_group_id`, hold a list-plus-timers, and are removed on flush
-// rather than evicted by capacity. Capacity here is a *concurrency* cap on
-// in-flight albums; if exceeded, the oldest in-flight buffer flushes early.
-// ---------------------------------------------------------------------------
-
+// Album members arrive as separate `Update`s sharing a `media_group_id`,
+// with no "album finished" signal. Each new member arms a debounce; the
+// buffer flushes after `debounceMs` of quiet, or hits `ceilingMs` as a
+// hard ceiling. `concurrentCapacity` caps in-flight albums; overflow
+// flushes the oldest early.
 export interface AlbumBufferEntry {
   ceilingTimer: ReturnType<typeof setTimeout>;
   debounceTimer: ReturnType<typeof setTimeout>;
@@ -108,10 +86,8 @@ export interface AlbumBufferOptions {
   flush: (members: TelegramMessage[]) => Promise<void> | void;
 }
 
-// Validates an option that becomes a `setTimeout` argument later. `setTimeout`
-// silently coerces NaN / negatives / non-finite values into "fire immediately"
-// or platform-defined behavior, which is hard to debug after the fact. Catch
-// at construction so misconfiguration throws synchronously at startup.
+// `setTimeout` silently coerces NaN / negative values into "fire
+// immediately", so validate at construction instead of accepting a footgun.
 const assertNonNegativeFiniteMs = (
   field: "ceilingMs" | "debounceMs",
   value: number
@@ -175,29 +151,15 @@ export class AlbumBuffer {
     this.inFlight.set(mediaGroupId, entry);
   }
 
-  /**
-   * Flush every in-flight buffer immediately and clear timers, awaiting all
-   * pending flush callbacks. Called on provider teardown so the parent
-   * stream sees the final batches instead of losing in-progress albums to
-   * the race between teardown and the debounce/ceiling timers.
-   *
-   * Errors from individual flushes are swallowed (and logged) inside
-   * `flush()` itself — same fire-and-forget contract as the timer-driven
-   * paths — so the returned promise resolves once all callbacks settle,
-   * regardless of individual outcomes.
-   */
+  /** Flush every in-flight buffer; awaited by stream teardown. */
   async flushAll(): Promise<void> {
     await Promise.all([...this.inFlight.keys()].map((key) => this.flush(key)));
   }
 
-  // Timer paths intentionally do not await `flush()` — there is no consumer
-  // to surface a rejection to. `flush()` swallows + logs internally, so the
-  // returned promise can only resolve; we attach a no-op `.catch` purely to
-  // satisfy the lint that disallows orphaned floating promises.
   private armDebounce(mediaGroupId: string): ReturnType<typeof setTimeout> {
     return setTimeout(() => {
       this.flush(mediaGroupId).catch(() => {
-        /* swallowed inside flush() */
+        /* errors are logged inside flush() */
       });
     }, this.options.debounceMs);
   }
@@ -205,7 +167,7 @@ export class AlbumBuffer {
   private armCeiling(mediaGroupId: string): ReturnType<typeof setTimeout> {
     return setTimeout(() => {
       this.flush(mediaGroupId).catch(() => {
-        /* swallowed inside flush() */
+        /* errors are logged inside flush() */
       });
     }, this.options.ceilingMs);
   }
@@ -218,12 +180,8 @@ export class AlbumBuffer {
     clearTimeout(entry.debounceTimer);
     clearTimeout(entry.ceilingTimer);
     this.inFlight.delete(mediaGroupId);
-    // Errors are swallowed and logged rather than re-thrown: timer-driven
-    // paths have no awaiter to receive the rejection, and re-throwing
-    // would surface as an unhandled rejection that crashes the host
-    // process. `flushAll()` callers awaiting this promise see resolution
-    // (with a logged failure) instead of a thrown error — same effective
-    // contract whether the call originated from a timer or teardown.
+    // Timer-driven flushes have no awaiter — swallow and log rather than
+    // raise an unhandled rejection.
     try {
       await this.options.flush(entry.members);
     } catch (err) {
@@ -232,24 +190,14 @@ export class AlbumBuffer {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Poll vote-state
-//
-// `poll_id → { poll, chatId, messageId }` is written once per outbound
-// `sendPoll`. `(poll_id, user_id) → optionIndexes` is updated on every
-// `poll_answer` so we can compute the (added, removed) diff against
-// Telegram's "current vote vector" payload and produce Spectrum's
-// `selected: true` / `selected: false` events with iMessage-equivalent
-// fidelity (see PR #35 contract).
-// ---------------------------------------------------------------------------
+// `poll_id → CachedPoll` is written by outbound `sendPoll`.
+// `(poll_id, user_id) → optionIndexes` is the prior vote vector used to
+// diff each `poll_answer` into per-option `selected: true / false` events.
 
 export interface CachedPoll {
   /**
-   * Snapshot of the chat where the poll was sent. Telegram's `poll_answer`
-   * update carries no chat info; we restore it from this snapshot when
-   * synthesizing per-vote events. Stored as the same shape `chatToSpace`
-   * produces so consumers see a consistent `space` field across all
-   * Telegram event kinds.
+   * Chat snapshot — `poll_answer` updates carry no chat info, so we
+   * restore it from here when synthesizing per-vote events.
    */
   chat: {
     chatId: number;
@@ -295,10 +243,6 @@ export class PollStore {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Top-level cache surface attached to TelegramRuntime
-// ---------------------------------------------------------------------------
-
 export interface TelegramCacheCapacities {
   albumConcurrent: number;
   messages: number;
@@ -328,22 +272,8 @@ export const DEFAULT_CACHE_OPTIONS: TelegramCacheOptions = {
   coalesceAlbums: false,
 };
 
-// Album buffering is owned by the events module (`./events/index.ts`) rather
-// than the cache, because the flush callback needs the stream's `emit` —
-// which only exists for the lifetime of the `messages()` subscription, not
-// the runtime. The cache exposes the *configuration* (`coalesceAlbums` flag
-// and timings) so the events module can construct an `AlbumBuffer` per
-// stream lifecycle.
-// Composite cache key for the messages LRU. Telegram's `message_id` is just a
-// per-chat counter (it starts at small ints and resets per chat), so the same
-// numeric id can refer to entirely different messages in two different chats
-// the bot is in. Keying on `messageId` alone collides cross-chat — a reaction
-// in chat B targeting message #42 would resolve to message #42 from chat A if
-// chat A's was cached. Composite `${spaceId}:${messageId}` is unique because
-// `spaceId` is `String(chat.id)` (chat ids are globally unique in Telegram).
-//
-// Both numeric and string forms are accepted because call sites variously hold
-// the raw `Update.message_id` (number) or already-stringified ids.
+// Telegram `message_id` is only unique per-chat, so the cache key must
+// include `spaceId` (= `String(chat.id)`) to avoid cross-chat collisions.
 export const messageCacheKey = (
   spaceId: string,
   messageId: number | string

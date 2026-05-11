@@ -1,59 +1,55 @@
 # Telegram Bot API Spec
 
-Single source of truth for the Telegram Bot API surface that Spectrum exposes across all language ports (`spectrum-ts`, `spectrum-go`, `spectrum-py`, `spectrum-swift`, …).
-
-This directory is **not** a package. It is a plain folder co-located with the Telegram provider in the `spectrum-ts` repo. Other language repos consume it via git submodule or manual sync.
+JSON schema of the Telegram Bot API subset used by the Telegram provider, plus the generator that emits `providers/telegram/generated/*.ts`.
 
 ## Layout
 
 ```text
 packages/spectrum-ts/src/providers/telegram/bot-api-spec/
 ├── schema/
-│   └── telegram.json       ← authoritative schema (hand-written)
+│   └── telegram.json
 ├── generators/
-│   └── typescript.ts       ← emits TS types + method map into spectrum-ts
+│   └── typescript.ts
 └── README.md
 ```
 
 ## Scope
 
-The schema covers only the Bot API subset that maps onto Spectrum's universal `Platform` actions:
+The schema covers the Bot API surface that maps onto Spectrum's `Platform`:
 
-- `send` (text, media, contact, voice, poll)
-- `replyToMessage`, `editMessage`
-- `reactToMessage`, `startTyping`, `stopTyping`
-- `events.messages` (via long polling)
-- Lifecycle sanity checks (`getMe`, `getChat`, `getFile`)
+- `send` — `text`, `richlink`, `attachment`, `voice`, `contact`, `poll`, `reply`, `edit`, `reaction`, `typing`, `group`
+- `messages` — long-polling stream of inbound `Update`s
+- Lifecycle: `getMe`, `getChat`, `getFile`
 
-`stopTyping` is implemented as a no-op on Telegram: `sendChatAction` is one-shot, the Bot API has no "cancel typing" endpoint, and the server-side indicator auto-expires after ~5 seconds. The action is still wired into the platform definition so cross-platform callers don't have to feature-detect — the universal `space.stopTyping()` contract is honored on every provider.
+Notes on a few non-obvious mappings:
 
-Inbound `Update.poll_answer` is mapped to Spectrum's universal `poll_option` events using a per-runtime in-process cache populated when the bot sends a poll via `sendPoll` (which always pins `is_anonymous: false`). Each `poll_answer` is diffed against the user's previously cached vote vector to produce the `selected: true` / `selected: false` events Spectrum's `poll_option` schema expects, matching the contract iMessage and WhatsApp Business already implement under PR #35. Vote events therefore surface only for polls a bot owns; polls sent by other clients in a chat continue to be observable as `poll` content (the body) but produce no per-vote events. `Update.poll` (aggregate vote totals / closure state) is still **not** mapped — Spectrum has no "poll snapshot" content type and translating "poll closed" into per-user diffs would require keeping every prior vote vector for every poll, a sharper memory cost than the bounded per-user state used for `poll_answer` resolution.
-
-Outbound `richlink` content drops `Richlink.title` / `Richlink.summary` / `Richlink.cover` on Telegram. Telegram preview cards are produced by a server-side scraper that fetches the URL and parses Open Graph / Twitter Card / oEmbed metadata; `sendMessage` exposes only layout knobs (size, position, on/off) via `LinkPreviewOptions`, with no input fields for caller-supplied title, description, or image. The richlink is sent as the URL with `prefer_large_media` pinned, so Telegram still renders a big preview card — but the metadata comes from the destination, not the caller. Cross-platform fan-out (e.g. iMessage + Telegram) will therefore show the caller's title on iMessage and the scraped title on Telegram.
+- `typing` with `state: "stop"` is a no-op. `sendChatAction` is one-shot and the indicator auto-expires after ~5s; there's no cancel endpoint.
+- `Update.poll_answer` is diffed against the bot's prior cached vote vector and emitted as per-option `poll_option` events. `sendPoll` always pins `is_anonymous: false` to enable this. `Update.poll` aggregate state is unmapped.
+- Outbound `richlink` drops `title` / `summary` / `cover` — Telegram's preview scraper owns that metadata; the Bot API exposes only layout knobs.
 
 ### Provider-local cache
 
-Telegram's Bot API has no general "fetch message by id" endpoint, no "album" update kind, and no chat-id on `poll_answer`, so the provider keeps a small in-process cache to bridge the universal Spectrum contract:
+Bridges the gaps in the Bot API (no fetch-by-id, no album update kind, no chat on `poll_answer`):
 
-- **Messages cache** — every inbound `Update.message` (and every outbound `send` / `replyToMessage` / `editMessage` receipt) is written through a bounded LRU. `space.getMessage(id)` returns hot entries; cold ids return `undefined` (matching iMessage local-mode semantics). `Update.message_reaction` events also use this cache to hydrate `reaction.target` into the real prior `Message` when available, falling back to a `custom`-content stub when not.
-- **Poll cache** — `sendPoll` records `(poll_id → original Spectrum poll, chat snapshot, message id)` and per-`(poll_id, user_id)` vote vectors so `poll_answer` updates can be diffed into `poll_option` events.
-- **Album buffer** — when `coalesceAlbums: true`, members of an album (messages sharing `media_group_id`) are debounced and emitted as a single `group` content; when off (the default), each album member surfaces individually with a `mediaGroupId` extra so callers can group themselves.
+- **Messages cache** — bounded LRU written by every inbound `Update.message` and outbound send. `space.getMessage(id)` reads from it. Reaction events also use it to hydrate `reaction.target`.
+- **Poll cache** — maps `poll_id` to the original Spectrum poll + chat snapshot, plus per-voter vote vectors for diffing.
+- **Album buffer** — with `coalesceAlbums: true`, debounces members sharing `media_group_id` into a single `group`; off by default.
 
-The cache is bounded by capacity (no TTL — a cached message doesn't go stale in any meaningful way; attachment URLs are re-resolved lazily through `getFile` on every read), in-process only, never persisted, and torn down with the runtime. Defaults: 5000 messages, 500 polls, 5000 vote vectors, 100 concurrent in-flight albums; album debounce 500 ms with a 2 s ceiling. Set any capacity to `0` to disable that slot — `cache: { messages: 0 }` restores the pre-cache "always undefined" `getMessage` behaviour, `cache: { polls: 0 }` skips `poll_answer` resolution, etc.
+In-process, capacity-bounded, no TTL, torn down with the runtime. Defaults: 5000 messages, 500 polls, 5000 vote vectors, 100 concurrent albums, 500ms debounce, 2s ceiling. Set any capacity to `0` to disable that slot.
 
-Features outside this universal set (inline queries, callback queries, payments, passports, forum topics, admin operations, etc.) are **intentionally excluded**. They are surfaced — when needed — as provider-specific custom events, not via this schema.
+Inline queries, callback queries, payments, passports, forum topics, and admin operations are out of scope; surface them via custom events if needed.
 
 ## Schema format
 
-Language-neutral JSON. The TypeRef DSL has three shapes:
+TypeRef DSL:
 
-- **Primitives**: `string`, `integer`, `float`, `boolean`, `any`
-- **Reference**: `Ref:<TypeName>` (e.g. `Ref:Message`)
-- **Composition**: `Array:<Inner>`, `Union:<A>|<B>|...` (members may themselves be primitives or `Ref:X`)
+- Primitives: `string`, `integer`, `float`, `boolean`, `any`
+- Reference: `Ref:<TypeName>`
+- Composition: `Array:<Inner>`, `Union:<A>|<B>|...`
 
-Special primitive: `InputFile` is a type marker, not a concrete shape. Each language generator maps it to its own file-upload abstraction (TS: `string | Blob`; Go: `io.Reader | string`; Python: `bytes | str | BinaryIO`; Swift: `Data | String`).
+`InputFile` is a marker; the generator emits `string | Blob`.
 
-### Type definition
+### Type
 
 ```json
 "Message": {
@@ -66,14 +62,9 @@ Special primitive: `InputFile` is a type marker, not a concrete shape. Each lang
 }
 ```
 
-Field options:
+Field options: `required`, `description`, `enum`, `const`.
 
-- `required` (boolean)
-- `description` (string, emitted as docstring)
-- `enum` (string array, emits a string literal union)
-- `const` (string, emits a literal type)
-
-### Method definition
+### Method
 
 ```json
 "sendMessage": {
@@ -87,43 +78,21 @@ Field options:
 }
 ```
 
-`returns` uses the same TypeRef DSL as fields.
-
 ## Regeneration
-
-After editing `schema/telegram.json`:
 
 ```bash
 bun run gen:telegram
 ```
 
-This rewrites `packages/spectrum-ts/src/providers/telegram/generated/*.ts`.
-
-Generated files are committed to git. CI should verify `git diff --exit-code` after regeneration to prevent hand-edits from drifting.
+Rewrites `providers/telegram/generated/*.ts`. Generated files are committed; CI runs `git diff --exit-code` after regen.
 
 ## Adding a method
 
-1. If the method introduces a new type, add it under `types`.
-2. Add the method under `methods` with full param list and return type.
-3. Run `bun run gen:telegram`.
+1. Add any new type under `types`.
+2. Add the method under `methods` with params and return type.
+3. `bun run gen:telegram`.
 4. Commit schema + generated output together.
 
-When other language repos are in scope, they must pick up the updated schema and regenerate their own output before the change is considered complete.
+## Version
 
-## Adding a new language generator
-
-Each language port owns its own generator, in its own repo. A generator must:
-
-1. Read `packages/spectrum-ts/src/providers/telegram/bot-api-spec/schema/telegram.json` (or its equivalent path in this repo's port).
-2. Emit types and a method map into the target language.
-3. Map `InputFile` to that language's file/upload abstraction.
-4. Honor required/optional semantics natively (omitempty / Optional / nullable).
-5. Commit generated output.
-
-The `generators/typescript.ts` in this repo is the reference implementation. It is intentionally simple (~200 lines) so new language generators can follow the same shape.
-
-## Versioning
-
-The schema's `version` field tracks the Telegram Bot API version the subset was written against. Bumping `version` without reviewing the Bot API changelog is discouraged — new features in Telegram may require schema additions, not just a version bump.
-
-Currently tracking **Bot API 9.6** (April 3, 2026). The subset has been reviewed against the 8.3 → 9.6 changelog; none of the in-scope types (`Update`, `Message`, `User`, `Chat`, `Audio`, `Video`, `Voice`, `Document`, `PhotoSize`, `Contact`, `MessageEntity`, `LinkPreviewOptions`, `MessageReactionUpdated`, `ReactionType`, `Poll`, `PollOption`, `InputPollOption`, `PollAnswer`, `ReplyParameters`, `ResponseParameters`, `File`, `InputFile`) or methods (`getMe`, `getUpdates`, `sendMessage`, `sendPhoto`, `sendVideo`, `sendAudio`, `sendVoice`, `sendDocument`, `sendContact`, `sendPoll`, `stopPoll`, `sendChatAction`, `editMessageText`, `setMessageReaction`, `getChat`, `getFile`) had breaking changes across that span. Features introduced between 8.4 and 9.6 (managed bots, checklists, suggested posts, stories, gifts, mini-app storage, direct-message topics, paid posts) are intentionally out of the universal scope. Poll types are kept in scope because outbound `sendPoll` and inbound poll handling are both first-class: `Message.poll` (a poll body posted in chat) maps to Spectrum's `poll` content, and `Update.poll_answer` maps to per-vote `poll_option` events through the in-process poll cache documented in [Provider-local cache](#provider-local-cache). `Update.poll` (aggregate vote totals / closure state) is the only poll-related update intentionally left to the raw client — Spectrum has no "poll snapshot" content type to map it to.
+Tracking **Bot API 9.6** (April 3, 2026).

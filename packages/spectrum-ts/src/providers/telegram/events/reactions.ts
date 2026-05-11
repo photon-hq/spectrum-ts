@@ -7,28 +7,16 @@ import { chatToSender, chatToSpace, userToSender } from "../identity";
 import { messageCacheKey, type TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
 
-// ---------------------------------------------------------------------------
-// Reactions (inbound)
+// `message_reaction` carries a diff (`old_reaction` vs `new_reaction`).
+// Spectrum's `reaction` content is add-only and plain-unicode, so we emit
+// only the newly-added emoji reactions. Removes, custom emoji, and paid
+// reactions are dropped pending schema additions.
 //
-// Telegram's `message_reaction` update carries a diff (`old_reaction` vs
-// `new_reaction`) per user per message. Spectrum's `reaction` content is
-// add-only and plain-unicode, so we only emit the newly-added emoji
-// reactions from each update. Everything else is deliberately skipped with
-// a comment so the gap is grep-able once the schema grows richer.
-//
-// TODO(reactions): when `reactionSchema` gains `action: "add" | "remove"`,
-//   emit remove events for emojis that left `new_reaction`.
-// TODO(reactions): when `reactionSchema` can carry custom emoji (e.g. an
-//   `emojiKind: "custom"` + id field), surface ReactionTypeCustomEmoji.
-//   Paid reactions have no emoji payload and will likely stay dropped.
-// TODO(reactions): consider surfacing `message_reaction_count` as a
-//   separate snapshot content type for anonymous channels.
-// ---------------------------------------------------------------------------
+// TODO(reactions): emit remove events once `reactionSchema` has an action.
+// TODO(reactions): surface custom emoji once the schema carries id+kind.
+// TODO(reactions): consider `message_reaction_count` snapshots for
+//   anonymous channels.
 
-// Defensive against schema drift: `ReactionType{emoji}` declares `emoji` as
-// required, but upstream Telegram payloads have historically omitted fields
-// during API transitions. Treat a missing/empty string as "no reaction" to
-// keep the diff against `old_reaction` correct instead of emitting `""`.
 const extractEmoji = (reaction: ReactionType): string | undefined => {
   if (reaction.type !== "emoji") {
     return undefined;
@@ -50,18 +38,9 @@ const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
   return added;
 };
 
-// Telegram's `message_reaction` update only gives us the target's message id
-// (not the original sender, content, or anything else). PR #33 narrowed
-// `reaction.target` to `Message`, so when we have the target cached we hand
-// back the real prior message; otherwise we synthesize a minimal raw record
-// and let core's `wrapProviderMessage` inflate it into a full `Message`.
-//
-// Hit and miss paths converge on the same wrap pipeline: even on a cache
-// hit, the cached `TelegramMessage` is structurally a `ProviderMessageRecord`
-// (sans the `react`/`reply` closures, which `wrapProviderMessage` adds back
-// during inflation), so passing it as `target` is consistent with the miss
-// path — no double-wrapping, no special casing in `messages.ts`.
-
+// `message_reaction` carries only the target's message id, so we either
+// hand back the cached record or synthesize a minimal stub. The platform's
+// `wrapProviderMessage` inflates either shape into a full `Message`.
 const reactionTargetStub = (
   messageId: number,
   space: ReturnType<typeof chatToSpace>,
@@ -74,22 +53,12 @@ const reactionTargetStub = (
   timestamp,
 });
 
-// Resolve the reaction's target to whatever we know about it. Cache hits
-// return the rich `TelegramMessage` directly; misses fall back to the
-// minimal `ProviderMessageRecord` stub. Both shapes carry the `id` +
-// `content` fields the reaction-target Zod guard validates at runtime
-// (see `reactionSchema` in `content/reaction.ts`), but neither is the
-// fully-wrapped `Message` with `react()` / `reply()` closures — those are
-// added by the platform's `wrapProviderMessage` pipeline downstream.
 const resolveReactionTarget = (
   cache: TelegramCache,
   messageId: number,
   space: ReturnType<typeof chatToSpace>,
   timestamp: Date
 ): TelegramMessage | ProviderMessageRecord => {
-  // Composite key: `message_id` is per-chat in Telegram, so include the
-  // space (`String(chat.id)`) to avoid resolving to a same-numbered message
-  // from a different chat the bot is also active in.
   const cached = cache.messages.get(messageCacheKey(space.id, messageId));
   if (cached) {
     return cached;
@@ -102,12 +71,8 @@ export const reactionEventsFromUpdate = (
   updateId: number,
   cache: TelegramCache
 ): TelegramMessage[] => {
-  // Telegram populates either `user` (a real account) or `actor_chat` (an
-  // anonymous channel admin reacting on the channel's behalf). Falling back
-  // to `actor_chat` via `chatToSender` keeps these reactions visible end-to-
-  // end instead of silently dropping them — matches the inbound message path
-  // which already handles `sender_chat` the same way. If both fields are
-  // absent the update is malformed and we bail.
+  // Anonymous channel admins arrive as `actor_chat`; treat as sender via
+  // `chatToSender` so the reaction isn't silently dropped.
   let sender: ReturnType<typeof userToSender>;
   if (update.user) {
     sender = userToSender(update.user);
@@ -124,16 +89,8 @@ export const reactionEventsFromUpdate = (
     space,
     timestamp
   );
-  // The `as unknown as SpectrumMessage` cast is intentional and confined
-  // to this single boundary: `asReaction` is typed against the rich
-  // `Message` interface (which advertises `react()` / `reply()` closures
-  // and a `platform` tag), but at the provider layer we only have a raw
-  // record. The platform's `wrapProviderMessage` materializes the missing
-  // fields downstream during inflation. Restricting the cast to this one
-  // call site (rather than baking it into a helper return type) keeps the
-  // *rest* of this file honest: `target` is typed as the union of what we
-  // actually have (`TelegramMessage | ProviderMessageRecord`), so anything
-  // that touches it before the asReaction call gets accurate types.
+  // `asReaction` is typed against the rich `Message` (with `react()` /
+  // `reply()` closures); the platform inflates the raw record downstream.
   return newlyAddedEmojis(update).map((emoji, index) => ({
     id: `reaction:${updateId}:${index}`,
     content: asReaction({

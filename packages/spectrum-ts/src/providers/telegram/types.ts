@@ -4,12 +4,9 @@ import type { User } from "./generated/types";
 import type { TelegramCache } from "./runtime/cache";
 import type { TelegramClient } from "./runtime/client";
 
-// Cache capacity knobs. `0` disables a slot (e.g. `messages: 0` makes
-// `getMessage` always return `undefined` and turns reaction-target hydration
-// off). Album coalescing is gated by its own `coalesceAlbums` flag — when
-// false, album members continue to surface as individual messages with a
-// `mediaGroupId` extra (the pre-cache behaviour). See `runtime/cache.ts` for
-// the rationale behind defaults.
+// Capacity `0` disables a slot (e.g. `messages: 0` makes `getMessage`
+// always return `undefined`). Album coalescing is gated separately by
+// `coalesceAlbums`; defaults live in `runtime/cache.ts`.
 export const cacheConfigSchema = z
   .object({
     messages: z.number().int().nonnegative().optional(),
@@ -23,8 +20,6 @@ export const cacheConfigSchema = z
   .optional();
 
 export const configSchema = z.object({
-  // Trim before length-check so a whitespace-only secret fails validation
-  // up front rather than producing a 401 from Telegram on first request.
   token: z.string().trim().min(1),
   apiBaseUrl: z.string().trim().url().optional(),
   pollingTimeout: z.number().int().positive().max(50).optional(),
@@ -34,24 +29,10 @@ export const configSchema = z.object({
 
 export type TelegramConfig = z.infer<typeof configSchema>;
 
-// Telegram users carry richer metadata than Spectrum's `User.id` — the bot
-// API surfaces a numeric `id`, a bot/human flag, and free-form names. We
-// declare those as schema-level extras so they're TS-visible on the
-// resolved `User` (and therefore on `TelegramMessage["sender"]`) without
-// requiring a cast at every construction site.
-//
-// All extras are *optional*, including `chatId` / `firstName` / `isBot`
-// that are always populated for inbound messages and outbound sends. The
-// reason is the third population path: `telegram.user({ userID })`, where
-// Spectrum hands the resolver only the user id and there is no Bot API
-// endpoint that fetches an arbitrary user by id without chat context.
-// Marking these required would let TS callers assume `sender.firstName`
-// is always a string when in resolver-only paths it's not — better to
-// admit the truth and force callers to `?? "unknown"` or guard.
-//
-// Inbound mappers in `events/inbound.ts` and outbound builders in
-// `messages.ts` populate every field they have, so the rich shape *is*
-// available everywhere a Telegram message originated from the wire.
+// All extras are optional — including `firstName` / `isBot` / `chatId`
+// which are always populated for wire-originated messages — because
+// `telegram.user({ userID })` resolves with no chat context and the Bot
+// API has no "fetch user by id" endpoint.
 export const userSchema = z.object({
   chatId: z.number().int().optional(),
   firstName: z.string().optional(),
@@ -74,31 +55,14 @@ export const spaceParamsSchema = z.object({
 });
 
 /**
- * Telegram-specific per-message metadata surfaced as `Message` extras.
+ * Telegram-specific per-message extras.
  *
- * - `mediaGroupId`: Telegram tags every member of an album (the multi-media
- *   bundle a user can send as a single composition) with a shared
- *   `media_group_id`. Album members arrive as separate Bot API updates —
- *   there is no native "album" update kind. The provider's behavior depends
- *   on the runtime cache option `cache.coalesceAlbums`:
- *     - `false` (default): each member surfaces as its own `Message` and
- *       carries `mediaGroupId`, leaving the choice to group cross-stream
- *       to the consumer.
- *     - `true`: members are debounced inside the events stream
- *       (`events/index.ts`) and emitted as a single `Message` whose content
- *       is `group({ items })`; the wrapper still carries `mediaGroupId`
- *       (and the lead member's real `message_id`) so it can be replied to
- *       and reacted to like any other message.
- *   Absent on standalone messages.
- *
- * - `caption`: Telegram media messages (photo/video/audio/document/voice) can
- *   carry a caption alongside the file. Spectrum's universal content types
- *   model the media itself, not the accompanying caption text, so we surface
- *   the caption verbatim as an extra on the per-item record (the wrapping
- *   `group` content, when album coalescing is on, does not aggregate
- *   captions — each child keeps its own). Caption-only messages (no media)
- *   continue to flow through as `text` content. Absent on plain text and
- *   other captionless messages.
+ * - `mediaGroupId`: shared id for every member of an album. With
+ *   `coalesceAlbums: false` (default) each member surfaces individually;
+ *   with `true` the events stream emits a single `group` message that
+ *   still carries this id.
+ * - `caption`: Telegram media messages can carry a caption alongside the
+ *   file. Surfaced verbatim; absent on plain text and captionless messages.
  */
 export const messageSchema = z.object({
   mediaGroupId: z.string().optional(),
@@ -117,8 +81,6 @@ export interface TelegramRuntime {
   abort: AbortController;
   cache: TelegramCache;
   client: TelegramClient;
-  // Bot identity captured at `createClient` time via `getMe`. Used to
-  // synthesize a sender on outbound records that don't carry one in the
-  // API response (notably reactions, where Telegram returns a boolean).
+  /** Captured at `createClient` time; sender fallback for outbound paths. */
   me: User;
 }

@@ -14,23 +14,11 @@ export interface TelegramClientOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-// Mutating Bot API methods. Telegram's API does not provide an
-// idempotency key, so the client cannot distinguish "request never reached
-// Telegram" (safe to retry) from "Telegram processed it but the response /
-// connection died" (retry creates duplicates). At the network layer that
-// distinction is unobservable — both surface as the same `fetch` error,
-// even genuine pre-header failures can race against header-arrival timing
-// in practice. We therefore default to **at-most-once** semantics for
-// mutating calls: only Telegram-instructed retries (429 with `retry_after`)
-// are honored, since Telegram itself is asking us to retry there. Network
-// errors and 5xx are NOT retried for mutating methods.
-//
-// Read methods (`getMe`, `getUpdates`, `getChat`, `getFile`) keep the full
-// retry policy because they're idempotent: a duplicate read just costs one
-// extra request and returns the same result.
-//
-// Method names are matched by prefix where it's safe to do so; an explicit
-// entry is preferred for methods that don't fit a clean prefix.
+// Mutating methods get at-most-once semantics: Telegram has no idempotency
+// key, so retrying a write after a network failure risks duplicates. We
+// honor only 429 retries (Telegram explicitly asks for them via
+// `retry_after`); reads (`getMe`, `getUpdates`, `getChat`, `getFile`) keep
+// the full policy because they're idempotent.
 const MUTATING_METHOD_PREFIXES = [
   "send",
   "edit",
@@ -69,13 +57,6 @@ const policyForMethod = (method: string, base: RetryPolicy): RetryPolicy => {
   if (!isMutatingMethod(method)) {
     return base;
   }
-  // 429 retry stays on (Telegram explicitly requested it via `retry_after`,
-  // so duplicates are impossible by construction). Network and 5xx retry
-  // are both off because either failure mode could have already been
-  // processed by Telegram and the client cannot tell — without an
-  // idempotency key we'd risk duplicate writes. At-most-once is the right
-  // default for sends/edits/reactions; callers needing at-least-once can
-  // retry explicitly with their own dedup story.
   return {
     ...base,
     retryNetworkErrors: false,
@@ -83,17 +64,9 @@ const policyForMethod = (method: string, base: RetryPolicy): RetryPolicy => {
   };
 };
 
-// Detect a caller-initiated cancellation. We check both the canonical
-// `AbortError` name (raised by `fetch`, `response.json()`, and stream
-// reader operations when their abort signal fires) AND the caller's
-// signal — the latter catches edge cases where the runtime surfaces a
-// different error class but the abort *did* propagate.
-//
-// Treating these as control flow rather than transport failures matters:
-// without this, `await response.json()` after the caller aborts gets
-// wrapped into `TelegramNetworkError`, which retries (for read methods)
-// and ultimately surfaces a misleading "network error" instead of the
-// expected `AbortError`. Same story for `downloadFile` body reads.
+// Recognise a caller-initiated abort so it propagates as control flow
+// rather than getting wrapped into `TelegramNetworkError` (which would
+// retry reads and lose the cancellation reason).
 const isCallerAbort = (err: unknown, signal?: AbortSignal): boolean => {
   if (signal?.aborted) {
     return true;
@@ -101,9 +74,6 @@ const isCallerAbort = (err: unknown, signal?: AbortSignal): boolean => {
   if (err instanceof Error && err.name === "AbortError") {
     return true;
   }
-  // DOMException with name "AbortError" — the spec-mandated shape from
-  // platform fetch implementations. Defensive `Object.prototype` check
-  // because some runtimes wrap it differently.
   return (
     typeof err === "object" &&
     err !== null &&
@@ -112,18 +82,6 @@ const isCallerAbort = (err: unknown, signal?: AbortSignal): boolean => {
   );
 };
 
-// Combine an optional caller signal with an optional per-request timeout
-// signal into a single signal we can pass to `fetch`. Filters undefineds,
-// short-circuits to the original signal when only one is present, and
-// otherwise delegates to the standard `AbortSignal.any()` (Node ≥20.4,
-// Bun ≥1.0 — same baseline as `AbortSignal.timeout()` already used here).
-//
-// `AbortSignal.any` handles listener wiring + abort-reason propagation
-// internally and registers itself as a weakref so the unused timeout
-// signal becomes GC-eligible after the request settles. We deliberately
-// drop the explicit `cleanup()` API the previous custom helper exposed:
-// callers that previously had to invoke it are now inside try/finally
-// blocks where the awaited operation settling is the cleanup boundary.
 const combineSignals = (
   signals: (AbortSignal | undefined)[]
 ): AbortSignal | undefined => {
@@ -151,15 +109,6 @@ interface ApiResponseErr {
 
 type ApiResponse<T> = ApiResponseOk<T> | ApiResponseErr;
 
-// Returns true iff a top-level field is a Blob. Nested Blobs (inside arrays
-// or objects) are intentionally rejected by `assertNoNestedBlob` rather than
-// silently triggering multipart and then being JSON.stringify()'d into the
-// parent field.
-//
-// ReadableStream is also rejected at the same boundary: appendFormField only
-// emits raw parts for Blobs, so a stream value would either be dropped here
-// or serialise to "{}" inside a JSON field — both silent data losses worse
-// than a loud error.
 const hasTopLevelBlob = (params: Record<string, unknown>): boolean => {
   for (const value of Object.values(params)) {
     if (value instanceof Blob) {
@@ -169,12 +118,9 @@ const hasTopLevelBlob = (params: Record<string, unknown>): boolean => {
   return false;
 };
 
-// Walk into arrays/objects looking for embedded Blobs or ReadableStreams. The
-// only legitimate place for a Blob in a Telegram method today is at the top
-// level (`photo`, `video`, `voice`, etc. on `sendPhoto`/`sendVideo`/...).
-// `sendMediaGroup` *would* need a real `attach://` encoding for nested Blobs;
-// when we add it we'll lift this restriction with explicit support, not by
-// silently allowing the corruption-prone JSON.stringify path.
+// Binary fields must sit at the top level of the params object; nested
+// Blobs / ReadableStreams would silently `JSON.stringify` into `"{}"`,
+// which corrupts the upload. Reject loudly instead.
 const assertNoNestedBlob = (
   method: string,
   value: unknown,
@@ -211,9 +157,6 @@ const assertNoNestedBlob = (
   }
 };
 
-// Nested objects/arrays must be JSON-encoded strings inside multipart fields;
-// only top-level Blobs are attached as raw parts. `assertNoNestedBlob` runs
-// before this so any nested Blob has already failed the request loudly.
 const appendFormField = (form: FormData, key: string, value: unknown): void => {
   if (value === undefined || value === null) {
     return;
@@ -237,8 +180,6 @@ const buildBody = (
   method: string,
   params: Record<string, unknown>
 ): { body: string | FormData; headers: Record<string, string> } => {
-  // Walk every top-level value's interior first so any embedded Blob or
-  // ReadableStream surfaces as a clear error before we pick a transport.
   for (const [key, value] of Object.entries(params)) {
     if (!(value instanceof Blob)) {
       assertNoNestedBlob(method, value, key);
@@ -273,13 +214,6 @@ export class TelegramClient {
       opts.requestTimeoutMs === undefined
         ? DEFAULT_REQUEST_TIMEOUT_MS
         : opts.requestTimeoutMs;
-    // `null` is the documented opt-out (disable the per-call deadline
-    // entirely). Anything else has to be a non-negative finite number —
-    // `AbortSignal.timeout(ms)` rejects negative/non-finite inputs with
-    // an opaque RangeError on the first request, which turns a config
-    // typo into a confusing runtime failure deep in the request path.
-    // Fail fast here so the misconfiguration surfaces at startup with
-    // the offending value named in the error.
     if (
       requestTimeoutMs !== null &&
       (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 0)
@@ -311,16 +245,8 @@ export class TelegramClient {
       params as Record<string, unknown>
     );
 
-    // Build the per-call deadline ONCE, outside `withRetry`, so the
-    // documented `requestTimeoutMs` actually bounds the *whole logical
-    // call* (all attempts + their backoff sleeps), not just a single
-    // attempt. Without this hoist, a method hitting N retries would get
-    // up to N×requestTimeoutMs of cumulative wall-clock budget, which
-    // wildly exceeds the user-facing contract: "60s timeout" should mean
-    // "I'll see a result within 60s, success or failure", not "each try
-    // gets 60s and we'll keep retrying for minutes." The combined signal
-    // is also passed to `withRetry` so the inter-attempt `sleep` honors
-    // the deadline; previously only the caller `signal` did.
+    // The timeout signal is built ONCE per logical call so the deadline
+    // covers all retries + backoff, not each attempt independently.
     const timeoutSignal =
       this.requestTimeoutMs === null
         ? undefined
@@ -351,12 +277,6 @@ export class TelegramClient {
               Methods[M]["result"]
             >;
           } catch (err) {
-            // If the caller aborted between `fetch` returning headers and
-            // `response.json()` finishing, the body read throws an
-            // `AbortError` we must propagate untouched — wrapping it into
-            // `TelegramNetworkError` would (a) trigger a misleading retry
-            // for read-only methods and (b) lose the caller's cancellation
-            // semantics on the way back up the stack.
             if (isCallerAbort(err, signal)) {
               throw err;
             }
@@ -394,16 +314,12 @@ export class TelegramClient {
   }
 
   // Downloads a Telegram-hosted file through the same transport used by
-  // `invoke()` so that `TelegramClientOptions.fetch`, per-request timeouts,
-  // and retry/backoff apply uniformly to media reads.
+  // `invoke()` so retry / timeout / fetch overrides apply uniformly.
   async downloadFile(
     filePath: string,
     signal?: AbortSignal
   ): Promise<Response> {
     const url = this.fileUrl(filePath);
-    // Same per-call deadline shape as `invokeOnce`: hoist the timeout
-    // signal outside `withRetry` so the budget covers the entire
-    // download (including retry backoffs), not just a single attempt.
     const timeoutSignal =
       this.requestTimeoutMs === null
         ? undefined
@@ -423,17 +339,8 @@ export class TelegramClient {
         }
 
         if (!response.ok) {
-          // Read the error body so the per-request timeout still applies to
-          // the body read; a tiny JSON "description" is typical and far
-          // more debuggable than a bare status code.
           const snippet = await readErrorSnippet(response, signal);
-          // If the caller aborted while we were reading the error body,
-          // surface the abort instead of a synthesized API error: the
-          // request never completed in any meaningful sense from the
-          // caller's perspective.
           if (signal?.aborted) {
-            // Use the signal's reason if available so callers get the
-            // exact cancellation cause they raised.
             throw signal.reason ?? new DOMException("Aborted", "AbortError");
           }
           const base = `Telegram file download failed with HTTP ${response.status}`;
@@ -444,11 +351,6 @@ export class TelegramClient {
           });
         }
 
-        // The combined signal remains effective for the body stream because
-        // `fetch` keeps it referenced internally until the body is fully
-        // consumed (or aborted). No explicit body wrapping needed: the
-        // `AbortSignal.any` wiring releases its own listeners on the source
-        // signals as soon as the request settles.
         return response;
       },
       { policy: this.retryPolicy, signal: combined }
@@ -458,12 +360,8 @@ export class TelegramClient {
 
 const ERROR_SNIPPET_MAX_LEN = 200;
 
-// Best-effort body read for error messages. Returns undefined on empty bodies
-// or read failures — callers fall back to a bare status-code message.
-//
-// Caller-initiated aborts surfacing during the body read are NOT swallowed:
-// they re-throw so the upstream `downloadFile` can return the cancellation
-// to the caller instead of synthesizing a misleading `TelegramApiError`.
+// Best-effort body read for error messages; returns undefined on empty
+// bodies or read failures. Caller-initiated aborts re-throw untouched.
 const readErrorSnippet = async (
   response: Response,
   signal?: AbortSignal

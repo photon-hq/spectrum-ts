@@ -27,7 +27,6 @@ interface SchemaMethod {
 interface Schema {
   baseUrl: string;
   methods: Record<string, SchemaMethod>;
-  scope: string;
   types: Record<string, SchemaType>;
   version: string;
 }

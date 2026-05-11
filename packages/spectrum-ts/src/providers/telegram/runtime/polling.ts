@@ -16,27 +16,17 @@ export interface PollingOptions {
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
-
-// Telegram caps long-polling server-side at ~50s regardless of what the
-// caller asks for (the Bot API docs don't publish a hard maximum, but
-// every observation in the wild — including TDLib/python-telegram-bot
-// issue trackers — bottoms out at 50). Anything above that just round-
-// trips at 50; anything negative or non-finite causes `getUpdates` to
-// 400 and would tear down the polling loop. The `configSchema` Zod gate
-// already enforces this at config time, but a runtime clamp keeps the
-// invariant true even if a future call site bypasses validation (e.g.
-// a programmatic options override passed directly into `pollUpdates`).
+// Telegram caps `getUpdates.timeout` at 50s server-side; negative or
+// non-finite values cause a 400. `configSchema` already gates this, but
+// `pollUpdates` accepts a direct options override too.
 const MAX_TIMEOUT_SECONDS = 50;
 
 const sanitizeTimeout = (raw: number | undefined): number => {
   if (raw === undefined || !Number.isFinite(raw)) {
     return DEFAULT_TIMEOUT_SECONDS;
   }
-  // Telegram's `getUpdates.timeout` field is integer-valued — passing
-  // `0.5` round-trips as a 400. `Math.trunc` matches the `z.number().int()`
-  // gate in `configSchema`'s validation behaviour (drop the fractional
-  // part rather than rounding) so programmatic and config-driven paths
-  // agree on what "30.7" means.
+  // `timeout` is integer-valued; truncate rather than round to match
+  // `z.number().int()` behaviour.
   const normalized = Math.trunc(raw);
   if (normalized < 0) {
     return 0;
@@ -47,29 +37,10 @@ const sanitizeTimeout = (raw: number | undefined): number => {
   return normalized;
 };
 
-// `message_reaction`, `message_reaction_count`, and `poll_answer` must be
-// explicitly opted into via `allowed_updates`; Telegram silently omits them
-// otherwise. We include:
-//
-//   - `message_reaction` so per-user reactions flow through without extra
-//     setup. `message_reaction_count` is NOT requested — its snapshot
-//     semantics don't fit Spectrum's reaction content (no actor).
-//
-//   - `poll_answer` so per-vote diff events surface as `poll_option`
-//     content. Telegram only delivers this for non-anonymous polls a bot
-//     sent itself; resolution requires the runtime cache populated by
-//     `sendPoll`. With the cache disabled (`cache.polls = 0`), updates
-//     still arrive but `pollAnswerEvents` drops them silently.
-//
-// Poll *bodies* (someone sending a poll in chat) arrive via the regular
-// `message` update as `Message.poll` — no opt-in required, and the provider
-// maps them to Spectrum's `poll` content type.
-//
-// `poll` (aggregate vote totals / closure) is still NOT requested: Spectrum
-// has no "poll snapshot" content type, and faithfully translating "poll
-// closed" into per-user diffs would require keeping every prior vote vector
-// for every poll, a sharper memory cost than the bounded per-user state we
-// already keep for `poll_answer` resolution.
+// `message_reaction` and `poll_answer` are opt-in: Telegram omits them
+// otherwise. `message_reaction_count` is intentionally excluded (snapshot
+// semantics don't fit Spectrum's reaction content); `poll` aggregate
+// updates are excluded because Spectrum has no poll-snapshot content type.
 const DEFAULT_ALLOWED_UPDATES: readonly string[] = [
   "message",
   "edited_message",
@@ -79,8 +50,8 @@ const DEFAULT_ALLOWED_UPDATES: readonly string[] = [
   "poll_answer",
 ];
 
-// offset: -1 returns at most the most recent pending update; confirming it
-// advances Telegram's queue past every older update without surfacing them.
+// `offset: -1` returns at most the most recent pending update; advancing
+// past it confirms (and therefore drops) every older queued update.
 const discardPendingUpdates = async (
   client: TelegramClient,
   signal: AbortSignal

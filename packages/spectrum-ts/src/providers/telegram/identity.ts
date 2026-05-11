@@ -1,14 +1,6 @@
-// Shared sender / space mappers used by *both* the inbound update path
-// (`events/inbound.ts`) and the outbound send path (`messages.ts`). These
-// must produce byte-identical shapes on both sides — a message we send and
-// a message we receive should round-trip through the cache with the same
-// `sender` and `space` payloads — so we centralize them here rather than
-// keeping parallel `userToSender` / `buildOutboundSender` and
-// `chatToSender` / `buildChatSender` pairs that drift apart silently.
-//
-// This module is a leaf: it imports only generated types and the
-// `TelegramMessage` shape, so both `messages.ts` and `events/inbound.ts`
-// can pull from it without forming a cycle.
+// Shared sender / space mappers used by both inbound and outbound paths
+// so a sent message and a received message round-trip through the cache
+// with byte-identical `sender` and `space` shapes.
 
 import type { Chat, Message, User } from "./generated/types";
 import type { TelegramMessage } from "./types";
@@ -16,10 +8,6 @@ import type { TelegramMessage } from "./types";
 const chatIdToSpaceId = (chatId: number): string => String(chatId);
 const userIdToSpectrumId = (userId: number): string => String(userId);
 
-// `User` is the canonical shape for both inbound (`message.from`) and the
-// bot-identity fallback (`runtime.me`). `NonNullable<Message["from"]>` is
-// structurally identical to `User`, so callers on the outbound side can
-// pass either without a cast.
 export const userToSender = (user: User): TelegramMessage["sender"] => {
   const sender: TelegramMessage["sender"] = {
     id: userIdToSpectrumId(user.id),
@@ -40,14 +28,8 @@ export const userToSender = (user: User): TelegramMessage["sender"] => {
 };
 
 // Channel posts and anonymous group-admin messages arrive without `from`
-// but with `sender_chat`. Synthesize a sender from the chat so:
-//   - inbound: these updates are delivered end-to-end instead of silently
-//     dropped.
-//   - outbound: a channel post we send is cached as authored by the
-//     channel, not by the bot account that issued the call. Otherwise
-//     downstream consumers see the bot's user identity for a message
-//     whose canonical author is the channel, and the round-trip identity
-//     invariant breaks.
+// but with `sender_chat`; synthesize the sender from the chat so the
+// canonical author is the channel on both sides of the round-trip.
 export const chatToSender = (
   chat: NonNullable<Message["sender_chat"]> | Chat
 ): TelegramMessage["sender"] => {
@@ -63,21 +45,9 @@ export const chatToSender = (
   return sender;
 };
 
-// Named shape used both as the return type and the local builder variable
-// type to dedupe the inline anonymous shape that previously appeared twice.
-//
-// Why `type` instead of `interface` (and the matching biome-ignore):
-// `chatToSpace`'s result is consumed by `events/reactions.ts` as a stub
-// target for `ProviderMessageRecord["space"]`, whose schema-level type
-// extends `Record<string, unknown>`. TS treats `interface` declarations
-// as potentially extensible and therefore *not* assignable to a closed
-// index signature like `Record<string, unknown>`, while a `type` alias
-// is structurally closed and is assignable. We verified this empirically
-// — switching to `interface` produces:
-//   reactions.ts(73,3): TS2322 — Type ... is not assignable to type
-//   '{ id: string; } & Record<string, unknown>'.
-// So we keep `type` here and disable `useConsistentTypeDefinitions` for
-// this single declaration.
+// Must remain a `type` alias rather than an `interface`: consumers assign
+// the result to `Record<string, unknown>` slots, which TS rejects from an
+// open-extension `interface` declaration but accepts from a closed `type`.
 // biome-ignore lint/style/useConsistentTypeDefinitions: see comment above.
 type TelegramSpaceShape = {
   chatId: number;

@@ -18,12 +18,6 @@ import {
   userSchema,
 } from "./types";
 
-// `definePlatform` guarantees this cast is safe by construction (only the
-// `createClient` we register can produce the runtime), but a defensive
-// shape check turns any future framework misuse into a clear synchronous
-// error instead of a confusing crash deep in an action handler. Cheap, runs
-// once per action call, and the assertion message names exactly what's
-// missing.
 const runtimeOf = (client: unknown): TelegramRuntime => {
   if (
     typeof client !== "object" ||
@@ -34,16 +28,12 @@ const runtimeOf = (client: unknown): TelegramRuntime => {
     !("me" in client)
   ) {
     throw new Error(
-      "Telegram action invoked with an invalid runtime — expected the value returned by `createClient` (must carry `client`, `cache`, `abort`, and `me`)."
+      "Telegram action invoked with an invalid runtime — expected the value returned by `createClient`."
     );
   }
   return client as TelegramRuntime;
 };
 
-// Merge user config knobs into a fully-resolved cache options bundle.
-// Any field the user omits falls back to `DEFAULT_CACHE_OPTIONS`. Setting a
-// capacity to 0 disables that slot (e.g. `cache: { messages: 0 }` makes
-// `getMessage` always return `undefined`).
 const resolveCacheOptions = (
   cfg: TelegramConfig["cache"]
 ): TelegramCacheOptions => ({
@@ -118,9 +108,8 @@ export const telegram = definePlatform("Telegram", {
         token: config.token,
         ...(config.apiBaseUrl ? { baseUrl: config.apiBaseUrl } : {}),
       });
-      // `getMe` doubles as a token-validity probe and a place to capture the
-      // bot's own User. We hold onto the User to synthesize senders on
-      // outbound records that don't echo `from` (reactions).
+      // `getMe` doubles as a token-validity probe; the result is also reused
+      // to synthesize a sender on outbound records that don't echo `from`.
       const me = await client.invoke("getMe", {});
       const cache = createTelegramCache(resolveCacheOptions(config.cache));
       return { client, abort: new AbortController(), cache, me };
@@ -149,18 +138,9 @@ export const telegram = definePlatform("Telegram", {
     await telegramSend(runtimeOf(client), space.id, content),
 
   actions: {
-    // Telegram's Bot API has no general "fetch message by id" endpoint —
-    // `messages.get` only exists for forwarded/replied-to message echoes
-    // already inside an Update. We back `getMessage` with the runtime's
-    // in-process LRU (every inbound and every outbound send/reply/edit
-    // writes through it). Cold ids return `undefined` so callers can
-    // degrade gracefully, matching iMessage local-mode semantics. Disable
-    // the cache by setting `config.cache.messages = 0` to restore the
-    // pre-cache "always undefined" behaviour.
-    //
-    // The cache is keyed by `${spaceId}:${messageId}` because Telegram
-    // `message_id` is only unique per chat — see `messageCacheKey` in
-    // `runtime/cache.ts` for the rationale.
+    // Telegram has no general "fetch message by id" endpoint, so this is
+    // backed by the in-process LRU populated by inbound + outbound paths.
+    // Cold ids return `undefined`; disable with `cache.messages: 0`.
     getMessage: async ({ space, messageId, client }) =>
       runtimeOf(client).cache.messages.get(
         messageCacheKey(space.id, messageId)

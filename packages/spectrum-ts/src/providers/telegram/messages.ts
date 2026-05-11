@@ -30,9 +30,14 @@ const toChatId = (spaceId: string): number | string => {
   return spaceId;
 };
 
+const DECIMAL_DIGITS = /^\d+$/;
+
 const toMessageId = (messageId: string): number => {
-  const parsed = Number(messageId);
-  if (!Number.isInteger(parsed)) {
+  if (!DECIMAL_DIGITS.test(messageId)) {
+    throw new Error(`Invalid Telegram message_id: ${messageId}`);
+  }
+  const parsed = Number.parseInt(messageId, 10);
+  if (!Number.isSafeInteger(parsed)) {
     throw new Error(`Invalid Telegram message_id: ${messageId}`);
   }
   return parsed;

@@ -111,19 +111,21 @@ export function background(
         }) as unknown as Content,
     };
   }
+  // Snapshot the reader and MIME type at builder construction so that
+  // (a) re-invoking `build()` reuses the same cached read and (b) a missing
+  // MIME type fails fast rather than at send time.
+  const mimeType = resolveMimeType(input, options?.mimeType);
+  const read =
+    typeof input === "string"
+      ? cachedRead(() => readFile(input))
+      : cachedRead(async () => input);
   return {
-    build: async () => {
-      const mimeType = resolveMimeType(input, options?.mimeType);
-      const read =
-        typeof input === "string"
-          ? cachedRead(() => readFile(input))
-          : cachedRead(async () => input);
-      return backgroundSchema.parse({
+    build: async () =>
+      backgroundSchema.parse({
         type: "background",
         __platform: "iMessage",
         __fireAndForget: true,
         action: { kind: "set", read, mimeType },
-      }) as unknown as Content;
-    },
+      }) as unknown as Content,
   };
 }

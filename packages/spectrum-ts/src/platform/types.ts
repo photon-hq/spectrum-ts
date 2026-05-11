@@ -507,9 +507,14 @@ export type SpaceActionMethods<Def extends AnyPlatformDef> = {
   ) => Promise<OutboundMessage | undefined>;
 };
 
+// Both `keyof Space` and `keyof SpaceActionMethods<Def>` are removed from the
+// schema shape before merging — at runtime `buildSpace` spreads
+// `platformActions` after `extras`/`spaceRef`, so an action with the same
+// name as a schema field overrides the field. Stripping both at the type
+// level mirrors that and avoids an impossible `field & method` intersection.
 export type PlatformSpace<Def extends AnyPlatformDef> = Omit<
   SpaceShapeOf<Def>,
-  keyof Space
+  keyof Space | keyof SpaceActionMethods<Def>
 > &
   Space &
   SpaceActionMethods<Def>;

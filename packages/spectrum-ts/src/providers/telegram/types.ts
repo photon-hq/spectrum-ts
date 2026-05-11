@@ -4,15 +4,12 @@ import type { User } from "./generated/types";
 import type { TelegramCache } from "./runtime/cache";
 import type { TelegramClient } from "./runtime/client";
 
-// Capacity `0` disables a slot (e.g. `messages: 0` makes `getMessage`
-// always return `undefined`). Album coalescing is gated separately by
-// `coalesceAlbums`; defaults live in `runtime/cache.ts`.
 export const cacheConfigSchema = z
   .object({
-    messages: z.number().int().nonnegative().optional(),
-    polls: z.number().int().nonnegative().optional(),
-    pollVotes: z.number().int().nonnegative().optional(),
-    albumConcurrent: z.number().int().nonnegative().optional(),
+    messages: z.number().int().positive().optional(),
+    polls: z.number().int().positive().optional(),
+    pollVotes: z.number().int().positive().optional(),
+    albumConcurrent: z.number().int().positive().optional(),
     albumDebounceMs: z.number().int().nonnegative().optional(),
     albumCeilingMs: z.number().int().nonnegative().optional(),
     coalesceAlbums: z.boolean().optional(),
@@ -29,10 +26,8 @@ export const configSchema = z.object({
 
 export type TelegramConfig = z.infer<typeof configSchema>;
 
-// All extras are optional — including `firstName` / `isBot` / `chatId`
-// which are always populated for wire-originated messages — because
-// `telegram.user({ userID })` resolves with no chat context and the Bot
-// API has no "fetch user by id" endpoint.
+// All fields optional: `telegram.user({ userID })` resolves with no chat
+// context and the Bot API has no "fetch user by id" endpoint.
 export const userSchema = z.object({
   chatId: z.number().int().optional(),
   firstName: z.string().optional(),
@@ -54,16 +49,8 @@ export const spaceParamsSchema = z.object({
   chatId: z.union([z.string().trim().min(1), z.number().int()]),
 });
 
-/**
- * Telegram-specific per-message extras.
- *
- * - `mediaGroupId`: shared id for every member of an album. With
- *   `coalesceAlbums: false` (default) each member surfaces individually;
- *   with `true` the events stream emits a single `group` message that
- *   still carries this id.
- * - `caption`: Telegram media messages can carry a caption alongside the
- *   file. Surfaced verbatim; absent on plain text and captionless messages.
- */
+// `mediaGroupId`: shared id across all members of a Telegram album.
+// `caption`: present on media messages that ship with caption text.
 export const messageSchema = z.object({
   mediaGroupId: z.string().optional(),
   caption: z.string().optional(),
@@ -81,6 +68,5 @@ export interface TelegramRuntime {
   abort: AbortController;
   cache: TelegramCache;
   client: TelegramClient;
-  /** Captured at `createClient` time; sender fallback for outbound paths. */
   me: User;
 }

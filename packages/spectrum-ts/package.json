@@ -55,6 +55,7 @@
     "better-grpc": "^0.3.2",
     "mime-types": "^3.0.1",
     "open-graph-scraper": "^6.11.0",
+    "quick-lru": "^7.3.0",
     "type-fest": "^5.4.1",
     "vcf": "^2.1.2",
     "zod": "^4.2.1"

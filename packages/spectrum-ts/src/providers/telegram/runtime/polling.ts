@@ -17,6 +17,30 @@ export interface PollingOptions {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 
+// Telegram caps long-polling server-side at ~50s regardless of what the
+// caller asks for (the Bot API docs don't publish a hard maximum, but
+// every observation in the wild — including TDLib/python-telegram-bot
+// issue trackers — bottoms out at 50). Anything above that just round-
+// trips at 50; anything negative or non-finite causes `getUpdates` to
+// 400 and would tear down the polling loop. The `configSchema` Zod gate
+// already enforces this at config time, but a runtime clamp keeps the
+// invariant true even if a future call site bypasses validation (e.g.
+// a programmatic options override passed directly into `pollUpdates`).
+const MAX_TIMEOUT_SECONDS = 50;
+
+const sanitizeTimeout = (raw: number | undefined): number => {
+  if (raw === undefined || !Number.isFinite(raw)) {
+    return DEFAULT_TIMEOUT_SECONDS;
+  }
+  if (raw < 0) {
+    return 0;
+  }
+  if (raw > MAX_TIMEOUT_SECONDS) {
+    return MAX_TIMEOUT_SECONDS;
+  }
+  return raw;
+};
+
 // `message_reaction`, `message_reaction_count`, and `poll_answer` must be
 // explicitly opted into via `allowed_updates`; Telegram silently omits them
 // otherwise. We include:
@@ -69,7 +93,7 @@ export async function* pollUpdates(
   signal: AbortSignal,
   options: PollingOptions = {}
 ): AsyncIterable<Update> {
-  const timeout = options.timeout ?? DEFAULT_TIMEOUT_SECONDS;
+  const timeout = sanitizeTimeout(options.timeout);
   const allowedUpdates = options.allowedUpdates ?? [...DEFAULT_ALLOWED_UPDATES];
   let offset = 0;
 

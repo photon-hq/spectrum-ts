@@ -32,13 +32,19 @@ const sanitizeTimeout = (raw: number | undefined): number => {
   if (raw === undefined || !Number.isFinite(raw)) {
     return DEFAULT_TIMEOUT_SECONDS;
   }
-  if (raw < 0) {
+  // Telegram's `getUpdates.timeout` field is integer-valued — passing
+  // `0.5` round-trips as a 400. `Math.trunc` matches the `z.number().int()`
+  // gate in `configSchema`'s validation behaviour (drop the fractional
+  // part rather than rounding) so programmatic and config-driven paths
+  // agree on what "30.7" means.
+  const normalized = Math.trunc(raw);
+  if (normalized < 0) {
     return 0;
   }
-  if (raw > MAX_TIMEOUT_SECONDS) {
+  if (normalized > MAX_TIMEOUT_SECONDS) {
     return MAX_TIMEOUT_SECONDS;
   }
-  return raw;
+  return normalized;
 };
 
 // `message_reaction`, `message_reaction_count`, and `poll_answer` must be

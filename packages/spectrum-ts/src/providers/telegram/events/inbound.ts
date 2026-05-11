@@ -412,10 +412,11 @@ export const coalesceAlbumGroup = (
   const items = toGroupItems(sorted);
   // The wrapper's `id` stays anchored to the first member's real
   // `message_id` (numerically smallest in the album, since Telegram assigns
-  // sequential ids to album members). Telegram operations like
-  // `replyToMessage`, `editMessage`, and `setMessageReaction` only accept
-  // numeric `message_id`s, so a synthetic `album:${mediaGroupId}` would
-  // make the coalesced message unreplyable / unreactable. The
+  // sequential ids to album members). Bot API operations targeting an
+  // existing message — `sendMessage` with `reply_parameters`,
+  // `editMessageText`, `setMessageReaction` — only accept numeric
+  // `message_id`s, so a synthetic `album:${mediaGroupId}` would make the
+  // coalesced message unreplyable / uneditable / unreactable. The
   // `mediaGroupId` extra still uniquely identifies the album for
   // consumers that want to group messages cross-stream.
   const wrapper: TelegramMessage = {

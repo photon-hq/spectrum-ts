@@ -1,12 +1,6 @@
 import { definePlatform } from "../../platform/define";
-import { messages } from "./events";
-import {
-  editMessage,
-  reactToMessage,
-  replyToMessage,
-  send,
-  startTyping,
-} from "./messages";
+import { messages as telegramMessages } from "./events";
+import { send as telegramSend } from "./messages";
 import {
   createTelegramCache,
   DEFAULT_CACHE_OPTIONS,
@@ -139,47 +133,22 @@ export const telegram = definePlatform("Telegram", {
     },
   },
 
-  events: {
-    messages: ({ client, config }) => {
-      const runtime = runtimeOf(client);
-      return messages(runtime, runtime.abort.signal, {
-        ...(config.pollingTimeout === undefined
-          ? {}
-          : { timeout: config.pollingTimeout }),
-        ...(config.dropPendingUpdates === undefined
-          ? {}
-          : { dropPendingUpdates: config.dropPendingUpdates }),
-      });
-    },
+  messages: ({ client, config }) => {
+    const runtime = runtimeOf(client);
+    return telegramMessages(runtime, runtime.abort.signal, {
+      ...(config.pollingTimeout === undefined
+        ? {}
+        : { timeout: config.pollingTimeout }),
+      ...(config.dropPendingUpdates === undefined
+        ? {}
+        : { dropPendingUpdates: config.dropPendingUpdates }),
+    });
   },
 
+  send: async ({ space, content, client }) =>
+    await telegramSend(runtimeOf(client), space.id, content),
+
   actions: {
-    send: async ({ space, content, client }) => {
-      return await send(runtimeOf(client), space.id, content);
-    },
-
-    replyToMessage: async ({ space, messageId, content, client }) => {
-      return await replyToMessage(
-        runtimeOf(client),
-        space.id,
-        messageId,
-        content
-      );
-    },
-
-    editMessage: async ({ space, messageId, content, client }) => {
-      await editMessage(runtimeOf(client), space.id, messageId, content);
-    },
-
-    reactToMessage: async ({ space, target, reaction, client }) => {
-      await reactToMessage(
-        runtimeOf(client).client,
-        space.id,
-        target.id,
-        reaction
-      );
-    },
-
     // Telegram's Bot API has no general "fetch message by id" endpoint —
     // `messages.get` only exists for forwarded/replied-to message echoes
     // already inside an Update. We back `getMessage` with the runtime's
@@ -196,21 +165,5 @@ export const telegram = definePlatform("Telegram", {
       runtimeOf(client).cache.messages.get(
         messageCacheKey(space.id, messageId)
       ),
-
-    startTyping: async ({ space, client }) => {
-      await startTyping(runtimeOf(client).client, space.id);
-    },
-
-    // Telegram's `sendChatAction` is a one-shot indicator that the server
-    // auto-expires after ~5 seconds; the Bot API has no "cancel typing"
-    // counterpart. Implementing this as a no-op (rather than omitting the
-    // action) keeps `space.stopTyping()` available on every platform with
-    // consistent behavior — callers writing cross-platform code don't have
-    // to feature-detect — and matches the contract documented in the PR.
-    // The platform builder also calls this internally as part of the
-    // `await space.startTyping(); ...; await space.stopTyping();` cleanup
-    // pattern, so a no-op here just means the server-side timeout takes
-    // care of dismissing the indicator naturally.
-    stopTyping: () => Promise.resolve(),
   },
 });

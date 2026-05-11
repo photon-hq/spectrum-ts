@@ -1,10 +1,13 @@
 import type { Attachment } from "../../content/attachment";
 import type { Contact } from "../../content/contact";
+import type { Edit } from "../../content/edit";
 import { asGroup, type Group } from "../../content/group";
 import type { Poll as SpectrumPoll } from "../../content/poll";
 import type { Reaction } from "../../content/reaction";
+import type { Reply } from "../../content/reply";
 import type { Richlink } from "../../content/richlink";
 import type { Content } from "../../content/types";
+import type { Typing } from "../../content/typing";
 import type { Voice } from "../../content/voice";
 import type { Message as SpectrumMessage } from "../../types/message";
 import { UnsupportedError } from "../../utils/errors";
@@ -12,7 +15,6 @@ import { toVCard } from "../../utils/vcard";
 import type { LinkPreviewOptions, Message } from "./generated/types";
 import { chatToSender, chatToSpace, userToSender } from "./identity";
 import { messageCacheKey } from "./runtime/cache";
-import type { TelegramClient } from "./runtime/client";
 import type { TelegramMessage, TelegramRuntime } from "./types";
 
 const PLATFORM_NAME = "Telegram";
@@ -41,10 +43,11 @@ const toMessageId = (messageId: string): number => {
 // Build a `TelegramMessage` record from a Bot API response and the original
 // caller-supplied `Content`. The returned value is both:
 //
-//   - the `ProviderMessageRecord` returned to the platform layer (PR #38
-//     unified `send` / `replyToMessage` to return a record so
-//     `wrapProviderMessage("outbound")` can stitch outbound `OutboundMessage`s
-//     through the same pipeline as inbound messages); and
+//   - the `ProviderMessageRecord` returned to the platform layer (PR #55
+//     collapsed the provider surface to a single `send` action; outbound
+//     records produced here flow through `wrapProviderMessage("outbound")`
+//     and become real `OutboundMessage`s via the same pipeline as inbound
+//     messages); and
 //
 //   - written through to the runtime's messages cache so `getMessage(id)`
 //     for an id we just sent returns a real entry.
@@ -350,54 +353,27 @@ const sendContactContent = async (
 };
 
 // Reactions are first-class outbound content but Telegram's
-// `setMessageReaction` returns only a boolean, not a Message. To honour
-// PR #38's "send returns ProviderMessageRecord" contract we synthesize a
-// record that points back at the reaction target: id is the target
-// message id, content echoes the input reaction, sender is the bot
-// (captured at createClient time via getMe), and space is hydrated from
-// the cached target if we have it, falling back to a getChat round-trip
-// otherwise. Timestamp is "now" since the API offers no server-side
-// reaction timestamp. The synthesized record is intentionally NOT written
-// to `runtime.cache.messages` — there is no new message to remember; the
-// original target is what callers `getMessage()` for.
+// `setMessageReaction` returns only a boolean, not a Message — and PR #55
+// removed the requirement that fire-and-forget content types synthesize
+// a record. We simply post the reaction and return `undefined`, which the
+// platform layer interprets as "no new outbound message". The original
+// target stays addressable via `space.getMessage(id)` for callers that
+// need to inspect the message they reacted to.
 const sendReactionContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
   reaction: Reaction
-): Promise<TelegramMessage> => {
-  const targetId = reaction.target.id;
+): Promise<undefined> => {
   await runtime.client.invoke("setMessageReaction", {
     chat_id: toChatId(spaceId),
-    message_id: toMessageId(targetId),
+    message_id: toMessageId(reaction.target.id),
     // Telegram setMessageReaction overwrites the bot's reaction set on this
     // message. Sending a single-element array matches Spectrum's add-only
-    // reaction model; callers wanting to clear should pass an empty string
-    // through reactToMessage (we already handle that case there).
+    // reaction model; an empty array would clear, which Spectrum does not
+    // currently model on the `reaction` content type.
     reaction: [{ type: "emoji", emoji: reaction.emoji }],
   });
-  const cachedTarget = runtime.cache.messages.get(
-    messageCacheKey(spaceId, targetId)
-  );
-  let space: TelegramMessage["space"];
-  if (cachedTarget) {
-    space = cachedTarget.space;
-  } else {
-    // Cold path: target isn't in cache (likely a stale reference from a
-    // previous process). One getChat call hydrates a faithful space; this
-    // happens at most once per cold reaction target and is well worth the
-    // synthetic-record fidelity.
-    const chat = await runtime.client.invoke("getChat", {
-      chat_id: toChatId(spaceId),
-    });
-    space = chatToSpace(chat);
-  }
-  return {
-    id: targetId,
-    content: reaction,
-    sender: userToSender(runtime.me),
-    space,
-    timestamp: new Date(),
-  };
+  return;
 };
 
 const validatePollOptionTitles = (poll: SpectrumPoll): void => {
@@ -524,6 +500,21 @@ const sendGroupContent = async (
         `nested ${child.type} inside group is not allowed`
       );
     }
+    // Reply / edit / typing inside a group make no sense as album members:
+    // edits and typing indicators aren't messages, and Telegram threads
+    // exactly one reply edge per message (the first child) so distributing
+    // a single target across N members would silently lose information.
+    if (
+      child.type === "reply" ||
+      child.type === "edit" ||
+      child.type === "typing"
+    ) {
+      throw UnsupportedError.content(
+        child.type,
+        PLATFORM_NAME,
+        `${child.type} cannot be an album member`
+      );
+    }
     // Mirror the explicit `dispatchSend` rejections for these types so the
     // user-facing error and detail string are identical — only the *timing*
     // of the throw moves earlier (before any child is posted).
@@ -553,7 +544,17 @@ const sendGroupContent = async (
   let firstOpts: SendOpts = opts;
   for (const item of group.items) {
     const child = item.content;
-    childRecords.push(await dispatchSend(runtime, spaceId, child, firstOpts));
+    const childRecord = await dispatchSend(runtime, spaceId, child, firstOpts);
+    if (!childRecord) {
+      // Defensive: pre-validation above rejects every fire-and-forget child
+      // type that would return `undefined`, so this branch only fires if a
+      // future content type slips through. Bail loudly rather than push a
+      // partial album with phantom members.
+      throw new Error(
+        `Telegram group send: child of type "${child.type}" did not produce a message`
+      );
+    }
+    childRecords.push(childRecord);
     firstOpts = {};
   }
   const first = childRecords[0];
@@ -585,12 +586,91 @@ const sendGroupContent = async (
   return wrapper;
 };
 
+// `edit` ultimately fans out through `editMessageText`. The wire API only
+// supports replacing the body text (with optional link-preview metadata)
+// of a previously-sent message; Telegram has no general "edit anything"
+// endpoint (no edit for media payloads or polls). Other content types are
+// rejected with `UnsupportedError.content` so the dispatch surface is
+// consistent with how iMessage / WhatsApp report missing capabilities.
+const sendEditContent = async (
+  runtime: TelegramRuntime,
+  spaceId: string,
+  editContent: Edit
+): Promise<undefined> => {
+  const inner = editContent.content;
+  if (inner.type !== "text" && inner.type !== "richlink") {
+    throw UnsupportedError.content(
+      "edit",
+      PLATFORM_NAME,
+      // Telegram polls in particular cannot be edited at all — the only
+      // mutation `editMessageReplyMarkup` allows is on the inline keyboard,
+      // not the poll body. Reject other types explicitly so callers get a
+      // clear message instead of a Bad Request from Telegram.
+      `only text/richlink edits are supported, got "${inner.type}"`
+    );
+  }
+  const text = inner.type === "text" ? inner.text : inner.url;
+  // `editMessageText` returns the edited Message (or `true` for inline
+  // messages — not relevant here since we always pass a chat_id). We don't
+  // surface the return value (per the new `send()` fire-and-forget contract
+  // for edits), but we DO update the cache so a subsequent `getMessage`
+  // returns the new content rather than the pre-edit version.
+  const result = await runtime.client.invoke("editMessageText", {
+    chat_id: toChatId(spaceId),
+    message_id: toMessageId(editContent.target.id),
+    text,
+    ...(inner.type === "richlink"
+      ? { link_preview_options: richlinkPreviewOptions(inner.url) }
+      : {}),
+  });
+  if (typeof result !== "boolean") {
+    recordOutbound(runtime, result, inner);
+  }
+  return;
+};
+
+// Telegram's `sendChatAction` is a one-shot indicator that the server
+// auto-expires after ~5 seconds; the Bot API has no "cancel typing"
+// counterpart. We post the action on `start` and silently no-op on
+// `stop` — the server-side timeout takes care of dismissing the indicator
+// naturally. Returning `undefined` matches the fire-and-forget contract.
+const sendTypingContent = async (
+  runtime: TelegramRuntime,
+  spaceId: string,
+  typing: Typing
+): Promise<undefined> => {
+  if (typing.state === "start") {
+    await runtime.client.invoke("sendChatAction", {
+      chat_id: toChatId(spaceId),
+      action: "typing",
+    });
+  }
+  return;
+};
+
+// `reply` is sugar over the regular send pipeline: peel the wrapper off
+// and dispatch the inner content with the target message id stashed in
+// `SendOpts.replyToMessageId` so the per-type send helpers attach
+// Telegram's `reply_parameters`. Inner content shapes are gated by the
+// builder (`reply()` rejects nested reply/edit/reaction/group/typing), so
+// we don't add a runtime guard here — the schema accepts a wider
+// `BaseContent` only to break a circular type alias, not to widen the
+// real surface.
+const sendReplyContent = async (
+  runtime: TelegramRuntime,
+  spaceId: string,
+  replyContent: Reply
+): Promise<TelegramMessage | undefined> =>
+  await dispatchSend(runtime, spaceId, replyContent.content, {
+    replyToMessageId: toMessageId(replyContent.target.id),
+  });
+
 const dispatchSend = async (
   runtime: TelegramRuntime,
   spaceId: string,
   content: Content,
   opts: SendOpts
-): Promise<TelegramMessage> => {
+): Promise<TelegramMessage | undefined> => {
   switch (content.type) {
     case "text":
       return await sendText(runtime, spaceId, content, opts);
@@ -606,6 +686,12 @@ const dispatchSend = async (
       return await sendPollContent(runtime, spaceId, content, opts);
     case "reaction":
       return await sendReactionContent(runtime, spaceId, content);
+    case "reply":
+      return await sendReplyContent(runtime, spaceId, content);
+    case "edit":
+      return await sendEditContent(runtime, spaceId, content);
+    case "typing":
+      return await sendTypingContent(runtime, spaceId, content);
     case "custom":
       throw UnsupportedError.content("custom", PLATFORM_NAME);
     case "group":
@@ -648,74 +734,5 @@ export const send = (
   runtime: TelegramRuntime,
   spaceId: string,
   content: Content
-): Promise<TelegramMessage> => dispatchSend(runtime, spaceId, content, {});
-
-export const replyToMessage = (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  messageId: string,
-  content: Content
-): Promise<TelegramMessage> =>
-  dispatchSend(runtime, spaceId, content, {
-    replyToMessageId: toMessageId(messageId),
-  });
-
-export const editMessage = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  messageId: string,
-  content: Content
-): Promise<void> => {
-  const targetId = toMessageId(messageId);
-  if (content.type !== "text" && content.type !== "richlink") {
-    throw UnsupportedError.action(
-      "editMessage",
-      PLATFORM_NAME,
-      // Telegram polls in particular cannot be edited at all — the only
-      // mutation `editMessageReplyMarkup` allows is on the inline keyboard,
-      // not the poll body. Spectrum's universal `editMessage` contract for
-      // polls is undefined, so we reject explicitly.
-      `only text/richlink edits are supported, got "${content.type}"`
-    );
-  }
-  const text = content.type === "text" ? content.text : content.url;
-  // `editMessageText` returns the edited Message (or `true` for inline
-  // messages — not relevant here since we always pass a chat_id). We don't
-  // surface the return value to the caller (Spectrum's editMessage contract
-  // is `void`), but we DO update the cache so a subsequent `getMessage`
-  // returns the new content rather than the pre-edit version.
-  const result = await runtime.client.invoke("editMessageText", {
-    chat_id: toChatId(spaceId),
-    message_id: targetId,
-    text,
-    ...(content.type === "richlink"
-      ? { link_preview_options: richlinkPreviewOptions(content.url) }
-      : {}),
-  });
-  if (typeof result !== "boolean") {
-    recordOutbound(runtime, result, content);
-  }
-};
-
-export const reactToMessage = async (
-  client: TelegramClient,
-  spaceId: string,
-  messageId: string,
-  reaction: string
-): Promise<void> => {
-  await client.invoke("setMessageReaction", {
-    chat_id: toChatId(spaceId),
-    message_id: toMessageId(messageId),
-    reaction: reaction ? [{ type: "emoji", emoji: reaction }] : [],
-  });
-};
-
-export const startTyping = async (
-  client: TelegramClient,
-  spaceId: string
-): Promise<void> => {
-  await client.invoke("sendChatAction", {
-    chat_id: toChatId(spaceId),
-    action: "typing",
-  });
-};
+): Promise<TelegramMessage | undefined> =>
+  dispatchSend(runtime, spaceId, content, {});

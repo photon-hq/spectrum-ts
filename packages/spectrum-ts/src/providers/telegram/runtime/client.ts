@@ -62,18 +62,20 @@ const policyForMethod = (method: string, base: RetryPolicy): RetryPolicy => {
   };
 };
 
-// Recognise caller aborts so they propagate as control flow instead of
-// being wrapped in `TelegramNetworkError` (which would trigger retries).
-const isCallerAbort = (err: unknown, signal?: AbortSignal): boolean => {
+// Recognise aborts — either caller-driven cancellations or the internal
+// request-timeout — so they propagate as control flow instead of being
+// wrapped in `TelegramNetworkError` (which would trigger retries).
+// `AbortSignal.timeout` rejects with a `DOMException` named `TimeoutError`
+// on Node/undici, so both names are treated as terminal aborts.
+const isAbortLike = (err: unknown, signal?: AbortSignal): boolean => {
   if (signal?.aborted) {
     return true;
   }
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "name" in err &&
-    (err as { name: unknown }).name === "AbortError"
-  );
+  if (typeof err !== "object" || err === null || !("name" in err)) {
+    return false;
+  }
+  const name = (err as { name: unknown }).name;
+  return name === "AbortError" || name === "TimeoutError";
 };
 
 const combineSignals = (
@@ -188,7 +190,7 @@ export class TelegramClient {
 
   constructor(opts: TelegramClientOptions) {
     this.token = opts.token;
-    this.baseUrl = opts.baseUrl ?? BASE_URL;
+    this.baseUrl = (opts.baseUrl ?? BASE_URL).replace(/\/+$/, "");
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.retry };
     this.fetchImpl = opts.fetch ?? fetch;
     const requestTimeoutMs =
@@ -218,13 +220,12 @@ export class TelegramClient {
         ? undefined
         : AbortSignal.timeout(this.requestTimeoutMs);
     const combined = combineSignals([signal, timeoutSignal]);
-    return await this.invokeOnce(method, params, signal, combined, 0);
+    return await this.invokeOnce(method, params, combined, 0);
   }
 
   private async invokeOnce<M extends MethodName>(
     method: M,
     params: Methods[M]["params"],
-    callerSignal: AbortSignal | undefined,
     combined: AbortSignal | undefined,
     migrations: number
   ): Promise<Methods[M]["result"]> {
@@ -243,7 +244,7 @@ export class TelegramClient {
               signal: combined,
             });
           } catch (err) {
-            if (isCallerAbort(err, callerSignal)) {
+            if (isAbortLike(err, combined)) {
               throw err;
             }
             throw new TelegramNetworkError(method, err);
@@ -255,7 +256,7 @@ export class TelegramClient {
               Methods[M]["result"]
             >;
           } catch (err) {
-            if (isCallerAbort(err, callerSignal)) {
+            if (isAbortLike(err, combined)) {
               throw err;
             }
             throw new TelegramNetworkError(method, err);
@@ -284,7 +285,6 @@ export class TelegramClient {
         return await this.invokeOnce(
           method,
           migrated,
-          callerSignal,
           combined,
           migrations + 1
         );
@@ -314,16 +314,16 @@ export class TelegramClient {
         try {
           response = await this.fetchImpl(url, { signal: combined });
         } catch (err) {
-          if (isCallerAbort(err, signal)) {
+          if (isAbortLike(err, combined)) {
             throw err;
           }
           throw new TelegramNetworkError("downloadFile", err);
         }
 
         if (!response.ok) {
-          const snippet = await readErrorSnippet(response, signal);
-          if (signal?.aborted) {
-            throw signal.reason ?? new DOMException("Aborted", "AbortError");
+          const snippet = await readErrorSnippet(response, combined);
+          if (combined?.aborted) {
+            throw combined.reason ?? new DOMException("Aborted", "AbortError");
           }
           const base = `Telegram file download failed with HTTP ${response.status}`;
           throw new TelegramApiError({
@@ -355,7 +355,7 @@ const readErrorSnippet = async (
       ? `${text.slice(0, ERROR_SNIPPET_MAX_LEN)}…`
       : text;
   } catch (err) {
-    if (isCallerAbort(err, signal)) {
+    if (isAbortLike(err, signal)) {
       throw err;
     }
     return;

@@ -189,7 +189,13 @@ export class TelegramClient {
   private readonly requestTimeoutMs: number | null;
 
   constructor(opts: TelegramClientOptions) {
-    this.token = opts.token;
+    const token = typeof opts.token === "string" ? opts.token.trim() : "";
+    if (!token) {
+      throw new Error(
+        "TelegramClient: token is required and cannot be empty or whitespace"
+      );
+    }
+    this.token = token;
     this.baseUrl = (opts.baseUrl ?? BASE_URL).replace(/\/+$/, "");
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.retry };
     this.fetchImpl = opts.fetch ?? fetch;

@@ -1,0 +1,13 @@
+{
+  "name": "Spectrum Development",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "features": {
+    "ghcr.io/devcontainers-extra/features/bun:1": {}
+  },
+  "postCreateCommand": "bun install",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}

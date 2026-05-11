@@ -37,7 +37,9 @@ const toMessageId = (messageId: string): number => {
     throw new Error(`Invalid Telegram message_id: ${messageId}`);
   }
   const parsed = Number.parseInt(messageId, 10);
-  if (!Number.isSafeInteger(parsed)) {
+  // Telegram message_ids are positive integers starting at 1; reject 0
+  // and anything outside the safe-integer range up front.
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`Invalid Telegram message_id: ${messageId}`);
   }
   return parsed;

@@ -51,14 +51,30 @@ type TelegramSpaceShape = {
   username?: string;
 };
 
+// Private chats arrive without a `title`; synthesize a readable one
+// from first_name + last_name so DM spaces still surface a usable name.
+const privateChatTitle = (chat: Chat): string | undefined => {
+  if (chat.type !== "private") {
+    return;
+  }
+  const parts = [chat.first_name, chat.last_name].filter(
+    (value): value is string => typeof value === "string" && value.length > 0
+  );
+  if (parts.length === 0) {
+    return chat.username;
+  }
+  return parts.join(" ");
+};
+
 export const chatToSpace = (chat: Chat): TelegramSpaceShape => {
   const space: TelegramSpaceShape = {
     id: chatIdToSpaceId(chat.id),
     chatId: chat.id,
     type: chat.type,
   };
-  if (chat.title !== undefined) {
-    space.title = chat.title;
+  const title = chat.title ?? privateChatTitle(chat);
+  if (title !== undefined) {
+    space.title = title;
   }
   if (chat.username !== undefined) {
     space.username = chat.username;

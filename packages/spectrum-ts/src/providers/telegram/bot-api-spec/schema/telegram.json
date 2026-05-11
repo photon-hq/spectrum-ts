@@ -55,7 +55,19 @@
           "enum": ["private", "group", "supergroup", "channel"]
         },
         { "name": "title", "type": "string", "required": false },
-        { "name": "username", "type": "string", "required": false }
+        { "name": "username", "type": "string", "required": false },
+        {
+          "name": "first_name",
+          "type": "string",
+          "required": false,
+          "description": "Present for private chats; readable name of the user."
+        },
+        {
+          "name": "last_name",
+          "type": "string",
+          "required": false,
+          "description": "Present for private chats when the user supplied a last name."
+        }
       ]
     },
     "Message": {

@@ -35,6 +35,10 @@ export interface Chat {
   type: "private" | "group" | "supergroup" | "channel";
   title?: string;
   username?: string;
+  /** Present for private chats; readable name of the user. */
+  first_name?: string;
+  /** Present for private chats when the user supplied a last name. */
+  last_name?: string;
 }
 
 /** A message. */

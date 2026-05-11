@@ -112,6 +112,26 @@ const hasTopLevelBlob = (params: Record<string, unknown>): boolean => {
   return false;
 };
 
+// `appendFormField` JSON-stringifies non-primitive values, which would
+// silently drop binary content if a `Blob` were nested inside an object or
+// array. Telegram's Bot API only accepts `InputFile`s at the top level of
+// the multipart body, so a nested `Blob` is always a caller bug — fail
+// loudly instead of letting it serialize to "{}".
+const containsBlobDeep = (value: unknown): boolean => {
+  if (value instanceof Blob) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some(containsBlobDeep);
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(
+      containsBlobDeep
+    );
+  }
+  return false;
+};
+
 const appendFormField = (form: FormData, key: string, value: unknown): void => {
   if (value === undefined || value === null) {
     return;
@@ -135,11 +155,23 @@ const buildBody = (
   params: Record<string, unknown>
 ): { body: string | FormData; headers: Record<string, string> } => {
   if (hasTopLevelBlob(params)) {
+    for (const [key, value] of Object.entries(params)) {
+      if (!(value instanceof Blob) && containsBlobDeep(value)) {
+        throw new Error(
+          `Telegram client: parameter "${key}" contains a nested Blob; lift uploads into top-level multipart fields`
+        );
+      }
+    }
     const form = new FormData();
     for (const [key, value] of Object.entries(params)) {
       appendFormField(form, key, value);
     }
     return { body: form, headers: {} };
+  }
+  if (containsBlobDeep(params)) {
+    throw new Error(
+      "Telegram client: request params contain a nested Blob; lift uploads into top-level multipart fields"
+    );
   }
   return {
     body: JSON.stringify(params),

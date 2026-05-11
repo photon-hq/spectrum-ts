@@ -159,10 +159,19 @@ export class TelegramClient {
     this.baseUrl = opts.baseUrl ?? BASE_URL;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.retry };
     this.fetchImpl = opts.fetch ?? fetch;
-    this.requestTimeoutMs =
+    const requestTimeoutMs =
       opts.requestTimeoutMs === undefined
         ? DEFAULT_REQUEST_TIMEOUT_MS
         : opts.requestTimeoutMs;
+    if (
+      requestTimeoutMs !== null &&
+      (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 0)
+    ) {
+      throw new RangeError(
+        `TelegramClient.requestTimeoutMs must be null or a non-negative finite number; got ${String(requestTimeoutMs)}`
+      );
+    }
+    this.requestTimeoutMs = requestTimeoutMs;
   }
 
   async invoke<M extends MethodName>(
@@ -170,24 +179,25 @@ export class TelegramClient {
     params: Methods[M]["params"],
     signal?: AbortSignal
   ): Promise<Methods[M]["result"]> {
-    return await this.invokeOnce(method, params, signal, /*migrations*/ 0);
-  }
-
-  private async invokeOnce<M extends MethodName>(
-    method: M,
-    params: Methods[M]["params"],
-    signal: AbortSignal | undefined,
-    migrations: number
-  ): Promise<Methods[M]["result"]> {
-    const url = `${this.baseUrl}/bot${this.token}/${method}`;
-    const { body, headers } = buildBody(params as Record<string, unknown>);
-
-    // Timeout signal is built once so the deadline covers retries + backoff.
+    // Timeout signal is built once per invoke so the deadline covers
+    // retries, backoff, and any migration follow-ups.
     const timeoutSignal =
       this.requestTimeoutMs === null
         ? undefined
         : AbortSignal.timeout(this.requestTimeoutMs);
     const combined = combineSignals([signal, timeoutSignal]);
+    return await this.invokeOnce(method, params, signal, combined, 0);
+  }
+
+  private async invokeOnce<M extends MethodName>(
+    method: M,
+    params: Methods[M]["params"],
+    callerSignal: AbortSignal | undefined,
+    combined: AbortSignal | undefined,
+    migrations: number
+  ): Promise<Methods[M]["result"]> {
+    const url = `${this.baseUrl}/bot${this.token}/${method}`;
+    const { body, headers } = buildBody(params as Record<string, unknown>);
 
     try {
       return await withRetry(
@@ -201,7 +211,7 @@ export class TelegramClient {
               signal: combined,
             });
           } catch (err) {
-            if (isCallerAbort(err, signal)) {
+            if (isCallerAbort(err, callerSignal)) {
               throw err;
             }
             throw new TelegramNetworkError(method, err);
@@ -213,7 +223,7 @@ export class TelegramClient {
               Methods[M]["result"]
             >;
           } catch (err) {
-            if (isCallerAbort(err, signal)) {
+            if (isCallerAbort(err, callerSignal)) {
               throw err;
             }
             throw new TelegramNetworkError(method, err);
@@ -239,7 +249,13 @@ export class TelegramClient {
           ...(params as Record<string, unknown>),
           chat_id: newChatId,
         } as Methods[M]["params"];
-        return await this.invokeOnce(method, migrated, signal, migrations + 1);
+        return await this.invokeOnce(
+          method,
+          migrated,
+          callerSignal,
+          combined,
+          migrations + 1
+        );
       }
       throw err;
     }

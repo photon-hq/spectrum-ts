@@ -222,6 +222,23 @@ const sendVoiceContent = async (
 };
 
 const VCARD_MAX_BYTES = 2048;
+const VCARD_HEADER = "BEGIN:VCARD";
+
+// Prefer a caller-supplied vCard verbatim (string or nested `raw.vcard`) so
+// outbound contacts preserve any custom fields toVCard would normalize away.
+const preservedVCard = (contact: Contact): string | undefined => {
+  const raw = contact.raw;
+  if (typeof raw === "string" && raw.startsWith(VCARD_HEADER)) {
+    return raw;
+  }
+  if (raw && typeof raw === "object" && "vcard" in raw) {
+    const candidate = (raw as { vcard: unknown }).vcard;
+    if (typeof candidate === "string" && candidate.startsWith(VCARD_HEADER)) {
+      return candidate;
+    }
+  }
+  return;
+};
 
 const hasExtraContactData = (contact: Contact): boolean =>
   (contact.phones?.length ?? 0) > 1 ||
@@ -232,13 +249,19 @@ const hasExtraContactData = (contact: Contact): boolean =>
   contact.birthday !== undefined ||
   contact.note !== undefined ||
   contact.photo !== undefined ||
-  (typeof contact.raw === "string" && contact.raw.startsWith("BEGIN:VCARD"));
+  preservedVCard(contact) !== undefined;
 
 const buildVCardField = async (
   contact: Contact
 ): Promise<string | undefined> => {
   if (!hasExtraContactData(contact)) {
     return;
+  }
+  const preserved = preservedVCard(contact);
+  if (preserved !== undefined) {
+    return Buffer.byteLength(preserved, "utf8") > VCARD_MAX_BYTES
+      ? undefined
+      : preserved;
   }
   let card: string;
   try {
@@ -363,12 +386,22 @@ const sendPollContent = async (
 export const toGroupItems = (records: TelegramMessage[]): SpectrumMessage[] =>
   records as unknown as SpectrumMessage[];
 
+const MIN_GROUP_ITEMS = 2;
+
 const sendGroupContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
   group: Group,
   opts: SendOpts
 ): Promise<TelegramMessage> => {
+  // `asGroup` requires >= 2 items, but a hand-rolled `group` content could
+  // skip that check. Catch it here before any child is sent so we never
+  // partial-send a "group".
+  if (group.items.length < MIN_GROUP_ITEMS) {
+    throw new Error(
+      `Telegram group send requires at least ${MIN_GROUP_ITEMS} items, got ${group.items.length}`
+    );
+  }
   // Pre-validate every child — Telegram has no atomic undo for partial
   // album sends.
   for (const item of group.items) {

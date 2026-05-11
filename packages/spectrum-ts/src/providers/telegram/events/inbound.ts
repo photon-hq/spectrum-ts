@@ -145,8 +145,10 @@ const contactToContent = (contact: TgContact): Content => {
   return asContact(input);
 };
 
-// Richlink iff `link_preview_options.url` is set, or the body is exactly
-// one `url`/`text_link` entity spanning the entire text.
+// Richlink only when the message body is effectively bare: either the
+// trimmed text equals the preview URL, or the text is exactly one
+// `url`/`text_link` entity spanning the whole string. Mixed prose +
+// preview keeps the text content so callers don't lose context.
 const extractRichlinkUrl = (
   text: string,
   entities: MessageEntity[] | undefined,
@@ -155,7 +157,7 @@ const extractRichlinkUrl = (
   if (linkPreview?.is_disabled === true) {
     return;
   }
-  if (linkPreview?.url) {
+  if (linkPreview?.url && text.trim() === linkPreview.url) {
     return linkPreview.url;
   }
   if (!entities || entities.length !== 1) {

@@ -38,18 +38,11 @@ const toMessageId = (messageId: string): number => {
   return parsed;
 };
 
-// Builds the outbound record returned to the platform layer and cached
-// for `getMessage`. We carry the caller's original `Content` through
-// instead of re-deriving from the API response so attachment / voice
-// closures still point at the caller's bytes, not a fresh `getFile` URL.
 const recordOutbound = (
   runtime: TelegramRuntime,
   message: Message,
   content: Content
 ): TelegramMessage => {
-  // Sender selection mirrors the inbound path:
-  //   `from` (regular user) → `sender_chat` (channel / anon admin) →
-  //   `runtime.me` (bot itself) as a last-resort fallback.
   let sender: TelegramMessage["sender"];
   if (message.from) {
     sender = userToSender(message.from);
@@ -134,8 +127,8 @@ const sendText = async (
   return recordOutbound(runtime, message, content);
 };
 
-// `prefer_large_media` only takes effect when `url` is pinned explicitly;
-// without it Telegram falls back to a tiny thumbnail or no preview.
+// `prefer_large_media` only takes effect when `url` is pinned; otherwise
+// Telegram falls back to a thumbnail.
 const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
   is_disabled: false,
   url,
@@ -143,9 +136,8 @@ const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
   show_above_text: true,
 });
 
-// Preview cards are produced by Telegram's server-side scraper. The Bot API
-// exposes only layout knobs (size, position, on/off), so caller-provided
-// `title` / `summary` / `cover` cannot be injected and are dropped here.
+// Bot API has no fields for caller-provided title / summary / cover —
+// previews come from Telegram's server-side scraper.
 const sendRichlinkContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
@@ -246,18 +238,16 @@ const buildVCardField = async (
   contact: Contact
 ): Promise<string | undefined> => {
   if (!hasExtraContactData(contact)) {
-    return undefined;
+    return;
   }
-  // vCard is optional decoration on top of the required phone+first_name;
-  // fall back to a plain contact if serialization fails.
   let card: string;
   try {
     card = await toVCard(contact);
   } catch {
-    return undefined;
+    return;
   }
   if (Buffer.byteLength(card, "utf8") > VCARD_MAX_BYTES) {
-    return undefined;
+    return;
   }
   return card;
 };
@@ -302,10 +292,8 @@ const sendContactContent = async (
   return recordOutbound(runtime, message, contact);
 };
 
-// `setMessageReaction` returns a boolean (not a Message) so we return
-// `undefined` per the fire-and-forget contract. The single-element
-// `reaction` array overwrites any prior bot reaction with this emoji;
-// passing `[]` would clear, which the current schema doesn't model.
+// `setMessageReaction` returns a boolean. Single-element array overwrites
+// any prior bot reaction with this emoji; `[]` would clear (not modeled).
 const sendReactionContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
@@ -329,10 +317,8 @@ const validatePollOptionTitles = (poll: SpectrumPoll): void => {
   }
 };
 
-// `is_anonymous: false` is required: Telegram only delivers `poll_answer`
-// for non-anonymous polls the bot itself sent, and our `poll_option`
-// event stream depends on those updates. Anonymous polls aren't reachable
-// through this surface today.
+// `is_anonymous: false` is required — Telegram only delivers `poll_answer`
+// updates for non-anonymous polls the bot itself sent.
 const sendPollContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
@@ -347,8 +333,6 @@ const sendPollContent = async (
     is_anonymous: false,
     ...replyParams(opts),
   });
-  // Cache the server-assigned `poll.id` so `poll_answer` events can
-  // resolve back to the original Spectrum poll.
   if (message.poll) {
     runtime.cache.polls.rememberPoll(message.poll.id, {
       chat: {
@@ -369,15 +353,13 @@ const sendPollContent = async (
   return recordOutbound(runtime, message, poll);
 };
 
-// Telegram's native `sendMediaGroup` only accepts homogeneous photo /
-// video / audio / document buckets; Spectrum `group` is heterogeneous, so
-// we fall back to iterating children through the normal send pipeline.
-// The wrapper's id is the lead child's id so replies / reactions target
-// the album's first message.
+// `sendMediaGroup` only accepts homogeneous photo/video/audio/document
+// buckets; Spectrum `group` is heterogeneous, so we iterate children
+// through the normal send pipeline. Wrapper id = lead child id so
+// replies / reactions target the album's first message.
 
-// `as unknown as SpectrumMessage[]` is correct here: the platform's
-// `wrapProviderMessage` adds the `react()` / `reply()` closures during
-// inflation; provider-side records intentionally lack them.
+// Platform inflation adds `react()`/`reply()` closures downstream; the
+// provider-side records intentionally lack them.
 export const toGroupItems = (records: TelegramMessage[]): SpectrumMessage[] =>
   records as unknown as SpectrumMessage[];
 
@@ -387,9 +369,8 @@ const sendGroupContent = async (
   group: Group,
   opts: SendOpts
 ): Promise<TelegramMessage> => {
-  // Pre-validate every child so we don't push half an album to Telegram
-  // and then throw on a later one (no atomic undo). Validation order
-  // matches `dispatchSend`'s rejections so error messages are unchanged.
+  // Pre-validate every child — Telegram has no atomic undo for partial
+  // album sends.
   for (const item of group.items) {
     const child = item.content;
     if (child.type === "group" || child.type === "reaction") {
@@ -430,8 +411,7 @@ const sendGroupContent = async (
   }
 
   const childRecords: TelegramMessage[] = [];
-  // Reply-parent attaches to the first child only; Telegram threads a
-  // single reply edge per message.
+  // Reply edge attaches to the first child only.
   let firstOpts: SendOpts = opts;
   for (const item of group.items) {
     const child = item.content;
@@ -452,8 +432,8 @@ const sendGroupContent = async (
     ...first,
     content: asGroup({ items: toGroupItems(childRecords) }),
   };
-  // The wrapper shares the lead child's id; overwrite the per-child cache
-  // entry so `getMessage(wrapper.id)` matches what `send` returned.
+  // Overwrite the lead child's per-message cache entry so
+  // `getMessage(wrapper.id)` returns what `send` returned.
   runtime.cache.messages.set(
     messageCacheKey(first.space.id, wrapper.id),
     wrapper
@@ -461,8 +441,8 @@ const sendGroupContent = async (
   return wrapper;
 };
 
-// `editMessageText` only edits text bodies (with optional preview
-// metadata). Telegram has no edit endpoint for media payloads or polls.
+// Telegram only edits text/richlink bodies; no edit endpoint for media
+// or polls.
 const sendEditContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
@@ -477,9 +457,7 @@ const sendEditContent = async (
     );
   }
   const text = inner.type === "text" ? inner.text : inner.url;
-  // `editMessageText` returns the edited Message (boolean only for inline
-  // messages, which we never use). Refresh the cache so a subsequent
-  // `getMessage` returns the post-edit record.
+  // Result is a boolean only for inline messages, which we never send.
   const result = await runtime.client.invoke("editMessageText", {
     chat_id: toChatId(spaceId),
     message_id: toMessageId(editContent.target.id),
@@ -494,8 +472,8 @@ const sendEditContent = async (
   return;
 };
 
-// `sendChatAction` is one-shot; Telegram auto-expires the indicator after
-// ~5s and has no "cancel typing" counterpart, so `stop` is a no-op.
+// `sendChatAction` is fire-and-forget — Telegram auto-expires after ~5s
+// and has no cancel API, so `stop` is a no-op.
 const sendTypingContent = async (
   runtime: TelegramRuntime,
   spaceId: string,
@@ -510,9 +488,6 @@ const sendTypingContent = async (
   return;
 };
 
-// Unwraps and dispatches the inner content with `reply_parameters`
-// threaded via `SendOpts`. The `reply()` builder already gates inner
-// shapes so no extra runtime guard is needed here.
 const sendReplyContent = async (
   runtime: TelegramRuntime,
   spaceId: string,

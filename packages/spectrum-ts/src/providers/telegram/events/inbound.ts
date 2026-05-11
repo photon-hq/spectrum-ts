@@ -25,9 +25,8 @@ import { toGroupItems } from "../messages";
 import type { TelegramClient } from "../runtime/client";
 import type { TelegramMessage } from "../types";
 
-// `getFile` URLs are valid for ~1h, so we resolve them lazily on each
-// read. Reads are not bound to the event-stream lifetime: a message
-// emitted before stream teardown stays readable afterwards.
+// `getFile` URLs are valid for ~1h; resolve lazily on each read so
+// messages stay readable after the event stream tears down.
 const fetchFileBytes = async (
   client: TelegramClient,
   fileId: string
@@ -118,7 +117,7 @@ const parseVCardSafe = (
   try {
     return fromVCard(vcard);
   } catch {
-    return undefined;
+    return;
   }
 };
 
@@ -146,30 +145,29 @@ const contactToContent = (contact: TgContact): Content => {
   return asContact(input);
 };
 
-// A message becomes a richlink when the sender clearly intended a link
-// card: either Telegram's `link_preview_options.url` points at one, or
-// the message body is exactly one `url` / `text_link` entity.
+// Richlink iff `link_preview_options.url` is set, or the body is exactly
+// one `url`/`text_link` entity spanning the entire text.
 const extractRichlinkUrl = (
   text: string,
   entities: MessageEntity[] | undefined,
   linkPreview: LinkPreviewOptions | undefined
 ): string | undefined => {
   if (linkPreview?.is_disabled === true) {
-    return undefined;
+    return;
   }
   if (linkPreview?.url) {
     return linkPreview.url;
   }
   if (!entities || entities.length !== 1) {
-    return undefined;
+    return;
   }
   const [entity] = entities;
   if (!entity) {
-    return undefined;
+    return;
   }
   const covers = entity.offset === 0 && entity.length === text.length;
   if (!covers) {
-    return undefined;
+    return;
   }
   if (entity.type === "text_link") {
     return entity.url;
@@ -177,12 +175,12 @@ const extractRichlinkUrl = (
   if (entity.type === "url") {
     return text;
   }
-  return undefined;
+  return;
 };
 
 const richlinkFromMessage = (msg: Message): Content | undefined => {
   if (msg.text === undefined) {
-    return undefined;
+    return;
   }
   const url = extractRichlinkUrl(
     msg.text,
@@ -190,31 +188,28 @@ const richlinkFromMessage = (msg: Message): Content | undefined => {
     msg.link_preview_options
   );
   if (url === undefined) {
-    return undefined;
+    return;
   }
   try {
     return asRichlink({ url });
   } catch {
-    return undefined;
+    return;
   }
 };
 
 const pollFromTelegramPoll = (poll: TgPoll): Content | undefined => {
-  // `asPoll` enforces the same 2-10 options / 300-char title limits
-  // Telegram does; guard against future server drift.
   try {
     return asPoll({
       title: poll.question,
       options: poll.options.map((opt) => ({ title: opt.text })),
     });
   } catch {
-    return undefined;
+    return;
   }
 };
 
-// A media message with a caption surfaces the media as content; the
-// caption rides along as a `TelegramMessage["caption"]` extra so it isn't
-// lost. Caption-only messages fall back to text content.
+// Media + caption → media content with caption as a `TelegramMessage`
+// extra; caption-only → text content.
 const messageToContent = (
   client: TelegramClient,
   msg: Message
@@ -277,7 +272,7 @@ const messageToContent = (
   if (msg.caption !== undefined) {
     return asText(msg.caption);
   }
-  return undefined;
+  return;
 };
 
 export const toTelegramMessage = (
@@ -291,11 +286,11 @@ export const toTelegramMessage = (
     sender = chatToSender(msg.sender_chat);
   }
   if (!sender) {
-    return undefined;
+    return;
   }
   const content = messageToContent(client, msg);
   if (!content) {
-    return undefined;
+    return;
   }
   const built: TelegramMessage = {
     id: String(msg.message_id),
@@ -313,25 +308,22 @@ export const toTelegramMessage = (
   return built;
 };
 
-// Coalesces N debounced album members into a single `group` message.
-// The wrapper's id is anchored to the lead member's real `message_id` so
-// `reply` / `edit` / `setMessageReaction` (all numeric-id-only) keep
-// working on the coalesced message.
+// Wrapper id = lead member's `message_id` so reply/edit/setMessageReaction
+// (all numeric-id-only) keep working on the coalesced message.
 export const coalesceAlbumGroup = (
   members: TelegramMessage[]
 ): TelegramMessage | undefined => {
   if (members.length === 0) {
-    return undefined;
+    return;
   }
+  // `asGroup` requires >= 2 items; ceiling-flush race can leave us with 1.
   if (members.length === 1) {
-    // `asGroup` requires min 2 items; a ceiling-flush race can leave us
-    // with one. Fall back to the raw message.
     return members[0];
   }
   const sorted = [...members].sort((a, b) => Number(a.id) - Number(b.id));
   const head = sorted[0];
   if (!head?.mediaGroupId) {
-    return undefined;
+    return;
   }
   const items = toGroupItems(sorted);
   const wrapper: TelegramMessage = {
@@ -342,8 +334,7 @@ export const coalesceAlbumGroup = (
     ...(head.timestamp ? { timestamp: head.timestamp } : {}),
     mediaGroupId: head.mediaGroupId,
   };
-  // Telegram attaches the album caption to exactly one member; promote it
-  // to the wrapper so consumers don't have to scan items themselves.
+  // Telegram attaches the album caption to exactly one member; promote it.
   const captioned = sorted.find((m) => m.caption !== undefined);
   if (captioned?.caption !== undefined) {
     wrapper.caption = captioned.caption;

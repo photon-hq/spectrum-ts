@@ -4,12 +4,8 @@ import { chatToSender, userToSender } from "../identity";
 import type { CachedPoll, TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
 
-// Telegram's `poll_answer` carries the post-vote vector (full current
-// selection). Spectrum wants per-option `selected: true/false` diff
-// events, so we keep each voter's prior vector and diff on every update.
-// `poll_answer` is only delivered for non-anonymous polls the bot itself
-// sent; `sendPoll` pins `is_anonymous: false` to enable this path.
-
+// `poll_answer` ships the full post-vote vector; Spectrum wants per-option
+// selected/deselected diffs, so we cache each voter's prior vector.
 const computeDiff = (
   prior: readonly number[],
   next: readonly number[]
@@ -34,7 +30,7 @@ const buildPollOptionEvent = (
 ): TelegramMessage | undefined => {
   const option = cached.poll.options[optionIndex];
   if (!option) {
-    return undefined;
+    return;
   }
   return {
     id: context.eventId,
@@ -50,9 +46,8 @@ export const pollAnswerEvents = (
   cache: TelegramCache,
   update: Update
 ): TelegramMessage[] => {
-  // Either `user` (regular voter) or `voter_chat` (anonymous channel
-  // admin) is populated; chat ids are negative and disjoint from user
-  // ids, so using them as the voter cache key avoids collisions.
+  // `user` (regular voter) or `voter_chat` (anonymous channel admin) is
+  // populated. Chat ids are negative so they can't collide with user ids.
   let sender: ReturnType<typeof userToSender>;
   let voterId: number;
   if (answer.user) {
@@ -72,8 +67,7 @@ export const pollAnswerEvents = (
   const { added, removed } = computeDiff(prior, answer.option_ids);
   cache.polls.recordVote(answer.poll_id, voterId, answer.option_ids);
 
-  // `poll_answer` carries no chat or timestamp; reuse the cached chat and
-  // stamp with `now` (matches the iMessage poll-vote path).
+  // `poll_answer` carries no chat or timestamp.
   const space = cached.chat;
   const timestamp = new Date();
 

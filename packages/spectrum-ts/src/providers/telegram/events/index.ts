@@ -14,7 +14,6 @@ const pickMessage = (update: Update) =>
   update.edited_channel_post;
 
 interface BuildOutput {
-  /** True when the messages should be cached individually before emit. */
   cacheable: boolean;
   messages: TelegramMessage[];
 }
@@ -70,9 +69,7 @@ export const messages = (
       signal.addEventListener("abort", onSignalAbort, { once: true });
     }
 
-    // The album buffer lives per-stream because its flush callback closes
-    // over `emit`. The wrapper's id collides with the lead child's id
-    // already cached individually, so the flush overwrites that entry.
+    // Per-stream because the flush callback closes over `emit`.
     const albumBuffer = runtime.cache.coalesceAlbums
       ? new AlbumBuffer({
           ...runtime.cache.albumOptions,
@@ -96,7 +93,7 @@ export const messages = (
       try {
         await albumBuffer.flushAll();
       } catch {
-        /* errors are already logged inside flushAll() */
+        // logged inside flushAll()
       }
     };
 
@@ -129,8 +126,7 @@ export const messages = (
         await drainAlbumsSafely();
         end();
       } catch (err) {
-        // Drain inside the pump so we can't race with a concurrent push,
-        // and the consumer always sees a final `end()` even on failure.
+        // Drain inside the pump so consumers always see a final `end()`.
         if (abortController.signal.aborted) {
           await drainAlbumsSafely();
           end();

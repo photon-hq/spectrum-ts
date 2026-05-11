@@ -1,7 +1,3 @@
-// Shared sender / space mappers used by both inbound and outbound paths
-// so a sent message and a received message round-trip through the cache
-// with byte-identical `sender` and `space` shapes.
-
 import type { Chat, Message, User } from "./generated/types";
 import type { TelegramMessage } from "./types";
 
@@ -27,9 +23,8 @@ export const userToSender = (user: User): TelegramMessage["sender"] => {
   return sender;
 };
 
-// Channel posts and anonymous group-admin messages arrive without `from`
-// but with `sender_chat`; synthesize the sender from the chat so the
-// canonical author is the channel on both sides of the round-trip.
+// For channel posts and anonymous group-admin messages, `from` is absent
+// and `sender_chat` carries the author.
 export const chatToSender = (
   chat: NonNullable<Message["sender_chat"]> | Chat
 ): TelegramMessage["sender"] => {
@@ -45,9 +40,8 @@ export const chatToSender = (
   return sender;
 };
 
-// Must remain a `type` alias rather than an `interface`: consumers assign
-// the result to `Record<string, unknown>` slots, which TS rejects from an
-// open-extension `interface` declaration but accepts from a closed `type`.
+// Must be `type`, not `interface`: callers assign into `Record<string, unknown>`
+// slots which interfaces don't satisfy.
 // biome-ignore lint/style/useConsistentTypeDefinitions: see comment above.
 type TelegramSpaceShape = {
   chatId: number;

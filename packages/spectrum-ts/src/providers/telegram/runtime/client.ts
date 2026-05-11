@@ -14,11 +14,9 @@ export interface TelegramClientOptions {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
-// Mutating methods get at-most-once semantics: Telegram has no idempotency
-// key, so retrying a write after a network failure risks duplicates. We
-// honor only 429 retries (Telegram explicitly asks for them via
-// `retry_after`); reads (`getMe`, `getUpdates`, `getChat`, `getFile`) keep
-// the full policy because they're idempotent.
+// Telegram has no idempotency key, so mutating methods get at-most-once
+// semantics: 429 retries only (server explicitly asks via `retry_after`).
+// Reads keep the full policy.
 const MUTATING_METHOD_PREFIXES = [
   "send",
   "edit",
@@ -64,14 +62,10 @@ const policyForMethod = (method: string, base: RetryPolicy): RetryPolicy => {
   };
 };
 
-// Recognise a caller-initiated abort so it propagates as control flow
-// rather than getting wrapped into `TelegramNetworkError` (which would
-// retry reads and lose the cancellation reason).
+// Recognise caller aborts so they propagate as control flow instead of
+// being wrapped in `TelegramNetworkError` (which would trigger retries).
 const isCallerAbort = (err: unknown, signal?: AbortSignal): boolean => {
   if (signal?.aborted) {
-    return true;
-  }
-  if (err instanceof Error && err.name === "AbortError") {
     return true;
   }
   return (
@@ -118,45 +112,6 @@ const hasTopLevelBlob = (params: Record<string, unknown>): boolean => {
   return false;
 };
 
-// Binary fields must sit at the top level of the params object; nested
-// Blobs / ReadableStreams would silently `JSON.stringify` into `"{}"`,
-// which corrupts the upload. Reject loudly instead.
-const assertNoNestedBlob = (
-  method: string,
-  value: unknown,
-  path: string
-): void => {
-  if (value === null || value === undefined) {
-    return;
-  }
-  if (value instanceof Blob) {
-    throw new Error(
-      `Telegram client cannot serialize Blob at "${path}" of ${method} request: ` +
-        "nested binary fields are not supported. Pass binaries at the top " +
-        "level (e.g. sendPhoto({ photo: blob })) instead."
-    );
-  }
-  if (value instanceof ReadableStream) {
-    throw new Error(
-      `Telegram client cannot serialize ReadableStream at "${path}" of ${method} request: ` +
-        "stream uploads are not supported. Buffer into a Blob first."
-    );
-  }
-  if (Array.isArray(value)) {
-    for (const [idx, item] of value.entries()) {
-      assertNoNestedBlob(method, item, `${path}[${idx}]`);
-    }
-    return;
-  }
-  if (typeof value === "object") {
-    for (const [key, child] of Object.entries(
-      value as Record<string, unknown>
-    )) {
-      assertNoNestedBlob(method, child, `${path}.${key}`);
-    }
-  }
-};
-
 const appendFormField = (form: FormData, key: string, value: unknown): void => {
   if (value === undefined || value === null) {
     return;
@@ -177,14 +132,8 @@ const appendFormField = (form: FormData, key: string, value: unknown): void => {
 };
 
 const buildBody = (
-  method: string,
   params: Record<string, unknown>
 ): { body: string | FormData; headers: Record<string, string> } => {
-  for (const [key, value] of Object.entries(params)) {
-    if (!(value instanceof Blob)) {
-      assertNoNestedBlob(method, value, key);
-    }
-  }
   if (hasTopLevelBlob(params)) {
     const form = new FormData();
     for (const [key, value] of Object.entries(params)) {
@@ -210,19 +159,10 @@ export class TelegramClient {
     this.baseUrl = opts.baseUrl ?? BASE_URL;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.retry };
     this.fetchImpl = opts.fetch ?? fetch;
-    const requestTimeoutMs =
+    this.requestTimeoutMs =
       opts.requestTimeoutMs === undefined
         ? DEFAULT_REQUEST_TIMEOUT_MS
         : opts.requestTimeoutMs;
-    if (
-      requestTimeoutMs !== null &&
-      (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 0)
-    ) {
-      throw new RangeError(
-        `TelegramClient.requestTimeoutMs must be null or a non-negative finite number; got ${String(requestTimeoutMs)}`
-      );
-    }
-    this.requestTimeoutMs = requestTimeoutMs;
   }
 
   async invoke<M extends MethodName>(
@@ -240,13 +180,9 @@ export class TelegramClient {
     migrations: number
   ): Promise<Methods[M]["result"]> {
     const url = `${this.baseUrl}/bot${this.token}/${method}`;
-    const { body, headers } = buildBody(
-      method,
-      params as Record<string, unknown>
-    );
+    const { body, headers } = buildBody(params as Record<string, unknown>);
 
-    // The timeout signal is built ONCE per logical call so the deadline
-    // covers all retries + backoff, not each attempt independently.
+    // Timeout signal is built once so the deadline covers retries + backoff.
     const timeoutSignal =
       this.requestTimeoutMs === null
         ? undefined
@@ -313,8 +249,6 @@ export class TelegramClient {
     return `${this.baseUrl}/file/bot${this.token}/${filePath}`;
   }
 
-  // Downloads a Telegram-hosted file through the same transport used by
-  // `invoke()` so retry / timeout / fetch overrides apply uniformly.
   async downloadFile(
     filePath: string,
     signal?: AbortSignal
@@ -360,8 +294,6 @@ export class TelegramClient {
 
 const ERROR_SNIPPET_MAX_LEN = 200;
 
-// Best-effort body read for error messages; returns undefined on empty
-// bodies or read failures. Caller-initiated aborts re-throw untouched.
 const readErrorSnippet = async (
   response: Response,
   signal?: AbortSignal
@@ -369,7 +301,7 @@ const readErrorSnippet = async (
   try {
     const text = await response.text();
     if (!text) {
-      return undefined;
+      return;
     }
     return text.length > ERROR_SNIPPET_MAX_LEN
       ? `${text.slice(0, ERROR_SNIPPET_MAX_LEN)}…`
@@ -378,13 +310,13 @@ const readErrorSnippet = async (
     if (isCallerAbort(err, signal)) {
       throw err;
     }
-    return undefined;
+    return;
   }
 };
 
 const migrationTargetFor = (err: unknown): number | undefined => {
   if (!(err instanceof TelegramApiError)) {
-    return undefined;
+    return;
   }
   return err.migrateToChatId;
 };

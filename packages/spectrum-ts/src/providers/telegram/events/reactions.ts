@@ -7,19 +7,12 @@ import { chatToSender, chatToSpace, userToSender } from "../identity";
 import { messageCacheKey, type TelegramCache } from "../runtime/cache";
 import type { TelegramMessage } from "../types";
 
-// `message_reaction` carries a diff (`old_reaction` vs `new_reaction`).
-// Spectrum's `reaction` content is add-only and plain-unicode, so we emit
-// only the newly-added emoji reactions. Removes, custom emoji, and paid
-// reactions are dropped pending schema additions.
-//
-// TODO(reactions): emit remove events once `reactionSchema` has an action.
-// TODO(reactions): surface custom emoji once the schema carries id+kind.
-// TODO(reactions): consider `message_reaction_count` snapshots for
-//   anonymous channels.
-
+// Spectrum reaction content is add-only and plain-unicode, so we emit
+// only newly-added emoji reactions from the `old_reaction`→`new_reaction`
+// diff. Removes, custom emoji, and paid reactions are dropped.
 const extractEmoji = (reaction: ReactionType): string | undefined => {
   if (reaction.type !== "emoji") {
-    return undefined;
+    return;
   }
   return reaction.emoji ? reaction.emoji : undefined;
 };
@@ -38,9 +31,8 @@ const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {
   return added;
 };
 
-// `message_reaction` carries only the target's message id, so we either
-// hand back the cached record or synthesize a minimal stub. The platform's
-// `wrapProviderMessage` inflates either shape into a full `Message`.
+// Updates carry only the target's message id; return the cached record
+// or a minimal stub if we never saw it.
 const reactionTargetStub = (
   messageId: number,
   space: ReturnType<typeof chatToSpace>,
@@ -71,8 +63,7 @@ export const reactionEventsFromUpdate = (
   updateId: number,
   cache: TelegramCache
 ): TelegramMessage[] => {
-  // Anonymous channel admins arrive as `actor_chat`; treat as sender via
-  // `chatToSender` so the reaction isn't silently dropped.
+  // Anonymous channel admins arrive as `actor_chat`.
   let sender: ReturnType<typeof userToSender>;
   if (update.user) {
     sender = userToSender(update.user);
@@ -89,8 +80,6 @@ export const reactionEventsFromUpdate = (
     space,
     timestamp
   );
-  // `asReaction` is typed against the rich `Message` (with `react()` /
-  // `reply()` closures); the platform inflates the raw record downstream.
   return newlyAddedEmojis(update).map((emoji, index) => ({
     id: `reaction:${updateId}:${index}`,
     content: asReaction({

@@ -64,7 +64,7 @@ const nextDelay = (
   policy: RetryPolicy
 ): number | undefined => {
   if (attempt >= policy.maxAttempts) {
-    return undefined;
+    return;
   }
   if (error instanceof TelegramApiError) {
     if (error.isRateLimit) {
@@ -83,12 +83,12 @@ const nextDelay = (
     if (error.isServerError && policy.retryServerErrors) {
       return backoffDelay(attempt, policy);
     }
-    return undefined;
+    return;
   }
   if (error instanceof TelegramNetworkError && policy.retryNetworkErrors) {
     return backoffDelay(attempt, policy);
   }
-  return undefined;
+  return;
 };
 
 export const withRetry = async <T>(

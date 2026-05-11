@@ -2,31 +2,20 @@ import type { Update } from "../generated/types";
 import type { TelegramClient } from "./client";
 
 export interface PollingOptions {
-  /**
-   * When omitted we opt into `DEFAULT_ALLOWED_UPDATES` so reactions surface for
-   * admin bots without configuration. Pass an explicit list (including an empty
-   * list, which Telegram interprets as "all except the opt-in-only types") to
-   * override.
-   */
+  /** Omitted = `DEFAULT_ALLOWED_UPDATES`. Empty array = Telegram's default. */
   allowedUpdates?: string[];
-  /** Discard any updates queued before polling starts. */
   dropPendingUpdates?: boolean;
   /** Long-polling timeout in seconds; Telegram caps at 50. */
   timeout?: number;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
-// Telegram caps `getUpdates.timeout` at 50s server-side; negative or
-// non-finite values cause a 400. `configSchema` already gates this, but
-// `pollUpdates` accepts a direct options override too.
 const MAX_TIMEOUT_SECONDS = 50;
 
 const sanitizeTimeout = (raw: number | undefined): number => {
   if (raw === undefined || !Number.isFinite(raw)) {
     return DEFAULT_TIMEOUT_SECONDS;
   }
-  // `timeout` is integer-valued; truncate rather than round to match
-  // `z.number().int()` behaviour.
   const normalized = Math.trunc(raw);
   if (normalized < 0) {
     return 0;
@@ -37,10 +26,8 @@ const sanitizeTimeout = (raw: number | undefined): number => {
   return normalized;
 };
 
-// `message_reaction` and `poll_answer` are opt-in: Telegram omits them
-// otherwise. `message_reaction_count` is intentionally excluded (snapshot
-// semantics don't fit Spectrum's reaction content); `poll` aggregate
-// updates are excluded because Spectrum has no poll-snapshot content type.
+// `message_reaction` and `poll_answer` are opt-in. `message_reaction_count`
+// and `poll` aggregates are excluded — no Spectrum content type maps to them.
 const DEFAULT_ALLOWED_UPDATES: readonly string[] = [
   "message",
   "edited_message",
@@ -50,8 +37,8 @@ const DEFAULT_ALLOWED_UPDATES: readonly string[] = [
   "poll_answer",
 ];
 
-// `offset: -1` returns at most the most recent pending update; advancing
-// past it confirms (and therefore drops) every older queued update.
+// `offset: -1` returns the most recent pending update; advancing past it
+// confirms-and-drops every older queued update.
 const discardPendingUpdates = async (
   client: TelegramClient,
   signal: AbortSignal

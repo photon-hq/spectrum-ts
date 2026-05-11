@@ -18,21 +18,8 @@ import {
   userSchema,
 } from "./types";
 
-const runtimeOf = (client: unknown): TelegramRuntime => {
-  if (
-    typeof client !== "object" ||
-    client === null ||
-    !("client" in client) ||
-    !("cache" in client) ||
-    !("abort" in client) ||
-    !("me" in client)
-  ) {
-    throw new Error(
-      "Telegram action invoked with an invalid runtime — expected the value returned by `createClient`."
-    );
-  }
-  return client as TelegramRuntime;
-};
+const asRuntime = (client: unknown): TelegramRuntime =>
+  client as TelegramRuntime;
 
 const resolveCacheOptions = (
   cfg: TelegramConfig["cache"]
@@ -66,7 +53,7 @@ export const telegram = definePlatform("Telegram", {
     schema: spaceSchema,
     params: spaceParamsSchema,
     resolve: async ({ input, client }) => {
-      const runtime = runtimeOf(client);
+      const runtime = asRuntime(client);
       const chatIdSource =
         input.params?.chatId ??
         (input.users.length === 1 ? input.users[0]?.id : undefined);
@@ -108,22 +95,20 @@ export const telegram = definePlatform("Telegram", {
         token: config.token,
         ...(config.apiBaseUrl ? { baseUrl: config.apiBaseUrl } : {}),
       });
-      // `getMe` doubles as a token-validity probe; the result is also reused
-      // to synthesize a sender on outbound records that don't echo `from`.
       const me = await client.invoke("getMe", {});
       const cache = createTelegramCache(resolveCacheOptions(config.cache));
       return { client, abort: new AbortController(), cache, me };
     },
 
     destroyClient: async ({ client }) => {
-      const runtime = runtimeOf(client);
+      const runtime = asRuntime(client);
       runtime.abort.abort();
       runtime.cache.destroy();
     },
   },
 
   messages: ({ client, config }) => {
-    const runtime = runtimeOf(client);
+    const runtime = asRuntime(client);
     return telegramMessages(runtime, runtime.abort.signal, {
       ...(config.pollingTimeout === undefined
         ? {}
@@ -135,14 +120,11 @@ export const telegram = definePlatform("Telegram", {
   },
 
   send: async ({ space, content, client }) =>
-    await telegramSend(runtimeOf(client), space.id, content),
+    await telegramSend(asRuntime(client), space.id, content),
 
   actions: {
-    // Telegram has no general "fetch message by id" endpoint, so this is
-    // backed by the in-process LRU populated by inbound + outbound paths.
-    // Cold ids return `undefined`; disable with `cache.messages: 0`.
     getMessage: async ({ space, messageId, client }) =>
-      runtimeOf(client).cache.messages.get(
+      asRuntime(client).cache.messages.get(
         messageCacheKey(space.id, messageId)
       ),
   },

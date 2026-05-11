@@ -54,7 +54,7 @@ const mapPhoneType = (prop: VCardProperty): ContactPhone["type"] => {
   if (types.length > 0) {
     return "other";
   }
-  return undefined;
+  return;
 };
 
 const mapSimpleType = (
@@ -70,7 +70,7 @@ const mapSimpleType = (
   if (types.length > 0) {
     return "other";
   }
-  return undefined;
+  return;
 };
 
 const splitStructured = (value: string): string[] =>
@@ -80,7 +80,7 @@ const extractName = (card: vCard): ContactName | undefined => {
   const fn = propString(card.data.fn);
   const n = propString(card.data.n);
   if (!(fn || n)) {
-    return undefined;
+    return;
   }
 
   const result: ContactName = {};
@@ -111,7 +111,7 @@ const extractName = (card: vCard): ContactName | undefined => {
 const extractPhones = (card: vCard): ContactPhone[] | undefined => {
   const props = asPropertyArray(card.data.tel);
   if (props.length === 0) {
-    return undefined;
+    return;
   }
   return props.map((p) => {
     const entry: ContactPhone = { value: p.valueOf().trim() };
@@ -126,7 +126,7 @@ const extractPhones = (card: vCard): ContactPhone[] | undefined => {
 const extractEmails = (card: vCard): ContactEmail[] | undefined => {
   const props = asPropertyArray(card.data.email);
   if (props.length === 0) {
-    return undefined;
+    return;
   }
   return props.map((p) => {
     const entry: ContactEmail = { value: p.valueOf().trim() };
@@ -141,7 +141,7 @@ const extractEmails = (card: vCard): ContactEmail[] | undefined => {
 const extractAddresses = (card: vCard): ContactAddress[] | undefined => {
   const props = asPropertyArray(card.data.adr);
   if (props.length === 0) {
-    return undefined;
+    return;
   }
   return props.map((p) => {
     // ADR fields: PO Box; extended; street; locality; region; postal code; country
@@ -176,7 +176,7 @@ const extractOrg = (card: vCard): ContactOrg | undefined => {
   const orgStr = propString(card.data.org);
   const title = propString(card.data.title);
   if (!(orgStr || title)) {
-    return undefined;
+    return;
   }
   const result: ContactOrg = {};
   if (orgStr) {
@@ -197,7 +197,7 @@ const extractOrg = (card: vCard): ContactOrg | undefined => {
 const extractUrls = (card: vCard): string[] | undefined => {
   const props = asPropertyArray(card.data.url);
   if (props.length === 0) {
-    return undefined;
+    return;
   }
   return props.map((p) => p.valueOf().trim());
 };
@@ -218,7 +218,7 @@ const DATA_URI_PATTERN = /^data:([^;,]+);base64,(.*)$/i;
 const extractPhoto = (card: vCard): Contact["photo"] | undefined => {
   const [prop] = asPropertyArray(card.data.photo);
   if (!prop) {
-    return undefined;
+    return;
   }
   const value = prop.valueOf();
   // vCard 4.0 can carry a data URI; 3.0 typically uses ENCODING=b with raw base64.
@@ -311,7 +311,7 @@ const phoneTypeParam = (type: ContactPhone["type"]): string | undefined => {
   if (type === "home" || type === "work" || type === "other") {
     return type.toUpperCase();
   }
-  return undefined;
+  return;
 };
 
 const simpleTypeParam = (

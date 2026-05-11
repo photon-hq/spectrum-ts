@@ -1,7 +1,6 @@
 import {
   type AdvancedIMessage,
   type MessageEvent,
-  messageGuid,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
 import { asAttachment } from "../../../content/attachment";
@@ -15,24 +14,22 @@ import { fromVCard } from "../../../utils/vcard";
 import { getMessageCache, type MessageCache } from "../cache";
 import { isVCardAttachment } from "../shared/vcard";
 import type { IMessageMessage } from "../types";
-import { formatChildId, parseChildId } from "./ids";
+import { formatChildId, parseChildId, toChatGuid, toMessageGuid } from "./ids";
 
 const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
 
 export type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 export type AppleMessage = ReceivedEvent["message"];
-type AppleAttachment = AppleMessage["attachments"][number];
+type AppleAttachment = AppleMessage["content"]["attachments"][number];
 export type RemoteMessageBase = Omit<IMessageMessage, "id" | "content">;
 
-const getBalloonBundleId = (message: AppleMessage): string | undefined => {
-  const raw = (message as { _raw?: { balloonBundleId?: unknown } })._raw;
-  const id = raw?.balloonBundleId;
-  return typeof id === "string" ? id : undefined;
-};
+const getBalloonBundleId = (message: AppleMessage): string | undefined =>
+  message.content.balloonBundleId;
 
-// `Message$1` from the SDK (fetched via `messages.get`) lacks the ambient
-// chatGuid that inbound events carry; fall back to the first chat the message
-// belongs to.
+const messageAttachments = (
+  message: AppleMessage
+): readonly AppleAttachment[] => message.content.attachments;
+
 const resolveChatGuid = (
   message: AppleMessage,
   hint: string | undefined
@@ -41,7 +38,7 @@ const resolveChatGuid = (
     return hint;
   }
   const first = message.chatGuids?.[0];
-  return (first as unknown as string | undefined) ?? "";
+  return first ?? "";
 };
 
 const resolveSenderId = (message: AppleMessage): string =>
@@ -72,7 +69,8 @@ const asProviderGroup = (items: readonly RawProviderMessage[]): Group =>
 export const buildMessageBase = (
   message: AppleMessage,
   chatGuidHint: string | undefined,
-  timestamp: Date
+  timestamp: Date,
+  phone: string
 ): RemoteMessageBase => {
   const chat = resolveChatGuid(message, chatGuidHint);
   return {
@@ -80,20 +78,11 @@ export const buildMessageBase = (
     space: {
       id: chat,
       type: chat.includes(";+;") ? "group" : "dm",
+      phone,
     },
     timestamp,
   };
 };
-
-export const receivedEventFromMessage = (
-  message: AppleMessage
-): ReceivedEvent =>
-  ({
-    chatGuid: resolveChatGuid(message, undefined),
-    message,
-    timestamp: message.dateCreated ?? new Date(),
-    type: "message.received",
-  }) as ReceivedEvent;
 
 const toAttachmentContent = (
   client: AdvancedIMessage,
@@ -103,17 +92,80 @@ const toAttachmentContent = (
     name: info.fileName,
     mimeType: info.mimeType,
     size: info.totalBytes,
-    read: async () =>
-      Buffer.from(await client.attachments.downloadBuffer(info.guid)),
-    stream: async () => client.attachments.download(info.guid).stream,
+    read: async () => await downloadPrimaryAttachment(client, info.guid),
+    stream: async () => downloadPrimaryAttachmentStream(client, info.guid),
   });
+
+const downloadPrimaryAttachmentStream = (
+  client: AdvancedIMessage,
+  attachmentGuid: string
+): ReadableStream<Uint8Array> => {
+  const frames = client.attachments.downloadStream(attachmentGuid);
+  const iterator = frames[Symbol.asyncIterator]();
+  let closed = false;
+
+  const closeFrames = async (): Promise<void> => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    try {
+      await iterator.return?.();
+    } finally {
+      await frames.close();
+    }
+  };
+
+  return new ReadableStream<Uint8Array>({
+    async cancel() {
+      await closeFrames();
+    },
+    async pull(controller) {
+      try {
+        while (true) {
+          const result = await iterator.next();
+          if (result.done) {
+            controller.close();
+            await closeFrames();
+            return;
+          }
+          if (result.value.type === "primaryChunk") {
+            controller.enqueue(result.value.data);
+            return;
+          }
+        }
+      } catch (error) {
+        await closeFrames();
+        throw error;
+      }
+    },
+  });
+};
+
+const downloadPrimaryAttachment = async (
+  client: AdvancedIMessage,
+  attachmentGuid: string
+): Promise<Buffer> => {
+  const chunks: Buffer[] = [];
+  const frames = client.attachments.downloadStream(attachmentGuid);
+  try {
+    for await (const frame of frames) {
+      if (frame.type === "primaryChunk") {
+        chunks.push(Buffer.from(frame.data));
+      }
+    }
+  } finally {
+    await frames.close();
+  }
+  return Buffer.concat(chunks);
+};
 
 const toVCardContent = async (
   client: AdvancedIMessage,
   info: AppleAttachment
 ): Promise<Content> => {
   try {
-    const buf = Buffer.from(await client.attachments.downloadBuffer(info.guid));
+    const buf = await downloadPrimaryAttachment(client, info.guid);
     return asContact(fromVCard(buf.toString("utf8")));
   } catch (err) {
     console.warn(
@@ -153,7 +205,7 @@ const toRichlinkMessage = (
   base: RemoteMessageBase,
   id: string
 ): IMessageMessage => {
-  const url = message.text ?? "";
+  const url = message.content.text ?? "";
   try {
     return { ...base, id, content: asRichlink({ url }) };
   } catch (err) {
@@ -169,30 +221,30 @@ const toRichlinkMessage = (
   }
 };
 
-// Rebuilds an `IMessageMessage` (or a group) from an Apple SDK message that
-// did not arrive via the live stream. Used on reaction cache miss and by
-// getMessage.
 export const rebuildFromAppleMessage = async (
   client: AdvancedIMessage,
   message: AppleMessage,
+  phone: string,
   chatGuidHint?: string
 ): Promise<IMessageMessage> => {
   const messageGuidStr = message.guid as string;
   const timestamp = message.dateCreated ?? new Date();
-  const base = buildMessageBase(message, chatGuidHint, timestamp);
+  const base = buildMessageBase(message, chatGuidHint, timestamp, phone);
 
-  if (message.attachments.length === 1) {
-    const info = message.attachments[0];
+  const attachments = messageAttachments(message);
+
+  if (attachments.length === 1) {
+    const info = attachments[0];
     if (!info) {
       throw new Error("Unreachable: attachments.length === 1 but no element");
     }
     return buildAttachmentMessage(client, base, info, messageGuidStr, 0);
   }
 
-  if (message.attachments.length > 1) {
+  if (attachments.length > 1) {
     const items: IMessageMessage[] = [];
-    for (let i = 0; i < message.attachments.length; i++) {
-      const info = message.attachments[i];
+    for (let i = 0; i < attachments.length; i++) {
+      const info = attachments[i];
       if (!info) {
         continue;
       }
@@ -218,7 +270,7 @@ export const rebuildFromAppleMessage = async (
     return toRichlinkMessage(message, base, messageGuidStr);
   }
 
-  const text = message.text;
+  const text = message.content.text;
   return {
     ...base,
     id: messageGuidStr,
@@ -243,9 +295,15 @@ export const cacheMessage = (
 export const toInboundMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
-  event: ReceivedEvent
+  event: ReceivedEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
-  const base = buildMessageBase(event.message, event.chatGuid, event.timestamp);
+  const base = buildMessageBase(
+    event.message,
+    event.chatGuid,
+    event.occurredAt,
+    phone
+  );
   const messageGuidStr = event.message.guid as string;
 
   if (getBalloonBundleId(event.message) === URL_BALLOON_BUNDLE_ID) {
@@ -254,8 +312,10 @@ export const toInboundMessages = async (
     return [msg];
   }
 
-  if (event.message.attachments.length === 1) {
-    const info = event.message.attachments[0];
+  const attachments = messageAttachments(event.message);
+
+  if (attachments.length === 1) {
+    const info = attachments[0];
     if (!info) {
       throw new Error("Unreachable: attachments.length === 1 but no element");
     }
@@ -270,10 +330,10 @@ export const toInboundMessages = async (
     return [msg];
   }
 
-  if (event.message.attachments.length > 1) {
+  if (attachments.length > 1) {
     const items: IMessageMessage[] = [];
-    for (let i = 0; i < event.message.attachments.length; i++) {
-      const info = event.message.attachments[i];
+    for (let i = 0; i < attachments.length; i++) {
+      const info = attachments[i];
       if (!info) {
         continue;
       }
@@ -297,7 +357,7 @@ export const toInboundMessages = async (
     return [parent];
   }
 
-  const text = event.message.text;
+  const text = event.message.content.text;
   const msg: IMessageMessage = {
     ...base,
     id: messageGuidStr,
@@ -310,7 +370,8 @@ export const toInboundMessages = async (
 export const getMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
-  msgId: string
+  msgId: string,
+  phone: string
 ): Promise<IMessageMessage | undefined> => {
   const cache = getMessageCache(remote);
   const cached = cache.get(msgId);
@@ -318,16 +379,19 @@ export const getMessage = async (
     return cached;
   }
 
-  // Group-child ids use the `p:<partIndex>/<parentGuid>` format (same as
-  // Apple tapback targets). The SDK's `messages.get` only accepts parent
-  // guids, so decode the id and descend into the parent's items.
   const childRef = parseChildId(msgId);
   if (childRef) {
     try {
       const fetched = await remote.messages.get(
-        messageGuid(childRef.parentGuid)
+        toChatGuid(spaceId),
+        toMessageGuid(childRef.parentGuid)
       );
-      const parent = await rebuildFromAppleMessage(remote, fetched, spaceId);
+      const parent = await rebuildFromAppleMessage(
+        remote,
+        fetched,
+        phone,
+        spaceId
+      );
       cacheMessage(cache, parent);
       if (parent.content.type !== "group") {
         return;
@@ -343,8 +407,16 @@ export const getMessage = async (
   }
 
   try {
-    const fetched = await remote.messages.get(messageGuid(msgId));
-    const rebuilt = await rebuildFromAppleMessage(remote, fetched, spaceId);
+    const fetched = await remote.messages.get(
+      toChatGuid(spaceId),
+      toMessageGuid(msgId)
+    );
+    const rebuilt = await rebuildFromAppleMessage(
+      remote,
+      fetched,
+      phone,
+      spaceId
+    );
     cacheMessage(cache, rebuilt);
     return rebuilt;
   } catch (err) {

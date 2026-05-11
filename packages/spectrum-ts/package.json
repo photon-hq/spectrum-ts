@@ -1,6 +1,6 @@
 {
   "name": "spectrum-ts",
-  "version": "1.2.0",
+  "version": "1.6.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -14,6 +14,11 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./providers": {
+      "bun": "./src/providers/index.ts",
+      "types": "./src/providers/index.ts",
+      "default": "./dist/providers/index.js"
+    },
     "./providers/*": {
       "bun": "./src/providers/*/index.ts",
       "types": "./src/providers/*/index.ts",
@@ -26,6 +31,10 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       },
+      "./providers": {
+        "types": "./dist/providers/index.d.ts",
+        "default": "./dist/providers/index.js"
+      },
       "./providers/*": {
         "types": "./dist/providers/*/index.d.ts",
         "default": "./dist/providers/*/index.js"
@@ -33,13 +42,12 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && cp ../../README.md ../../LICENSE .",
     "dev": "tsup --watch",
-    "prepack": "cp ../../README.md ../../LICENSE .",
     "generate:emoji": "bun scripts/generate-emoji.ts"
   },
   "dependencies": {
-    "@photon-ai/advanced-imessage": "^0.6.0",
+    "@photon-ai/advanced-imessage": "^0.7.0",
     "@photon-ai/imessage-kit": "^3.0.0",
     "@photon-ai/whatsapp-business": "^0.1.1",
     "@repeaterjs/repeater": "^3.0.6",
@@ -54,14 +62,14 @@
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
-    "clean-publish": "^6.0.5",
+    "clean-publish": "^7.0.0",
     "hotscript": "^1.0.13",
     "tsup": "^8.4.0",
     "unicode-emoji-json": "^0.9.0"
   },
   "peerDependencies": {
     "ffmpeg-static": "^5",
-    "typescript": "^5"
+    "typescript": "^5 || ^6.0.0"
   },
   "peerDependenciesMeta": {
     "ffmpeg-static": {

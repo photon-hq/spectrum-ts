@@ -31,7 +31,7 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   maxRetryDelayMs?: number;
   processLive: (event: TLive) => Promise<ResumableStreamItem<TOutput>>;
   processMissed: (event: TMissed) => Promise<ResumableStreamItem<TOutput>>;
-  subscribeLive: () => CloseableAsyncIterable<TLive>;
+  subscribeLive: (cursor?: string) => CloseableAsyncIterable<TLive>;
 }
 
 class RetryableStreamError extends Error {
@@ -57,7 +57,30 @@ const closeIterable = async <T>(
   await iterable.close?.();
 };
 
+const ignoreCleanupError = () => undefined;
+
 const jitterDelay = (delayMs: number): number => Math.random() * delayMs;
+
+const numericCursor = (cursor: string | undefined): number | undefined => {
+  if (!cursor) {
+    return;
+  }
+  const value = Number(cursor);
+  return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+};
+
+const isCursorRegression = (
+  next: string | undefined,
+  current: string | undefined
+): boolean => {
+  const nextValue = numericCursor(next);
+  const currentValue = numericCursor(current);
+  return (
+    nextValue !== undefined &&
+    currentValue !== undefined &&
+    nextValue < currentValue
+  );
+};
 
 export const resumableOrderedStream = <TLive, TMissed, TOutput>(
   options: ResumableOrderedStreamOptions<TLive, TMissed, TOutput>
@@ -85,7 +108,11 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       cursor: string | undefined,
       clearDelivered: boolean
     ) => {
-      if (!cursor || cursor === lastCursor) {
+      if (
+        !cursor ||
+        cursor === lastCursor ||
+        isCursorRegression(cursor, lastCursor)
+      ) {
         return;
       }
       lastCursor = cursor;
@@ -143,7 +170,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     const consumeLive = async (): Promise<void> => {
-      const live = options.subscribeLive();
+      const live = options.subscribeLive(lastCursor);
       activeLive = live;
       try {
         for await (const event of live) {
@@ -244,7 +271,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     const catchUpThenConsumeLive = async (cursor: string): Promise<void> => {
-      const live = options.subscribeLive();
+      const live = options.subscribeLive(cursor);
       activeLive = live;
 
       let buffering = true;
@@ -269,7 +296,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
           activeLive = undefined;
         }
         await closeIterable(live);
-        await livePump.pump.catch(() => undefined);
+        await livePump.pump.catch(ignoreCleanupError);
       }
     };
 
@@ -307,6 +334,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       closed = true;
       cancelSleep();
       await closeIterable(activeLive);
-      await pump;
+      await pump.catch(ignoreCleanupError);
     };
   });

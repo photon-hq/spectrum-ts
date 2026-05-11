@@ -1,6 +1,6 @@
 import type {
   AdvancedIMessage,
-  PollInfo as IMessagePollInfo,
+  Poll as IMessagePoll,
   PollOption as IMessagePollOption,
   PollChangeDelta,
   PollEvent,
@@ -25,8 +25,9 @@ interface PollMetadataInput {
 interface PollOptionMessageInput {
   cached: CachedPoll;
   chatGuid: string;
-  event: Pick<PollEvent, "at" | "pollMessageGuid">;
+  event: Pick<PollEvent, "occurredAt" | "pollMessageGuid">;
   optionId: string;
+  phone: string;
   selected: boolean;
   senderAddress: string;
 }
@@ -35,7 +36,8 @@ interface PollOptionMessagesInput {
   cached: CachedPoll;
   chatGuid: string;
   deltas: readonly PollSelectionDelta[];
-  event: Pick<PollEvent, "at" | "pollMessageGuid">;
+  event: Pick<PollEvent, "occurredAt" | "pollMessageGuid">;
+  phone: string;
   senderAddress: string;
 }
 
@@ -62,12 +64,9 @@ const toCachedPoll = (input: PollMetadataInput): CachedPoll => {
   return { poll, optionsByIdentifier };
 };
 
-const cachePollInfo = (
-  cache: PollCache,
-  info: IMessagePollInfo
-): CachedPoll => {
+const cachePollInfo = (cache: PollCache, info: IMessagePoll): CachedPoll => {
   const cached = toCachedPoll(info);
-  cache.set(info.messageGuid as string, cached);
+  cache.set(info.pollMessageGuid, cached);
   return cached;
 };
 
@@ -81,7 +80,7 @@ export const cachePollEvent = (
         title: event.delta.title,
         options: event.delta.options,
       });
-      cache.set(event.pollMessageGuid as string, cached);
+      cache.set(event.pollMessageGuid, cached);
       return cached;
     } catch (e) {
       console.error("[spectrum-ts][imessage][poll] failed to cache poll", e);
@@ -93,7 +92,7 @@ const fetchPollInfo = async (
   client: AdvancedIMessage,
   cache: PollCache,
   event: PollEvent
-): Promise<IMessagePollInfo | undefined> => {
+): Promise<IMessagePoll | undefined> => {
   try {
     const info = await client.polls.get(event.pollMessageGuid);
     cachePollInfo(cache, info);
@@ -109,7 +108,7 @@ const resolvePoll = async (
   cache: PollCache,
   event: PollEvent
 ): Promise<CachedPoll | undefined> => {
-  const pollId = event.pollMessageGuid as string;
+  const pollId = event.pollMessageGuid;
   const cached = cache.get(pollId);
   if (cached) {
     return cached;
@@ -131,14 +130,17 @@ const buildPollOptionMessage = (
     return;
   }
   const action = input.selected ? "selected" : "deselected";
+  const eventTime = input.event.occurredAt.getTime();
+
   return {
-    id: `${input.event.pollMessageGuid}:${input.senderAddress}:${input.optionId}:${action}:${input.event.at.getTime()}`,
+    id: `${input.event.pollMessageGuid}:${input.senderAddress}:${input.optionId}:${action}:${eventTime}`,
     sender: { id: input.senderAddress },
     space: {
       id: input.chatGuid,
       type: input.chatGuid.includes(";+;") ? "group" : "dm",
+      phone: input.phone,
     },
-    timestamp: input.event.at,
+    timestamp: input.event.occurredAt,
     content: asPollOption({
       option,
       poll: input.cached.poll,
@@ -157,6 +159,7 @@ const buildPollOptionMessages = (
       chatGuid: input.chatGuid,
       event: input.event,
       optionId: delta.optionId,
+      phone: input.phone,
       selected: delta.selected,
       senderAddress: input.senderAddress,
     });
@@ -176,42 +179,41 @@ const allOptionIdsKnown = (
 const refreshPollMetadata = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: VotedPollEvent,
-  fallbackOptionIds: readonly string[]
-): Promise<{ optionIds: string[]; poll: CachedPoll } | undefined> => {
+  event: VotedPollEvent
+): Promise<CachedPoll | undefined> => {
   const info = await fetchPollInfo(client, pollCache, event);
   if (!info) {
     return;
   }
-  const refreshed = pollCache.get(info.messageGuid as string);
-  if (!refreshed) {
-    return;
-  }
-  return {
-    optionIds: [...fallbackOptionIds],
-    poll: refreshed,
-  };
+  return pollCache.get(info.pollMessageGuid);
 };
 
 const toPollVoteMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: VotedPollEvent
+  event: VotedPollEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
-  const senderAddress = event.actor.address;
+  const senderAddress = event.actor?.address;
   if (!senderAddress) {
     return [];
   }
-  const pollId = event.pollMessageGuid as string;
-  if (pollCache.isStaleActorSelectionEvent(pollId, senderAddress, event.at)) {
+  const pollId = event.pollMessageGuid;
+  if (
+    pollCache.isStaleActorSelectionEvent(
+      pollId,
+      senderAddress,
+      event.occurredAt
+    )
+  ) {
     return [];
   }
   const cached = await resolvePoll(client, pollCache, event);
   if (!cached) {
     return [];
   }
-  const chatGuidStr = event.chatGuid as string;
-  let currentOptionIds = [...event.delta.optionIdentifiers];
+  const chatGuidStr = event.chatGuid;
+  const currentOptionIds = [event.delta.optionIdentifier];
   let resolvedPoll = cached;
 
   if (
@@ -219,15 +221,9 @@ const toPollVoteMessages = async (
       (optionId) => !resolvedPoll.optionsByIdentifier.has(optionId)
     )
   ) {
-    const snapshot = await refreshPollMetadata(
-      client,
-      pollCache,
-      event,
-      currentOptionIds
-    );
+    const snapshot = await refreshPollMetadata(client, pollCache, event);
     if (snapshot) {
-      currentOptionIds = snapshot.optionIds;
-      resolvedPoll = snapshot.poll;
+      resolvedPoll = snapshot;
     }
   }
 
@@ -245,6 +241,7 @@ const toPollVoteMessages = async (
     chatGuid: chatGuidStr,
     deltas,
     event,
+    phone,
     senderAddress,
   });
 
@@ -252,7 +249,7 @@ const toPollVoteMessages = async (
     pollId,
     senderAddress,
     currentOptionIds,
-    event.at
+    event.occurredAt
   );
 
   return messages;
@@ -261,43 +258,52 @@ const toPollVoteMessages = async (
 const toPollUnvoteMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: UnvotedPollEvent
+  event: UnvotedPollEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
-  const senderAddress = event.actor.address;
+  const senderAddress = event.actor?.address;
   if (!senderAddress) {
     return [];
   }
-  const pollId = event.pollMessageGuid as string;
-  if (pollCache.isStaleActorSelectionEvent(pollId, senderAddress, event.at)) {
+  const pollId = event.pollMessageGuid;
+  if (
+    pollCache.isStaleActorSelectionEvent(
+      pollId,
+      senderAddress,
+      event.occurredAt
+    )
+  ) {
     return [];
   }
   const cached = await resolvePoll(client, pollCache, event);
   if (!cached) {
     return [];
   }
-  const chatGuidStr = event.chatGuid as string;
+  const chatGuidStr = event.chatGuid;
   const deltas = pollCache.clearedActorSelectionDeltas(pollId, senderAddress);
   const messages = buildPollOptionMessages({
     cached,
     chatGuid: chatGuidStr,
     deltas,
     event,
+    phone,
     senderAddress,
   });
-  pollCache.commitActorSelection(pollId, senderAddress, [], event.at);
+  pollCache.commitActorSelection(pollId, senderAddress, [], event.occurredAt);
   return messages;
 };
 
 export const toPollDeltaMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  event: PollEvent
+  event: PollEvent,
+  phone: string
 ): Promise<IMessageMessage[]> => {
   if (isVotedPollEvent(event)) {
-    return toPollVoteMessages(client, pollCache, event);
+    return toPollVoteMessages(client, pollCache, event, phone);
   }
   if (isUnvotedPollEvent(event)) {
-    return toPollUnvoteMessages(client, pollCache, event);
+    return toPollUnvoteMessages(client, pollCache, event, phone);
   }
   return [];
 };

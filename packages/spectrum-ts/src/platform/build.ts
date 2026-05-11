@@ -1,5 +1,9 @@
+import { edit as editContent } from "../content/edit";
+import { reaction as reactionContent } from "../content/reaction";
+import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
 import type { Content, ContentInput } from "../content/types";
+import { typing as typingContent } from "../content/typing";
 import type {
   InboundMessage,
   Message,
@@ -7,13 +11,10 @@ import type {
 } from "../types/message";
 import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
+import type { Store } from "../utils/store";
 import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
 
 export type { ProviderMessageRecord } from "./types";
-
-type ReplyToMessageAction = NonNullable<
-  AnyPlatformDef["actions"]["replyToMessage"]
->;
 
 const ANSI_YELLOW = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
@@ -57,6 +58,10 @@ const findUnsupportedPlatformContent = (
   const scopedPlatform = contentPlatform(content);
   if (scopedPlatform && scopedPlatform !== platform) {
     return scopedPlatform;
+  }
+
+  if (content.type === "reply" || content.type === "edit") {
+    return findUnsupportedPlatformContent(content.content, platform);
   }
 
   if (content.type !== "group") {
@@ -107,6 +112,7 @@ interface BaseBuildParams {
   id: string;
   space: Space;
   spaceRef: SpaceRef;
+  store: Store;
   timestamp: Date;
 }
 
@@ -123,12 +129,21 @@ type BuildOutboundParams = BaseBuildParams & {
 export type BuildMessageParams = BuildInboundParams | BuildOutboundParams;
 
 export interface BuildSpaceParams {
+  // Pre-built context object passed to `definition.send`. Sites that dispatch
+  // through the send pipeline spread this and add per-call fields (e.g.
+  // `content`).
+  actionCtx: {
+    space: SpaceRef;
+    client: unknown;
+    config: unknown;
+    store: Store;
+  };
   client: unknown;
   config: unknown;
   definition: AnyPlatformDef;
   extras: Record<string, unknown>;
   spaceRef: SpaceRef;
-  typingCtx: { space: SpaceRef; client: unknown; config: unknown };
+  store: Store;
 }
 
 // Raw provider message fields — everything else on a provider-emitted record
@@ -147,6 +162,7 @@ export interface WrapContext {
   definition: AnyPlatformDef;
   space: Space;
   spaceRef: SpaceRef;
+  store: Store;
 }
 
 const extractExtras = (
@@ -165,11 +181,11 @@ const extractExtras = (
 /**
  * Wrap a raw provider message record (and any nested raw targets/items inside
  * its content) into a fully-built `Message`. The same path serves inbound
- * (`events.messages`, `getMessage`) and outbound (`send`, `replyToMessage`)
- * flows — the only difference is `direction`, which decides whether the
- * resulting Message exposes inbound (`react`/`reply`) or outbound (`edit`)
- * affordances. Recursion through `wrapNestedContent` handles reaction targets
- * and group items, which providers return as nested raw records.
+ * (`messages`, `actions.getMessage`) and outbound (`send`) flows — the only
+ * difference is `direction`, which decides whether the resulting Message
+ * exposes inbound (`react`/`reply`) or outbound (`edit`) affordances.
+ * Recursion through `wrapNestedContent` handles reaction targets and group
+ * items, which providers return as nested raw records.
  */
 export function wrapProviderMessage(
   raw: ProviderMessageRecord,
@@ -197,6 +213,7 @@ export function wrapProviderMessage(
     definition: ctx.definition,
     client: ctx.client,
     config: ctx.config,
+    store: ctx.store,
   };
   if (direction === "inbound") {
     if (!raw.sender) {
@@ -220,12 +237,28 @@ const wrapNestedContent = (
       // Reaction targets are always wrapped as "inbound": the target refers to
       // the original received message, not the reaction event itself. So even
       // when the wrapping reaction is outbound (e.g. our own reaction sent via
-      // `reactToMessage`), the *target* it points at is a message we received.
-      // This differs from `group.items`, which propagate the wrapping
-      // direction because each item is itself one piece of the same send.
+      // `space.send(reaction(...))`), the *target* it points at is a message
+      // we received. This differs from `group.items`, which propagate the
+      // wrapping direction because each item is itself one piece of the same
+      // send.
       return {
         ...content,
         target: wrapProviderMessage(target, ctx, "inbound"),
+      };
+    }
+    return content;
+  }
+  if (content.type === "edit") {
+    const target = content.target as unknown;
+    if (isRawProviderRecord(target)) {
+      // The target of an edit is always one of *our* outbound messages —
+      // the message being rewritten. Wrap as outbound so its `.edit`
+      // affordance is available downstream. Defensive parity with the
+      // reaction branch above; in practice providers return `undefined`
+      // from `send` for edits, so this rarely fires.
+      return {
+        ...content,
+        target: wrapProviderMessage(target, ctx, "outbound"),
       };
     }
     return content;
@@ -262,35 +295,13 @@ const isRawProviderRecord = (v: unknown): v is ProviderMessageRecord => {
 };
 
 export function buildSpace(params: BuildSpaceParams): Space {
-  const { spaceRef, extras, typingCtx, definition, client, config } = params;
+  const { spaceRef, extras, actionCtx, definition, client, config, store } =
+    params;
   // Declared first so inner arrows can reference it after assignment.
   let space: Space;
 
-  async function dispatchReaction(
-    item: Extract<Content, { type: "reaction" }>
-  ): Promise<void> {
-    try {
-      if (!definition.actions.reactToMessage) {
-        throw UnsupportedError.action("react", definition.name);
-      }
-      await definition.actions.reactToMessage({
-        space: spaceRef,
-        target: item.target,
-        reaction: item.emoji,
-        client,
-        config,
-      });
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
-  }
-
   async function dispatchSend(
-    item: Exclude<Content, { type: "reaction" }>
+    item: Content
   ): Promise<OutboundMessage | undefined> {
     let raw: ProviderMessageRecord | undefined;
     try {
@@ -301,8 +312,8 @@ export function buildSpace(params: BuildSpaceParams): Space {
       if (platformError) {
         throw platformError;
       }
-      raw = (await definition.actions.send({
-        ...typingCtx,
+      raw = (await definition.send({
+        ...actionCtx,
         content: item,
       })) as ProviderMessageRecord | undefined;
     } catch (err) {
@@ -313,13 +324,23 @@ export function buildSpace(params: BuildSpaceParams): Space {
       throw err;
     }
     if (!raw?.id) {
+      // Reactions, typing indicators, and edits are fire-and-forget control
+      // signals — providers may return `void` from `send` for them. Every
+      // other content type must produce a message id.
+      if (
+        item.type === "reaction" ||
+        item.type === "typing" ||
+        item.type === "edit"
+      ) {
+        return;
+      }
       throw new Error(
         `Platform "${definition.name}" send did not return a message id`
       );
     }
     return wrapProviderMessage(
       raw,
-      { client, config, definition, space, spaceRef },
+      { client, config, definition, space, spaceRef, store },
       "outbound"
     );
   }
@@ -330,10 +351,6 @@ export function buildSpace(params: BuildSpaceParams): Space {
     const resolved = await resolveContents(content);
     const results: OutboundMessage[] = [];
     for (const item of resolved) {
-      if (item.type === "reaction") {
-        await dispatchReaction(item);
-        continue;
-      }
       const sent = await dispatchSend(item);
       if (sent) {
         results.push(sent);
@@ -346,7 +363,8 @@ export function buildSpace(params: BuildSpaceParams): Space {
   }
 
   async function getMessageImpl(id: string): Promise<Message | undefined> {
-    if (!definition.actions.getMessage) {
+    const getMessage = definition.actions?.getMessage;
+    if (!getMessage) {
       warnUnsupported(
         UnsupportedError.action("getMessage", definition.name),
         definition.name
@@ -355,11 +373,12 @@ export function buildSpace(params: BuildSpaceParams): Space {
     }
     let raw: ProviderMessageRecord | undefined;
     try {
-      raw = (await definition.actions.getMessage({
+      raw = (await getMessage({
         space: spaceRef,
         messageId: id,
         client,
         config,
+        store,
       })) as ProviderMessageRecord | undefined;
     } catch (err) {
       if (err instanceof UnsupportedError) {
@@ -373,7 +392,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     }
     return wrapProviderMessage(
       raw,
-      { client, config, definition, space, spaceRef },
+      { client, config, definition, space, spaceRef, store },
       "inbound"
     );
   }
@@ -386,21 +405,26 @@ export function buildSpace(params: BuildSpaceParams): Space {
       message: OutboundMessage,
       newContent: ContentInput
     ): Promise<void> => {
-      await message.edit(newContent);
+      // Sugar for `space.send(edit(newContent, message))`. Edits are
+      // fire-and-forget; the (always-undefined) result is discarded.
+      await space.send(editContent(newContent, message));
     },
     getMessage: getMessageImpl,
     startTyping: async () => {
-      await definition.actions.startTyping?.(typingCtx);
+      // Sugar for `space.send(typing("start"))`. Typing is fire-and-forget;
+      // providers handle it inside their `send` action and any platforms
+      // without a typing API silently no-op.
+      await space.send(typingContent("start"));
     },
     stopTyping: async () => {
-      await definition.actions.stopTyping?.(typingCtx);
+      await space.send(typingContent("stop"));
     },
     responding: async <T>(fn: () => T | Promise<T>): Promise<T> => {
-      await definition.actions.startTyping?.(typingCtx);
+      await space.send(typingContent("start"));
       try {
         return await fn();
       } finally {
-        await definition.actions.stopTyping?.(typingCtx).catch(() => {});
+        await space.send(typingContent("stop")).catch(() => {});
       }
     },
   };
@@ -410,90 +434,28 @@ export function buildSpace(params: BuildSpaceParams): Space {
 export function buildMessage(params: BuildInboundParams): InboundMessage;
 export function buildMessage(params: BuildOutboundParams): OutboundMessage;
 export function buildMessage(params: BuildMessageParams): Message {
-  const { definition, client, config, spaceRef, space } = params;
+  const { definition, space } = params;
 
   // Late-bound self reference so `react()` can pass the built Message as the
   // reaction target.
   let self: Message | undefined;
 
-  const react = async (reaction: string): Promise<void> => {
-    if (!definition.actions.reactToMessage) {
-      warnUnsupported(
-        UnsupportedError.action("react", definition.name),
-        definition.name
-      );
-      return;
-    }
-    if (!self) {
-      throw new Error(
-        "react() called before message construction completed (internal bug)"
-      );
-    }
-    try {
-      await definition.actions.reactToMessage({
-        space: spaceRef,
-        target: self,
-        reaction,
-        client,
-        config,
-      });
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
+  const react = async (emoji: string): Promise<void> => {
+    const target = requireBuiltMessage("react");
+    // Sugar for `space.send(reaction(emoji, target))`. The canonical form
+    // returns `OutboundMessage | undefined`; this surface discards it because
+    // reactions are fire-and-forget on most platforms (callers reach for the
+    // canonical form when they need the result).
+    await space.send(reactionContent(emoji, target));
   };
 
-  const requireBuiltMessage = (action: "react" | "reply"): Message => {
+  const requireBuiltMessage = (action: "react" | "reply" | "edit"): Message => {
     if (!self) {
       throw new Error(
         `${action}() called before message construction completed (internal bug)`
       );
     }
     return self;
-  };
-
-  const dispatchReplyItem = async (
-    item: Content,
-    target: Message,
-    replyToMessage: ReplyToMessageAction
-  ): Promise<OutboundMessage | undefined> => {
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      const platformError = unsupportedPlatformContentError(
-        item,
-        definition.name
-      );
-      if (platformError) {
-        throw platformError;
-      }
-      raw = (await replyToMessage({
-        space: spaceRef,
-        messageId: params.id,
-        target,
-        content: item,
-        client,
-        config,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
-    if (!raw?.id) {
-      throw new Error(
-        `Platform "${definition.name}" reply did not return a message id`
-      );
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef },
-      "outbound"
-    );
   };
 
   async function reply(
@@ -505,27 +467,19 @@ export function buildMessage(params: BuildMessageParams): Message {
   async function reply(
     ...content: [ContentInput, ...ContentInput[]]
   ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
-    const replyToMessage = definition.actions.replyToMessage;
-    if (!replyToMessage) {
-      warnUnsupported(
-        UnsupportedError.action("reply", definition.name),
-        definition.name
-      );
-      return content.length === 1 ? undefined : [];
-    }
-    const resolved = await resolveContents(content);
     const target = requireBuiltMessage("reply");
-    const results: OutboundMessage[] = [];
-    for (const item of resolved) {
-      const sent = await dispatchReplyItem(item, target, replyToMessage);
-      if (sent) {
-        results.push(sent);
-      }
-    }
-    if (content.length === 1) {
-      return results[0];
-    }
-    return results;
+    const wrapped = content.map((c) => replyContent(c, target)) as [
+      ContentInput,
+      ...ContentInput[],
+    ];
+    // The cast mirrors the existing `sendImpl as Space["send"]` below —
+    // overload resolution can't pick the right shape from a generic
+    // spread, but the runtime delegates 1:1.
+    return (
+      space.send as (
+        ...c: [ContentInput, ...ContentInput[]]
+      ) => Promise<OutboundMessage | OutboundMessage[] | undefined>
+    )(...wrapped);
   }
 
   const senderWithPlatform =
@@ -543,40 +497,11 @@ export function buildMessage(params: BuildMessageParams): Message {
       react,
       reply,
       edit: async (newContent: ContentInput): Promise<void> => {
-        if (!definition.actions.editMessage) {
-          warnUnsupported(
-            UnsupportedError.action("edit", definition.name),
-            definition.name
-          );
-          return;
-        }
-        const [resolved] = await resolveContents([newContent]);
-        if (!resolved) {
-          return;
-        }
-        const platformError = unsupportedPlatformContentError(
-          resolved,
-          definition.name
-        );
-        if (platformError) {
-          warnUnsupported(platformError, definition.name);
-          return;
-        }
-        try {
-          await definition.actions.editMessage({
-            space: spaceRef,
-            messageId: params.id,
-            content: resolved,
-            client,
-            config,
-          });
-        } catch (err) {
-          if (err instanceof UnsupportedError) {
-            warnUnsupported(err, definition.name);
-            return;
-          }
-          throw err;
-        }
+        // Sugar for `space.send(edit(newContent, self))`. Unsupported-content
+        // checks, fire-and-forget dispatch, and provider delegation all flow
+        // through the canonical send pipeline.
+        const target = requireBuiltMessage("edit") as OutboundMessage;
+        await space.send(editContent(newContent, target));
       },
       sender: senderWithPlatform,
       space,

@@ -14,6 +14,7 @@ import type {
 } from "./platform/types";
 import type { InboundMessage, OutboundMessage } from "./types/message";
 import type { Space } from "./types/space";
+import { createStore, type Store } from "./utils/store";
 import {
   type Broadcaster,
   broadcast,
@@ -21,6 +22,8 @@ import {
   mergeStreams,
   stream,
 } from "./utils/stream";
+
+const ignoreCleanupError = () => undefined;
 
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
@@ -134,8 +137,8 @@ export async function Spectrum<
 
   let stopped = false;
 
-  const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> => {
-    return stream<T>((emit, end) => {
+  const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> =>
+    stream<T>((emit, end) => {
       const iterator = iterable[Symbol.asyncIterator]();
 
       const pump = (async () => {
@@ -153,20 +156,21 @@ export async function Spectrum<
 
       return async () => {
         await iterator.return?.();
-        await pump;
+        await pump.catch(ignoreCleanupError);
       };
     });
-  };
 
   const createProviderMessagesStream = (state: {
     client: unknown;
     config: unknown;
     definition: AnyPlatformDef;
+    store: Store;
   }): ManagedStream<[Space, InboundMessage]> => {
-    const { client, config, definition } = state;
-    const raw = definition.events.messages({
+    const { client, config, definition, store } = state;
+    const raw = definition.messages({
       client,
       config,
+      store,
     }) as AsyncIterable<ProviderMessageRecord>;
 
     const bindSend = async function* (): AsyncIterable<
@@ -177,14 +181,15 @@ export async function Spectrum<
           ...msg.space,
           __platform: definition.name,
         };
-        const typingCtx = { space: spaceRef, client, config };
+        const actionCtx = { space: spaceRef, client, config, store };
         const space = buildSpace({
           spaceRef,
           extras: {},
-          typingCtx,
+          actionCtx,
           definition,
           client,
           config,
+          store,
         });
         const normalizedMessage = wrapProviderMessage(
           msg,
@@ -194,6 +199,7 @@ export async function Spectrum<
             definition,
             space,
             spaceRef,
+            store,
           },
           "inbound"
         );
@@ -217,6 +223,7 @@ export async function Spectrum<
     client: unknown;
     config: unknown;
     definition: AnyPlatformDef;
+    store: Store;
   }): Broadcaster<[Space, InboundMessage]> => {
     if (stopped) {
       throw new Error(
@@ -239,17 +246,20 @@ export async function Spectrum<
     const providerConfig = provider as PlatformProviderConfig;
     const def = providerConfig.__definition;
     const userConfig = def.config.parse(providerConfig.config);
+    const store = createStore();
 
     const client = await def.lifecycle.createClient({
       config: userConfig,
       projectId,
       projectSecret,
+      store,
     });
 
     const state = {
       client,
       config: userConfig,
       definition: def,
+      store,
     };
 
     platformStates.set(def.name, {
@@ -258,8 +268,8 @@ export async function Spectrum<
     });
   }
 
-  const createMessagesStream = (): ManagedStream<[Space, InboundMessage]> => {
-    return stream<[Space, InboundMessage]>((emit, end) => {
+  const createMessagesStream = (): ManagedStream<[Space, InboundMessage]> =>
+    stream<[Space, InboundMessage]>((emit, end) => {
       const merged = mergeStreams(
         Array.from(platformStates.values(), (runtime) =>
           runtime.subscribeMessages()
@@ -279,38 +289,35 @@ export async function Spectrum<
 
       return async () => {
         await merged.close();
-        await pump;
+        await pump.catch(ignoreCleanupError);
       };
     });
-  };
 
-  const createCustomEventStream = (
-    eventName: string
-  ): ManagedStream<unknown> => {
-    return stream<unknown>((emit, end) => {
-      const providerStreams = Array.from(platformStates.values(), (state) => {
-        const { client, config, definition } = state;
-        const producer = definition.events[eventName] as
+  const createCustomEventStream = (eventName: string): ManagedStream<unknown> =>
+    stream<unknown>((emit, end) => {
+      const providerStreams: ManagedStream<unknown>[] = [];
+      for (const state of platformStates.values()) {
+        const { client, config, definition, store } = state;
+        const producer = definition.events?.[eventName] as
           | ((ctx: {
               client: unknown;
               config: unknown;
+              store: Store;
             }) => AsyncIterable<unknown>)
           | undefined;
         if (!producer) {
-          return undefined;
+          continue;
         }
 
-        const providerEvents = producer({ client, config });
+        const providerEvents = producer({ client, config, store });
         const annotatePlatform = async function* (): AsyncIterable<unknown> {
           for await (const value of providerEvents) {
             yield { ...(value as object), platform: definition.name };
           }
         };
 
-        return adaptIterable(annotatePlatform());
-      }).filter(
-        (value): value is ManagedStream<unknown> => value !== undefined
-      );
+        providerStreams.push(adaptIterable(annotatePlatform()));
+      }
 
       const merged = mergeStreams(providerStreams);
 
@@ -327,10 +334,9 @@ export async function Spectrum<
 
       return async () => {
         await merged.close();
-        await pump;
+        await pump.catch(ignoreCleanupError);
       };
     });
-  };
 
   const messagesStream = createMessagesStream();
 
@@ -355,10 +361,11 @@ export async function Spectrum<
 
     await Promise.allSettled(streamShutdowns);
     const clientShutdowns = Array.from(platformStates.values(), (state) =>
-      state.definition.lifecycle.destroyClient({
+      state.definition.lifecycle.destroyClient?.({
         client: state.client,
+        store: state.store,
       })
-    );
+    ).filter((shutdown): shutdown is Promise<void> => shutdown !== undefined);
     await Promise.allSettled(clientShutdowns);
     customEventStreams.clear();
     messageBroadcasters.clear();
@@ -399,22 +406,17 @@ export async function Spectrum<
     send: (async (
       space: Space,
       ...content: [ContentInput, ...ContentInput[]]
-    ): Promise<OutboundMessage | OutboundMessage[] | undefined> => {
-      return content.length === 1
+    ): Promise<OutboundMessage | OutboundMessage[] | undefined> =>
+      content.length === 1
         ? await space.send(content[0])
         : await space.send(
             ...(content as [ContentInput, ContentInput, ...ContentInput[]])
-          );
-    }) as SpectrumInstance["send"],
+          )) as SpectrumInstance["send"],
     edit: async (message: OutboundMessage, newContent: ContentInput) => {
       await message.edit(newContent);
     },
-    responding: async <T>(
-      space: Space,
-      fn: () => T | Promise<T>
-    ): Promise<T> => {
-      return space.responding(fn);
-    },
+    responding: async <T>(space: Space, fn: () => T | Promise<T>): Promise<T> =>
+      space.responding(fn),
   };
 
   // Merge base instance with custom event proxy
@@ -426,7 +428,7 @@ export async function Spectrum<
       if (typeof prop === "string") {
         return customEventProxy[prop];
       }
-      return undefined;
+      return;
     },
   }) as SpectrumInstance<Providers>;
 }

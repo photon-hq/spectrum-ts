@@ -1,15 +1,16 @@
-import { type AdvancedIMessage, chatGuid } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import { toChatGuid } from "./ids";
 
 export const startTyping = async (
   remote: AdvancedIMessage,
   spaceId: string
 ): Promise<void> => {
-  await remote.chats.startTyping(chatGuid(spaceId));
+  await remote.chats.setTyping(toChatGuid(spaceId), true);
 };
 
 export const stopTyping = async (
   remote: AdvancedIMessage,
   spaceId: string
 ): Promise<void> => {
-  await remote.chats.stopTyping(chatGuid(spaceId));
+  await remote.chats.setTyping(toChatGuid(spaceId), false);
 };

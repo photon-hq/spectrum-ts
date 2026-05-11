@@ -1,34 +1,28 @@
 import {
   type AdvancedIMessage,
   AuthenticationError,
+  type CatchUpEvent,
   IMessageError,
+  type MessageEvent,
   NotFoundError,
   type PollEvent,
   ValidationError,
 } from "@photon-ai/advanced-imessage";
 import {
-  RECONNECT_INITIAL_DELAY_MS,
-  RECONNECT_MAX_DELAY_MS,
+  type CloseableAsyncIterable,
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "../../../utils/resumable-stream";
-import {
-  type ManagedStream,
-  mergeStreams,
-  stream,
-} from "../../../utils/stream";
+import { type ManagedStream, mergeStreams } from "../../../utils/stream";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
-import type { IMessageMessage } from "../types";
 import {
-  type AppleMessage,
-  type ReceivedEvent,
-  receivedEventFromMessage,
-  toInboundMessages,
-} from "./inbound";
+  type IMessageMessage,
+  type RemoteClient,
+  SHARED_PHONE,
+} from "../types";
+import { toInboundMessages } from "./inbound";
 import { cachePollEvent, toPollDeltaMessages } from "./polls";
 import { toReactionMessages } from "./reactions";
-
-const pollRetryDelay = (delayMs: number): number => Math.random() * delayMs;
 
 const isRetryableIMessageStreamError = (error: unknown): boolean => {
   if (
@@ -44,146 +38,204 @@ const isRetryableIMessageStreamError = (error: unknown): boolean => {
   return false;
 };
 
+const isEventFromCurrentAccount = (
+  event: Pick<MessageEvent | PollEvent, "actor">,
+  phone: string
+): boolean =>
+  phone !== SHARED_PHONE &&
+  event.actor?.address !== undefined &&
+  event.actor.address === phone;
+
 const toMessageItem = async (
   client: AdvancedIMessage,
-  event: ReceivedEvent,
-  cursor?: string
+  event: MessageEvent,
+  phone: string,
+  cursor: string
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
-  const id = event.message.guid as string;
-  if (event.message.isFromMe) {
-    return { cursor, id, values: [] };
+  if (event.type === "message.received") {
+    if (event.message.isFromMe) {
+      return { cursor, id: event.message.guid, values: [] };
+    }
+
+    const cache = getMessageCache(client);
+    return {
+      cursor,
+      id: event.message.guid,
+      values: await toInboundMessages(client, cache, event, phone),
+    };
   }
 
-  const cache = getMessageCache(client);
-  const target = event.message.associatedMessageGuid as string | undefined;
-  const values = target
-    ? await toReactionMessages(client, cache, event, target)
-    : await toInboundMessages(client, cache, event);
-  return { cursor, id, values };
+  if (event.type === "message.reactionAdded") {
+    if (isEventFromCurrentAccount(event, phone)) {
+      return {
+        cursor,
+        id: `${event.messageGuid}:reaction:${event.sequence}`,
+        values: [],
+      };
+    }
+
+    const cache = getMessageCache(client);
+    return {
+      cursor,
+      id: `${event.messageGuid}:reaction:${event.sequence}`,
+      values: await toReactionMessages(client, cache, event, phone),
+    };
+  }
+
+  return {
+    cursor,
+    id: `${event.type}:${"messageGuid" in event ? event.messageGuid : "unknown"}:${event.sequence}`,
+    values: [],
+  };
 };
 
-const messageStream = (
-  client: AdvancedIMessage
-): ManagedStream<IMessageMessage> =>
-  resumableOrderedStream<ReceivedEvent, AppleMessage, IMessageMessage>({
-    fetchMissed: (cursor, { limit }) =>
-      client.messages.fetchMissed(cursor, { limit }),
-    isRetryableError: isRetryableIMessageStreamError,
-    processLive: (event) => toMessageItem(client, event, event.cursor),
-    processMissed: (message) =>
-      toMessageItem(client, receivedEventFromMessage(message)),
-    subscribeLive: () => client.messages.subscribe("message.received"),
-  });
-
-const logPollStreamError = (error: unknown) => {
-  // Isolate the poll stream: failures here must not kill the cursor-backed
-  // message stream. Poll events have no SDK cursor, so retry best-effort
-  // without catch-up.
-  console.error("[spectrum-ts][imessage][poll] stream failed", error);
-};
-
-const emitPollMessages = async (
+const toPollItem = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
   event: PollEvent,
-  emit: (message: IMessageMessage) => Promise<void>
-): Promise<void> => {
+  phone: string,
+  cursor: string
+): Promise<ResumableStreamItem<IMessageMessage>> => {
   cachePollEvent(pollCache, event);
-  if (event.actor.isFromMe) {
-    return;
+  if (isEventFromCurrentAccount(event, phone)) {
+    return {
+      cursor,
+      id: `${event.pollMessageGuid}:poll:${event.sequence}`,
+      values: [],
+    };
   }
-  const messages = await toPollDeltaMessages(client, pollCache, event);
-  for (const vote of messages) {
-    await emit(vote);
-  }
+
+  return {
+    cursor,
+    id: `${event.pollMessageGuid}:poll:${event.sequence}`,
+    values: await toPollDeltaMessages(client, pollCache, event, phone),
+  };
 };
 
-const runPollSubscription = async (
+const toCatchUpCompleteItem = (
+  event: Extract<CatchUpEvent, { type: "catchup.complete" }>
+): ResumableStreamItem<IMessageMessage> => ({
+  cursor: String(event.headSequence),
+  id: `${event.type}:${event.headSequence}`,
+  values: [],
+});
+
+type CatchUpCompleteEvent = Extract<CatchUpEvent, { type: "catchup.complete" }>;
+type MessageCatchUpEvent = MessageEvent | CatchUpCompleteEvent;
+type PollCatchUpEvent = PollEvent | CatchUpCompleteEvent;
+
+const isMessageEvent = (event: CatchUpEvent): event is MessageEvent =>
+  event.type.startsWith("message.");
+
+const isPollEvent = (event: CatchUpEvent): event is PollEvent =>
+  event.type === "poll.changed";
+
+async function* catchUpEvents<T extends MessageEvent | PollEvent>(
   client: AdvancedIMessage,
-  pollCache: PollCache,
-  subscription: ReturnType<AdvancedIMessage["polls"]["subscribe"]>,
-  emit: (message: IMessageMessage) => Promise<void>,
-  onEvent: () => void
-): Promise<void> => {
-  for await (const event of subscription) {
-    onEvent();
-    await emitPollMessages(client, pollCache, event, emit);
+  cursor: string,
+  isWanted: (event: CatchUpEvent) => event is T
+): AsyncGenerator<T | CatchUpCompleteEvent> {
+  const since = toResumeAfter(cursor);
+  if (since === undefined) {
+    return;
   }
+
+  for await (const event of client.events.catchUp(since)) {
+    if (event.type === "catchup.complete") {
+      yield event;
+      return;
+    }
+    if (isWanted(event)) {
+      yield event;
+    }
+  }
+}
+
+const toResumeAfter = (cursor: string | undefined): number | undefined => {
+  if (!cursor) {
+    return;
+  }
+  const sequence = Number(cursor);
+  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : undefined;
 };
+
+async function* afterCursor(
+  stream: CloseableAsyncIterable<MessageEvent | PollEvent>,
+  cursor?: string
+): AsyncGenerator<MessageEvent | PollEvent> {
+  const resumeAfter = toResumeAfter(cursor);
+  try {
+    for await (const event of stream) {
+      if (resumeAfter !== undefined && event.sequence <= resumeAfter) {
+        continue;
+      }
+      yield event;
+    }
+  } finally {
+    await stream.close?.();
+  }
+}
+
+const withClose = <T extends MessageEvent | PollEvent>(
+  source: CloseableAsyncIterable<T>,
+  cursor?: string
+): CloseableAsyncIterable<T> =>
+  Object.assign(afterCursor(source, cursor) as AsyncGenerator<T>, {
+    close: async () => {
+      await source.close?.();
+    },
+  });
+
+const messageStream = (
+  client: AdvancedIMessage,
+  phone: string
+): ManagedStream<IMessageMessage> =>
+  resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
+    fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
+    isRetryableError: isRetryableIMessageStreamError,
+    processLive: (event) =>
+      toMessageItem(client, event, phone, String(event.sequence)),
+    processMissed: (event) =>
+      event.type === "catchup.complete"
+        ? Promise.resolve(toCatchUpCompleteItem(event))
+        : toMessageItem(client, event, phone, String(event.sequence)),
+    subscribeLive: (cursor) =>
+      withClose(client.messages.subscribeEvents(), cursor),
+  });
 
 const pollStream = (
   client: AdvancedIMessage,
-  pollCache: PollCache
+  pollCache: PollCache,
+  phone: string
 ): ManagedStream<IMessageMessage> =>
-  stream<IMessageMessage>((emit, end) => {
-    let active = client.polls.subscribe();
-    let closed = false;
-    let retryDelayMs = RECONNECT_INITIAL_DELAY_MS;
-    let sleepTimer: ReturnType<typeof setTimeout> | undefined;
-    let wakeSleep: (() => void) | undefined;
-
-    const sleep = async (delayMs: number): Promise<void> => {
-      if (closed) {
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        wakeSleep = resolve;
-        sleepTimer = setTimeout(resolve, pollRetryDelay(delayMs));
-      });
-      sleepTimer = undefined;
-      wakeSleep = undefined;
-    };
-
-    const cancelSleep = () => {
-      if (sleepTimer) {
-        clearTimeout(sleepTimer);
-        sleepTimer = undefined;
-      }
-      wakeSleep?.();
-      wakeSleep = undefined;
-    };
-
-    const pump = (async () => {
-      while (!closed) {
-        try {
-          await runPollSubscription(client, pollCache, active, emit, () => {
-            retryDelayMs = RECONNECT_INITIAL_DELAY_MS;
-          });
-        } catch (e) {
-          if (!closed) {
-            logPollStreamError(e);
-          }
-        } finally {
-          await active.close();
-        }
-
-        if (!closed) {
-          await sleep(retryDelayMs);
-          retryDelayMs = Math.min(retryDelayMs * 2, RECONNECT_MAX_DELAY_MS);
-          active = client.polls.subscribe();
-        }
-      }
-      end();
-    })();
-
-    return async () => {
-      closed = true;
-      cancelSleep();
-      await active.close();
-      await pump;
-    };
+  resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
+    fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
+    isRetryableError: isRetryableIMessageStreamError,
+    processLive: (event) =>
+      toPollItem(client, pollCache, event, phone, String(event.sequence)),
+    processMissed: (event) =>
+      event.type === "catchup.complete"
+        ? Promise.resolve(toCatchUpCompleteItem(event))
+        : toPollItem(client, pollCache, event, phone, String(event.sequence)),
+    subscribeLive: (cursor) =>
+      withClose(client.polls.subscribeEvents(), cursor),
   });
 
 const clientStream = (
   client: AdvancedIMessage,
-  pollCache: PollCache
-): ManagedStream<IMessageMessage> => {
-  return mergeStreams([messageStream(client), pollStream(client, pollCache)]);
-};
+  pollCache: PollCache,
+  phone: string
+): ManagedStream<IMessageMessage> =>
+  mergeStreams([
+    messageStream(client, phone),
+    pollStream(client, pollCache, phone),
+  ]);
 
 export const messages = (
-  clients: AdvancedIMessage[]
+  clients: RemoteClient[]
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
-  return mergeStreams(clients.map((client) => clientStream(client, pollCache)));
+  return mergeStreams(
+    clients.map((entry) => clientStream(entry.client, pollCache, entry.phone))
+  );
 };

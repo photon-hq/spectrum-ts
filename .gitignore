@@ -9,6 +9,11 @@ dist
 # local scratch work (ad-hoc scripts, debugging, real-account experiments)
 tmp
 
+# copied from repo root by `build` so they ship with the npm package
+# (clean-publish strips all scripts from the staged package.json, so prepack/prepublish hooks never run)
+packages/spectrum-ts/README.md
+packages/spectrum-ts/LICENSE
+
 # code coverage
 coverage
 *.lcov

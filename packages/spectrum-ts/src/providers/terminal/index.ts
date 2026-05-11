@@ -550,6 +550,33 @@ export const terminal = definePlatform("terminal", {
     }),
   },
 
+  lifecycle: {
+    createClient: async ({ config }) =>
+      await spawnClient({ commands: config.commands }),
+
+    destroyClient: async ({ client }) => {
+      // Restore console FIRST so any further logs in this teardown go to the
+      // real stderr instead of a closing socket.
+      client.hijack.restore();
+      try {
+        // Bounded so an unresponsive subprocess can't hang destroyClient.
+        await client.session.request(
+          "shutdown",
+          undefined,
+          SHUTDOWN_TIMEOUT_MS
+        );
+      } catch {
+        // best-effort
+      }
+      client.session.close();
+      try {
+        client.proc.kill("SIGTERM");
+      } catch {
+        // best-effort
+      }
+    },
+  },
+
   user: {
     resolve: async ({ input }) => ({
       id: input.userID,
@@ -558,113 +585,79 @@ export const terminal = definePlatform("terminal", {
 
   space: {
     params: z.object({ id: z.string().optional() }),
-    resolve: async (ctx) => {
-      const client = ctx.client as TerminalClient;
-      const id = ctx.input.params?.id ?? generateChatId(client);
+    resolve: async ({ client, input }) => {
+      const id = input.params?.id ?? generateChatId(client);
       client.knownChats.add(id);
       await client.session.request("ensureSpace", { id });
       return { id };
     },
   },
 
-  lifecycle: {
-    createClient: async ({ config }) => {
-      return await spawnClient({ commands: config.commands });
-    },
-
-    destroyClient: async ({ client }) => {
-      const c = client as TerminalClient;
-      // Restore console FIRST so any further logs in this teardown go to the
-      // real stderr instead of a closing socket.
-      c.hijack.restore();
-      try {
-        // Bounded so an unresponsive subprocess can't hang destroyClient.
-        await c.session.request("shutdown", undefined, SHUTDOWN_TIMEOUT_MS);
-      } catch {
-        // best-effort
-      }
-      c.session.close();
-      try {
-        c.proc.kill("SIGTERM");
-      } catch {
-        // best-effort
-      }
-    },
-  },
-
-  events: {
-    async *messages(ctx) {
-      const client = ctx.client as TerminalClient;
-      for await (const evt of client.events) {
-        if (evt.kind === "message") {
-          const msg = evt.value;
-          client.knownChats.add(msg.spaceId);
-          yield {
-            id: msg.id,
-            content: protocolToSpectrum(msg.content),
-            sender: { id: msg.senderId },
-            space: { id: msg.spaceId },
-            timestamp: parseTimestamp(msg.timestamp),
-            // replyTo is a terminal-specific extra — agents inspect via a
-            // cast until Spectrum's message model grows first-class support.
-            ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-          };
-          continue;
-        }
-        // Reactions ride the messages stream as first-class `reaction`
-        // content. The protocol only provides the target id, so synthesize a
-        // minimal raw target for core to wrap into a full Message at emit time.
-        const r = evt.value;
-        client.knownChats.add(r.spaceId);
+  async *messages({ client }) {
+    for await (const evt of client.events) {
+      if (evt.kind === "message") {
+        const msg = evt.value;
+        client.knownChats.add(msg.spaceId);
         yield {
-          id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
-          content: reactionContentFromProtocol(r),
-          sender: { id: r.senderId },
-          space: { id: r.spaceId },
-          timestamp: parseTimestamp(r.timestamp),
+          id: msg.id,
+          content: protocolToSpectrum(msg.content),
+          sender: { id: msg.senderId },
+          space: { id: msg.spaceId },
+          timestamp: parseTimestamp(msg.timestamp),
+          // replyTo is a terminal-specific extra — agents inspect via a
+          // cast until Spectrum's message model grows first-class support.
+          ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
         };
+        continue;
       }
-    },
+      // Reactions ride the messages stream as first-class `reaction`
+      // content. The protocol only provides the target id, so synthesize a
+      // minimal raw target for core to wrap into a full Message at emit time.
+      const r = evt.value;
+      client.knownChats.add(r.spaceId);
+      yield {
+        id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
+        content: reactionContentFromProtocol(r),
+        sender: { id: r.senderId },
+        space: { id: r.spaceId },
+        timestamp: parseTimestamp(r.timestamp),
+      };
+    }
   },
 
-  actions: {
-    send: async ({ client, content, space }) => {
-      const c = client as TerminalClient;
-      const proto = await spectrumToProtocol(content);
-      const result = await c.session.request<{ id: string; timestamp: string }>(
-        "send",
-        { spaceId: space.id, content: proto }
-      );
-      return buildOutboundRecord(result, content, space.id);
-    },
-
-    startTyping: async ({ client, space }) => {
-      const c = client as TerminalClient;
-      await c.session.request("startTyping", { spaceId: space.id });
-    },
-
-    stopTyping: async ({ client, space }) => {
-      const c = client as TerminalClient;
-      await c.session.request("stopTyping", { spaceId: space.id });
-    },
-
-    reactToMessage: async ({ client, space, target, reaction }) => {
-      const c = client as TerminalClient;
-      await c.session.request("reactToMessage", {
+  send: async ({ client, content, space }) => {
+    if (content.type === "reply") {
+      const inner = await spectrumToProtocol(content.content);
+      const result = await client.session.request<{
+        id: string;
+        timestamp: string;
+      }>("replyToMessage", {
         spaceId: space.id,
-        messageId: target.id,
-        reaction,
+        messageId: content.target.id,
+        content: inner,
       });
-    },
-
-    replyToMessage: async ({ client, space, messageId, content }) => {
-      const c = client as TerminalClient;
-      const proto = await spectrumToProtocol(content);
-      const result = await c.session.request<{ id: string; timestamp: string }>(
-        "replyToMessage",
-        { spaceId: space.id, messageId, content: proto }
-      );
-      return buildOutboundRecord(result, content, space.id);
-    },
+      return buildOutboundRecord(result, content.content, space.id);
+    }
+    if (content.type === "reaction") {
+      await client.session.request("reactToMessage", {
+        spaceId: space.id,
+        messageId: content.target.id,
+        reaction: content.emoji,
+      });
+      return;
+    }
+    if (content.type === "typing") {
+      // Tuichat exposes start/stop as separate notifications; we keep the
+      // wire protocol unchanged so existing binaries still work.
+      const method = content.state === "start" ? "startTyping" : "stopTyping";
+      await client.session.request(method, { spaceId: space.id });
+      return;
+    }
+    const proto = await spectrumToProtocol(content);
+    const result = await client.session.request<{
+      id: string;
+      timestamp: string;
+    }>("send", { spaceId: space.id, content: proto });
+    return buildOutboundRecord(result, content, space.id);
   },
 });

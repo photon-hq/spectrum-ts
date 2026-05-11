@@ -31,5 +31,15 @@ export const asReaction = (input: {
  * `space.getMessage(id)`.
  */
 export function reaction(emoji: string, target: Message): ContentBuilder {
-  return { build: async () => asReaction({ emoji, target }) };
+  return {
+    build: async () => {
+      // Reacting to a reaction is universally nonsensical — guard against it
+      // mirroring `reply()`'s reject-list. Replies and group items are valid
+      // reaction targets (real chat clients allow both), so only reject this.
+      if (target.content.type === "reaction") {
+        throw new Error('reaction() cannot target "reaction" content');
+      }
+      return asReaction({ emoji, target });
+    },
+  };
 }

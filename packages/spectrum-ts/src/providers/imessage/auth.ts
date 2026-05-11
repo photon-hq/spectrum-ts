@@ -1,12 +1,10 @@
-import {
-  type AdvancedIMessage,
-  createClient,
-} from "@photon-ai/advanced-imessage";
+import { createClient } from "@photon-ai/advanced-imessage";
 import {
   cloud,
   type DedicatedTokenData,
   type SharedTokenData,
 } from "../../utils/cloud";
+import { type RemoteClient, SHARED_PHONE } from "./types";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
@@ -16,16 +14,35 @@ interface CloudAuth {
   dispose: () => void;
 }
 
-const cloudAuthState = new WeakMap<AdvancedIMessage[], CloudAuth>();
+const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
+
+const requirePhone = (data: DedicatedTokenData, instanceId: string): string => {
+  const phone = data.numbers?.[instanceId];
+  if (!phone) {
+    throw new Error(`iMessage instance ${instanceId} has no phone assigned`);
+  }
+  return phone;
+};
 
 export async function createCloudClients(
   projectId: string,
   projectSecret: string
-): Promise<AdvancedIMessage[]> {
+): Promise<RemoteClient[]> {
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // The instanceId stays paired with each entry in this closure so renewal
+  // can rewrite `entry.phone` in place without leaking instanceId onto the
+  // public RemoteClient shape. Empty in shared mode.
+  const records: { entry: RemoteClient; instanceId: string }[] = [];
+
+  const syncPhones = (data: DedicatedTokenData) => {
+    for (const { entry, instanceId } of records) {
+      entry.phone = requirePhone(data, instanceId);
+    }
+  };
 
   const scheduleRenewal = () => {
     if (disposed) {
@@ -38,6 +55,9 @@ export async function createCloudClients(
       try {
         tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
         tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
+        if (tokenData.type === "dedicated") {
+          syncPhones(tokenData);
+        }
         scheduleRenewal();
       } catch {
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
@@ -55,17 +75,20 @@ export async function createCloudClients(
     }
     tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
+    if (tokenData.type === "dedicated") {
+      syncPhones(tokenData);
+    }
     scheduleRenewal();
   };
 
-  const buildClients = (): AdvancedIMessage[] => {
-    if (tokenData.type === "shared") {
-      const address =
-        process.env.SPECTRUM_IMESSAGE_ADDRESS ??
-        "imessage.spectrum.photon.codes:443";
-
-      return [
-        createClient({
+  if (tokenData.type === "shared") {
+    const address =
+      process.env.SPECTRUM_IMESSAGE_ADDRESS ??
+      "imessage.spectrum.photon.codes:443";
+    const entries: RemoteClient[] = [
+      {
+        phone: SHARED_PHONE,
+        client: createClient({
           address,
           tls: true,
           token: async () => {
@@ -73,11 +96,27 @@ export async function createCloudClients(
             return (tokenData as SharedTokenData).token;
           },
         }),
-      ];
-    }
+      },
+    ];
 
-    return Object.entries(tokenData.auth).map(([instanceId, token]) =>
-      createClient({
+    cloudAuthState.set(entries, {
+      dispose: () => {
+        disposed = true;
+        if (renewalTimer !== undefined) {
+          clearTimeout(renewalTimer);
+          renewalTimer = undefined;
+        }
+      },
+    });
+
+    return entries;
+  }
+
+  const dedicated = tokenData;
+  for (const [instanceId, token] of Object.entries(dedicated.auth)) {
+    const entry: RemoteClient = {
+      phone: requirePhone(dedicated, instanceId),
+      client: createClient({
         address: `${instanceId}.imsg.photon.codes:443`,
         tls: true,
         token: async () => {
@@ -85,13 +124,13 @@ export async function createCloudClients(
           const data = tokenData as DedicatedTokenData;
           return data.auth[instanceId] ?? token;
         },
-      })
-    );
-  };
+      }),
+    };
+    records.push({ entry, instanceId });
+  }
+  const entries = records.map((r) => r.entry);
 
-  const clients = buildClients();
-
-  cloudAuthState.set(clients, {
+  cloudAuthState.set(entries, {
     dispose: () => {
       disposed = true;
       if (renewalTimer !== undefined) {
@@ -101,12 +140,10 @@ export async function createCloudClients(
     },
   });
 
-  return clients;
+  return entries;
 }
 
-export async function disposeCloudAuth(
-  clients: AdvancedIMessage[]
-): Promise<void> {
+export async function disposeCloudAuth(clients: RemoteClient[]): Promise<void> {
   const auth = cloudAuthState.get(clients);
   if (auth) {
     auth.dispose();

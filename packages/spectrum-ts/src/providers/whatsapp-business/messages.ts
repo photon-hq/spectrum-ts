@@ -103,7 +103,7 @@ const mapWaPhoneType = (
   type: string | undefined
 ): SpectrumContactPhone["type"] => {
   if (!type) {
-    return undefined;
+    return;
   }
   const upper = type.toUpperCase();
   if (upper === "CELL" || upper === "MOBILE" || upper === "IPHONE") {
@@ -122,7 +122,7 @@ const mapWaSimpleType = (
   type: string | undefined
 ): "home" | "work" | "other" | undefined => {
   if (!type) {
-    return undefined;
+    return;
   }
   const upper = type.toUpperCase();
   if (upper === "HOME") {
@@ -380,7 +380,7 @@ const spectrumPhoneTypeToWa = (
   if (type === "home" || type === "work" || type === "other") {
     return type.toUpperCase();
   }
-  return undefined;
+  return;
 };
 
 const spectrumSimpleTypeToWa = (
@@ -495,7 +495,25 @@ export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
   content: Content
-): Promise<ProviderMessageRecord> => {
+): Promise<ProviderMessageRecord | undefined> => {
+  if (content.type === "reply") {
+    return await replyToMessage(
+      clients,
+      spaceId,
+      content.target.id,
+      content.content
+    );
+  }
+  if (content.type === "reaction") {
+    await reactToMessage(clients, spaceId, content.target.id, content.emoji);
+    return;
+  }
+  if (content.type === "typing") {
+    // WhatsApp Business has no typing-indicator API. Silently ignore so
+    // `space.startTyping()` / `space.responding()` work portably across
+    // platforms — typing is a hint, not a critical message.
+    return;
+  }
   const client = primary(clients);
   switch (content.type) {
     case "text":
@@ -561,7 +579,7 @@ export const send = async (
   }
 };
 
-export const reactToMessage = async (
+const reactToMessage = async (
   clients: WhatsAppClients,
   spaceId: string,
   messageId: string,

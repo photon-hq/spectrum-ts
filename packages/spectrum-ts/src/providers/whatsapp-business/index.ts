@@ -2,7 +2,7 @@ import { createClient } from "@photon-ai/whatsapp-business";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
 import { createCloudClients, disposeCloudAuth } from "./auth";
-import { messages, reactToMessage, replyToMessage, send } from "./messages";
+import { messages, send } from "./messages";
 import {
   configSchema,
   isCloudConfig,
@@ -12,31 +12,6 @@ import {
 
 export const whatsappBusiness = definePlatform("WhatsApp Business", {
   config: configSchema,
-
-  user: {
-    resolve: async ({ input }) => ({ id: input.userID }),
-  },
-
-  space: {
-    schema: spaceSchema,
-    resolve: async ({ input }) => {
-      if (input.users.length === 0) {
-        throw new Error("WhatsApp space creation requires at least one user");
-      }
-      if (input.users.length > 1) {
-        throw UnsupportedError.action(
-          "createSpace",
-          "WhatsApp Business",
-          "only 1:1 conversations are supported"
-        );
-      }
-      const user = input.users[0];
-      if (!user) {
-        throw new Error("WhatsApp space creation requires a user");
-      }
-      return { id: user.id };
-    },
-  },
 
   lifecycle: {
     createClient: async ({
@@ -65,37 +40,39 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
       return await createCloudClients(projectId, projectSecret);
     },
 
-    destroyClient: async ({ client }: { client: WhatsAppClients }) => {
+    destroyClient: async ({ client }) => {
       await disposeCloudAuth(client);
       await Promise.all(client.map((c) => c.close()));
     },
   },
 
-  events: {
-    messages: ({ client }) => messages(client as WhatsAppClients),
+  user: {
+    resolve: async ({ input }) => ({ id: input.userID }),
   },
 
-  actions: {
-    send: async ({ space, content, client }) => {
-      return await send(client as WhatsAppClients, space.id, content);
-    },
-
-    reactToMessage: async ({ space, target, reaction, client }) => {
-      await reactToMessage(
-        client as WhatsAppClients,
-        space.id,
-        target.id,
-        reaction
-      );
-    },
-
-    replyToMessage: async ({ space, messageId, content, client }) => {
-      return await replyToMessage(
-        client as WhatsAppClients,
-        space.id,
-        messageId,
-        content
-      );
+  space: {
+    schema: spaceSchema,
+    resolve: async ({ input }) => {
+      if (input.users.length === 0) {
+        throw new Error("WhatsApp space creation requires at least one user");
+      }
+      if (input.users.length > 1) {
+        throw UnsupportedError.action(
+          "createSpace",
+          "WhatsApp Business",
+          "only 1:1 conversations are supported"
+        );
+      }
+      const user = input.users[0];
+      if (!user) {
+        throw new Error("WhatsApp space creation requires a user");
+      }
+      return { id: user.id };
     },
   },
+
+  messages: ({ client }) => messages(client),
+
+  send: async ({ space, content, client }) =>
+    await send(client, space.id, content),
 });

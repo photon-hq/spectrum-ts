@@ -1,4 +1,4 @@
-import { Spectrum, text } from "spectrum-ts";
+import { reaction, reply, Spectrum, text } from "spectrum-ts";
 import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({ providers: [terminal.config()] });
@@ -32,15 +32,20 @@ for await (const [space, message] of app.messages) {
     continue;
   }
 
-  // Always react with 👀 first so we can verify the agent → user reaction path.
+  // Sugar form: message.react delegates to space.send(reaction(emoji, self)).
   await message.react("👀");
+  // Canonical form: reaction as first-class content via space.send.
+  await space.send(reaction("✨", message));
 
   const replyTo = (message as { replyTo?: { messageId: string } }).replyTo;
   if (replyTo) {
     console.log(
       `REPLY to ${replyTo.messageId.slice(0, 8)}…: "${message.content.text}"`
     );
-    await message.reply(text("acknowledged your reply"));
+    // Direct: reply as first-class content.
+    await space.send(reply(text("ack via space.send(reply(...))"), message));
+    // Sugar: same end result, message.reply delegates to space.send(reply(...)).
+    await message.reply(text("ack via message.reply(...)"));
   } else {
     console.log(`message: "${message.content.text}"`);
     await space.send(text(`echo: ${message.content.text}`));

@@ -503,6 +503,12 @@
           "description": "Bot API 9.6+: pass true to randomize the order of options when displaying the poll."
         },
         {
+          "name": "allow_adding_options",
+          "type": "boolean",
+          "required": false,
+          "description": "Bot API 9.6+: pass true to let users add options after the poll has been created."
+        },
+        {
           "name": "hide_results_until_closes",
           "type": "boolean",
           "required": false,

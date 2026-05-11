@@ -107,6 +107,8 @@ export interface SendPollParams {
   allows_revoting?: boolean;
   /** Bot API 9.6+: pass true to randomize the order of options when displaying the poll. */
   shuffle_options?: boolean;
+  /** Bot API 9.6+: pass true to let users add options after the poll has been created. */
+  allow_adding_options?: boolean;
   /** Bot API 9.6+: pass true to hide aggregate results until the poll is closed. */
   hide_results_until_closes?: boolean;
   reply_parameters?: ReplyParameters;

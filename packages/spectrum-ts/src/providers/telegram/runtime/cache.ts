@@ -118,6 +118,24 @@ export class PollStore {
     return this.polls.get(pollId);
   }
 
+  // Telegram delivers `Update.poll` whenever the bot-sent poll changes
+  // (e.g. `allow_adding_options` participants appending options). Refresh
+  // the cached option list so `poll_answer` indexes that fall past the
+  // original array still resolve.
+  refreshPollOptions(
+    pollId: string,
+    options: readonly { title: string }[]
+  ): void {
+    const cached = this.polls.peek(pollId);
+    if (!cached) {
+      return;
+    }
+    this.polls.set(pollId, {
+      ...cached,
+      poll: { ...cached.poll, options: [...options] },
+    });
+  }
+
   priorVote(pollId: string, userId: number): readonly number[] {
     return this.votes.get(voteKey(pollId, userId)) ?? [];
   }

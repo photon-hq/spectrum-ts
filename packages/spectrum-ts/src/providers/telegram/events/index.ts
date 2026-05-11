@@ -32,6 +32,15 @@ const buildMessages = (
       cacheable: false,
     };
   }
+  if (update.poll) {
+    // Internal cache sync only — no Spectrum event surfaced. Keeps the
+    // cached poll's option list aligned with `allow_adding_options` polls.
+    runtime.cache.polls.refreshPollOptions(
+      update.poll.id,
+      update.poll.options.map((o) => ({ title: o.text }))
+    );
+    return { messages: [], cacheable: false };
+  }
   if (update.poll_answer) {
     return {
       messages: pollAnswerEvents(update.poll_answer, runtime.cache, update),

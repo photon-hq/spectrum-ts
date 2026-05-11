@@ -26,14 +26,17 @@ const sanitizeTimeout = (raw: number | undefined): number => {
   return normalized;
 };
 
-// `message_reaction` and `poll_answer` are opt-in. `message_reaction_count`
-// and `poll` aggregates are excluded — no Spectrum content type maps to them.
+// `message_reaction`, `poll`, and `poll_answer` are opt-in.
+// `message_reaction_count` aggregates are excluded — no Spectrum content
+// type maps to them. `poll` is consumed internally to keep the cached
+// option list in sync for `allow_adding_options` polls.
 const DEFAULT_ALLOWED_UPDATES: readonly string[] = [
   "message",
   "edited_message",
   "channel_post",
   "edited_channel_post",
   "message_reaction",
+  "poll",
   "poll_answer",
 ];
 

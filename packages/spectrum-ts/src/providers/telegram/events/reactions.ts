@@ -14,7 +14,7 @@ const extractEmoji = (reaction: ReactionType): string | undefined => {
   if (reaction.type !== "emoji") {
     return;
   }
-  return reaction.emoji ? reaction.emoji : undefined;
+  return reaction.emoji;
 };
 
 const newlyAddedEmojis = (update: MessageReactionUpdated): string[] => {

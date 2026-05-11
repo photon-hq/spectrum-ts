@@ -4,10 +4,16 @@ import type { Edit } from "../../content/edit";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
 
-// biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helper
+// biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
+export { type BackgroundInput, background } from "./content/background";
 export { effect, type IMessageMessageEffect } from "./content/effect";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
+import {
+  type Background,
+  background as backgroundContent,
+  isBackground,
+} from "./content/background";
 import {
   getMessage as localGetMessage,
   messages as localMessages,
@@ -20,6 +26,7 @@ import {
   reactToMessage as remoteReactToMessage,
   replyToMessage as remoteReplyToMessage,
   send as remoteSend,
+  setBackground as remoteSetBackground,
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
 } from "./remote/api";
@@ -58,6 +65,22 @@ const handleEdit = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
+};
+
+const handleBackground = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  content: Background
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "background",
+      "iMessage (local mode)",
+      "chat backgrounds require remote iMessage"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteSetBackground(remote, space.id, content);
 };
 
 export const imessage = definePlatform("iMessage", {
@@ -156,6 +179,13 @@ export const imessage = definePlatform("iMessage", {
       const { chat } = await remote.chats.create(addresses);
       return { id: chat.guid as string, type: "group" as const, phone };
     },
+    actions: {
+      // Sugar: `space.background(input, opts?)` →
+      // `space.send(background(input, opts?))`. Wired through the universal
+      // send pipeline so the unsupported-content + warn-and-skip path on
+      // local-mode iMessage is identical to the canonical form.
+      background: backgroundContent,
+    },
   },
 
   message: {
@@ -224,6 +254,14 @@ export const imessage = definePlatform("iMessage", {
     }
     if (content.type === "edit") {
       await handleEdit(client, space, content);
+      return;
+    }
+    // `Background` is iMessage-only and lives outside the universal `Content`
+    // union — narrow via the runtime guard rather than a `content.type ===`
+    // check (which would not typecheck since `"background"` isn't a member
+    // of `Content["type"]`).
+    if (isBackground(content)) {
+      await handleBackground(client, space, content);
       return;
     }
     if (isLocal(client)) {

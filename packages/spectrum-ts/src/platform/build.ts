@@ -2,7 +2,7 @@ import { edit as editContent } from "../content/edit";
 import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
-import type { Content, ContentInput } from "../content/types";
+import type { Content, ContentBuilder, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
 import type {
   InboundMessage,
@@ -31,6 +31,43 @@ const supportsAnsiColor = (): boolean => {
     return force !== "" && force !== "0" && force !== "false";
   }
   return Boolean(process.stderr?.isTTY);
+};
+
+// Built-in content types whose provider `send` may return `void`/no id
+// because they're side-effects (reaction, typing indicator, edit), not new
+// messages. Provider-only content types opt into the same semantics by
+// setting `__fireAndForget: true` on the content value — see `isFireAndForget`
+// below — so the framework doesn't need to know their `type` literal.
+const FIRE_AND_FORGET_TYPES: ReadonlySet<string> = new Set([
+  "reaction",
+  "typing",
+  "edit",
+]);
+
+const isFireAndForget = (item: Content): boolean =>
+  FIRE_AND_FORGET_TYPES.has(item.type) ||
+  (item as { __fireAndForget?: unknown }).__fireAndForget === true;
+
+// Reserved keys on `Space` — platform-defined `space.actions` entries with
+// these names are skipped at runtime (with a warning) so the universal sugar
+// (`send`, `edit`, `startTyping`, …) always wins. The same names are excluded
+// from `SpaceActionMethods<Def>` at the type level.
+const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
+  "__platform",
+  "id",
+  "send",
+  "edit",
+  "getMessage",
+  "startTyping",
+  "stopTyping",
+  "responding",
+]);
+
+const warnReservedAction = (name: string, platform: string) => {
+  const body = `[spectrum-ts] ${platform} declared space action "${name}" which collides with a reserved Space key; skipping.`;
+  console.warn(
+    supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
+  );
 };
 
 const warnUnsupported = (err: UnsupportedError, fallbackPlatform: string) => {
@@ -327,11 +364,12 @@ export function buildSpace(params: BuildSpaceParams): Space {
       // Reactions, typing indicators, and edits are fire-and-forget control
       // signals — providers may return `void` from `send` for them. Every
       // other content type must produce a message id.
-      if (
-        item.type === "reaction" ||
-        item.type === "typing" ||
-        item.type === "edit"
-      ) {
+      // Fire-and-forget control signals — providers may return `void`/no id
+      // for these because they don't produce a new message. Built-in types
+      // (reaction/typing/edit) live in the universal union and are matched
+      // by literal; provider-only types opt in by setting `__fireAndForget`
+      // on their content value.
+      if (isFireAndForget(item)) {
         return;
       }
       throw new Error(
@@ -397,9 +435,37 @@ export function buildSpace(params: BuildSpaceParams): Space {
     );
   }
 
+  // Platform-defined sugar methods declared via `PlatformDef.space.actions`.
+  // Each factory becomes `space.<name>(...args) = space.send(factory(...args))`.
+  // Spread order is load-bearing: actions go *after* `extras`/`spaceRef`
+  // (so schema fields can't clobber the sugar) and *before* the hardcoded
+  // universal sugar (`send`, `edit`, …) so a platform action declared with
+  // a reserved name is also overridden at the type level via the
+  // `Exclude<…, keyof Space>` in `SpaceActionMethods`.
+  const platformActions: Record<
+    string,
+    (...args: unknown[]) => Promise<OutboundMessage | undefined>
+  > = {};
+  const declaredActions = (
+    definition.space as {
+      actions?: Record<string, (...args: unknown[]) => ContentBuilder>;
+    }
+  ).actions;
+  if (declaredActions) {
+    for (const [name, factory] of Object.entries(declaredActions)) {
+      if (RESERVED_SPACE_KEYS.has(name)) {
+        warnReservedAction(name, definition.name);
+        continue;
+      }
+      platformActions[name] = (...args: unknown[]) =>
+        space.send(factory(...args));
+    }
+  }
+
   space = {
     ...extras,
     ...spaceRef,
+    ...platformActions,
     send: sendImpl as Space["send"],
     edit: async (
       message: OutboundMessage,

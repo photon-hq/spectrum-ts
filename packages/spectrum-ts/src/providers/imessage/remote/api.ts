@@ -2,7 +2,9 @@ import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ManagedStream } from "../../../utils/stream";
+import type { Background } from "../content/background";
 import type { IMessageMessage, RemoteClient } from "../types";
+import { setBackground as setRemoteBackground } from "./background";
 import { getMessage as getRemoteMessage } from "./inbound";
 import { reactToMessage as reactToRemoteMessage } from "./reactions";
 import {
@@ -19,6 +21,12 @@ import {
 export const messages = (
   clients: RemoteClient[]
 ): ManagedStream<IMessageMessage> => remoteMessages(clients);
+
+export const setBackground = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: Background
+): Promise<void> => setRemoteBackground(remote, spaceId, content);
 
 export const startTyping = async (
   remote: AdvancedIMessage,

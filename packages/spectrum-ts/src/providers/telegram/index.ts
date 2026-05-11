@@ -1,5 +1,6 @@
 import { definePlatform } from "../../platform/define";
 import { messages as telegramMessages } from "./events";
+import { chatToSpace } from "./identity";
 import { send as telegramSend } from "./messages";
 import {
   createTelegramCache,
@@ -68,24 +69,7 @@ export const telegram = definePlatform("Telegram", {
             ? chatIdSource
             : Number(chatIdSource),
       });
-      const space: {
-        id: string;
-        chatId: number;
-        type: typeof chat.type;
-        title?: string;
-        username?: string;
-      } = {
-        id: String(chat.id),
-        chatId: chat.id,
-        type: chat.type,
-      };
-      if (chat.title !== undefined) {
-        space.title = chat.title;
-      }
-      if (chat.username !== undefined) {
-        space.username = chat.username;
-      }
-      return space;
+      return chatToSpace(chat);
     },
   },
 

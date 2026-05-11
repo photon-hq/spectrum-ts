@@ -269,10 +269,26 @@ export class TelegramClient {
     this.baseUrl = opts.baseUrl ?? BASE_URL;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...opts.retry };
     this.fetchImpl = opts.fetch ?? fetch;
-    this.requestTimeoutMs =
+    const requestTimeoutMs =
       opts.requestTimeoutMs === undefined
         ? DEFAULT_REQUEST_TIMEOUT_MS
         : opts.requestTimeoutMs;
+    // `null` is the documented opt-out (disable the per-call deadline
+    // entirely). Anything else has to be a non-negative finite number —
+    // `AbortSignal.timeout(ms)` rejects negative/non-finite inputs with
+    // an opaque RangeError on the first request, which turns a config
+    // typo into a confusing runtime failure deep in the request path.
+    // Fail fast here so the misconfiguration surfaces at startup with
+    // the offending value named in the error.
+    if (
+      requestTimeoutMs !== null &&
+      (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 0)
+    ) {
+      throw new RangeError(
+        `TelegramClient.requestTimeoutMs must be null or a non-negative finite number; got ${String(requestTimeoutMs)}`
+      );
+    }
+    this.requestTimeoutMs = requestTimeoutMs;
   }
 
   async invoke<M extends MethodName>(

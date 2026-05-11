@@ -97,6 +97,21 @@ export const messages = (
           flush: async (members) => {
             const grouped = coalesceAlbumGroup(members);
             if (grouped) {
+              // Overwrite the lead member's cache entry with the coalesced
+              // wrapper so `getMessage(grouped.id)` and reaction-target
+              // hydration return the same record consumers see on the
+              // stream. The wrapper's id is anchored to the first member's
+              // real `message_id` (see `coalesceAlbumGroup` in `./inbound`),
+              // which collides with the per-member write that happened
+              // upstream — without this overwrite, the cache would still
+              // resolve to the lone child's text/media content rather than
+              // the `group` wrapper. The remaining album members stay
+              // individually addressable under their own ids. Mirrors the
+              // outbound `sendGroupContent` cache write in `../messages.ts`.
+              runtime.cache.messages.set(
+                messageCacheKey(grouped.space.id, grouped.id),
+                grouped
+              );
               await emit(grouped);
             }
           },

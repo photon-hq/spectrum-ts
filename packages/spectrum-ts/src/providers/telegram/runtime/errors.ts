@@ -49,13 +49,11 @@ export class TelegramApiError extends Error {
 
 export class TelegramNetworkError extends Error {
   readonly method: string;
-  override readonly cause: unknown;
 
   constructor(method: string, cause: unknown) {
     const reason = cause instanceof Error ? cause.message : String(cause);
-    super(`Telegram ${method} network error: ${reason}`);
+    super(`Telegram ${method} network error: ${reason}`, { cause });
     this.name = "TelegramNetworkError";
     this.method = method;
-    this.cause = cause;
   }
 }

@@ -6,6 +6,8 @@ export default defineConfig({
     "providers/index": "src/providers/index.ts",
     "providers/imessage/index": "src/providers/imessage/index.ts",
     "providers/terminal/index": "src/providers/terminal/index.ts",
+    "providers/vercel-ai-sdk-ui/index":
+      "src/providers/vercel-ai-sdk-ui/index.ts",
     "providers/whatsapp-business/index":
       "src/providers/whatsapp-business/index.ts",
   },
@@ -15,5 +17,5 @@ export default defineConfig({
   clean: true,
   outDir: "dist",
   target: "esnext",
-  external: ["ffmpeg-static"],
+  external: ["ai", "ffmpeg-static"],
 });

@@ -12,10 +12,14 @@ import type {
 
 export type {
   CreateSpectrumChatHandlerOptions,
+  CreateSpectrumWorkerBridgeOptions,
   SpectrumChatRespondContext,
   SpectrumChatResponderResult,
   SpectrumChatUser,
 } from "./types";
+
+// biome-ignore lint/performance/noBarrelFile: adapter aggregate entrypoint
+export { createSpectrumWorkerBridge } from "./worker";
 
 const BAD_REQUEST_STATUS = 400;
 const CLIENT_CLOSED_REQUEST_STATUS = 499;

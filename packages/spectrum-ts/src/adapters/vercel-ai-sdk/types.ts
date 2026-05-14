@@ -60,3 +60,16 @@ export interface CreateSpectrumChatHandlerOptions<
     context: SpectrumChatRespondContext<User>
   ) => SpectrumChatResponderResult;
 }
+
+/**
+ * Configuration for a request-scoped route that proxies useChat traffic to a
+ * separate long-running Spectrum worker.
+ */
+export interface CreateSpectrumWorkerBridgeOptions<
+  User extends SpectrumChatUser = SpectrumChatUser,
+> {
+  apiKey?: string;
+  getUser?: (request: Request) => Promise<User | null> | User | null;
+  timeoutMs?: number;
+  workerUrl: string;
+}

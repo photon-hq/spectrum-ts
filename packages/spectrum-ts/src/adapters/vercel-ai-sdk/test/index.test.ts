@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createSpectrumChatHandler } from "../index";
+import {
+  createSpectrumChatHandler,
+  createSpectrumWorkerBridge,
+} from "../index";
 
 function chatRequest(options: {
   body?: unknown;
@@ -35,6 +38,31 @@ function chatRequest(options: {
     method: "POST",
     signal: options.signal,
   });
+}
+
+function ndjsonStream(lines: unknown[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
+      }
+      controller.close();
+    },
+  });
+}
+
+async function withMockedFetch<T>(
+  mock: typeof fetch,
+  run: () => Promise<T>
+): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = mock;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = original;
+  }
 }
 
 describe("createSpectrumChatHandler", () => {
@@ -274,5 +302,164 @@ describe("createSpectrumChatHandler", () => {
 
     expect(body).toContain("first");
     expect(body).not.toContain("second");
+  });
+});
+
+describe("createSpectrumWorkerBridge", () => {
+  test("proxies the latest user text to the worker and streams AI SDK UI chunks", async () => {
+    let observedBody:
+      | {
+          messageId: string;
+          metadata: unknown;
+          responseSessionId: string;
+          spaceId: string;
+          text: string;
+          userId: string;
+        }
+      | undefined;
+
+    await withMockedFetch(
+      (async (_url, init) => {
+        observedBody = JSON.parse(String(init?.body)) as typeof observedBody;
+        return new Response(
+          ndjsonStream([
+            { type: "text_start", requestId: observedBody?.requestId },
+            {
+              type: "text_delta",
+              requestId: observedBody?.requestId,
+              delta: "worker reply",
+            },
+            { type: "text_end", requestId: observedBody?.requestId },
+          ])
+        );
+      }) as typeof fetch,
+      async () => {
+        const POST = createSpectrumWorkerBridge({
+          workerUrl: "https://worker.test/spectrum/web/messages",
+          getUser: () => ({ id: "user-1" }),
+        });
+
+        const response = await POST(
+          chatRequest({ chatId: "chat-1", text: "hello worker" })
+        );
+        const body = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(body).toContain("text-start");
+        expect(body).toContain("text-delta");
+        expect(body).toContain("text-end");
+        expect(body).toContain("worker reply");
+        expect(observedBody).toMatchObject({
+          messageId: "latest-message",
+          metadata: { source: "test" },
+          spaceId: "web:user-1:chat-1",
+          text: "hello worker",
+          userId: "user-1",
+        });
+        expect(observedBody?.responseSessionId).toBeString();
+      }
+    );
+  });
+
+  test("passes worker bearer auth and returns worker auth failures", async () => {
+    let observedAuthorization: string | null = null;
+
+    await withMockedFetch(
+      (async (_url, init) => {
+        observedAuthorization = new Headers(init?.headers).get("authorization");
+        return Response.json({ error: "Unauthorized." }, { status: 401 });
+      }) as typeof fetch,
+      async () => {
+        const POST = createSpectrumWorkerBridge({
+          apiKey: "secret",
+          workerUrl: "https://worker.test/spectrum/web/messages",
+        });
+
+        const response = await POST(chatRequest({ text: "hello" }));
+
+        expect(response.status).toBe(401);
+        expect(await response.json()).toEqual({
+          error: "Worker bridge request failed.",
+        });
+        expect(observedAuthorization).toBe("Bearer secret");
+      }
+    );
+  });
+
+  test("returns 504 when the worker request times out", async () => {
+    await withMockedFetch(
+      ((_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          });
+        })) as typeof fetch,
+      async () => {
+        const POST = createSpectrumWorkerBridge({
+          timeoutMs: 1,
+          workerUrl: "https://worker.test/spectrum/web/messages",
+        });
+
+        const response = await POST(chatRequest({ text: "hello" }));
+
+        expect(response.status).toBe(504);
+        expect(await response.json()).toEqual({
+          error: "Worker bridge request timed out.",
+        });
+      }
+    );
+  });
+
+  test("aborts the worker fetch when the browser request aborts", async () => {
+    const controller = new AbortController();
+    let workerFetchAborted = false;
+
+    await withMockedFetch(
+      ((_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            workerFetchAborted = true;
+            reject(new Error("aborted"));
+          });
+          controller.abort();
+        })) as typeof fetch,
+      async () => {
+        const POST = createSpectrumWorkerBridge({
+          workerUrl: "https://worker.test/spectrum/web/messages",
+        });
+
+        const response = await POST(
+          chatRequest({ signal: controller.signal, text: "hello" })
+        );
+
+        expect(response.status).toBe(499);
+        expect(workerFetchAborted).toBe(true);
+      }
+    );
+  });
+
+  test("fails clearly for malformed worker stream events", async () => {
+    await withMockedFetch(
+      (async (_url, init) => {
+        const workerBody = JSON.parse(String(init?.body)) as {
+          requestId: string;
+        };
+        return new Response(
+          ndjsonStream([{ type: "bogus", requestId: workerBody.requestId }])
+        );
+      }) as typeof fetch,
+      async () => {
+        const POST = createSpectrumWorkerBridge({
+          workerUrl: "https://worker.test/spectrum/web/messages",
+        });
+
+        const response = await POST(chatRequest({ text: "hello" }));
+        const body = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(body).toContain("unsupported event");
+        expect(body).toContain("bogus");
+      }
+    );
   });
 });

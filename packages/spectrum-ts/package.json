@@ -23,6 +23,11 @@
       "bun": "./src/providers/*/index.ts",
       "types": "./src/providers/*/index.ts",
       "default": "./dist/providers/*/index.js"
+    },
+    "./adapters/*": {
+      "bun": "./src/adapters/*/index.ts",
+      "types": "./src/adapters/*/index.ts",
+      "default": "./dist/adapters/*/index.js"
     }
   },
   "publishConfig": {
@@ -38,6 +43,10 @@
       "./providers/*": {
         "types": "./dist/providers/*/index.d.ts",
         "default": "./dist/providers/*/index.js"
+      },
+      "./adapters/*": {
+        "types": "./dist/adapters/*/index.d.ts",
+        "default": "./dist/adapters/*/index.js"
       }
     }
   },

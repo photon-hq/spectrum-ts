@@ -307,8 +307,10 @@ export const imessage = definePlatform("iMessage", {
     },
   },
 
-  messages: ({ client }) =>
-    isLocal(client) ? localMessages(client) : remoteMessages(client),
+  messages: ({ client, projectConfig }) =>
+    isLocal(client)
+      ? localMessages(client)
+      : remoteMessages(client, projectConfig),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {

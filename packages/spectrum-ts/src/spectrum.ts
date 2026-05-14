@@ -243,7 +243,8 @@ export async function Spectrum<
 
   // Fetch project metadata up-front (before any provider createClient) so that
   // bad credentials fail fast with no half-initialized providers to clean up,
-  // and so the resolved config can later be threaded into createClient ctx.
+  // and so the resolved config is available to thread into platform `messages`
+  // and `events` ctx (e.g. iMessage reads `profile.imessageSynced` from here).
   const projectConfig: ProjectData | undefined =
     projectId !== undefined && projectSecret !== undefined
       ? await cloud.getProject(projectId, projectSecret)
@@ -365,6 +366,7 @@ export async function Spectrum<
       : (definition.messages({
           client,
           config,
+          projectConfig,
           store,
         }) as unknown as AsyncIterable<ProviderMessageRecord>);
 
@@ -552,6 +554,7 @@ export async function Spectrum<
           | ((ctx: {
               client: unknown;
               config: unknown;
+              projectConfig: ProjectData | undefined;
               store: Store;
             }) => AsyncIterable<unknown>)
           | undefined;
@@ -559,7 +562,12 @@ export async function Spectrum<
           continue;
         }
 
-        const providerEvents = producer({ client, config, store });
+        const providerEvents = producer({
+          client,
+          config,
+          projectConfig,
+          store,
+        });
         const annotatePlatform = async function* (): AsyncIterable<unknown> {
           for await (const value of providerEvents) {
             const annotated = await withSpan(

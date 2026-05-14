@@ -3,6 +3,7 @@ import type { Avatar } from "../../../content/avatar";
 import type { Rename } from "../../../content/rename";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
+import type { ProjectData } from "../../../utils/cloud";
 import type { ManagedStream } from "../../../utils/stream";
 import type { Background } from "../content/background";
 import type { IMessageMessage, RemoteClient } from "../types";
@@ -24,8 +25,9 @@ import {
 } from "./typing";
 
 export const messages = (
-  clients: RemoteClient[]
-): ManagedStream<IMessageMessage> => remoteMessages(clients);
+  clients: RemoteClient[],
+  projectConfig: ProjectData | undefined
+): ManagedStream<IMessageMessage> => remoteMessages(clients, projectConfig);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

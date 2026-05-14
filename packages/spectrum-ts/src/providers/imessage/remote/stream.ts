@@ -8,6 +8,7 @@ import {
   type PollEvent,
   ValidationError,
 } from "@photon-ai/advanced-imessage";
+import type { ProjectData } from "../../../utils/cloud";
 import {
   type CloseableAsyncIterable,
   type ResumableStreamItem,
@@ -20,6 +21,7 @@ import {
   type RemoteClient,
   SHARED_PHONE,
 } from "../types";
+import { getContactShareTracker } from "./contact-share";
 import { toInboundMessages } from "./inbound";
 import { cachePollEvent, toPollDeltaMessages } from "./polls";
 import { toReactionMessages } from "./reactions";
@@ -47,15 +49,29 @@ const isEventFromCurrentAccount = (
     event.actor?.address !== undefined &&
     event.actor.address === phone);
 
+/**
+ * Side effect fired when a non-self `message.received` event is converted.
+ * Receives the `chatGuid` of the inbound message. Implementations must be
+ * synchronous and never throw — typical use is fire-and-forget cache lookup
+ * + background API call.
+ */
+type OnInboundMessage = (chatGuid: string) => void;
+
 const toMessageItem = async (
   client: AdvancedIMessage,
   event: MessageEvent,
   phone: string,
-  cursor: string
+  cursor: string,
+  onInbound?: OnInboundMessage
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
   if (event.type === "message.received") {
     if (event.message.isFromMe) {
       return { cursor, id: event.message.guid, values: [] };
+    }
+
+    const inboundChatGuid = event.message.chatGuids?.[0];
+    if (inboundChatGuid) {
+      onInbound?.(inboundChatGuid);
     }
 
     const cache = getMessageCache(client);
@@ -189,17 +205,24 @@ const withClose = <T extends MessageEvent | PollEvent>(
 
 const messageStream = (
   client: AdvancedIMessage,
-  phone: string
+  phone: string,
+  onInbound?: OnInboundMessage
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
     isRetryableError: isRetryableIMessageStreamError,
     processLive: (event) =>
-      toMessageItem(client, event, phone, String(event.sequence)),
+      toMessageItem(client, event, phone, String(event.sequence), onInbound),
     processMissed: (event) =>
       event.type === "catchup.complete"
         ? Promise.resolve(toCatchUpCompleteItem(event))
-        : toMessageItem(client, event, phone, String(event.sequence)),
+        : toMessageItem(
+            client,
+            event,
+            phone,
+            String(event.sequence),
+            onInbound
+          ),
     subscribeLive: (cursor) =>
       withClose(client.messages.subscribeEvents(), cursor),
   });
@@ -225,18 +248,35 @@ const pollStream = (
 const clientStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  phone: string
+  phone: string,
+  onInbound?: OnInboundMessage
 ): ManagedStream<IMessageMessage> =>
   mergeStreams([
-    messageStream(client, phone),
+    messageStream(client, phone, onInbound),
     pollStream(client, pollCache, phone),
   ]);
 
 export const messages = (
-  clients: RemoteClient[]
+  clients: RemoteClient[],
+  projectConfig?: ProjectData | undefined
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
+  // When the project profile opts in to iMessage sync, push the bot's
+  // contact card to any chat we receive a new message in (24h dedupe per
+  // chat, fire-and-forget). The tracker is per `clients` array — same key
+  // shape as `getPollCache` — so multi-Spectrum setups don't cross-pollute.
+  const shareEnabled = projectConfig?.profile?.imessageSynced === true;
+  const tracker = shareEnabled ? getContactShareTracker(clients) : undefined;
   return mergeStreams(
-    clients.map((entry) => clientStream(entry.client, pollCache, entry.phone))
+    clients.map((entry) =>
+      clientStream(
+        entry.client,
+        pollCache,
+        entry.phone,
+        tracker
+          ? (chatGuid) => tracker.maybeShare(entry.client, chatGuid)
+          : undefined
+      )
+    )
   );
 };

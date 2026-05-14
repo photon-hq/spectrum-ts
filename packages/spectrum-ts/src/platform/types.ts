@@ -4,6 +4,7 @@ import type { Content } from "../content/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { User } from "../types/user";
+import type { ProjectData } from "../utils/cloud";
 import type { Store } from "../utils/store";
 import type { ManagedStream } from "../utils/stream";
 
@@ -132,6 +133,13 @@ export type EventProducer<
 > = (ctx: {
   client: NoInferClient<TClient>;
   config: TConfig;
+  /**
+   * Spectrum Cloud project metadata, fetched once at `Spectrum()` init.
+   * `undefined` when the instance was created without `projectId`/`projectSecret`
+   * (local-only setups). Providers read project-level toggles from
+   * `projectConfig.profile.<key>` — e.g. iMessage's `imessageSynced` flag.
+   */
+  projectConfig: ProjectData | undefined;
   store: Store;
 }) => AsyncIterable<TPayload>;
 

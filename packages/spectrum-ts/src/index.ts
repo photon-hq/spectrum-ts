@@ -76,6 +76,8 @@ export type {
   ImessageInfoData,
   PlatformStatus,
   PlatformsData,
+  ProjectData,
+  ProjectProfile,
   SharedTokenData,
   SlackTeamMeta,
   SlackTokenData,

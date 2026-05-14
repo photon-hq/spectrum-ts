@@ -6,8 +6,18 @@ import type { Content } from "../content/types";
 import { defineFusorPlatform } from "../platform/define";
 import { Spectrum } from "../spectrum";
 import type { Message } from "../types/message";
+import { cloud } from "../utils/cloud";
 import { FusorCore } from "./core";
 import { fusor } from "./index";
+
+// Spectrum() fetches project metadata up-front when projectId/projectSecret are
+// supplied. These tests use placeholder credentials, so stub the cloud call to
+// avoid a real network request (and a VALIDATION_ERROR) during construction.
+spyOn(cloud, "getProject").mockResolvedValue({
+  id: "proj",
+  name: "Test Project",
+  profile: {},
+});
 
 // A minimal fusor-mode provider standing in for a real platform (Slack-ish).
 // Its verify() parses the inner HTTP body to a typed payload; messages() turns

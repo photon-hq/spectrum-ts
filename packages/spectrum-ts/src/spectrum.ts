@@ -35,6 +35,7 @@ import type {
 import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
+import { cloud, type ProjectData } from "./utils/cloud";
 import { createStore, type Store } from "./utils/store";
 import {
   type AsyncQueue,
@@ -185,6 +186,26 @@ function bootstrapTelemetry(opts: {
 
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
+>(options: {
+  projectId: string;
+  projectSecret: string;
+  providers: [...Providers];
+  options?: SpectrumOptions;
+  telemetry?: boolean;
+  webhookSecret?: string;
+}): Promise<SpectrumInstance<Providers> & { readonly config: ProjectData }>;
+export async function Spectrum<
+  const Providers extends PlatformProviderConfig[],
+>(options: {
+  projectId?: never;
+  projectSecret?: never;
+  providers: [...Providers];
+  options?: SpectrumOptions;
+  telemetry?: boolean;
+  webhookSecret?: string;
+}): Promise<SpectrumInstance<Providers>>;
+export async function Spectrum<
+  const Providers extends PlatformProviderConfig[],
 >(
   options:
     | {
@@ -219,6 +240,14 @@ export async function Spectrum<
   const otelHandle = telemetry
     ? bootstrapTelemetry({ projectId, projectSecret })
     : undefined;
+
+  // Fetch project metadata up-front (before any provider createClient) so that
+  // bad credentials fail fast with no half-initialized providers to clean up,
+  // and so the resolved config can later be threaded into createClient ctx.
+  const projectConfig: ProjectData | undefined =
+    projectId !== undefined && projectSecret !== undefined
+      ? await cloud.getProject(projectId, projectSecret)
+      : undefined;
 
   const platformStates = new Map<string, PlatformRuntime>();
 
@@ -887,6 +916,7 @@ export async function Spectrum<
   const base = {
     __providers: providers,
     __internal: { platforms: platformStates },
+    config: projectConfig,
     messages,
     stop: stopOnce,
     webhook: handleWebhook as SpectrumInstance["webhook"],

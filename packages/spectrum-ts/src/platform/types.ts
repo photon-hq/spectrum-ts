@@ -191,7 +191,7 @@ type InferEventPayload<T> = T extends (ctx: never) => AsyncIterable<infer P>
 // Reserved names — event names that would collide with SpectrumInstance methods
 // ---------------------------------------------------------------------------
 
-type ReservedNames = "stop" | "send" | "__internal" | "__providers";
+type ReservedNames = "stop" | "send" | "config" | "__internal" | "__providers";
 
 // ---------------------------------------------------------------------------
 // PlatformDef — the full definition of a platform adapter

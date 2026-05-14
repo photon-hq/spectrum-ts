@@ -63,6 +63,25 @@ export interface FusorTokenData {
   token: string;
 }
 
+/**
+ * Per-project profile bag — a flexible record of project-level settings
+ * defined in Spectrum Cloud. Concrete fields depend on the project; consumers
+ * read them as `app.config.profile.<key>`.
+ */
+export interface ProjectProfile {
+  [key: string]: unknown;
+}
+
+/**
+ * The project record returned by `GET /projects/{projectId}/`. Populated on
+ * `app.config` when `Spectrum()` is called with `projectId` + `projectSecret`.
+ */
+export interface ProjectData {
+  id: string;
+  name: string;
+  profile: ProjectProfile;
+}
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -138,6 +157,14 @@ const basicAuth = (projectId: string, projectSecret: string): string =>
 // ---------------------------------------------------------------------------
 
 export const cloud = {
+  getProject: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<ProjectData> =>
+    request(`/projects/${projectId}/`, {
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
   getSubscription: (projectId: string): Promise<SubscriptionData> =>
     request(`/projects/${projectId}/billing/subscription`),
 

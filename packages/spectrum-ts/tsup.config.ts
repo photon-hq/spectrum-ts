@@ -9,6 +9,7 @@ export default defineConfig({
     "providers/terminal/index": "src/providers/terminal/index.ts",
     "providers/vercel-ai-sdk-ui/index":
       "src/providers/vercel-ai-sdk-ui/index.ts",
+    "providers/web-bridge/index": "src/providers/web-bridge/index.ts",
     "providers/whatsapp-business/index":
       "src/providers/whatsapp-business/index.ts",
   },

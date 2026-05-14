@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import z from "zod";
 import { asText } from "../content/text";
-import type { ProviderMessageRecord } from "../platform/build";
 import { definePlatform } from "../platform/define";
+import type { ProviderMessage } from "../platform/types";
 import { Spectrum } from "../spectrum";
 
 interface TestQueue<T> extends AsyncIterable<T> {
@@ -64,7 +64,13 @@ function createQueue<T>(): TestQueue<T> {
 describe("platform space metadata", () => {
   test("preserves provider-emitted space extras into provider send", async () => {
     let observedResponseSessionId: unknown;
-    const queue = createQueue<ProviderMessageRecord>();
+    const queue =
+      createQueue<
+        ProviderMessage<
+          { id: string },
+          { id: string; requestId: string; responseSessionId: string }
+        >
+      >();
     const platform = definePlatform("metadata-test", {
       config: z.object({}),
       lifecycle: {
@@ -85,7 +91,8 @@ describe("platform space metadata", () => {
         }
       },
       send: async ({ content, space }) => {
-        observedResponseSessionId = space.responseSessionId;
+        observedResponseSessionId = (space as { responseSessionId?: unknown })
+          .responseSessionId;
         return {
           id: "outbound-1",
           content,

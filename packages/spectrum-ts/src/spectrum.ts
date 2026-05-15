@@ -1,3 +1,9 @@
+import {
+  createLogger,
+  type OtelHandle,
+  setupOtel,
+  withSpan,
+} from "@photon-ai/otel";
 import z from "zod";
 import type { ContentInput } from "./content/types";
 import {
@@ -22,6 +28,13 @@ import {
   mergeStreams,
   stream,
 } from "./utils/stream";
+import { SPECTRUM_SDK_VERSION } from "./version";
+
+// Default OTLP endpoint used when `telemetry: true` opts into Photon. Standard
+// OTEL_EXPORTER_OTLP_* env vars always override this.
+const PHOTON_OTEL_ENDPOINT = "https://otel.spectrum.photon.codes";
+
+const lifecycleLog = createLogger("spectrum.lifecycle");
 
 const ignoreCleanupError = () => undefined;
 
@@ -84,14 +97,37 @@ const spectrumConfigSchema = z.union([
     projectSecret: z.string().min(1),
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
+    telemetry: z.boolean().optional(),
   }),
   z.object({
     projectId: z.undefined().optional(),
     projectSecret: z.undefined().optional(),
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
+    telemetry: z.boolean().optional(),
   }),
 ]);
+
+// ---------------------------------------------------------------------------
+// Telemetry bootstrap
+// ---------------------------------------------------------------------------
+
+function bootstrapTelemetry(opts: {
+  projectId?: string;
+  projectSecret?: string;
+}): OtelHandle | undefined {
+  const headers: Record<string, string> = {};
+  if (opts.projectId && opts.projectSecret) {
+    const credential = `${opts.projectId}:${opts.projectSecret}`;
+    headers.Authorization = `Basic ${btoa(credential)}`;
+  }
+  return setupOtel({
+    serviceName: "spectrum-ts",
+    serviceVersion: SPECTRUM_SDK_VERSION,
+    endpoint: PHOTON_OTEL_ENDPOINT,
+    headers,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Spectrum() factory
@@ -106,12 +142,14 @@ export async function Spectrum<
         projectSecret: string;
         providers: [...Providers];
         options?: SpectrumOptions;
+        telemetry?: boolean;
       }
     | {
         projectId?: never;
         projectSecret?: never;
         providers: [...Providers];
         options?: SpectrumOptions;
+        telemetry?: boolean;
       }
 ): Promise<SpectrumInstance<Providers>> {
   spectrumConfigSchema.parse(options);
@@ -121,8 +159,13 @@ export async function Spectrum<
     projectSecret,
     providers,
     options: runtimeOptions,
+    telemetry,
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
+
+  const otelHandle = telemetry
+    ? bootstrapTelemetry({ projectId, projectSecret })
+    : undefined;
 
   const platformStates = new Map<string, PlatformRuntime>();
 
@@ -177,32 +220,46 @@ export async function Spectrum<
       [Space, InboundMessage]
     > {
       for await (const msg of raw) {
-        const spaceRef = {
-          ...msg.space,
-          __platform: definition.name,
-        };
-        const actionCtx = { space: spaceRef, client, config, store };
-        const space = buildSpace({
-          spaceRef,
-          extras: {},
-          actionCtx,
-          definition,
-          client,
-          config,
-          store,
-        });
-        const normalizedMessage = wrapProviderMessage(
-          msg,
+        const built = await withSpan(
+          "spectrum.message.receive",
           {
-            client,
-            config,
-            definition,
-            space,
-            spaceRef,
-            store,
+            "spectrum.provider": definition.name,
+            "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
+            "spectrum.message.id": msg.id,
+            "spectrum.space.id": msg.space?.id,
+            "spectrum.message.content.type": msg.content?.type,
           },
-          "inbound"
+          () => {
+            const spaceRef = {
+              ...msg.space,
+              __platform: definition.name,
+            };
+            const actionCtx = { space: spaceRef, client, config, store };
+            const space = buildSpace({
+              spaceRef,
+              extras: {},
+              actionCtx,
+              definition,
+              client,
+              config,
+              store,
+            });
+            const normalizedMessage = wrapProviderMessage(
+              msg,
+              {
+                client,
+                config,
+                definition,
+                space,
+                spaceRef,
+                store,
+              },
+              "inbound"
+            );
+            return { space, normalizedMessage };
+          }
         );
+        const { space, normalizedMessage } = built;
         if (flattenGroups && normalizedMessage.content.type === "group") {
           for (const item of normalizedMessage.content.items) {
             // Group items in the inbound flow are wrapped via wrapProviderMessage,
@@ -242,31 +299,55 @@ export async function Spectrum<
   // Initialize all provider clients eagerly. Each runtime exposes
   // `subscribeMessages()` that returns a fresh fanout consumer of the
   // platform's single upstream message stream.
-  for (const provider of providers) {
-    const providerConfig = provider as PlatformProviderConfig;
-    const def = providerConfig.__definition;
-    const userConfig = def.config.parse(providerConfig.config);
-    const store = createStore();
+  await withSpan(
+    "spectrum.init",
+    {
+      "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
+      "spectrum.provider_count": providers.length,
+      "spectrum.flatten_groups": flattenGroups,
+    },
+    async () => {
+      for (const provider of providers) {
+        const providerConfig = provider as PlatformProviderConfig;
+        const def = providerConfig.__definition;
+        const userConfig = def.config.parse(providerConfig.config);
+        const store = createStore();
 
-    const client = await def.lifecycle.createClient({
-      config: userConfig,
-      projectId,
-      projectSecret,
-      store,
-    });
+        const client = await withSpan(
+          "spectrum.provider.create_client",
+          {
+            "spectrum.provider": def.name,
+            "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
+          },
+          () =>
+            def.lifecycle.createClient({
+              config: userConfig,
+              projectId,
+              projectSecret,
+              store,
+            })
+        );
 
-    const state = {
-      client,
-      config: userConfig,
-      definition: def,
-      store,
-    };
+        const state = {
+          client,
+          config: userConfig,
+          definition: def,
+          store,
+        };
 
-    platformStates.set(def.name, {
-      ...state,
-      subscribeMessages: () => getOrCreateMessageBroadcast(state).subscribe(),
-    });
-  }
+        platformStates.set(def.name, {
+          ...state,
+          subscribeMessages: () =>
+            getOrCreateMessageBroadcast(state).subscribe(),
+        });
+      }
+    }
+  );
+
+  lifecycleLog.info("Spectrum started", {
+    providerCount: providers.length,
+    telemetry: telemetry === true,
+  });
 
   const createMessagesStream = (): ManagedStream<[Space, InboundMessage]> =>
     stream<[Space, InboundMessage]>((emit, end) => {
@@ -360,16 +441,35 @@ export async function Spectrum<
     process.off("SIGTERM", handleSignal);
 
     await Promise.allSettled(streamShutdowns);
-    const clientShutdowns = Array.from(platformStates.values(), (state) =>
-      state.definition.lifecycle.destroyClient?.({
-        client: state.client,
-        store: state.store,
-      })
-    ).filter((shutdown): shutdown is Promise<void> => shutdown !== undefined);
+    const clientShutdowns: Promise<void>[] = [];
+    for (const state of platformStates.values()) {
+      const destroy = state.definition.lifecycle.destroyClient;
+      if (!destroy) {
+        continue;
+      }
+      clientShutdowns.push(
+        withSpan(
+          "spectrum.provider.destroy_client",
+          {
+            "spectrum.provider": state.definition.name,
+            "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
+          },
+          () =>
+            destroy({
+              client: state.client,
+              store: state.store,
+            })
+        )
+      );
+    }
     await Promise.allSettled(clientShutdowns);
     customEventStreams.clear();
     messageBroadcasters.clear();
     platformStates.clear();
+    lifecycleLog.info("Spectrum stopped");
+    if (otelHandle) {
+      await otelHandle.shutdown();
+    }
   };
 
   const handleSignal = () => {

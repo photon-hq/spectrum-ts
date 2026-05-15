@@ -1,0 +1,14 @@
+{
+  "name": "@spectrum-ts/example-progressive-provider-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run web-only.ts",
+    "start:web-imessage": "bun run web-imessage.ts",
+    "start:web-imessage-terminal": "bun run web-imessage-terminal.ts",
+    "start:web-only": "bun run web-only.ts"
+  },
+  "dependencies": {
+    "spectrum-ts": "workspace:*"
+  }
+}

@@ -1,0 +1,172 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  color: #1f2933;
+  background: #f4f7f5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.header {
+  max-width: 760px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #53665b;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+h1 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.1;
+  color: #18221d;
+}
+
+.header p:last-child {
+  max-width: 680px;
+  margin: 12px 0 0;
+  line-height: 1.6;
+  color: #52605a;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 320px;
+  padding: 20px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #d5ded8;
+  border-radius: 8px;
+}
+
+.empty {
+  margin: auto;
+  color: #66746d;
+}
+
+.message {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  max-width: 860px;
+  padding: 14px;
+  background: #fbfcfb;
+  border: 1px solid #dde5e0;
+  border-radius: 8px;
+}
+
+.message[data-role="assistant"] {
+  background: #f2faf4;
+  border-color: #b9d5c4;
+}
+
+.role {
+  font-size: 13px;
+  font-weight: 700;
+  color: #52605a;
+  text-transform: capitalize;
+}
+
+.content {
+  min-width: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.error {
+  margin: 0;
+  color: #9b1c1c;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.composer input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  color: #18221d;
+  background: #ffffff;
+  border: 1px solid #c8d3cc;
+  border-radius: 8px;
+}
+
+.composer input:focus {
+  outline: 2px solid #2f8a55;
+  outline-offset: 2px;
+}
+
+.composer button {
+  min-width: 96px;
+  min-height: 48px;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  background: #216e43;
+  border: 0;
+  border-radius: 8px;
+}
+
+.composer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 18px;
+  }
+
+  h1 {
+    font-size: 30px;
+  }
+
+  .message,
+  .composer {
+    grid-template-columns: 1fr;
+  }
+}

@@ -32,7 +32,7 @@ import { SPECTRUM_SDK_VERSION } from "./version";
 
 // Default OTLP endpoint used when `telemetry: true` opts into Photon. Standard
 // OTEL_EXPORTER_OTLP_* env vars always override this.
-const PHOTON_OTEL_ENDPOINT = "https://otel.spectrum.photon.codes";
+const PHOTON_OTEL_ENDPOINT = "https://otlp.photon.codes";
 
 const lifecycleLog = createLogger("spectrum.lifecycle");
 
@@ -121,11 +121,16 @@ function bootstrapTelemetry(opts: {
     const credential = `${opts.projectId}:${opts.projectSecret}`;
     headers.Authorization = `Basic ${btoa(credential)}`;
   }
+  const resourceAttributes: Record<string, string> = {};
+  if (opts.projectId) {
+    resourceAttributes["spectrum.project_id"] = opts.projectId;
+  }
   return setupOtel({
     serviceName: "spectrum-ts",
     serviceVersion: SPECTRUM_SDK_VERSION,
     endpoint: PHOTON_OTEL_ENDPOINT,
     headers,
+    resourceAttributes,
   });
 }
 

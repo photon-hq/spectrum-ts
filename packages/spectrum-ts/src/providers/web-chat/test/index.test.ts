@@ -167,4 +167,19 @@ describe("webChat provider", () => {
       await harness.cleanup();
     }
   });
+
+  test("releases the HTTP port when the Spectrum app stops", async () => {
+    const port = await availablePort();
+    const app = await Spectrum({
+      providers: [webChat.config({ server: { port } })],
+    });
+
+    await app.stop();
+
+    const second = await Spectrum({
+      providers: [webChat.config({ server: { port } })],
+    });
+
+    await second.stop();
+  });
 });

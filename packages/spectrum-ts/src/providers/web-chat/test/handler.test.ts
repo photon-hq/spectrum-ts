@@ -93,4 +93,45 @@ describe("createWebChatHandler", () => {
       received.map((message) => (message as { space: { id: string } }).space.id)
     ).toEqual(["web:user-a:conversation-1", "web:user-b:conversation-1"]);
   });
+
+  test("rejects duplicate idempotency keys for the same trusted user", async () => {
+    const processed = new Set<string>();
+    const handler = createWebChatHandler({
+      enqueue: async () => undefined,
+      hasProcessed: (key) => processed.has(key),
+      markProcessed: (key) => processed.add(key),
+      resolveUser: async () => ({ id: "user-1" }),
+    });
+
+    const first = await handler(request(validBody));
+    const second = await handler(request(validBody));
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      error: { type: "duplicate_submitted_turn" },
+    });
+  });
+
+  test("does not let metadata override trusted user identity", async () => {
+    const received: unknown[] = [];
+    const handler = createWebChatHandler({
+      enqueue: async (message) => {
+        received.push(message);
+      },
+      resolveUser: async () => ({ id: "trusted-user" }),
+    });
+
+    await handler(
+      request({
+        ...validBody,
+        metadata: { userId: "attacker-controlled-user" },
+      })
+    );
+
+    expect(received[0]).toMatchObject({
+      sender: { id: "trusted-user" },
+      space: { id: "web:trusted-user:conversation-1" },
+    });
+  });
 });

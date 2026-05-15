@@ -2,6 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: {
+    "adapters/ai-sdk/index": "src/adapters/ai-sdk/index.ts",
     "adapters/vercel-ai-sdk/index": "src/adapters/vercel-ai-sdk/index.ts",
     index: "src/index.ts",
     "providers/index": "src/providers/index.ts",

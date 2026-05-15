@@ -311,6 +311,7 @@ describe("createSpectrumWorkerBridge", () => {
       | {
           messageId: string;
           metadata: unknown;
+          requestId: string;
           responseSessionId: string;
           spaceId: string;
           text: string;

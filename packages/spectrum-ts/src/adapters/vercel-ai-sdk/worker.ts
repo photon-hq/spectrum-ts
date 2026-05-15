@@ -1,6 +1,7 @@
 import {
   defaultChatUser,
   isSpectrumChatUser,
+  type ParsedChatRequest,
   parseChatRequest,
   spaceIdForUser,
 } from "./request";
@@ -33,15 +34,16 @@ interface WorkerBridgeRequest {
   userId: string;
 }
 
+function jsonError(message: string, status: number): Response {
+  return Response.json({ error: message }, { status });
+}
+
 function badRequest(message: string): Response {
-  return Response.json({ error: message }, { status: BAD_REQUEST_STATUS });
+  return jsonError(message, BAD_REQUEST_STATUS);
 }
 
 function internalServerError(message: string): Response {
-  return Response.json(
-    { error: message },
-    { status: INTERNAL_SERVER_ERROR_STATUS }
-  );
+  return jsonError(message, INTERNAL_SERVER_ERROR_STATUS);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -56,10 +58,7 @@ async function resolveUser<User extends SpectrumChatUser>(
     ? await options.getUser(request)
     : (defaultChatUser() as User);
   if (user === null) {
-    return Response.json(
-      { error: "Unauthorized." },
-      { status: UNAUTHORIZED_STATUS }
-    );
+    return jsonError("Unauthorized.", UNAUTHORIZED_STATUS);
   }
   if (!isSpectrumChatUser(user)) {
     return internalServerError(
@@ -77,6 +76,10 @@ async function parseRequestBody(request: Request): Promise<Response | unknown> {
   }
 }
 
+/**
+ * Normalizes one NDJSON line from the worker into the small bridge protocol the
+ * route understands before it writes AI SDK UI stream parts.
+ */
 function parseBridgeEvent(value: unknown): BridgeEvent {
   if (!isRecord(value) || typeof value.type !== "string") {
     throw new Error("Worker stream emitted a malformed bridge event.");
@@ -106,6 +109,10 @@ function parseBridgeEvent(value: unknown): BridgeEvent {
   throw new Error(`Worker stream emitted unsupported event "${value.type}".`);
 }
 
+/**
+ * Reads newline-delimited JSON from the worker response and yields validated
+ * bridge events, preserving partial lines across stream chunks.
+ */
 async function* readNdjsonEvents(
   body: ReadableStream<Uint8Array>
 ): AsyncIterable<BridgeEvent> {
@@ -141,7 +148,12 @@ async function* readNdjsonEvents(
   }
 }
 
-function timeoutSignal(timeoutMs: number, requestSignal: AbortSignal) {
+/**
+ * Combines the browser request abort signal with the bridge timeout. The route
+ * owns timeoutMs because the worker may be long-running, but each web request
+ * still needs a bounded wait for its streamed response.
+ */
+function createTimeoutSignal(timeoutMs: number, requestSignal: AbortSignal) {
   const controller = new AbortController();
   let timedOut = false;
   const abortFromRequest = () => controller.abort(requestSignal.reason);
@@ -164,18 +176,15 @@ function timeoutSignal(timeoutMs: number, requestSignal: AbortSignal) {
 
 function workerFetchErrorResponse(
   request: Request,
-  timeout: ReturnType<typeof timeoutSignal>
+  timeout: ReturnType<typeof createTimeoutSignal>
 ): Response | undefined {
   if (request.signal.aborted) {
-    return Response.json(
-      { error: "Request was aborted." },
-      { status: CLIENT_CLOSED_REQUEST_STATUS }
-    );
+    return jsonError("Request was aborted.", CLIENT_CLOSED_REQUEST_STATUS);
   }
   if (timeout.timedOut()) {
-    return Response.json(
-      { error: "Worker bridge request timed out." },
-      { status: GATEWAY_TIMEOUT_STATUS }
+    return jsonError(
+      "Worker bridge request timed out.",
+      GATEWAY_TIMEOUT_STATUS
     );
   }
 }
@@ -199,6 +208,33 @@ async function fetchWorkerResponse(options: {
   });
 }
 
+/**
+ * Builds the request sent to the long-running Spectrum worker. `spaceId`
+ * identifies the durable conversation space, while `responseSessionId`
+ * identifies this one browser request awaiting an AI SDK response stream.
+ */
+function createWorkerPayload(options: {
+  bridgeRequestId: string;
+  parsed: ParsedChatRequest;
+  responseSessionId: string;
+  user: SpectrumChatUser;
+}): WorkerBridgeRequest {
+  const { bridgeRequestId, parsed, responseSessionId, user } = options;
+  return {
+    messageId: parsed.requestId,
+    metadata: parsed.metadata,
+    requestId: bridgeRequestId,
+    responseSessionId,
+    spaceId: spaceIdForUser(user, parsed.conversationId),
+    text: parsed.text,
+    userId: user.id,
+  };
+}
+
+/**
+ * Converts one worker bridge event into the corresponding AI SDK UI stream
+ * part, and rejects events that belong to another in-flight bridge request.
+ */
 function writeBridgeEvent(options: {
   bridgeRequestId: string;
   event: BridgeEvent;
@@ -227,12 +263,16 @@ function writeBridgeEvent(options: {
   throw new Error(event.message);
 }
 
+/**
+ * Pumps worker NDJSON events into the AI SDK writer until the worker stream
+ * ends or the browser request is aborted.
+ */
 async function streamWorkerEvents(options: {
   bridgeRequestId: string;
   body: ReadableStream<Uint8Array>;
   requestSignal: AbortSignal;
   textPartId: string;
-  timeout: ReturnType<typeof timeoutSignal>;
+  timeout: ReturnType<typeof createTimeoutSignal>;
   writer: { write(part: unknown): void };
 }): Promise<void> {
   const { body, requestSignal, timeout, ...writeOptions } = options;
@@ -249,13 +289,53 @@ async function streamWorkerEvents(options: {
 }
 
 /**
- * Creates a Next.js-compatible `POST` handler that forwards one useChat request
- * to a separate Spectrum worker over NDJSON HTTP streaming.
+ * Wraps the worker's NDJSON response body as an AI SDK UI message stream so a
+ * normal `useChat` client can consume the worker reply without knowing about
+ * the bridge protocol.
+ */
+async function createAiSdkResponseFromWorker(options: {
+  body: ReadableStream<Uint8Array>;
+  bridgeRequestId: string;
+  requestSignal: AbortSignal;
+  timeout: ReturnType<typeof createTimeoutSignal>;
+}): Promise<Response> {
+  const { createUIMessageStream, createUIMessageStreamResponse } =
+    await loadAiRuntime();
+  const textPartId = `${options.bridgeRequestId}-text`;
+  const stream = createUIMessageStream({
+    execute: ({ writer }) =>
+      streamWorkerEvents({
+        body: options.body,
+        bridgeRequestId: options.bridgeRequestId,
+        requestSignal: options.requestSignal,
+        textPartId,
+        timeout: options.timeout,
+        writer,
+      }),
+  });
+
+  return createUIMessageStreamResponse({ stream });
+}
+
+/**
+ * Creates a Next.js-compatible `POST` handler for browser `useChat` requests
+ * and forwards each latest user turn to a separate Spectrum worker over HTTP.
  *
- * The handler is intentionally request-scoped: it never imports `Spectrum()`,
- * registers providers, or starts persistent listeners. The long-running worker
- * owns `app.messages` and sends replies back through request-specific bridge
- * sessions.
+ * `workerUrl` points at the worker's web bridge endpoint. `apiKey`, when set,
+ * is service-to-service bearer auth for that worker request. `getUser` resolves
+ * the app user at the route boundary, and `timeoutMs` bounds how long this
+ * route waits for the worker's streamed reply.
+ *
+ * The handler is intentionally request-scoped: it parses the AI SDK request,
+ * sends a worker payload for the current turn, then converts the worker's
+ * NDJSON bridge events back into AI SDK UI stream chunks. It never imports
+ * `Spectrum()`, registers providers, or starts persistent listeners.
+ *
+ * Flow:
+ *  1. identify the web user with getUser
+ *  2. extract the latest user text from the useChat request
+ *  3. forward that message to the long-running Spectrum worker
+ *  4. stream the worker's response back to useChat
  */
 export function createSpectrumWorkerBridge<
   User extends SpectrumChatUser = SpectrumChatUser,
@@ -264,45 +344,48 @@ export function createSpectrumWorkerBridge<
 ): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
     if (request.signal.aborted) {
-      return Response.json(
-        { error: "Request was aborted." },
-        { status: CLIENT_CLOSED_REQUEST_STATUS }
-      );
+      return jsonError("Request was aborted.", CLIENT_CLOSED_REQUEST_STATUS);
     }
 
+    // 1. Resolve app user identity at the web boundary. This keeps browser
+    // auth in the Next.js route and lets the bridge build user-scoped spaces.
     const user = await resolveUser(options, request);
     if (user instanceof Response) {
       return user;
     }
 
+    // 2. Read the AI SDK useChat request body from the browser.
     const body = await parseRequestBody(request);
     if (body instanceof Response) {
       return body;
     }
 
+    // 3. Extract the current user turn. useChat sends full history, but the
+    // worker bridge forwards only the latest user text for this request.
     const parsed = parseChatRequest(body);
     if ("error" in parsed) {
       return badRequest(parsed.error);
     }
 
-    const timeout = timeoutSignal(
+    const timeout = createTimeoutSignal(
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       request.signal
     );
     const bridgeRequestId = crypto.randomUUID();
     const responseSessionId = crypto.randomUUID();
-    const workerPayload: WorkerBridgeRequest = {
-      messageId: parsed.requestId,
-      metadata: parsed.metadata,
-      requestId: bridgeRequestId,
+    // 4. Build the worker payload. `spaceId` is the logical web conversation;
+    // `responseSessionId` is this one browser request waiting for a reply.
+    const workerPayload = createWorkerPayload({
+      bridgeRequestId,
+      parsed,
       responseSessionId,
-      spaceId: spaceIdForUser(user, parsed.conversationId),
-      text: parsed.text,
-      userId: user.id,
-    };
+      user,
+    });
 
     let workerResponse: Response;
     try {
+      // 5. Forward to the long-running Spectrum worker's webBridge endpoint.
+      // apiKey is service-to-service auth between this route and the worker.
       workerResponse = await fetchWorkerResponse({
         apiKey: options.apiKey,
         payload: workerPayload,
@@ -320,10 +403,7 @@ export function createSpectrumWorkerBridge<
 
     if (!workerResponse.ok) {
       timeout.cleanup();
-      return Response.json(
-        { error: "Worker bridge request failed." },
-        { status: workerResponse.status }
-      );
+      return jsonError("Worker bridge request failed.", workerResponse.status);
     }
     const workerBody = workerResponse.body;
     if (!workerBody) {
@@ -333,21 +413,13 @@ export function createSpectrumWorkerBridge<
       );
     }
 
-    const { createUIMessageStream, createUIMessageStreamResponse } =
-      await loadAiRuntime();
-    const textPartId = `${bridgeRequestId}-text`;
-    const stream = createUIMessageStream({
-      execute: ({ writer }) =>
-        streamWorkerEvents({
-          body: workerBody,
-          bridgeRequestId,
-          requestSignal: request.signal,
-          textPartId,
-          timeout,
-          writer,
-        }),
+    // 6. Convert the worker's NDJSON response events back into AI SDK UI
+    // stream chunks so the browser's useChat client can render the reply.
+    return await createAiSdkResponseFromWorker({
+      body: workerBody,
+      bridgeRequestId,
+      requestSignal: request.signal,
+      timeout,
     });
-
-    return createUIMessageStreamResponse({ stream });
   };
 }

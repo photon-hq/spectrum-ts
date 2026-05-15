@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { asText } from "../../content/text";
-import type { AnyPlatformDef, PlatformRuntime } from "../../platform/types";
-import { Spectrum } from "../../spectrum";
-import type { Store } from "../../utils/store";
-import { vercelAiSdkUI } from "./index";
+import { asText } from "../../../content/text";
+import type { AnyPlatformDef, PlatformRuntime } from "../../../platform/types";
+import { Spectrum } from "../../../spectrum";
+import type { Store } from "../../../utils/store";
+import { vercelAiSdkUI } from "../index";
 
 // These tests exercise the provider directly rather than spinning up a
 // framework app. That keeps Phase 1 focused on the Spectrum/useChat bridge.

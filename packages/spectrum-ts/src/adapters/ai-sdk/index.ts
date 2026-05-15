@@ -130,3 +130,73 @@ export class SpectrumChatTransport<UI_MESSAGE extends UIMessage = UIMessage>
     return this.#transport.reconnectToStream(options);
   }
 }
+
+export interface AiSdkMessagesFromSpaceOptions {
+  includeLatest: {
+    content: { text: string; type: "text" };
+    id: string;
+    role?: UIMessage["role"];
+  };
+}
+
+/**
+ * Minimal migration helper for developers moving AI SDK route logic into a
+ * Spectrum `app.messages` loop.
+ *
+ * MVP behavior is intentionally text-only: it maps the current Spectrum
+ * message into AI SDK `UIMessage` shape without making AI SDK the canonical
+ * Spectrum message model.
+ */
+export async function aiSdkMessagesFromSpace(
+  _space: unknown,
+  options: AiSdkMessagesFromSpaceOptions
+): Promise<UIMessage[]> {
+  return [
+    {
+      id: options.includeLatest.id,
+      parts: [{ text: options.includeLatest.content.text, type: "text" }],
+      role: options.includeLatest.role ?? "user",
+    },
+  ];
+}
+
+type TextToSpaceOptions =
+  | {
+      stream: ReadableStream<string>;
+    }
+  | {
+      text: string;
+    };
+
+/**
+ * Sends AI text output back through a Spectrum space.
+ *
+ * For the MVP this coalesces streamed text into one `space.send(...)` call so
+ * docs do not teach token-by-token sends as the public Spectrum abstraction.
+ */
+export async function streamTextToSpace(
+  space: { send: (content: string) => Promise<unknown> | unknown },
+  options: TextToSpaceOptions
+): Promise<void> {
+  if ("text" in options) {
+    await space.send(options.text);
+    return;
+  }
+
+  const reader = options.stream.getReader();
+  let text = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      text += value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  await space.send(text);
+}

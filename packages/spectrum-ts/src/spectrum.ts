@@ -28,6 +28,7 @@ import {
   mergeStreams,
   stream,
 } from "./utils/stream";
+import { contentAttrs, senderAttrs } from "./utils/telemetry";
 import { SPECTRUM_SDK_VERSION } from "./version";
 
 // Default OTLP endpoint used when `telemetry: true` opts into Photon. Standard
@@ -229,10 +230,10 @@ export async function Spectrum<
           "spectrum.message.receive",
           {
             "spectrum.provider": definition.name,
-            "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
             "spectrum.message.id": msg.id,
             "spectrum.space.id": msg.space?.id,
-            "spectrum.message.content.type": msg.content?.type,
+            ...contentAttrs(msg.content),
+            ...senderAttrs(msg.sender),
           },
           () => {
             const spaceRef = {
@@ -307,7 +308,6 @@ export async function Spectrum<
   await withSpan(
     "spectrum.init",
     {
-      "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
       "spectrum.provider_count": providers.length,
       "spectrum.flatten_groups": flattenGroups,
     },
@@ -322,7 +322,6 @@ export async function Spectrum<
           "spectrum.provider.create_client",
           {
             "spectrum.provider": def.name,
-            "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
           },
           () =>
             def.lifecycle.createClient({
@@ -349,8 +348,13 @@ export async function Spectrum<
     }
   );
 
+  const providerNames = providers
+    .map((p) => (p as PlatformProviderConfig).__definition.name)
+    .join(",");
+
   lifecycleLog.info("Spectrum started", {
     providerCount: providers.length,
+    providers: providerNames,
     telemetry: telemetry === true,
   });
 
@@ -398,7 +402,15 @@ export async function Spectrum<
         const providerEvents = producer({ client, config, store });
         const annotatePlatform = async function* (): AsyncIterable<unknown> {
           for await (const value of providerEvents) {
-            yield { ...(value as object), platform: definition.name };
+            const annotated = await withSpan(
+              "spectrum.event",
+              {
+                "spectrum.provider": definition.name,
+                "spectrum.event.name": eventName,
+              },
+              () => ({ ...(value as object), platform: definition.name })
+            );
+            yield annotated;
           }
         };
 
@@ -457,7 +469,6 @@ export async function Spectrum<
           "spectrum.provider.destroy_client",
           {
             "spectrum.provider": state.definition.name,
-            "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
           },
           () =>
             destroy({
@@ -471,7 +482,7 @@ export async function Spectrum<
     customEventStreams.clear();
     messageBroadcasters.clear();
     platformStates.clear();
-    lifecycleLog.info("Spectrum stopped");
+    lifecycleLog.info("Spectrum stopped", { providers: providerNames });
     if (otelHandle) {
       await otelHandle.shutdown();
     }

@@ -1,9 +1,9 @@
-import { sanitizeEmail, sanitizePhone, withSpan } from "@photon-ai/otel";
+import { withSpan } from "@photon-ai/otel";
 import type z from "zod";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import { classifyIdentifier as classifySingle } from "../utils/identifier";
 import type { Store } from "../utils/store";
-import { SPECTRUM_SDK_VERSION } from "../version";
 import { buildSpace } from "./build";
 import type {
   AnyPlatformDef,
@@ -22,10 +22,7 @@ import type {
   SpectrumLike,
 } from "./types";
 
-const PHONE_LIKE = /^\+?[\d\s()\-.]{7,}$/;
-const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function classifyIdentifier(args: unknown[]): {
+function classifySpaceIdentifier(args: unknown[]): {
   kind: "phone" | "email" | "group" | "unknown";
   identifier?: string;
 } {
@@ -37,13 +34,11 @@ function classifyIdentifier(args: unknown[]): {
   if (!s) {
     return { kind: "unknown" };
   }
-  if (EMAIL_LIKE.test(s)) {
-    return { kind: "email", identifier: sanitizeEmail(s) };
+  const { kind, identifier } = classifySingle(s);
+  if (kind === "unknown") {
+    return { kind: "unknown" };
   }
-  if (PHONE_LIKE.test(s) && s.replace(/\D/g, "").length >= 7) {
-    return { kind: "phone", identifier: sanitizePhone(s) };
-  }
-  return { kind: "unknown" };
+  return { kind, identifier };
 }
 
 type NoInferValue<T> = [T][T extends unknown ? 0 : never];
@@ -136,12 +131,11 @@ function createPlatformInstance<
     },
 
     async space(...args: unknown[]) {
-      const { kind, identifier } = classifyIdentifier(args);
+      const { kind, identifier } = classifySpaceIdentifier(args);
       return withSpan(
         "spectrum.space.resolve",
         {
           "spectrum.provider": def.name,
-          "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
           "spectrum.space.identifier_kind": kind,
           "spectrum.space.identifier": identifier,
         },

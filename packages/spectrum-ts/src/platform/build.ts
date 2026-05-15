@@ -13,7 +13,7 @@ import type {
 import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
 import type { Store } from "../utils/store";
-import { SPECTRUM_SDK_VERSION } from "../version";
+import { contentAttrs } from "../utils/telemetry";
 import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
 
 const platformLog = createLogger("spectrum.platform");
@@ -353,10 +353,9 @@ export function buildSpace(params: BuildSpaceParams): Space {
       "spectrum.message.send",
       {
         "spectrum.provider": definition.name,
-        "spectrum.sdk.version": SPECTRUM_SDK_VERSION,
         "spectrum.space.id": (spaceRef as { id?: string }).id,
-        "spectrum.message.content.type": item.type,
         "spectrum.message.fire_and_forget": isFireAndForget(item),
+        ...contentAttrs(item),
       },
       async () => {
         let raw: ProviderMessageRecord | undefined;
@@ -425,29 +424,39 @@ export function buildSpace(params: BuildSpaceParams): Space {
       );
       return;
     }
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      raw = (await getMessage({
-        space: spaceRef,
-        messageId: id,
-        client,
-        config,
-        store,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
+    return withSpan(
+      "spectrum.message.get",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+        "spectrum.message.id": id,
+      },
+      async () => {
+        let raw: ProviderMessageRecord | undefined;
+        try {
+          raw = (await getMessage({
+            space: spaceRef,
+            messageId: id,
+            client,
+            config,
+            store,
+          })) as ProviderMessageRecord | undefined;
+        } catch (err) {
+          if (err instanceof UnsupportedError) {
+            warnUnsupported(err, definition.name);
+            return;
+          }
+          throw err;
+        }
+        if (!raw) {
+          return;
+        }
+        return wrapProviderMessage(
+          raw,
+          { client, config, definition, space, spaceRef, store },
+          "inbound"
+        );
       }
-      throw err;
-    }
-    if (!raw) {
-      return;
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef, store },
-      "inbound"
     );
   }
 

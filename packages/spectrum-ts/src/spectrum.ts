@@ -5,6 +5,7 @@ import {
   withSpan,
 } from "@photon-ai/otel";
 import z from "zod";
+import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
 import {
   buildSpace,
@@ -29,7 +30,6 @@ import {
   stream,
 } from "./utils/stream";
 import { contentAttrs, senderAttrs } from "./utils/telemetry";
-import { SPECTRUM_SDK_VERSION } from "./version";
 
 // Default OTLP endpoint used when `telemetry: true` opts into Photon. Standard
 // OTEL_EXPORTER_OTLP_* env vars always override this.
@@ -122,7 +122,9 @@ function bootstrapTelemetry(opts: {
     const credential = `${opts.projectId}:${opts.projectSecret}`;
     headers.Authorization = `Basic ${btoa(credential)}`;
   }
-  const resourceAttributes: Record<string, string> = {};
+  const resourceAttributes: Record<string, string> = {
+    "deployment.environment": process.env.DEPLOYMENT_ENV ?? SPECTRUM_BUILD_ENV,
+  };
   if (opts.projectId) {
     resourceAttributes["spectrum.project_id"] = opts.projectId;
   }

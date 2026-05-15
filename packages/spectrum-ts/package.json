@@ -45,7 +45,7 @@
     "build": "bun scripts/prepare-package.ts && tsup",
     "dev": "tsup --watch",
     "generate:emoji": "bun scripts/generate-emoji.ts",
-    "prepack": "bun run build"
+    "prepack": "bun scripts/prepare-package.ts --publish && tsup && bun scripts/prepare-package.ts"
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.7.0",

@@ -1,3 +1,4 @@
+import { createLogger, withSpan } from "@photon-ai/otel";
 import { edit as editContent } from "../content/edit";
 import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
@@ -12,7 +13,10 @@ import type {
 import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
 import type { Store } from "../utils/store";
+import { contentAttrs } from "../utils/telemetry";
 import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
+
+const platformLog = createLogger("spectrum.platform");
 
 export type { ProviderMessageRecord } from "./types";
 
@@ -77,9 +81,14 @@ const warnUnsupported = (err: UnsupportedError, fallbackPlatform: string) => {
       ? `content type "${err.contentType ?? "unknown"}"`
       : `action "${err.action ?? "unknown"}"`;
   const detail = err.detail ? `: ${err.detail}` : "";
-  const body = `[spectrum-ts] ${platform} does not support ${subject}${detail}; skipping.`;
-  console.warn(
-    supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
+  platformLog.warn(
+    `${platform} does not support ${subject}${detail}; skipping.`,
+    {
+      "spectrum.provider": platform,
+      "spectrum.unsupported.kind": err.kind,
+      "spectrum.unsupported.content_type": err.contentType,
+      "spectrum.unsupported.action": err.action,
+    }
   );
 };
 
@@ -340,46 +349,52 @@ export function buildSpace(params: BuildSpaceParams): Space {
   async function dispatchSend(
     item: Content
   ): Promise<OutboundMessage | undefined> {
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      const platformError = unsupportedPlatformContentError(
-        item,
-        definition.name
-      );
-      if (platformError) {
-        throw platformError;
+    return withSpan(
+      "spectrum.message.send",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+        "spectrum.message.fire_and_forget": isFireAndForget(item),
+        ...contentAttrs(item),
+      },
+      async () => {
+        let raw: ProviderMessageRecord | undefined;
+        try {
+          const platformError = unsupportedPlatformContentError(
+            item,
+            definition.name
+          );
+          if (platformError) {
+            throw platformError;
+          }
+          raw = (await definition.send({
+            ...actionCtx,
+            content: item,
+          })) as ProviderMessageRecord | undefined;
+        } catch (err) {
+          if (err instanceof UnsupportedError) {
+            warnUnsupported(err, definition.name);
+            return;
+          }
+          throw err;
+        }
+        if (!raw?.id) {
+          // Reactions, typing indicators, and edits are fire-and-forget control
+          // signals — providers may return `void` from `send` for them. Every
+          // other content type must produce a message id.
+          if (isFireAndForget(item)) {
+            return;
+          }
+          throw new Error(
+            `Platform "${definition.name}" send did not return a message id`
+          );
+        }
+        return wrapProviderMessage(
+          raw,
+          { client, config, definition, space, spaceRef, store },
+          "outbound"
+        );
       }
-      raw = (await definition.send({
-        ...actionCtx,
-        content: item,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
-    if (!raw?.id) {
-      // Reactions, typing indicators, and edits are fire-and-forget control
-      // signals — providers may return `void` from `send` for them. Every
-      // other content type must produce a message id.
-      // Fire-and-forget control signals — providers may return `void`/no id
-      // for these because they don't produce a new message. Built-in types
-      // (reaction/typing/edit) live in the universal union and are matched
-      // by literal; provider-only types opt in by setting `__fireAndForget`
-      // on their content value.
-      if (isFireAndForget(item)) {
-        return;
-      }
-      throw new Error(
-        `Platform "${definition.name}" send did not return a message id`
-      );
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef, store },
-      "outbound"
     );
   }
 
@@ -409,29 +424,39 @@ export function buildSpace(params: BuildSpaceParams): Space {
       );
       return;
     }
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      raw = (await getMessage({
-        space: spaceRef,
-        messageId: id,
-        client,
-        config,
-        store,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
+    return withSpan(
+      "spectrum.message.get",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+        "spectrum.message.id": id,
+      },
+      async () => {
+        let raw: ProviderMessageRecord | undefined;
+        try {
+          raw = (await getMessage({
+            space: spaceRef,
+            messageId: id,
+            client,
+            config,
+            store,
+          })) as ProviderMessageRecord | undefined;
+        } catch (err) {
+          if (err instanceof UnsupportedError) {
+            warnUnsupported(err, definition.name);
+            return;
+          }
+          throw err;
+        }
+        if (!raw) {
+          return;
+        }
+        return wrapProviderMessage(
+          raw,
+          { client, config, definition, space, spaceRef, store },
+          "inbound"
+        );
       }
-      throw err;
-    }
-    if (!raw) {
-      return;
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef, store },
-      "inbound"
     );
   }
 

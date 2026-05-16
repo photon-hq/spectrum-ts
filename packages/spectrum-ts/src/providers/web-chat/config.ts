@@ -7,12 +7,12 @@ export const DEFAULT_PATH = "/ai-sdk/chat";
 export const DEFAULT_RESPONSE_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_BODY_BYTES = 1_000_000;
 
-export type WebChatUser = {
+export interface WebChatUser {
   id: string;
   metadata?: Record<string, unknown>;
   sessionId?: string;
   workspaceId?: string;
-};
+}
 
 export const configSchema = z.object({
   auth: z

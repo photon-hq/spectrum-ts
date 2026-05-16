@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import type {
-  AdvancedIMessage,
-  ChatEvent,
-  GroupEvent,
-  MessageEvent,
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  type AdvancedIMessage,
+  AuthenticationError,
+  type ChatEvent,
+  type GroupEvent,
+  IMessageError,
+  type MessageEvent,
 } from "@photon-ai/advanced-imessage";
 import { createStore } from "../../../utils/store";
 import type { RemoteClient } from "../types";
@@ -15,6 +17,24 @@ import {
   reactionRemovedEvents,
   readReceiptEvents,
 } from "./events";
+
+// Silence `console.warn`/`console.error` during these tests — the
+// resume-on-error wrapper logs every reconnect attempt, and our test
+// harness intentionally triggers fake "upstream ended" closures to
+// terminate fixtures. Tests that *want* to assert on retry behavior
+// keep their own counter via the subscribe thunk; logs are noise.
+let originalWarn: typeof console.warn;
+let originalError: typeof console.error;
+beforeEach(() => {
+  originalWarn = console.warn;
+  originalError = console.error;
+  console.warn = () => undefined;
+  console.error = () => undefined;
+});
+afterEach(() => {
+  console.warn = originalWarn;
+  console.error = originalError;
+});
 
 // ---------------------------------------------------------------------------
 // Fake AdvancedIMessage harness
@@ -115,34 +135,38 @@ const oneClient = (fake: FakeClient): RemoteClient[] => [
   { client: fake.client, phone: "+15555550100" },
 ];
 
-// Pull `n` items off an AsyncIterable, with a short generous timeout so a
-// hung producer fails the test instead of hanging it.
+// Pull `n` items off an AsyncIterable, with one global timeout so a hung
+// producer fails the test instead of hanging it. The previous version's
+// per-call race triggered a subtle bug: a slow `next()` would leak past
+// the per-call timer, so a value that arrived after the reconnect delay
+// (500ms with jitter) showed up as "no events delivered" to the test.
 const collect = async <T>(
   iter: AsyncIterable<T>,
   n: number,
-  timeoutMs = 250
+  timeoutMs = 1000
 ): Promise<T[]> => {
   const items: T[] = [];
   const iterator = iter[Symbol.asyncIterator]();
-  const deadline = Date.now() + timeoutMs;
+  let timedOut = false;
+  const timeout = new Promise<{ kind: "timeout" }>((resolve) => {
+    setTimeout(() => {
+      timedOut = true;
+      resolve({ kind: "timeout" });
+    }, timeoutMs);
+  });
+
   while (items.length < n) {
-    if (Date.now() > deadline) {
+    const race = await Promise.race([
+      iterator.next().then((r) => ({ kind: "next" as const, value: r })),
+      timeout,
+    ]);
+    if (race.kind === "timeout" || timedOut) {
       throw new Error(`collect timed out after ${items.length}/${n} items`);
     }
-    const next = iterator.next();
-    const race = await Promise.race([
-      next,
-      new Promise<IteratorResult<T>>((resolve) =>
-        setTimeout(() => resolve({ done: true, value: undefined as never }), 50)
-      ),
-    ]);
-    if (race.done) {
-      if (items.length >= n) {
-        break;
-      }
-      continue;
+    if (race.value.done) {
+      break;
     }
-    items.push(race.value);
+    items.push(race.value.value);
   }
   await iterator.return?.();
   return items;
@@ -481,5 +505,169 @@ describe("local-mode bypass (provider-level)", () => {
       ),
     ]);
     expect(result.done).toBe(true);
+  });
+});
+
+describe("resume-on-error", () => {
+  test("reconnects after a transient upstream error and keeps delivering", async () => {
+    // First subscribe yields an IMessageError on first next(); second
+    // subscribe yields a valid event. The producer must reconnect and
+    // deliver the event from the second subscription.
+    const phone = "+15555550199";
+    let subscribeCount = 0;
+    const events: MessageEvent[] = [readEvent({ messageGuid: "after-retry" })];
+
+    const subscribe = (): {
+      [Symbol.asyncIterator](): AsyncIterator<MessageEvent>;
+      close(): Promise<void>;
+    } => {
+      subscribeCount += 1;
+      const callCount = subscribeCount;
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next(): Promise<IteratorResult<MessageEvent>> {
+              if (callCount === 1) {
+                return Promise.reject(
+                  new IMessageError("transient gRPC blip", {
+                    code: "UNAVAILABLE" as never,
+                    grpcCode: 14,
+                    retryable: true,
+                  })
+                );
+              }
+              const value = events.shift();
+              if (value) {
+                return Promise.resolve({ done: false, value });
+              }
+              return new Promise<IteratorResult<MessageEvent>>(() => undefined);
+            },
+          };
+        },
+        close: () => Promise.resolve(),
+      };
+    };
+
+    const fakeClient = {
+      chats: { subscribeEvents: () => createFakeStream<ChatEvent>().stream },
+      groups: { subscribeEvents: () => createFakeStream<GroupEvent>().stream },
+      messages: { subscribeEvents: subscribe },
+    } as unknown as AdvancedIMessage;
+    const clients: RemoteClient[] = [{ client: fakeClient, phone }];
+    const store = createStore();
+
+    const iter = readReceiptEvents(clients, store);
+    const [receipt] = await collect(iter, 1, 3000);
+    expect(receipt?.messageId).toBe("after-retry");
+    expect(subscribeCount).toBeGreaterThanOrEqual(2);
+  });
+
+  test("stops permanently on a non-retryable upstream error (AuthenticationError)", async () => {
+    const phone = "+15555550299";
+    let subscribeCount = 0;
+    const subscribe = (): {
+      [Symbol.asyncIterator](): AsyncIterator<MessageEvent>;
+      close(): Promise<void>;
+    } => {
+      subscribeCount += 1;
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () =>
+              Promise.reject(
+                new AuthenticationError("bad token", {
+                  code: "UNAUTHENTICATED" as never,
+                  grpcCode: 16,
+                  retryable: false,
+                })
+              ),
+          };
+        },
+        close: () => Promise.resolve(),
+      };
+    };
+
+    const fakeClient = {
+      chats: { subscribeEvents: () => createFakeStream<ChatEvent>().stream },
+      groups: { subscribeEvents: () => createFakeStream<GroupEvent>().stream },
+      messages: { subscribeEvents: subscribe },
+    } as unknown as AdvancedIMessage;
+    const clients: RemoteClient[] = [{ client: fakeClient, phone }];
+    const store = createStore();
+
+    const iter = readReceiptEvents(clients, store);
+    // Pull next() once — should reject (non-retryable propagates) OR finish
+    // (done: true after error end). Either way, no retry storm.
+    const iterator = iter[Symbol.asyncIterator]();
+    const result = await Promise.race([
+      iterator
+        .next()
+        .then((r) => ({ kind: "result" as const, value: r }))
+        .catch((error) => ({ error, kind: "error" as const })),
+      new Promise<{ kind: "timeout" }>((resolve) =>
+        setTimeout(() => resolve({ kind: "timeout" }), 500)
+      ),
+    ]);
+    // Either an error bubbled or the stream terminated; what must NOT happen
+    // is unbounded retries (timeout).
+    expect(result.kind).not.toBe("timeout");
+    // Exactly one subscribe attempt — no reconnect after AuthenticationError.
+    expect(subscribeCount).toBe(1);
+    await iterator.return?.();
+  });
+
+  test("a clean upstream end is treated as retryable (reconnect, not terminate)", async () => {
+    // The upstream `TypedEventStream` can iterate to completion if the
+    // server closes the gRPC stream cleanly. We should NOT permanently
+    // shut down the broadcaster on that — reconnect.
+    const phone = "+15555550399";
+    let subscribeCount = 0;
+    const subscribe = (): {
+      [Symbol.asyncIterator](): AsyncIterator<MessageEvent>;
+      close(): Promise<void>;
+    } => {
+      subscribeCount += 1;
+      const callCount = subscribeCount;
+      return {
+        [Symbol.asyncIterator]() {
+          let yielded = false;
+          return {
+            next(): Promise<IteratorResult<MessageEvent>> {
+              if (callCount === 1) {
+                // Immediately end the first subscription.
+                return Promise.resolve({
+                  done: true,
+                  value: undefined as never,
+                });
+              }
+              if (yielded) {
+                return new Promise<IteratorResult<MessageEvent>>(
+                  () => undefined
+                );
+              }
+              yielded = true;
+              return Promise.resolve({
+                done: false,
+                value: readEvent({ messageGuid: "after-clean-end" }),
+              });
+            },
+          };
+        },
+        close: () => Promise.resolve(),
+      };
+    };
+
+    const fakeClient = {
+      chats: { subscribeEvents: () => createFakeStream<ChatEvent>().stream },
+      groups: { subscribeEvents: () => createFakeStream<GroupEvent>().stream },
+      messages: { subscribeEvents: subscribe },
+    } as unknown as AdvancedIMessage;
+    const clients: RemoteClient[] = [{ client: fakeClient, phone }];
+    const store = createStore();
+
+    const iter = readReceiptEvents(clients, store);
+    const [receipt] = await collect(iter, 1, 3000);
+    expect(receipt?.messageId).toBe("after-clean-end");
+    expect(subscribeCount).toBeGreaterThanOrEqual(2);
   });
 });

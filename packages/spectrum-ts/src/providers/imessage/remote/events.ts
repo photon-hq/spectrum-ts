@@ -1,9 +1,13 @@
-import type {
-  AdvancedIMessage,
-  ChatEvent,
-  GroupChange,
-  GroupEvent,
-  MessageEvent,
+import {
+  type AdvancedIMessage,
+  AuthenticationError,
+  type ChatEvent,
+  type GroupChange,
+  type GroupEvent,
+  IMessageError,
+  type MessageEvent,
+  NotFoundError,
+  ValidationError,
 } from "@photon-ai/advanced-imessage";
 import { asCustom } from "../../../content/custom";
 import { asText } from "../../../content/text";
@@ -16,6 +20,17 @@ import {
   stream,
 } from "../../../utils/stream";
 import type { RemoteClient } from "../types";
+
+// Lightweight logger that mirrors `console.warn` from `inbound.ts`. Using
+// `@photon-ai/otel`'s `createLogger` would be more uniform, but it's not
+// in the workspace's test runtime; reconnect telemetry will be picked
+// up via these stderr lines until otel-everywhere lands.
+const warn = (message: string, fields: Record<string, unknown>): void => {
+  console.warn(`[spectrum-ts][imessage.events] ${message}`, fields);
+};
+const errorLog = (message: string, fields: Record<string, unknown>): void => {
+  console.error(`[spectrum-ts][imessage.events] ${message}`, fields);
+};
 
 // ---------------------------------------------------------------------------
 // Public event payload shapes — what spectrum-ts emits on each stream
@@ -119,33 +134,196 @@ type AnyEvent = MessageEvent | ChatEvent | GroupEvent;
 const broadcasterStoreKey = (phone: string): string =>
   `imessage:eventBroadcast:${phone}`;
 
-/**
- * Adapt one of advanced-imessage's `TypedEventStream`s into a ManagedStream.
- * The upstream class already implements `AsyncIterable` and `close()`; we
- * just pump values into a `Repeater`-backed `ManagedStream` so it composes
- * with the rest of spectrum-ts's stream plumbing.
- */
-const adaptTyped = <T>(source: {
-  [Symbol.asyncIterator]: () => AsyncIterator<T>;
+interface LiveSource<T> extends AsyncIterable<T> {
   close(): Promise<void>;
-}): ManagedStream<T> =>
-  stream<T>((emit, end) => {
-    const iter = source[Symbol.asyncIterator]();
-    const pump = (async () => {
-      try {
-        let result = await iter.next();
-        while (!result.done) {
-          await emit(result.value);
-          result = await iter.next();
-        }
-        end();
-      } catch (error) {
-        end(error);
+}
+
+/**
+ * Mirror the retry classification used by the messages stream
+ * (`remote/stream.ts:isRetryableIMessageStreamError`). Auth, NotFound, and
+ * Validation are configuration / contract bugs and don't heal on retry;
+ * everything else (transient gRPC errors, server restarts, connection
+ * resets, plain stream-ended-prematurely) is worth backing off and
+ * reconnecting on.
+ */
+const isRetryableUpstreamError = (error: unknown): boolean => {
+  if (
+    error instanceof AuthenticationError ||
+    error instanceof NotFoundError ||
+    error instanceof ValidationError
+  ) {
+    return false;
+  }
+  if (error instanceof IMessageError) {
+    return true;
+  }
+  // Non-IMessageError errors (network, generic Error, "stream ended
+  // unexpectedly") are also retryable — they typically indicate a
+  // transient disconnect.
+  return true;
+};
+
+const RECONNECT_INITIAL_DELAY_MS = 500;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const RECONNECT_RESET_AFTER_MS = 30_000;
+
+const jitter = (delayMs: number): number => Math.random() * delayMs;
+
+/**
+ * Subscribe to a live `TypedEventStream`-shaped upstream and yield its
+ * events into a `ManagedStream`, reconnecting with exponential backoff on
+ * transient errors. Without this wrapper, a single gRPC hiccup would
+ * permanently kill every consumer of the broadcaster until the worker
+ * restarts — see comment in `getEventBroadcaster` for the broader
+ * lifecycle.
+ *
+ * Live-only by design: no cursor or catch-up. Events delivered while the
+ * stream is reconnecting are lost. Use `client.events.catchUp(since)`
+ * via the messages stream for durable replay; this wrapper exists so
+ * a transient blip doesn't take readReceipt / chatRead / etc. offline.
+ */
+interface ResumeState<T> {
+  activeSource: LiveSource<T> | undefined;
+  closed: boolean;
+  delayMs: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  resetAfterMs: number;
+  sleepTimer: ReturnType<typeof setTimeout> | undefined;
+  wakeSleep: (() => void) | undefined;
+}
+
+const cancelSleep = <T>(state: ResumeState<T>): void => {
+  if (state.sleepTimer) {
+    clearTimeout(state.sleepTimer);
+    state.sleepTimer = undefined;
+  }
+  state.wakeSleep?.();
+  state.wakeSleep = undefined;
+};
+
+const sleepWithCancel = <T>(
+  state: ResumeState<T>,
+  ms: number
+): Promise<void> => {
+  if (ms <= 0 || state.closed) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    state.wakeSleep = resolve;
+    state.sleepTimer = setTimeout(resolve, jitter(ms));
+  }).then(() => {
+    state.sleepTimer = undefined;
+    state.wakeSleep = undefined;
+  });
+};
+
+const nextBackoffDelay = <T>(state: ResumeState<T>): number => {
+  const current = state.delayMs;
+  state.delayMs = Math.min(state.delayMs * 2, state.maxDelayMs);
+  return current;
+};
+
+const consumeOnce = async <T>(
+  state: ResumeState<T>,
+  subscribe: () => LiveSource<T>,
+  label: string,
+  emit: (value: T) => Promise<void>
+): Promise<void> => {
+  const source = subscribe();
+  state.activeSource = source;
+  const connectedAt = Date.now();
+  try {
+    for await (const value of source) {
+      if (state.closed) {
+        return;
       }
-    })();
+      // If we've been delivering successfully past the reset window,
+      // forget the prior backoff so the next disconnect retries fast.
+      if (Date.now() - connectedAt >= state.resetAfterMs) {
+        state.delayMs = state.initialDelayMs;
+      }
+      await emit(value);
+    }
+    // Source ended cleanly — treat like a retryable disconnect so we
+    // reconnect rather than terminating the whole broadcaster.
+    throw new Error(`upstream ${label} ended; reconnecting`);
+  } finally {
+    if (state.activeSource === source) {
+      state.activeSource = undefined;
+    }
+    await source.close().catch(() => undefined);
+  }
+};
+
+const handleConsumeError = <T>(
+  state: ResumeState<T>,
+  error: unknown,
+  label: string,
+  end: (error?: unknown) => void
+): number | undefined => {
+  if (state.closed) {
+    return;
+  }
+  if (!isRetryableUpstreamError(error)) {
+    errorLog("upstream errored fatally; ending stream", {
+      error: error instanceof Error ? error.message : String(error),
+      label,
+    });
+    end(error);
+    return;
+  }
+  const wait = nextBackoffDelay(state);
+  warn("upstream errored; reconnecting", {
+    delayMs: wait,
+    error: error instanceof Error ? error.message : String(error),
+    label,
+  });
+  return wait;
+};
+
+const resumableLiveStream = <T>(
+  subscribe: () => LiveSource<T>,
+  label: string,
+  options: {
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    /** Time of stable delivery after which the backoff resets to initial. */
+    resetAfterMs?: number;
+  } = {}
+): ManagedStream<T> =>
+  stream<T>((emit, end) => {
+    const state: ResumeState<T> = {
+      activeSource: undefined,
+      closed: false,
+      delayMs: options.initialDelayMs ?? RECONNECT_INITIAL_DELAY_MS,
+      initialDelayMs: options.initialDelayMs ?? RECONNECT_INITIAL_DELAY_MS,
+      maxDelayMs: options.maxDelayMs ?? RECONNECT_MAX_DELAY_MS,
+      resetAfterMs: options.resetAfterMs ?? RECONNECT_RESET_AFTER_MS,
+      sleepTimer: undefined,
+      wakeSleep: undefined,
+    };
+
+    const run = async () => {
+      while (!state.closed) {
+        try {
+          await consumeOnce(state, subscribe, label, emit);
+        } catch (error) {
+          const wait = handleConsumeError(state, error, label, end);
+          if (wait === undefined) {
+            return;
+          }
+          await sleepWithCancel(state, wait);
+        }
+      }
+    };
+
+    const pump = run();
 
     return async () => {
-      await source.close().catch(() => undefined);
+      state.closed = true;
+      cancelSleep(state);
+      await state.activeSource?.close().catch(() => undefined);
       await pump.catch(() => undefined);
     };
   });
@@ -193,10 +371,13 @@ const mergeUnion = (
  * and stashed in `store` so every custom-event producer (`readReceipt`,
  * `chatRead`, …) shares one upstream subscription instead of opening six.
  *
- * Live-only: the worker's existing `messages` stream already drives
- * `events.catchUp(since)` for durable replay of the same underlying log,
- * and these event producers don't promise durability in the spectrum-ts
- * docs yet. A future PR can layer catch-up onto this broadcaster.
+ * Each upstream subscription is wrapped in `resumableLiveStream` so a
+ * transient gRPC error or server restart doesn't take the broadcaster
+ * permanently offline. Catch-up replay across the disconnect window is
+ * NOT performed — events delivered while reconnecting are dropped. The
+ * existing `messages` stream still drives `events.catchUp(since)` for
+ * durable replay of the same underlying log; a future PR can layer
+ * catch-up onto this broadcaster.
  */
 const getEventBroadcaster = (
   store: Store,
@@ -209,9 +390,18 @@ const getEventBroadcaster = (
     return existing;
   }
   const merged = mergeUnion([
-    adaptTyped<MessageEvent>(client.messages.subscribeEvents()),
-    adaptTyped<ChatEvent>(client.chats.subscribeEvents()),
-    adaptTyped<GroupEvent>(client.groups.subscribeEvents()),
+    resumableLiveStream<MessageEvent>(
+      () => client.messages.subscribeEvents(),
+      `messages:${phone}`
+    ),
+    resumableLiveStream<ChatEvent>(
+      () => client.chats.subscribeEvents(),
+      `chats:${phone}`
+    ),
+    resumableLiveStream<GroupEvent>(
+      () => client.groups.subscribeEvents(),
+      `groups:${phone}`
+    ),
   ]);
   const broadcaster = broadcast(merged);
   store.set(key, broadcaster);

@@ -1,0 +1,23 @@
+{
+  "name": "@spectrum-ts/example-web-chat-ai-sdk",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "agent": "bun run agent.ts",
+    "dev": "vite --host 127.0.0.1 --port 5173"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^3.0.0",
+    "@vitejs/plugin-react": "^latest",
+    "ai": "^6.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "spectrum-ts": "workspace:*",
+    "vite": "^latest"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.0.0"
+  }
+}

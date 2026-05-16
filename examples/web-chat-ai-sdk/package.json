@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.0",
-    "@vitejs/plugin-react": "^latest",
+    "@vitejs/plugin-react": "latest",
     "ai": "^6.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

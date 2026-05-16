@@ -146,6 +146,22 @@ describe("webChat provider", () => {
     }
   });
 
+  test("accepts configured path when the request URL includes a query string", async () => {
+    const harness = await createHarness();
+    const messages = harness.app.messages[Symbol.asyncIterator]();
+
+    try {
+      const responsePromise = postChat(`${harness.url}?debug=true`);
+      const next = await withTimeout(messages.next());
+
+      expect(next.done).toBe(false);
+      const response = await responsePromise;
+      expect(response.status).toBe(200);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   test("send fails safely when the request stream is missing", async () => {
     const harness = await createHarness();
 

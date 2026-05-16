@@ -115,7 +115,7 @@ export function toWebChatMessage({
     content: asText(submittedText(request)),
     id: request.submittedMessageId,
     request,
-    sender: { id: user.id, ...user.metadata },
+    sender: { ...user.metadata, id: user.id },
     space: {
       agentId: request.agentId,
       conversationId,

@@ -28,6 +28,17 @@ function request(body: unknown, headers?: Record<string, string>): Request {
   });
 }
 
+function rawRequest(body: string, headers?: Record<string, string>): Request {
+  return new Request("http://127.0.0.1:8787/ai-sdk/chat", {
+    body,
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+    method: "POST",
+  });
+}
+
 function preflight(headers?: Record<string, string>): Request {
   return new Request("http://127.0.0.1:8787/ai-sdk/chat", {
     headers: {
@@ -131,6 +142,40 @@ describe("createWebChatHandler", () => {
     });
   });
 
+  test("rejects oversized requests before reading the body when content-length is known", async () => {
+    const handler = createWebChatHandler({
+      enqueue: async () => undefined,
+      maxBodyBytes: 10,
+      resolveUser: async () => ({ id: "user-1" }),
+    });
+
+    const response = await handler(
+      rawRequest("{}", { "content-length": "100" })
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { type: "body_too_large" },
+    });
+  });
+
+  test("maps invalid JSON to a safe 400 response", async () => {
+    const handler = createWebChatHandler({
+      enqueue: async () => undefined,
+      resolveUser: async () => ({ id: "user-1" }),
+    });
+
+    const response = await handler(rawRequest("{"));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        retryable: false,
+        type: "invalid_json",
+      },
+    });
+  });
+
   test("scopes duplicate conversation ids by trusted user", async () => {
     const received: unknown[] = [];
     const handler = createWebChatHandler({
@@ -185,6 +230,26 @@ describe("createWebChatHandler", () => {
         metadata: { userId: "attacker-controlled-user" },
       })
     );
+
+    expect(received[0]).toMatchObject({
+      sender: { id: "trusted-user" },
+      space: { id: "web:trusted-user:conversation-1" },
+    });
+  });
+
+  test("does not let trusted user metadata override sender identity", async () => {
+    const received: unknown[] = [];
+    const handler = createWebChatHandler({
+      enqueue: async (message) => {
+        received.push(message);
+      },
+      resolveUser: async () => ({
+        id: "trusted-user",
+        metadata: { id: "metadata-user" },
+      }),
+    });
+
+    await handler(request(validBody));
 
     expect(received[0]).toMatchObject({
       sender: { id: "trusted-user" },

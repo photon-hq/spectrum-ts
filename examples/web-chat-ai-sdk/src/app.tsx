@@ -15,7 +15,7 @@ export function App() {
   const { error, messages, sendMessage, status } = useChat({ transport });
   const isSending = status === "submitted" || status === "streaming";
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = input.trim();
     if (!text || isSending) {
@@ -23,7 +23,7 @@ export function App() {
     }
     sendMessage({ text });
     setInput("");
-  }
+  };
 
   return (
     <main className="shell">

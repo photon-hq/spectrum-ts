@@ -32,6 +32,18 @@ async function readJson(
   request: Request,
   maxBodyBytes: number
 ): Promise<unknown> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const parsedLength = Number.parseInt(contentLength, 10);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBodyBytes) {
+      throw new WebChatRequestError({
+        message: "Request body is too large.",
+        status: 413,
+        type: "body_too_large",
+      });
+    }
+  }
+
   const text = await request.text();
   if (new TextEncoder().encode(text).byteLength > maxBodyBytes) {
     throw new WebChatRequestError({
@@ -40,7 +52,16 @@ async function readJson(
       type: "body_too_large",
     });
   }
-  return JSON.parse(text) as unknown;
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new WebChatRequestError({
+      message: "Request body was not valid JSON.",
+      status: 400,
+      type: "invalid_json",
+    });
+  }
 }
 
 function safeRequestId(body: unknown): string | undefined {

@@ -129,4 +129,40 @@ describe("SpectrumChatTransport", () => {
       trigger: "regenerate-message",
     });
   });
+
+  test("preserves per-request metadata when transport metadata is absent", async () => {
+    let body: unknown;
+    const fetchMock = (async (_input, init) => {
+      body = JSON.parse(String(init?.body)) as unknown;
+      return new Response(doneChunk(), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+
+    const transport = new SpectrumChatTransport({
+      endpoint: "/ai-sdk/chat",
+      fetch: fetchMock,
+    });
+
+    await transport.sendMessages({
+      abortSignal: undefined,
+      body: { metadata: { traceId: "trace-1" } },
+      chatId: "chat-1",
+      messageId: undefined,
+      messages: [
+        {
+          id: "user-message-1",
+          metadata: undefined,
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        },
+      ],
+      trigger: "submit-message",
+    });
+
+    expect(body).toMatchObject({
+      metadata: { traceId: "trace-1" },
+      submittedMessageId: "user-message-1",
+    });
+  });
 });

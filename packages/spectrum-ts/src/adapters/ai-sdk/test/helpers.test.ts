@@ -45,4 +45,19 @@ describe("AI SDK adoption helpers", () => {
 
     expect(sent).toEqual(["hello world"]);
   });
+
+  test("streamTextToSpace sends direct text through Spectrum space", async () => {
+    const sent: unknown[] = [];
+
+    await streamTextToSpace(
+      {
+        send: async (content: unknown) => {
+          sent.push(content);
+        },
+      },
+      { text: "hello world" }
+    );
+
+    expect(sent).toEqual(["hello world"]);
+  });
 });

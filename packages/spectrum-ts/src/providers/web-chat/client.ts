@@ -6,11 +6,19 @@ import { type AsyncQueue, makeAsyncQueue } from "./queue";
 import type { WebChatMessage } from "./request";
 import { WebChatSession } from "./session";
 
+const PROCESSED_DEDUPE_MAX_KEYS = 10_000;
+const PROCESSED_DEDUPE_TTL_MS = 60 * 60 * 1000;
+
+export interface WebChatProcessedStore {
+  has: (key: string) => boolean;
+  set: (key: string) => void;
+}
+
 export interface WebChatClient {
   close: () => Promise<void>;
   inbound: AsyncQueue<WebChatMessage>;
   pendingByRequestId: Map<string, WebChatSession>;
-  processed: Set<string>;
+  processed: WebChatProcessedStore;
   server: Server;
   url: string;
 }
@@ -53,6 +61,62 @@ function notFoundResponse(): Response {
   return Response.json({ error: "Not found." }, { status: 404 });
 }
 
+function requestPath(request: IncomingMessage): string {
+  return new URL(request.url ?? "/", "http://localhost").pathname;
+}
+
+class ExpiringKeyCache implements WebChatProcessedStore {
+  readonly #items = new Map<string, number>();
+  readonly #now: () => number;
+  readonly #options: { max: number; ttlMs: number };
+
+  constructor(
+    options = {
+      max: PROCESSED_DEDUPE_MAX_KEYS,
+      ttlMs: PROCESSED_DEDUPE_TTL_MS,
+    },
+    now = () => Date.now()
+  ) {
+    this.#now = now;
+    this.#options = options;
+  }
+
+  has(key: string): boolean {
+    const expiresAt = this.#items.get(key);
+    if (!expiresAt) {
+      return false;
+    }
+    if (expiresAt <= this.#now()) {
+      this.#items.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  set(key: string): void {
+    this.#items.delete(key);
+    this.#items.set(key, this.#now() + this.#options.ttlMs);
+    this.#prune();
+  }
+
+  #prune(): void {
+    const now = this.#now();
+    for (const [key, expiresAt] of this.#items) {
+      if (expiresAt <= now) {
+        this.#items.delete(key);
+      }
+    }
+
+    while (this.#items.size > this.#options.max) {
+      const oldestKey = this.#items.keys().next().value;
+      if (oldestKey === undefined) {
+        return;
+      }
+      this.#items.delete(oldestKey);
+    }
+  }
+}
+
 export async function createClient({
   config,
 }: {
@@ -60,7 +124,9 @@ export async function createClient({
 }): Promise<WebChatClient> {
   const inbound = makeAsyncQueue<WebChatMessage>();
   const pendingByRequestId = new Map<string, WebChatSession>();
-  const processed = new Set<string>();
+  // Idempotency is request-scoped in memory for local/developer-hosted runtimes.
+  // Bound it so long-running demo processes do not retain every message id.
+  const processed = new ExpiringKeyCache();
 
   const resolveUser = async (request: Request): Promise<WebChatUser> => {
     if (config.auth) {
@@ -91,14 +157,14 @@ export async function createClient({
     },
     enqueue: (message) => inbound.push(message),
     hasProcessed: (key) => processed.has(key),
-    markProcessed: (key) => processed.add(key),
+    markProcessed: (key) => processed.set(key),
     resolveUser,
     timeoutMs: config.responseTimeoutMs,
   });
 
   const server = createServer(async (incoming, outgoing) => {
     const response =
-      incoming.url === config.server.path
+      requestPath(incoming) === config.server.path
         ? await handler(requestFromIncoming(incoming))
         : notFoundResponse();
 

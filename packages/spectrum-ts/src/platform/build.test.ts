@@ -37,10 +37,8 @@ function createQueue<T>(): TestQueue<T> {
       return {
         next() {
           if (values.length > 0) {
-            const value = values.shift();
-            if (value !== undefined) {
-              return Promise.resolve({ done: false, value });
-            }
+            const value = values.shift() as T;
+            return Promise.resolve({ done: false, value });
           }
           if (closed) {
             return Promise.resolve({ done: true, value: undefined });

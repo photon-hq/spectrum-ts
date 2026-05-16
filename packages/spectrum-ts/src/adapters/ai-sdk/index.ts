@@ -90,21 +90,28 @@ export class SpectrumChatTransport<UI_MESSAGE extends UIMessage = UIMessage>
             requestId,
             submittedMessageId,
           }) ?? submittedMessageId;
+        const requestMetadata = (
+          request.body as { metadata?: Record<string, unknown> } | undefined
+        )?.metadata;
+        const body: Record<string, unknown> = {
+          ...request.body,
+          agentId,
+          conversationId,
+          id: request.id,
+          idempotencyKey: idempotencyKeyValue,
+          messages: request.messages,
+          requestId,
+          submittedMessageId,
+          trigger: request.trigger,
+        };
+        const resolvedMetadata = metadata ?? requestMetadata;
+        if (resolvedMetadata) {
+          body.metadata = resolvedMetadata;
+        }
 
         return {
           api: request.api,
-          body: {
-            ...request.body,
-            agentId,
-            conversationId,
-            id: request.id,
-            idempotencyKey: idempotencyKeyValue,
-            messages: request.messages,
-            metadata,
-            requestId,
-            submittedMessageId,
-            trigger: request.trigger,
-          },
+          body,
           credentials: request.credentials,
           headers: request.headers,
         };

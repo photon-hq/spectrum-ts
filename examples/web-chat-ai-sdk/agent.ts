@@ -6,7 +6,7 @@ const app = await Spectrum({
     webChat.config({
       server: {
         cors: {
-          origins: ["http://127.0.0.1:5173"],
+          origins: ["http://127.0.0.1:5173", "http://localhost:5173"],
         },
         port: 8787,
       },

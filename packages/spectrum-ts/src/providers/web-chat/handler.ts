@@ -12,6 +12,9 @@ import {
 import { WebChatSession } from "./session";
 
 export interface WebChatHandlerOptions {
+  cors?: {
+    origins: string[];
+  };
   createSession?: (options: {
     requestId: string;
     signal: AbortSignal;
@@ -75,6 +78,61 @@ function errorResponse(error: unknown): Response {
   );
 }
 
+function allowedOrigin(
+  request: Request,
+  cors: WebChatHandlerOptions["cors"]
+): string | undefined {
+  const origin = request.headers.get("origin");
+  if (!(origin && cors)) {
+    return;
+  }
+  return cors.origins.includes("*") || cors.origins.includes(origin)
+    ? origin
+    : undefined;
+}
+
+function corsHeaders(
+  request: Request,
+  cors: WebChatHandlerOptions["cors"]
+): Headers {
+  const headers = new Headers();
+  const origin = allowedOrigin(request, cors);
+  if (!origin) {
+    return headers;
+  }
+
+  const requestedHeaders = request.headers.get(
+    "access-control-request-headers"
+  );
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-allow-credentials", "true");
+  headers.set("access-control-allow-methods", "POST, OPTIONS");
+  headers.set(
+    "access-control-allow-headers",
+    requestedHeaders ?? "content-type, authorization"
+  );
+  headers.set("access-control-max-age", "600");
+  headers.set("access-control-expose-headers", "x-vercel-ai-ui-message-stream");
+  headers.set("vary", "Origin, Access-Control-Request-Headers");
+  return headers;
+}
+
+function withCors(
+  response: Response,
+  request: Request,
+  cors: WebChatHandlerOptions["cors"]
+): Response {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of corsHeaders(request, cors)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+}
+
 /**
  * Builds the reusable webChat request handler used by standalone server mode
  * and future framework adapters.
@@ -85,16 +143,29 @@ function errorResponse(error: unknown): Response {
  */
 export function createWebChatHandler(options: WebChatHandlerOptions) {
   return async (request: Request): Promise<Response> => {
+    if (request.method === "OPTIONS") {
+      // Browsers preflight the AI SDK POST because it sends JSON and may include
+      // auth headers. Treat the preflight as transport setup, not an app turn.
+      return new Response(null, {
+        headers: corsHeaders(request, options.cors),
+        status: 204,
+      });
+    }
+
     if (request.method !== "POST") {
-      return Response.json(
-        {
-          error: {
-            message: "Method not allowed.",
-            retryable: false,
-            type: "method_not_allowed",
+      return withCors(
+        Response.json(
+          {
+            error: {
+              message: "Method not allowed.",
+              retryable: false,
+              type: "method_not_allowed",
+            },
           },
-        },
-        { status: 405 }
+          { status: 405 }
+        ),
+        request,
+        options.cors
       );
     }
 
@@ -142,9 +213,9 @@ export function createWebChatHandler(options: WebChatHandlerOptions) {
       // consumer can immediately call space.send(...) without losing output.
       await options.enqueue(toWebChatMessage({ request: parsed, user }));
       options.markProcessed?.(dedupeKey);
-      return session.response();
+      return withCors(session.response(), request, options.cors);
     } catch (error) {
-      return errorResponse(error);
+      return withCors(errorResponse(error), request, options.cors);
     }
   };
 }

@@ -28,7 +28,64 @@ function request(body: unknown, headers?: Record<string, string>): Request {
   });
 }
 
+function preflight(headers?: Record<string, string>): Request {
+  return new Request("http://127.0.0.1:8787/ai-sdk/chat", {
+    headers: {
+      "access-control-request-headers": "content-type",
+      "access-control-request-method": "POST",
+      origin: "http://127.0.0.1:5173",
+      ...headers,
+    },
+    method: "OPTIONS",
+  });
+}
+
 describe("createWebChatHandler", () => {
+  test("answers browser CORS preflight for allowed origins", async () => {
+    const received: unknown[] = [];
+    const handler = createWebChatHandler({
+      cors: { origins: ["http://127.0.0.1:5173"] },
+      enqueue: async (message) => {
+        received.push(message);
+      },
+      resolveUser: async () => ({ id: "user-1" }),
+    });
+
+    const response = await handler(preflight());
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1:5173"
+    );
+    expect(response.headers.get("access-control-allow-methods")).toContain(
+      "POST"
+    );
+    expect(response.headers.get("access-control-allow-headers")).toBe(
+      "content-type"
+    );
+    expect(received).toHaveLength(0);
+  });
+
+  test("adds CORS headers to allowed POST stream responses", async () => {
+    const handler = createWebChatHandler({
+      cors: { origins: ["http://127.0.0.1:5173"] },
+      enqueue: async () => undefined,
+      resolveUser: async () => ({ id: "user-1" }),
+    });
+
+    const response = await handler(
+      request(validBody, { origin: "http://127.0.0.1:5173" })
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1:5173"
+    );
+    expect(response.headers.get("access-control-expose-headers")).toContain(
+      "x-vercel-ai-ui-message-stream"
+    );
+  });
+
   test("validates one submitted browser turn", async () => {
     const received: unknown[] = [];
     const handler = createWebChatHandler({

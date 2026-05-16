@@ -71,6 +71,7 @@ export async function createClient({
   };
 
   const handler = createWebChatHandler({
+    cors: config.server.cors,
     createSession: ({ requestId, signal, timeoutMs }) => {
       const session = new WebChatSession({
         onClose: (closedSession) => {

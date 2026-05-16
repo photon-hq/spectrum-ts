@@ -1,6 +1,6 @@
-// Small push-based AsyncIterable used by the provider's messages() stream.
-// This mirrors the terminal provider's event queue, but is generic so the
-// browser route can push parsed useChat messages into Spectrum's pull model.
+// Small push-based AsyncIterable used by webChat's messages() stream.
+// Browser requests arrive as HTTP pushes, while Spectrum consumes provider
+// messages through a pull-based async iterator.
 interface QueueState<T> {
   closed: boolean;
   items: T[];

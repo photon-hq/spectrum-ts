@@ -7,8 +7,8 @@ import type {
   ProviderMessageRecord,
 } from "../../../platform/types";
 import { Spectrum } from "../../../spectrum";
-import { type AsyncQueue, makeAsyncQueue } from "../../vercel-ai-sdk-ui/queue";
 import { webChat } from "../index";
+import { type AsyncQueue, makeAsyncQueue } from "../queue";
 
 const TEST_TIMEOUT_MS = 500;
 

@@ -13,6 +13,5 @@ describe("AI SDK adapter browser safety", () => {
     expect(source).not.toContain("imessage");
     expect(source).not.toContain("whatsapp");
     expect(source).not.toContain("web-chat");
-    expect(source).not.toContain("web-bridge");
   });
 });

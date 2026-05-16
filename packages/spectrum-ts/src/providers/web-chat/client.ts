@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { Readable } from "node:stream";
-import { type AsyncQueue, makeAsyncQueue } from "../vercel-ai-sdk-ui/queue";
 import type { WebChatConfig, WebChatUser } from "./config";
 import { createWebChatHandler } from "./handler";
+import { type AsyncQueue, makeAsyncQueue } from "./queue";
 import type { WebChatMessage } from "./request";
 import { WebChatSession } from "./session";
 

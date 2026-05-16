@@ -1,6 +1,8 @@
+import { withSpan } from "@photon-ai/otel";
 import type z from "zod";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import { classifyIdentifier as classifySingle } from "../utils/identifier";
 import type { Store } from "../utils/store";
 import { buildSpace } from "./build";
 import type {
@@ -19,6 +21,25 @@ import type {
   ProviderMessage,
   SpectrumLike,
 } from "./types";
+
+function classifySpaceIdentifier(args: unknown[]): {
+  kind: "phone" | "email" | "group" | "unknown";
+  identifier?: string;
+} {
+  const stringArgs = args.filter((a): a is string => typeof a === "string");
+  if (stringArgs.length > 1) {
+    return { kind: "group" };
+  }
+  const s = stringArgs[0];
+  if (!s) {
+    return { kind: "unknown" };
+  }
+  const { kind, identifier } = classifySingle(s);
+  if (kind === "unknown") {
+    return { kind: "unknown" };
+  }
+  return { kind, identifier };
+}
 
 type NoInferValue<T> = [T][T extends unknown ? 0 : never];
 
@@ -110,41 +131,52 @@ function createPlatformInstance<
     },
 
     async space(...args: unknown[]) {
-      const convertedArgs = await resolveStringUsers(args);
-      const { users, params } = normalizeSpaceArgs(convertedArgs);
-      let parsedParams = params;
-      if (params !== undefined && def.space.params) {
-        parsedParams = def.space.params.parse(params);
-      }
-      const resolved = await def.space.resolve({
-        input: { users, params: parsedParams },
-        client: runtime.client as _Client,
-        config: runtime.config as z.infer<_ConfigSchema>,
-        store: runtime.store,
-      });
-      const parsedSpace = def.space.schema
-        ? def.space.schema.parse(resolved)
-        : resolved;
-      const spaceRef = {
-        ...(parsedSpace as Record<string, unknown>),
-        id: parsedSpace.id,
-        __platform: def.name,
-      };
-      const actionCtx = {
-        space: spaceRef,
-        client: runtime.client as _Client,
-        config: runtime.config as z.infer<_ConfigSchema>,
-        store: runtime.store,
-      };
-      return buildSpace({
-        spaceRef,
-        extras: parsedSpace as Record<string, unknown>,
-        actionCtx,
-        definition: def as unknown as AnyPlatformDef,
-        client: runtime.client,
-        config: runtime.config,
-        store: runtime.store,
-      }) as PlatformSpace<Def>;
+      const { kind, identifier } = classifySpaceIdentifier(args);
+      return withSpan(
+        "spectrum.space.resolve",
+        {
+          "spectrum.provider": def.name,
+          "spectrum.space.identifier_kind": kind,
+          "spectrum.space.identifier": identifier,
+        },
+        async () => {
+          const convertedArgs = await resolveStringUsers(args);
+          const { users, params } = normalizeSpaceArgs(convertedArgs);
+          let parsedParams = params;
+          if (params !== undefined && def.space.params) {
+            parsedParams = def.space.params.parse(params);
+          }
+          const resolved = await def.space.resolve({
+            input: { users, params: parsedParams },
+            client: runtime.client as _Client,
+            config: runtime.config as z.infer<_ConfigSchema>,
+            store: runtime.store,
+          });
+          const parsedSpace = def.space.schema
+            ? def.space.schema.parse(resolved)
+            : resolved;
+          const spaceRef = {
+            ...(parsedSpace as Record<string, unknown>),
+            id: parsedSpace.id,
+            __platform: def.name,
+          };
+          const actionCtx = {
+            space: spaceRef,
+            client: runtime.client as _Client,
+            config: runtime.config as z.infer<_ConfigSchema>,
+            store: runtime.store,
+          };
+          return buildSpace({
+            spaceRef,
+            extras: parsedSpace as Record<string, unknown>,
+            actionCtx,
+            definition: def as unknown as AnyPlatformDef,
+            client: runtime.client,
+            config: runtime.config,
+            store: runtime.store,
+          }) as PlatformSpace<Def>;
+        }
+      );
     },
   };
 

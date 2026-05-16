@@ -1,11 +1,27 @@
 import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
-import type { Content } from "../content/types";
-import type { InboundMessage, Message } from "../types/message";
+import type { Content, ContentBuilder } from "../content/types";
+import type {
+  InboundMessage,
+  Message,
+  OutboundMessage,
+} from "../types/message";
 import type { Space } from "../types/space";
 import type { User } from "../types/user";
 import type { Store } from "../utils/store";
 import type { ManagedStream } from "../utils/stream";
+
+/**
+ * A platform-defined sugar method on `Space`. Each entry is a content-builder
+ * factory; the runtime injects a thin wrapper that calls
+ * `space.send(factory(...args))` and returns the result.
+ *
+ * Names that collide with reserved `Space` keys (`send`, `edit`,
+ * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
+ * `__platform`) are skipped at runtime with a warning and excluded at the
+ * type level via `Exclude<…, keyof Space>`.
+ */
+export type SpaceActionFactory = (...args: never[]) => ContentBuilder;
 
 type ResolvedSpace = Pick<Space, "id">;
 type SpaceRef = Pick<Space, "id" | "__platform">;
@@ -244,6 +260,24 @@ export interface PlatformDef<
       config: z.infer<_ConfigSchema>;
       store: Store;
     }) => Promise<_ResolvedSpace>;
+    /**
+     * Optional platform-specific sugar methods bound to `PlatformSpace<Def>`.
+     *
+     * Each entry is a `ContentBuilder` factory; `buildSpace` injects a thin
+     * wrapper that calls `space.send(factory(...args))`. The wrapper is
+     * typed as `(...args) => Promise<OutboundMessage | undefined>` on
+     * `PlatformSpace<Def>` via `SpaceActionMethods<Def>`.
+     *
+     * Mirrors the top-level `PlatformDef.actions` slot — `actions` lives at
+     * the platform level for capabilities (e.g. `getMessage`); `space.actions`
+     * lives here for sugar that delegates through `send`.
+     *
+     * Names that collide with reserved `Space` keys (`send`, `edit`,
+     * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
+     * `__platform`) are skipped at runtime with a warning and excluded at
+     * the type level.
+     */
+    actions?: Record<string, SpaceActionFactory>;
   };
 
   user: {
@@ -292,6 +326,7 @@ export interface AnyPlatformDef {
     params?: z.ZodType<object>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard resolver
     resolve: (_: any) => Promise<any>;
+    actions?: Record<string, SpaceActionFactory>;
   };
   user: {
     schema?: z.ZodType<object>;
@@ -455,11 +490,34 @@ type SpaceArgs<Def extends AnyPlatformDef> =
   | SpaceArrayArgs<Def>
   | SpaceVarargArgs<Def>;
 
+// Methods derived from `PlatformDef.space.actions`. Each factory becomes a
+// space method that delegates through `space.send`. Reserved `Space` keys
+// (`send`, `edit`, …) are filtered out so universal sugar always wins.
+type SpaceActionFactories<Def extends AnyPlatformDef> = Def["space"] extends {
+  actions?: infer A;
+}
+  ? A extends Record<string, SpaceActionFactory>
+    ? A
+    : Record<string, never>
+  : Record<string, never>;
+
+export type SpaceActionMethods<Def extends AnyPlatformDef> = {
+  [K in Exclude<keyof SpaceActionFactories<Def>, keyof Space>]: (
+    ...args: Parameters<SpaceActionFactories<Def>[K]>
+  ) => Promise<OutboundMessage | undefined>;
+};
+
+// Both `keyof Space` and `keyof SpaceActionMethods<Def>` are removed from the
+// schema shape before merging — at runtime `buildSpace` spreads
+// `platformActions` after `extras`/`spaceRef`, so an action with the same
+// name as a schema field overrides the field. Stripping both at the type
+// level mirrors that and avoids an impossible `field & method` intersection.
 export type PlatformSpace<Def extends AnyPlatformDef> = Omit<
   SpaceShapeOf<Def>,
-  keyof Space
+  keyof Space | keyof SpaceActionMethods<Def>
 > &
-  Space;
+  Space &
+  SpaceActionMethods<Def>;
 
 export type PlatformMessage<Def extends AnyPlatformDef> = Omit<
   SchemaInfer<Def["message"]>,

@@ -1,8 +1,9 @@
+import { createLogger, withSpan } from "@photon-ai/otel";
 import { edit as editContent } from "../content/edit";
 import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
-import type { Content, ContentInput } from "../content/types";
+import type { Content, ContentBuilder, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
 import type {
   InboundMessage,
@@ -12,7 +13,10 @@ import type {
 import type { Space } from "../types/space";
 import { UnsupportedError } from "../utils/errors";
 import type { Store } from "../utils/store";
+import { contentAttrs } from "../utils/telemetry";
 import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
+
+const platformLog = createLogger("spectrum.platform");
 
 export type { ProviderMessageRecord } from "./types";
 
@@ -33,6 +37,43 @@ const supportsAnsiColor = (): boolean => {
   return Boolean(process.stderr?.isTTY);
 };
 
+// Built-in content types whose provider `send` may return `void`/no id
+// because they're side-effects (reaction, typing indicator, edit), not new
+// messages. Provider-only content types opt into the same semantics by
+// setting `__fireAndForget: true` on the content value — see `isFireAndForget`
+// below — so the framework doesn't need to know their `type` literal.
+const FIRE_AND_FORGET_TYPES: ReadonlySet<string> = new Set([
+  "reaction",
+  "typing",
+  "edit",
+]);
+
+const isFireAndForget = (item: Content): boolean =>
+  FIRE_AND_FORGET_TYPES.has(item.type) ||
+  (item as { __fireAndForget?: unknown }).__fireAndForget === true;
+
+// Reserved keys on `Space` — platform-defined `space.actions` entries with
+// these names are skipped at runtime (with a warning) so the universal sugar
+// (`send`, `edit`, `startTyping`, …) always wins. The same names are excluded
+// from `SpaceActionMethods<Def>` at the type level.
+const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
+  "__platform",
+  "id",
+  "send",
+  "edit",
+  "getMessage",
+  "startTyping",
+  "stopTyping",
+  "responding",
+]);
+
+const warnReservedAction = (name: string, platform: string) => {
+  const body = `[spectrum-ts] ${platform} declared space action "${name}" which collides with a reserved Space key; skipping.`;
+  console.warn(
+    supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
+  );
+};
+
 const warnUnsupported = (err: UnsupportedError, fallbackPlatform: string) => {
   const platform = err.platform ?? fallbackPlatform;
   const subject =
@@ -40,9 +81,14 @@ const warnUnsupported = (err: UnsupportedError, fallbackPlatform: string) => {
       ? `content type "${err.contentType ?? "unknown"}"`
       : `action "${err.action ?? "unknown"}"`;
   const detail = err.detail ? `: ${err.detail}` : "";
-  const body = `[spectrum-ts] ${platform} does not support ${subject}${detail}; skipping.`;
-  console.warn(
-    supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
+  platformLog.warn(
+    `${platform} does not support ${subject}${detail}; skipping.`,
+    {
+      "spectrum.provider": platform,
+      "spectrum.unsupported.kind": err.kind,
+      "spectrum.unsupported.content_type": err.contentType,
+      "spectrum.unsupported.action": err.action,
+    }
   );
 };
 
@@ -303,45 +349,52 @@ export function buildSpace(params: BuildSpaceParams): Space {
   async function dispatchSend(
     item: Content
   ): Promise<OutboundMessage | undefined> {
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      const platformError = unsupportedPlatformContentError(
-        item,
-        definition.name
-      );
-      if (platformError) {
-        throw platformError;
+    return withSpan(
+      "spectrum.message.send",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+        "spectrum.message.fire_and_forget": isFireAndForget(item),
+        ...contentAttrs(item),
+      },
+      async () => {
+        let raw: ProviderMessageRecord | undefined;
+        try {
+          const platformError = unsupportedPlatformContentError(
+            item,
+            definition.name
+          );
+          if (platformError) {
+            throw platformError;
+          }
+          raw = (await definition.send({
+            ...actionCtx,
+            content: item,
+          })) as ProviderMessageRecord | undefined;
+        } catch (err) {
+          if (err instanceof UnsupportedError) {
+            warnUnsupported(err, definition.name);
+            return;
+          }
+          throw err;
+        }
+        if (!raw?.id) {
+          // Reactions, typing indicators, and edits are fire-and-forget control
+          // signals — providers may return `void` from `send` for them. Every
+          // other content type must produce a message id.
+          if (isFireAndForget(item)) {
+            return;
+          }
+          throw new Error(
+            `Platform "${definition.name}" send did not return a message id`
+          );
+        }
+        return wrapProviderMessage(
+          raw,
+          { client, config, definition, space, spaceRef, store },
+          "outbound"
+        );
       }
-      raw = (await definition.send({
-        ...actionCtx,
-        content: item,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
-      }
-      throw err;
-    }
-    if (!raw?.id) {
-      // Reactions, typing indicators, and edits are fire-and-forget control
-      // signals — providers may return `void` from `send` for them. Every
-      // other content type must produce a message id.
-      if (
-        item.type === "reaction" ||
-        item.type === "typing" ||
-        item.type === "edit"
-      ) {
-        return;
-      }
-      throw new Error(
-        `Platform "${definition.name}" send did not return a message id`
-      );
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef, store },
-      "outbound"
     );
   }
 
@@ -371,35 +424,73 @@ export function buildSpace(params: BuildSpaceParams): Space {
       );
       return;
     }
-    let raw: ProviderMessageRecord | undefined;
-    try {
-      raw = (await getMessage({
-        space: spaceRef,
-        messageId: id,
-        client,
-        config,
-        store,
-      })) as ProviderMessageRecord | undefined;
-    } catch (err) {
-      if (err instanceof UnsupportedError) {
-        warnUnsupported(err, definition.name);
-        return;
+    return withSpan(
+      "spectrum.message.get",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+        "spectrum.message.id": id,
+      },
+      async () => {
+        let raw: ProviderMessageRecord | undefined;
+        try {
+          raw = (await getMessage({
+            space: spaceRef,
+            messageId: id,
+            client,
+            config,
+            store,
+          })) as ProviderMessageRecord | undefined;
+        } catch (err) {
+          if (err instanceof UnsupportedError) {
+            warnUnsupported(err, definition.name);
+            return;
+          }
+          throw err;
+        }
+        if (!raw) {
+          return;
+        }
+        return wrapProviderMessage(
+          raw,
+          { client, config, definition, space, spaceRef, store },
+          "inbound"
+        );
       }
-      throw err;
-    }
-    if (!raw) {
-      return;
-    }
-    return wrapProviderMessage(
-      raw,
-      { client, config, definition, space, spaceRef, store },
-      "inbound"
     );
+  }
+
+  // Platform-defined sugar methods declared via `PlatformDef.space.actions`.
+  // Each factory becomes `space.<name>(...args) = space.send(factory(...args))`.
+  // Spread order is load-bearing: actions go *after* `extras`/`spaceRef`
+  // (so schema fields can't clobber the sugar) and *before* the hardcoded
+  // universal sugar (`send`, `edit`, …) so a platform action declared with
+  // a reserved name is also overridden at the type level via the
+  // `Exclude<…, keyof Space>` in `SpaceActionMethods`.
+  const platformActions: Record<
+    string,
+    (...args: unknown[]) => Promise<OutboundMessage | undefined>
+  > = {};
+  const declaredActions = (
+    definition.space as {
+      actions?: Record<string, (...args: unknown[]) => ContentBuilder>;
+    }
+  ).actions;
+  if (declaredActions) {
+    for (const [name, factory] of Object.entries(declaredActions)) {
+      if (RESERVED_SPACE_KEYS.has(name)) {
+        warnReservedAction(name, definition.name);
+        continue;
+      }
+      platformActions[name] = (...args: unknown[]) =>
+        space.send(factory(...args));
+    }
   }
 
   space = {
     ...extras,
     ...spaceRef,
+    ...platformActions,
     send: sendImpl as Space["send"],
     edit: async (
       message: OutboundMessage,

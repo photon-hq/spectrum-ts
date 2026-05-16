@@ -8,11 +8,6 @@ export interface CachedPoll {
   readonly poll: Poll;
 }
 
-export interface PollSelectionDelta {
-  readonly optionId: string;
-  readonly selected: boolean;
-}
-
 /**
  * Bounded insertion-order cache of recently-seen iMessage messages, keyed by
  * guid. Provides O(1) lookup for reaction target resolution. When capacity is
@@ -60,14 +55,6 @@ export class MessageCache {
 export class PollCache {
   private readonly map = new Map<string, CachedPoll>();
   private readonly max: number;
-  private readonly selectionEventTimesByPoll = new Map<
-    string,
-    Map<string, number>
-  >();
-  private readonly selectionsByPoll = new Map<
-    string,
-    Map<string, Set<string>>
-  >();
 
   constructor(max = DEFAULT_MAX) {
     this.max = max;
@@ -86,90 +73,12 @@ export class PollCache {
       const first = this.map.keys().next().value;
       if (first !== undefined) {
         this.map.delete(first);
-        this.selectionEventTimesByPoll.delete(first);
-        this.selectionsByPoll.delete(first);
       }
     }
   }
 
   clear(): void {
     this.map.clear();
-    this.selectionEventTimesByPoll.clear();
-    this.selectionsByPoll.clear();
-  }
-
-  actorSelectionDeltas(
-    pollId: string,
-    actorId: string,
-    optionIds: readonly string[]
-  ): PollSelectionDelta[] {
-    const previous = this.selectionsByPoll.get(pollId)?.get(actorId);
-    if (!previous) {
-      return optionIds.map((optionId) => ({ optionId, selected: true }));
-    }
-    const current = new Set(optionIds);
-    const selected = optionIds
-      .filter((optionId) => !previous.has(optionId))
-      .map((optionId) => ({ optionId, selected: true }));
-    const deselected = [...previous]
-      .filter((optionId) => !current.has(optionId))
-      .map((optionId) => ({ optionId, selected: false }));
-    return [...selected, ...deselected];
-  }
-
-  clearedActorSelectionDeltas(
-    pollId: string,
-    actorId: string
-  ): PollSelectionDelta[] {
-    const previous = this.selectionsByPoll.get(pollId)?.get(actorId);
-    if (!previous) {
-      return [];
-    }
-    return [...previous].map((optionId) => ({ optionId, selected: false }));
-  }
-
-  actorSelection(pollId: string, actorId: string): string[] | undefined {
-    const selection = this.selectionsByPoll.get(pollId)?.get(actorId);
-    return selection ? [...selection] : undefined;
-  }
-
-  commitActorSelection(
-    pollId: string,
-    actorId: string,
-    optionIds: readonly string[],
-    at?: Date
-  ): void {
-    let selections = this.selectionsByPoll.get(pollId);
-    if (!selections) {
-      selections = new Map<string, Set<string>>();
-      this.selectionsByPoll.set(pollId, selections);
-    }
-    selections.set(actorId, new Set(optionIds));
-
-    if (!at) {
-      return;
-    }
-    let eventTimes = this.selectionEventTimesByPoll.get(pollId);
-    if (!eventTimes) {
-      eventTimes = new Map<string, number>();
-      this.selectionEventTimesByPoll.set(pollId, eventTimes);
-    }
-    const eventTime = at.getTime();
-    const previousTime = eventTimes.get(actorId);
-    if (previousTime === undefined || eventTime >= previousTime) {
-      eventTimes.set(actorId, eventTime);
-    }
-  }
-
-  isStaleActorSelectionEvent(
-    pollId: string,
-    actorId: string,
-    at: Date
-  ): boolean {
-    const previousTime = this.selectionEventTimesByPoll
-      .get(pollId)
-      ?.get(actorId);
-    return previousTime !== undefined && at.getTime() < previousTime;
   }
 }
 

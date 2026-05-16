@@ -39,12 +39,13 @@ const isRetryableIMessageStreamError = (error: unknown): boolean => {
 };
 
 const isEventFromCurrentAccount = (
-  event: Pick<MessageEvent | PollEvent, "actor">,
+  event: Pick<MessageEvent | PollEvent, "actor" | "isFromMe">,
   phone: string
 ): boolean =>
-  phone !== SHARED_PHONE &&
-  event.actor?.address !== undefined &&
-  event.actor.address === phone;
+  event.isFromMe ||
+  (phone !== SHARED_PHONE &&
+    event.actor?.address !== undefined &&
+    event.actor.address === phone);
 
 const toMessageItem = async (
   client: AdvancedIMessage,

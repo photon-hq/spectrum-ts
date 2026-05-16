@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,7 +7,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(here, "..");
 const repoRoot = join(packageRoot, "..", "..");
 
-const pkg = (await Bun.file(join(packageRoot, "package.json")).json()) as {
+const pkg = JSON.parse(
+  await readFile(join(packageRoot, "package.json"), "utf8")
+) as {
   version: string;
 };
 
@@ -28,14 +31,14 @@ export const SPECTRUM_SDK_VERSION = "${sdkVersion}";
 export const SPECTRUM_BUILD_ENV: "development" | "production" = "${buildEnv}";
 `;
 
-await Bun.write(join(packageRoot, "src/build-env.ts"), buildEnvFile);
-await Bun.write(
+await writeFile(join(packageRoot, "src/build-env.ts"), buildEnvFile);
+await writeFile(
   join(packageRoot, "README.md"),
-  Bun.file(join(repoRoot, "README.md"))
+  await readFile(join(repoRoot, "README.md"), "utf8")
 );
-await Bun.write(
+await writeFile(
   join(packageRoot, "LICENSE"),
-  Bun.file(join(repoRoot, "LICENSE"))
+  await readFile(join(repoRoot, "LICENSE"), "utf8")
 );
 
 console.log(`Prepared spectrum-ts v${sdkVersion} (env=${buildEnv})`);

@@ -2,10 +2,12 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: {
+    "adapters/ai-sdk/index": "src/adapters/ai-sdk/index.ts",
     index: "src/index.ts",
     "providers/index": "src/providers/index.ts",
     "providers/imessage/index": "src/providers/imessage/index.ts",
     "providers/terminal/index": "src/providers/terminal/index.ts",
+    "providers/web-chat/index": "src/providers/web-chat/index.ts",
     "providers/whatsapp-business/index":
       "src/providers/whatsapp-business/index.ts",
   },
@@ -15,5 +17,5 @@ export default defineConfig({
   clean: true,
   outDir: "dist",
   target: "esnext",
-  external: ["ffmpeg-static"],
+  external: ["ai", "ffmpeg-static"],
 });

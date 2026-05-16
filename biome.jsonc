@@ -10,7 +10,7 @@
     }
   },
   "files": {
-    "includes": ["!!bun.lock"]
+    "includes": ["!!**/.next*", "!!bun.lock"]
   },
   "overrides": [
     {

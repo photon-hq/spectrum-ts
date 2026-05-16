@@ -23,6 +23,11 @@
       "bun": "./src/providers/*/index.ts",
       "types": "./src/providers/*/index.ts",
       "default": "./dist/providers/*/index.js"
+    },
+    "./adapters/*": {
+      "bun": "./src/adapters/*/index.ts",
+      "types": "./src/adapters/*/index.ts",
+      "default": "./dist/adapters/*/index.js"
     }
   },
   "publishConfig": {
@@ -38,6 +43,10 @@
       "./providers/*": {
         "types": "./dist/providers/*/index.d.ts",
         "default": "./dist/providers/*/index.js"
+      },
+      "./adapters/*": {
+        "types": "./dist/adapters/*/index.d.ts",
+        "default": "./dist/adapters/*/index.js"
       }
     }
   },
@@ -64,16 +73,21 @@
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
+    "ai": "^6.0.0",
     "clean-publish": "^7.0.0",
     "hotscript": "^1.0.13",
     "tsup": "^8.4.0",
     "unicode-emoji-json": "^0.9.0"
   },
   "peerDependencies": {
+    "ai": "^6.0.0",
     "ffmpeg-static": "^5",
     "typescript": "^5 || ^6.0.0"
   },
   "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    },
     "ffmpeg-static": {
       "optional": true
     }

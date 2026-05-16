@@ -14,7 +14,9 @@ const app = await Spectrum({
   ],
 });
 
-console.log("webChat endpoint: http://127.0.0.1:8787/ai-sdk/chat");
+console.log(
+  "Spectrum runtime webChat endpoint: http://127.0.0.1:8787/ai-sdk/chat"
+);
 
 for await (const [space, message] of app.messages) {
   if (message.content.type !== "text") {

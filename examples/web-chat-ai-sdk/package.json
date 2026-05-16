@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "agent": "bun run agent.ts",
-    "dev": "vite --host 127.0.0.1 --port 5173"
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "runtime": "bun run spectrum-runtime.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.0",

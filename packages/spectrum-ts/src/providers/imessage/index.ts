@@ -1,12 +1,22 @@
 import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
+import type { z } from "zod";
 import type { Edit } from "../../content/edit";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
+import type { Store } from "../../utils/store";
 
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
 export { type BackgroundInput, background } from "./content/background";
 export { effect, type IMessageMessageEffect } from "./content/effect";
+export type {
+  ChatRead,
+  GroupChangeEvent,
+  MessageEdit,
+  MessageUnsend,
+  ReactionRemoved,
+  ReadReceipt,
+} from "./remote/events";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import {
@@ -31,6 +41,14 @@ import {
   stopTyping as remoteStopTyping,
 } from "./remote/api";
 import { clientForPhone, isSharedMode, randomPhone } from "./remote/client";
+import {
+  chatReadEvents,
+  groupChangeEvents,
+  messageEditEvents,
+  messageUnsendEvents,
+  reactionRemovedEvents,
+  readReceiptEvents,
+} from "./remote/events";
 import { dmChatGuid } from "./remote/ids";
 import {
   configSchema,
@@ -38,6 +56,7 @@ import {
   type IMessageMessage,
   isLocal,
   messageSchema,
+  type RemoteClient,
   SHARED_PHONE,
   spaceParamsSchema,
   spaceSchema,
@@ -45,6 +64,44 @@ import {
 
 const isPollContent = (content: { type: string }): boolean =>
   content.type === "poll" || content.type === "poll_option";
+
+// Local-mode iMessage doesn't expose any of the custom event streams.
+// Returning a one-shot empty async iterable lets the producers stay
+// uniform across modes while costing nothing at runtime.
+const emptyAsyncIterable = <T>(): AsyncIterable<T> => ({
+  [Symbol.asyncIterator]() {
+    return {
+      next: () => Promise.resolve({ done: true, value: undefined as never }),
+    };
+  },
+});
+
+type IMessageEventProducer<T> = (ctx: {
+  client: IMessageClient;
+  config: z.infer<typeof configSchema>;
+  store: Store;
+}) => AsyncIterable<T>;
+
+/**
+ * Wrap a remote-only event producer so the `events:` slot can declare a
+ * uniform `EventProducer<...>` shape across modes. In local mode the
+ * producer is bypassed and an empty async iterable is returned.
+ */
+const remoteOnlyEvent =
+  <T>(
+    producer: (clients: RemoteClient[], store: Store) => AsyncIterable<T>
+  ): IMessageEventProducer<T> =>
+  ({ client, store }) =>
+    isLocal(client) ? emptyAsyncIterable<T>() : producer(client, store);
+
+const imessageEvents = {
+  readReceipt: remoteOnlyEvent(readReceiptEvents),
+  chatRead: remoteOnlyEvent(chatReadEvents),
+  messageEdit: remoteOnlyEvent(messageEditEvents),
+  messageUnsend: remoteOnlyEvent(messageUnsendEvents),
+  reactionRemoved: remoteOnlyEvent(reactionRemovedEvents),
+  groupChange: remoteOnlyEvent(groupChangeEvents),
+};
 
 const handleEdit = async (
   client: IMessageClient,
@@ -194,6 +251,24 @@ export const imessage = definePlatform("iMessage", {
 
   messages: ({ client }) =>
     isLocal(client) ? localMessages(client) : remoteMessages(client),
+
+  // The `_Events` generic on `definePlatform` defaults to `undefined`,
+  // and TypeScript's holistic inference fails to widen it from this slot
+  // when several adjacent generics (`_Client`, `_MessageType`,
+  // `_Events`) are resolved together — even though each producer in
+  // `imessageEvents` structurally satisfies `EventProducer<unknown,
+  // IMessageClient, _>`. Allowing `_Events = undefined` keeps the rest
+  // of the def inferring cleanly; the cast then keeps the *runtime*
+  // events record intact in `fullDef` (define.ts spreads `...def`
+  // verbatim) so spectrum-ts and the webhook both discover and execute
+  // every producer below. The trade-off is consumer-side: typed access
+  // via `imessage(spectrum).readReceipt` currently surfaces as
+  // `AsyncIterable<unknown>` rather than `AsyncIterable<ReadReceipt>`.
+  // Consumers needing the narrow type cast at the call site using the
+  // exported event payload types (`ReadReceipt`, `ChatRead`, …). A
+  // follow-up to the spectrum-ts core can smooth the `_Events`
+  // inference and remove this cast.
+  events: imessageEvents as unknown as undefined,
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {

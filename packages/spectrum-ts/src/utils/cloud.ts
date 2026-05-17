@@ -27,7 +27,7 @@ export interface DedicatedTokenData {
 
 export type TokenData = SharedTokenData | DedicatedTokenData;
 
-export type CloudPlatform = "imessage" | "whatsapp_business";
+export type CloudPlatform = "imessage" | "whatsapp_business" | "telegram";
 
 export interface PlatformStatus {
   enabled: boolean;
@@ -43,6 +43,18 @@ export interface WhatsappBusinessTokenData {
   auth: Record<string, string>;
   expiresIn: number;
   numbers: Record<string, string | null>;
+}
+
+export interface TelegramTokenData {
+  /**
+   * Map of `botId` → bot token to use for the gRPC client. Multiple entries
+   * support running several bots under one Spectrum instance the same way
+   * WhatsApp Business multiplexes phone lines.
+   */
+  auth: Record<string, string>;
+  /** Optional override of the gRPC endpoint the SDK should hit. */
+  endpoint?: string;
+  expiresIn: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +152,15 @@ export const cloud = {
     projectSecret: string
   ): Promise<WhatsappBusinessTokenData> =>
     request(`/projects/${projectId}/whatsapp-business/tokens`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
+  issueTelegramTokens: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<TelegramTokenData> =>
+    request(`/projects/${projectId}/telegram/tokens`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

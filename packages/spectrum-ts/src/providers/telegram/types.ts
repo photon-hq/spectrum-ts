@@ -1,35 +1,27 @@
+import type { TelegramClient } from "@photon-ai/telegram";
 import z from "zod";
 import type { SchemaMessage } from "../../platform/types";
-import type { User } from "./generated/types";
-import type { TelegramCache } from "./runtime/cache";
-import type { TelegramClient } from "./runtime/client";
 
-export const cacheConfigSchema = z
-  .object({
-    messages: z.number().int().positive().optional(),
-    polls: z.number().int().positive().optional(),
-    pollVotes: z.number().int().positive().optional(),
-    albumConcurrent: z.number().int().positive().optional(),
-    albumDebounceMs: z.number().int().nonnegative().optional(),
-    albumCeilingMs: z.number().int().nonnegative().optional(),
-    coalesceAlbums: z.boolean().optional(),
-  })
-  .optional();
-
-export const configSchema = z.object({
-  token: z.string().trim().min(1),
-  apiBaseUrl: z.string().trim().url().optional(),
-  pollingTimeout: z.number().int().positive().max(50).optional(),
-  dropPendingUpdates: z.boolean().optional(),
-  cache: cacheConfigSchema,
+const directConfig = z.object({
+  botToken: z.string().trim().min(1),
+  endpoint: z.string().trim().min(1).optional(),
 });
 
-export type TelegramConfig = z.infer<typeof configSchema>;
+const cloudConfig = z.object({}).strict();
 
-// All fields optional: `telegram.user({ userID })` resolves with no chat
-// context and the Bot API has no "fetch user by id" endpoint.
+export const configSchema = z.union([directConfig, cloudConfig]);
+
+export type TelegramConfig = z.infer<typeof configSchema>;
+export type TelegramClients = TelegramClient[];
+
+export const isCloudConfig = (
+  config: TelegramConfig
+): config is z.infer<typeof cloudConfig> => !("botToken" in config);
+
+// Telegram has no Bot-API "fetch user" endpoint. We expose every field as
+// optional so callers can supply whatever they have (or just a userID) and
+// downstream content builders read them defensively.
 export const userSchema = z.object({
-  chatId: z.number().int().optional(),
   firstName: z.string().optional(),
   isBot: z.boolean().optional(),
   lastName: z.string().optional(),
@@ -37,12 +29,12 @@ export const userSchema = z.object({
   languageCode: z.string().optional(),
 });
 
+// v1 keeps the space minimal — `id` is the Telegram chat_id stringified.
+// Chat metadata (type/title/username) is populated lazily off the next
+// inbound message's `chat` payload; see PLAN-MIGRATION.md for the
+// follow-up `ResolveChat` RPC.
 export const spaceSchema = z.object({
   id: z.string(),
-  chatId: z.number().int(),
-  type: z.enum(["private", "group", "supergroup", "channel"]),
-  title: z.string().optional(),
-  username: z.string().optional(),
 });
 
 export const spaceParamsSchema = z.object({
@@ -63,10 +55,3 @@ export type TelegramMessage = SchemaMessage<
   mediaGroupId?: string;
   caption?: string;
 };
-
-export interface TelegramRuntime {
-  abort: AbortController;
-  cache: TelegramCache;
-  client: TelegramClient;
-  me: User;
-}

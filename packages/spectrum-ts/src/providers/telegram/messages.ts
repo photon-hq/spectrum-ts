@@ -1,103 +1,339 @@
-import type { Attachment } from "../../content/attachment";
-import type { Contact } from "../../content/contact";
-import type { Edit } from "../../content/edit";
-import { asGroup, type Group } from "../../content/group";
-import type { Poll as SpectrumPoll } from "../../content/poll";
-import type { Reaction } from "../../content/reaction";
-import type { Reply } from "../../content/reply";
-import type { Richlink } from "../../content/richlink";
+import type {
+  AttachmentInput,
+  InboundMedia,
+  InboundMessage,
+  MediaInput,
+  PollInput,
+  TelegramClient,
+  TelegramEvent,
+} from "@photon-ai/telegram";
+import { extension as mimeExtension } from "mime-types";
+import { asAttachment } from "../../content/attachment";
+import { asCustom } from "../../content/custom";
+import { asPollOption, type Poll } from "../../content/poll";
+import { asReaction } from "../../content/reaction";
+import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
-import type { Typing } from "../../content/typing";
-import type { Voice } from "../../content/voice";
-import type { Message as SpectrumMessage } from "../../types/message";
+import type { ProviderMessageRecord } from "../../platform/types";
+import type { Message } from "../../types/message";
 import { UnsupportedError } from "../../utils/errors";
-import { toVCard } from "../../utils/vcard";
-import type { LinkPreviewOptions, Message } from "./generated/types";
-import { chatToSender, chatToSpace, userToSender } from "./identity";
-import { messageCacheKey } from "./runtime/cache";
-import type { TelegramMessage, TelegramRuntime } from "./types";
+import { type ManagedStream, mergeStreams, stream } from "../../utils/stream";
+import type { TelegramClients, TelegramMessage } from "./types";
 
-const PLATFORM_NAME = "Telegram";
-
-// Telegram caps poll option text at 100 chars; pollSchema doesn't.
-const TG_POLL_OPTION_MAX_LEN = 100;
-
-const toChatId = (spaceId: string): number | string => {
-  const asNumber = Number(spaceId);
-  if (Number.isInteger(asNumber) && String(asNumber) === spaceId) {
-    return asNumber;
+// v1 routes outbound traffic to the first bot. When multi-bot send becomes a
+// requirement, extend spaceSchema with an optional `bot` (botId) and pick the
+// matching client here.
+const primary = (clients: TelegramClients): TelegramClient => {
+  const client = clients[0];
+  if (!client) {
+    throw new Error("No Telegram client available");
   }
-  return spaceId;
+  return client;
 };
 
-const DECIMAL_DIGITS = /^\d+$/;
+const toRecord = (
+  result: { messageId: string; chatId: string },
+  spaceId: string,
+  content: Content,
+  extra: { mediaGroupId?: string; caption?: string } = {}
+): ProviderMessageRecord => ({
+  id: result.messageId,
+  content,
+  space: { id: spaceId },
+  timestamp: new Date(),
+  ...extra,
+});
 
-const toMessageId = (messageId: string): number => {
-  if (!DECIMAL_DIGITS.test(messageId)) {
-    throw new Error(`Invalid Telegram message_id: ${messageId}`);
+// Poll cache: map from poll id → the Poll content we sent. Used to translate
+// inbound `poll_answer` events into `poll_option` content the app can match
+// against the original poll. Mirrors whatsapp-business.
+const MAX_POLL_CACHE_SIZE = 1000;
+const pollCaches = new WeakMap<TelegramClient, Map<string, Poll>>();
+
+const getPollCache = (client: TelegramClient): Map<string, Poll> => {
+  let cache = pollCaches.get(client);
+  if (!cache) {
+    cache = new Map<string, Poll>();
+    pollCaches.set(client, cache);
   }
-  const parsed = Number.parseInt(messageId, 10);
-  // Telegram message_ids are positive integers starting at 1; reject 0
-  // and anything outside the safe-integer range up front.
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`Invalid Telegram message_id: ${messageId}`);
-  }
-  return parsed;
+  return cache;
 };
 
-const recordOutbound = (
-  runtime: TelegramRuntime,
-  message: Message,
-  content: Content
-): TelegramMessage => {
-  let sender: TelegramMessage["sender"];
-  if (message.from) {
-    sender = userToSender(message.from);
-  } else if (message.sender_chat) {
-    sender = chatToSender(message.sender_chat);
-  } else {
-    sender = userToSender(runtime.me);
+const cachePoll = (
+  client: TelegramClient,
+  pollId: string,
+  poll: Poll
+): void => {
+  const cache = getPollCache(client);
+  if (cache.has(pollId)) {
+    cache.delete(pollId);
   }
-  const record: TelegramMessage = {
-    id: String(message.message_id),
-    content,
-    sender,
-    space: chatToSpace(message.chat),
-    timestamp: new Date(message.date * 1000),
-  };
-  if (message.media_group_id !== undefined) {
-    record.mediaGroupId = message.media_group_id;
+  cache.set(pollId, poll);
+  if (cache.size > MAX_POLL_CACHE_SIZE) {
+    const first = cache.keys().next().value;
+    if (first !== undefined) {
+      cache.delete(first);
+    }
   }
-  if (message.caption !== undefined && content.type !== "text") {
-    record.caption = message.caption;
-  }
-  runtime.cache.messages.set(
-    messageCacheKey(record.space.id, record.id),
-    record
-  );
-  return record;
 };
 
-const attachmentToFile = async (att: Attachment): Promise<File> => {
-  const buffer = await att.read();
-  return new File([buffer], att.name, { type: att.mimeType });
+// ---------------------------------------------------------------------------
+// Inbound mapping: TelegramEvent → Spectrum messages
+// ---------------------------------------------------------------------------
+
+const lazyMedia = (
+  client: TelegramClient,
+  media: InboundMedia,
+  fallbackName: string
+): Content => {
+  const name = media.filename ?? fallbackName;
+  return asAttachment({
+    name,
+    mimeType: media.mimeType ?? "application/octet-stream",
+    ...(media.fileSize === undefined ? {} : { size: media.fileSize }),
+    read: async () => {
+      const { url } = await client.files.getUrl(media.fileId);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Media download failed: ${response.status}`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    },
+    stream: async () => {
+      const { url } = await client.files.getUrl(media.fileId);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Media download failed: ${response.status}`);
+      }
+      if (!response.body) {
+        throw new Error("Media response missing body");
+      }
+      return response.body;
+    },
+  });
 };
 
-const voiceFile = async (voice: Voice): Promise<File> => {
-  const buffer = await voice.read();
-  const name = voice.name ?? "voice.ogg";
-  return new File([buffer], name, { type: voice.mimeType });
+const buildSender = (
+  from: InboundMessage["from"] | undefined,
+  fallbackId: string
+) => ({
+  id: from?.id ?? fallbackId,
+  ...(from?.firstName === undefined ? {} : { firstName: from.firstName }),
+  ...(from?.lastName === undefined ? {} : { lastName: from.lastName }),
+  ...(from?.username === undefined ? {} : { username: from.username }),
+  ...(from?.isBot === undefined ? {} : { isBot: from.isBot }),
+  ...(from?.languageCode === undefined
+    ? {}
+    : { languageCode: from.languageCode }),
+});
+
+const inboundMessageToSpectrum = (
+  client: TelegramClient,
+  msg: InboundMessage
+): TelegramMessage =>
+  ({
+    id: msg.messageId,
+    sender: buildSender(msg.from, msg.chat.id),
+    space: { id: msg.chat.id },
+    timestamp: msg.date,
+    ...(msg.mediaGroupId === undefined
+      ? {}
+      : { mediaGroupId: msg.mediaGroupId }),
+    ...(msg.caption === undefined ? {} : { caption: msg.caption }),
+    content: mapInboundContent(client, msg),
+  }) as TelegramMessage;
+
+const mapMediaContent = (
+  client: TelegramClient,
+  msg: InboundMessage
+): Content | undefined => {
+  if (msg.photo) {
+    return lazyMedia(client, msg.photo, `photo-${msg.photo.fileUniqueId}.jpg`);
+  }
+  if (msg.video) {
+    return lazyMedia(client, msg.video, `video-${msg.video.fileUniqueId}.mp4`);
+  }
+  if (msg.audio) {
+    return lazyMedia(client, msg.audio, `audio-${msg.audio.fileUniqueId}.mp3`);
+  }
+  if (msg.voice) {
+    return lazyMedia(client, msg.voice, `voice-${msg.voice.fileUniqueId}.ogg`);
+  }
+  if (msg.document) {
+    return lazyMedia(
+      client,
+      msg.document,
+      `document-${msg.document.fileUniqueId}`
+    );
+  }
+  return;
 };
 
-type AttachmentRoute = "photo" | "video" | "audio" | "document";
+const mapStructuredContent = (msg: InboundMessage): Content | undefined => {
+  if (msg.sticker) {
+    return asCustom({
+      telegram_type: "sticker",
+      fileId: msg.sticker.fileId,
+      fileUniqueId: msg.sticker.fileUniqueId,
+      ...(msg.sticker.width === undefined ? {} : { width: msg.sticker.width }),
+      ...(msg.sticker.height === undefined
+        ? {}
+        : { height: msg.sticker.height }),
+    });
+  }
+  if (msg.location) {
+    return asCustom({
+      telegram_type: "location",
+      latitude: msg.location.latitude,
+      longitude: msg.location.longitude,
+      ...(msg.location.title === undefined
+        ? {}
+        : { title: msg.location.title }),
+      ...(msg.location.address === undefined
+        ? {}
+        : { address: msg.location.address }),
+    });
+  }
+  if (msg.contact) {
+    return asCustom({
+      telegram_type: "contact",
+      phoneNumber: msg.contact.phoneNumber,
+      firstName: msg.contact.firstName,
+      ...(msg.contact.lastName === undefined
+        ? {}
+        : { lastName: msg.contact.lastName }),
+      ...(msg.contact.vcard === undefined ? {} : { vcard: msg.contact.vcard }),
+      ...(msg.contact.userId === undefined
+        ? {}
+        : { userId: msg.contact.userId }),
+    });
+  }
+  return;
+};
 
-// `sendPhoto` only reliably accepts JPEG / PNG / WEBP; other image
-// subtypes get rejected with opaque "WRONG_FILE_FORMAT" errors. Everything
-// else falls through to `sendDocument`, which has no MIME constraints.
-const PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const mapInboundContent = (
+  client: TelegramClient,
+  msg: InboundMessage
+): Content =>
+  mapMediaContent(client, msg) ??
+  mapStructuredContent(msg) ??
+  asText(msg.text || msg.caption || "");
 
-const routeAttachment = (mime: string): AttachmentRoute => {
-  if (PHOTO_MIME_TYPES.has(mime)) {
+const eventToMessages = (
+  client: TelegramClient,
+  event: TelegramEvent
+): TelegramMessage[] => {
+  switch (event.type) {
+    case "message":
+      return [inboundMessageToSpectrum(client, event.message)];
+    case "reaction": {
+      const r = event.reaction;
+      const sender = buildSender(r.from, r.chat.id);
+      // Telegram delivers the *current set* of emojis on the message, not a
+      // delta. If empty, surface as a custom "cleared" event.
+      if (r.emoji.length === 0) {
+        return [
+          {
+            id: `${r.messageId}:reaction-cleared`,
+            sender,
+            space: { id: r.chat.id },
+            timestamp: new Date(),
+            content: asCustom({
+              telegram_type: "reaction-cleared",
+              messageId: r.messageId,
+            }),
+          } as TelegramMessage,
+        ];
+      }
+      // Synthesize a minimal target Message so asReaction's schema accepts it.
+      // Core's wrapProviderMessage rebuilds it into a full Message at emit time.
+      const stubTarget = {
+        id: r.messageId,
+        content: asCustom({ telegram_type: "reaction-target", stub: true }),
+      } as unknown as Message;
+      return r.emoji.map(
+        (emoji, index) =>
+          ({
+            id:
+              r.emoji.length > 1
+                ? `${r.messageId}:reaction:${index}`
+                : `${r.messageId}:reaction`,
+            sender,
+            space: { id: r.chat.id },
+            timestamp: new Date(),
+            content: asReaction({ emoji, target: stubTarget }),
+          }) as TelegramMessage
+      );
+    }
+    case "poll_answer": {
+      const a = event.answer;
+      const poll = getPollCache(client).get(a.pollId);
+      const sender = {
+        id: a.from?.id ?? "telegram-anonymous",
+        ...(a.from?.firstName === undefined
+          ? {}
+          : { firstName: a.from.firstName }),
+        ...(a.from?.username === undefined
+          ? {}
+          : { username: a.from.username }),
+      };
+      // No cached poll (we didn't send it, or it predates this process), or
+      // vote retracted. Surface as a custom event so apps can still observe it.
+      if (!poll || a.optionIds.length === 0) {
+        return [
+          {
+            id: `${a.pollId}:answer`,
+            sender,
+            space: { id: sender.id },
+            timestamp: new Date(),
+            content: asCustom({
+              telegram_type: "poll_answer",
+              pollId: a.pollId,
+              optionIds: [...a.optionIds],
+            }),
+          } as TelegramMessage,
+        ];
+      }
+      return a.optionIds.flatMap((optionIndex, i): TelegramMessage[] => {
+        const option = poll.options[optionIndex];
+        if (!option) {
+          return [];
+        }
+        return [
+          {
+            id:
+              a.optionIds.length > 1
+                ? `${a.pollId}:answer:${i}`
+                : `${a.pollId}:answer`,
+            sender,
+            space: { id: sender.id },
+            timestamp: new Date(),
+            content: asPollOption({ poll, option, selected: true }),
+          } as TelegramMessage,
+        ];
+      });
+    }
+    default:
+      // "poll" (aggregate vote totals) and "heartbeat" are not surfaced as
+      // Spectrum messages — apps that need them use the SDK directly.
+      return [];
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Outbound mapping: Spectrum Content → SDK calls
+// ---------------------------------------------------------------------------
+
+const mimeToAttachmentKind = (
+  mimeType: string
+): "photo" | "video" | "audio" | "document" => {
+  const mime = mimeType.toLowerCase();
+  // image/gif animations don't survive Telegram's photo pipeline; ship as a
+  // document so bytes round-trip intact (matches the SDK's attachmentKind).
+  if (mime === "image/gif") {
+    return "document";
+  }
+  if (mime.startsWith("image/")) {
     return "photo";
   }
   if (mime.startsWith("video/")) {
@@ -109,487 +345,240 @@ const routeAttachment = (mime: string): AttachmentRoute => {
   return "document";
 };
 
-interface SendOpts {
-  replyToMessageId?: number;
-}
-
-const replyParams = (
-  opts: SendOpts
-): { reply_parameters: { message_id: number } } | Record<string, never> =>
-  opts.replyToMessageId === undefined
-    ? {}
-    : { reply_parameters: { message_id: opts.replyToMessageId } };
-
-const sendText = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  content: Content & { type: "text" },
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  const message = await runtime.client.invoke("sendMessage", {
-    chat_id: toChatId(spaceId),
-    text: content.text,
-    ...replyParams(opts),
-  });
-  return recordOutbound(runtime, message, content);
+const attachmentContentToSdk = async (
+  content: Extract<Content, { type: "attachment" }>
+): Promise<AttachmentInput> => {
+  const data = new Uint8Array(await content.read());
+  return {
+    data,
+    mimeType: content.mimeType,
+    filename: content.name,
+  };
 };
 
-// `prefer_large_media` only takes effect when `url` is pinned; otherwise
-// Telegram falls back to a thumbnail.
-const richlinkPreviewOptions = (url: string): LinkPreviewOptions => ({
-  is_disabled: false,
-  url,
-  prefer_large_media: true,
-  show_above_text: true,
+const voiceContentToMedia = async (
+  content: Extract<Content, { type: "voice" }>
+): Promise<MediaInput> => {
+  const data = new Uint8Array(await content.read());
+  const ext = mimeExtension(content.mimeType);
+  const filename = content.name ?? (ext ? `voice.${ext}` : "voice.ogg");
+  return {
+    data,
+    mimeType: content.mimeType,
+    filename,
+  };
+};
+
+const pollContentToSdk = (poll: Poll): PollInput => ({
+  question: poll.title,
+  options: poll.options.map((o) => o.title),
 });
 
-// Bot API has no fields for caller-provided title / summary / cover —
-// previews come from Telegram's server-side scraper.
-const sendRichlinkContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  richlink: Richlink,
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  const message = await runtime.client.invoke("sendMessage", {
-    chat_id: toChatId(spaceId),
-    text: richlink.url,
-    link_preview_options: richlinkPreviewOptions(richlink.url),
-    ...replyParams(opts),
+// ---------------------------------------------------------------------------
+// Stream wiring
+// ---------------------------------------------------------------------------
+
+const clientStream = (
+  client: TelegramClient
+): ManagedStream<TelegramMessage> => {
+  const eventStream = client.events.subscribe();
+
+  return stream<TelegramMessage>((emit, end) => {
+    const pump = (async () => {
+      try {
+        for await (const event of eventStream) {
+          for (const m of eventToMessages(client, event)) {
+            await emit(m);
+          }
+        }
+        end();
+      } catch (e) {
+        end(e);
+      }
+    })();
+    return async () => {
+      await eventStream.close();
+      await pump;
+    };
   });
-  return recordOutbound(runtime, message, richlink);
 };
+
+export const messages = (
+  clients: TelegramClients
+): ManagedStream<TelegramMessage> => mergeStreams(clients.map(clientStream));
+
+// ---------------------------------------------------------------------------
+// Send
+// ---------------------------------------------------------------------------
 
 const sendAttachment = async (
-  runtime: TelegramRuntime,
+  client: TelegramClient,
   spaceId: string,
-  att: Attachment,
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  const chat_id = toChatId(spaceId);
-  const file = await attachmentToFile(att);
-  const reply = replyParams(opts);
-  const route = routeAttachment(att.mimeType);
-  const client = runtime.client;
-
-  let message: Message;
-  switch (route) {
-    case "photo":
-      message = await client.invoke("sendPhoto", {
-        chat_id,
-        photo: file,
-        ...reply,
-      });
-      break;
-    case "video":
-      message = await client.invoke("sendVideo", {
-        chat_id,
-        video: file,
-        ...reply,
-      });
-      break;
-    case "audio":
-      message = await client.invoke("sendAudio", {
-        chat_id,
-        audio: file,
-        ...reply,
-      });
-      break;
-    case "document":
-      message = await client.invoke("sendDocument", {
-        chat_id,
-        document: file,
-        ...reply,
-      });
-      break;
-    default: {
-      const _exhaustive: never = route;
-      throw new Error(`Unhandled attachment route: ${String(_exhaustive)}`);
-    }
-  }
-  return recordOutbound(runtime, message, att);
-};
-
-const sendVoiceContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  voice: Voice,
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  const file = await voiceFile(voice);
-  const message = await runtime.client.invoke("sendVoice", {
-    chat_id: toChatId(spaceId),
-    voice: file,
-    ...(voice.duration === undefined
-      ? {}
-      : { duration: Math.round(voice.duration) }),
-    ...replyParams(opts),
-  });
-  return recordOutbound(runtime, message, voice);
-};
-
-const VCARD_MAX_BYTES = 2048;
-const VCARD_HEADER = "BEGIN:VCARD";
-
-// Prefer a caller-supplied vCard verbatim (string or nested `raw.vcard`) so
-// outbound contacts preserve any custom fields toVCard would normalize away.
-const preservedVCard = (contact: Contact): string | undefined => {
-  const raw = contact.raw;
-  if (typeof raw === "string" && raw.startsWith(VCARD_HEADER)) {
-    return raw;
-  }
-  if (raw && typeof raw === "object" && "vcard" in raw) {
-    const candidate = (raw as { vcard: unknown }).vcard;
-    if (typeof candidate === "string" && candidate.startsWith(VCARD_HEADER)) {
-      return candidate;
-    }
-  }
-  return;
-};
-
-const hasExtraContactData = (contact: Contact): boolean =>
-  (contact.phones?.length ?? 0) > 1 ||
-  (contact.emails?.length ?? 0) > 0 ||
-  (contact.addresses?.length ?? 0) > 0 ||
-  (contact.urls?.length ?? 0) > 0 ||
-  contact.org !== undefined ||
-  contact.birthday !== undefined ||
-  contact.note !== undefined ||
-  contact.photo !== undefined ||
-  preservedVCard(contact) !== undefined;
-
-const buildVCardField = async (
-  contact: Contact
-): Promise<string | undefined> => {
-  if (!hasExtraContactData(contact)) {
-    return;
-  }
-  const preserved = preservedVCard(contact);
-  if (preserved !== undefined) {
-    return Buffer.byteLength(preserved, "utf8") > VCARD_MAX_BYTES
-      ? undefined
-      : preserved;
-  }
-  let card: string;
-  try {
-    card = await toVCard(contact);
-  } catch {
-    return;
-  }
-  if (Buffer.byteLength(card, "utf8") > VCARD_MAX_BYTES) {
-    return;
-  }
-  return card;
-};
-
-const sendContactContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  contact: Contact,
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  const phone = contact.phones?.[0]?.value;
-  if (!phone) {
-    throw new Error(
-      "Telegram sendContact requires at least one phone number on the contact"
-    );
-  }
-  const firstName = contact.name?.first ?? contact.name?.formatted ?? "Contact";
-  const params: {
-    chat_id: number | string;
-    phone_number: string;
-    first_name: string;
-    last_name?: string;
-    vcard?: string;
-    reply_parameters?: { message_id: number };
-  } = {
-    chat_id: toChatId(spaceId),
-    phone_number: phone,
-    first_name: firstName,
+  content: Extract<Content, { type: "attachment" }>,
+  replyToMessageId?: string
+) => {
+  const att = await attachmentContentToSdk(content);
+  const kind = mimeToAttachmentKind(content.mimeType);
+  const media: MediaInput = {
+    data: att.data,
+    mimeType: att.mimeType,
+    filename: att.filename,
   };
-  if (contact.name?.last !== undefined) {
-    params.last_name = contact.name.last;
-  }
-  const vcard = await buildVCardField(contact);
-  if (vcard !== undefined) {
-    params.vcard = vcard;
-  }
-  const reply = replyParams(opts);
-  if ("reply_parameters" in reply) {
-    params.reply_parameters = reply.reply_parameters;
-  }
-  const message = await runtime.client.invoke("sendContact", params);
-  return recordOutbound(runtime, message, contact);
-};
-
-// `setMessageReaction` returns a boolean. Single-element array overwrites
-// any prior bot reaction with this emoji; `[]` would clear (not modeled).
-const sendReactionContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  reaction: Reaction
-): Promise<undefined> => {
-  await runtime.client.invoke("setMessageReaction", {
-    chat_id: toChatId(spaceId),
-    message_id: toMessageId(reaction.target.id),
-    reaction: [{ type: "emoji", emoji: reaction.emoji }],
-  });
-  return;
-};
-
-const validatePollOptionTitles = (poll: SpectrumPoll): void => {
-  for (const opt of poll.options) {
-    if (opt.title.length > TG_POLL_OPTION_MAX_LEN) {
-      throw new Error(
-        `Telegram poll option titles must be <= ${TG_POLL_OPTION_MAX_LEN} chars, got ${opt.title.length}: "${opt.title.slice(0, 32)}…"`
-      );
-    }
-  }
-};
-
-// `is_anonymous: false` is required — Telegram only delivers `poll_answer`
-// updates for non-anonymous polls the bot itself sent.
-const sendPollContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  poll: SpectrumPoll,
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  validatePollOptionTitles(poll);
-  const message = await runtime.client.invoke("sendPoll", {
-    chat_id: toChatId(spaceId),
-    question: poll.title,
-    options: poll.options.map((o) => ({ text: o.title })),
-    is_anonymous: false,
-    ...replyParams(opts),
-  });
-  if (message.poll) {
-    runtime.cache.polls.rememberPoll(message.poll.id, {
-      chat: {
-        id: String(message.chat.id),
-        chatId: message.chat.id,
-        type: message.chat.type,
-        ...(message.chat.title === undefined
-          ? {}
-          : { title: message.chat.title }),
-        ...(message.chat.username === undefined
-          ? {}
-          : { username: message.chat.username }),
-      },
-      messageId: message.message_id,
-      poll,
-    });
-  }
-  return recordOutbound(runtime, message, poll);
-};
-
-// `sendMediaGroup` only accepts homogeneous photo/video/audio/document
-// buckets; Spectrum `group` is heterogeneous, so we iterate children
-// through the normal send pipeline. Wrapper id = lead child id so
-// replies / reactions target the album's first message.
-
-// Platform inflation adds `react()`/`reply()` closures downstream; the
-// provider-side records intentionally lack them.
-export const toGroupItems = (records: TelegramMessage[]): SpectrumMessage[] =>
-  records as unknown as SpectrumMessage[];
-
-const MIN_GROUP_ITEMS = 2;
-
-const sendGroupContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  group: Group,
-  opts: SendOpts
-): Promise<TelegramMessage> => {
-  // `asGroup` requires >= 2 items, but a hand-rolled `group` content could
-  // skip that check. Catch it here before any child is sent so we never
-  // partial-send a "group".
-  if (group.items.length < MIN_GROUP_ITEMS) {
-    throw new Error(
-      `Telegram group send requires at least ${MIN_GROUP_ITEMS} items, got ${group.items.length}`
-    );
-  }
-  // Pre-validate every child — Telegram has no atomic undo for partial
-  // album sends.
-  for (const item of group.items) {
-    const child = item.content;
-    if (child.type === "group" || child.type === "reaction") {
-      throw UnsupportedError.content(
-        child.type,
-        PLATFORM_NAME,
-        `nested ${child.type} inside group is not allowed`
-      );
-    }
-    if (
-      child.type === "reply" ||
-      child.type === "edit" ||
-      child.type === "typing"
-    ) {
-      throw UnsupportedError.content(
-        child.type,
-        PLATFORM_NAME,
-        `${child.type} cannot be an album member`
-      );
-    }
-    if (child.type === "custom") {
-      throw UnsupportedError.content("custom", PLATFORM_NAME);
-    }
-    if (child.type === "poll_option") {
-      throw UnsupportedError.content(
-        "poll_option",
-        PLATFORM_NAME,
-        "poll_option is an inbound-only content type"
-      );
-    }
-    if (child.type === "effect") {
-      throw UnsupportedError.content(
-        "effect",
-        PLATFORM_NAME,
-        "effect is an iMessage-only content type"
-      );
-    }
-  }
-
-  const childRecords: TelegramMessage[] = [];
-  // Reply edge attaches to the first child only.
-  let firstOpts: SendOpts = opts;
-  for (const item of group.items) {
-    const child = item.content;
-    const childRecord = await dispatchSend(runtime, spaceId, child, firstOpts);
-    if (!childRecord) {
-      throw new Error(
-        `Telegram group send: child of type "${child.type}" did not produce a message`
-      );
-    }
-    childRecords.push(childRecord);
-    firstOpts = {};
-  }
-  const first = childRecords[0];
-  if (!first) {
-    throw new Error("Telegram group send: empty items");
-  }
-  const wrapper: TelegramMessage = {
-    ...first,
-    content: asGroup({ items: toGroupItems(childRecords) }),
+  const base = {
+    chatId: spaceId,
+    ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
   };
-  // Overwrite the lead child's per-message cache entry so
-  // `getMessage(wrapper.id)` returns what `send` returned.
-  runtime.cache.messages.set(
-    messageCacheKey(first.space.id, wrapper.id),
-    wrapper
-  );
-  return wrapper;
+  if (kind === "photo") {
+    return await client.messages.send({ ...base, photo: media });
+  }
+  if (kind === "video") {
+    return await client.messages.send({ ...base, video: media });
+  }
+  if (kind === "audio") {
+    return await client.messages.send({ ...base, audio: media });
+  }
+  return await client.messages.send({ ...base, document: media });
 };
 
-// Telegram only edits text/richlink bodies; no edit endpoint for media
-// or polls.
-const sendEditContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  editContent: Edit
-): Promise<undefined> => {
-  const inner = editContent.content;
-  if (inner.type !== "text" && inner.type !== "richlink") {
-    throw UnsupportedError.content(
-      "edit",
-      PLATFORM_NAME,
-      `only text/richlink edits are supported, got "${inner.type}"`
-    );
-  }
-  const text = inner.type === "text" ? inner.text : inner.url;
-  // Result is a boolean only for inline messages, which we never send.
-  const result = await runtime.client.invoke("editMessageText", {
-    chat_id: toChatId(spaceId),
-    message_id: toMessageId(editContent.target.id),
-    text,
-    ...(inner.type === "richlink"
-      ? { link_preview_options: richlinkPreviewOptions(inner.url) }
-      : {}),
-  });
-  if (typeof result !== "boolean") {
-    recordOutbound(runtime, result, inner);
-  }
-  return;
-};
-
-// `sendChatAction` is fire-and-forget — Telegram auto-expires after ~5s
-// and has no cancel API, so `stop` is a no-op.
-const sendTypingContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  typing: Typing
-): Promise<undefined> => {
-  if (typing.state === "start") {
-    await runtime.client.invoke("sendChatAction", {
-      chat_id: toChatId(spaceId),
-      action: "typing",
-    });
-  }
-  return;
-};
-
-const sendReplyContent = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  replyContent: Reply
-): Promise<TelegramMessage | undefined> =>
-  await dispatchSend(runtime, spaceId, replyContent.content, {
-    replyToMessageId: toMessageId(replyContent.target.id),
-  });
-
-const dispatchSend = async (
-  runtime: TelegramRuntime,
-  spaceId: string,
-  content: Content,
-  opts: SendOpts
-): Promise<TelegramMessage | undefined> => {
-  switch (content.type) {
-    case "text":
-      return await sendText(runtime, spaceId, content, opts);
-    case "richlink":
-      return await sendRichlinkContent(runtime, spaceId, content, opts);
-    case "attachment":
-      return await sendAttachment(runtime, spaceId, content, opts);
-    case "voice":
-      return await sendVoiceContent(runtime, spaceId, content, opts);
-    case "contact":
-      return await sendContactContent(runtime, spaceId, content, opts);
-    case "poll":
-      return await sendPollContent(runtime, spaceId, content, opts);
-    case "reaction":
-      return await sendReactionContent(runtime, spaceId, content);
-    case "reply":
-      return await sendReplyContent(runtime, spaceId, content);
-    case "edit":
-      return await sendEditContent(runtime, spaceId, content);
-    case "typing":
-      return await sendTypingContent(runtime, spaceId, content);
-    case "custom":
-      throw UnsupportedError.content("custom", PLATFORM_NAME);
-    case "group":
-      return await sendGroupContent(runtime, spaceId, content, opts);
-    case "poll_option":
-      throw UnsupportedError.content(
-        "poll_option",
-        PLATFORM_NAME,
-        "poll_option is an inbound-only content type"
-      );
-    case "effect":
-      throw UnsupportedError.content(
-        "effect",
-        PLATFORM_NAME,
-        "effect is an iMessage-only content type"
-      );
-    default: {
-      content satisfies never;
-      throw UnsupportedError.content("unknown", PLATFORM_NAME);
-    }
-  }
-};
-
-export const send = (
-  runtime: TelegramRuntime,
+export const send = async (
+  clients: TelegramClients,
   spaceId: string,
   content: Content
-): Promise<TelegramMessage | undefined> =>
-  dispatchSend(runtime, spaceId, content, {});
+): Promise<ProviderMessageRecord | undefined> => {
+  if (content.type === "reply") {
+    return await replyToMessage(
+      clients,
+      spaceId,
+      content.target.id,
+      content.content
+    );
+  }
+  if (content.type === "reaction") {
+    await reactToMessage(clients, spaceId, content.target.id, content.emoji);
+    return;
+  }
+  if (content.type === "typing") {
+    // Best-effort "typing..." indicator. Telegram clears it after ~5s; the
+    // app is expected to resend periodically for longer operations.
+    await primary(clients)
+      .messages.sendChatAction({ chatId: spaceId, action: "typing" })
+      .catch(() => undefined);
+    return;
+  }
+  const client = primary(clients);
+  switch (content.type) {
+    case "text":
+      return toRecord(
+        await client.messages.send({ chatId: spaceId, text: content.text }),
+        spaceId,
+        content
+      );
+    case "attachment":
+      return toRecord(
+        await sendAttachment(client, spaceId, content),
+        spaceId,
+        content
+      );
+    case "voice": {
+      const media = await voiceContentToMedia(content);
+      return toRecord(
+        await client.messages.send({ chatId: spaceId, voice: media }),
+        spaceId,
+        content
+      );
+    }
+    case "poll": {
+      const sdkPoll = pollContentToSdk(content);
+      const result = await client.messages.send({
+        chatId: spaceId,
+        poll: sdkPoll,
+      });
+      cachePoll(client, result.messageId, content);
+      return toRecord(result, spaceId, content);
+    }
+    case "edit": {
+      if (content.content.type !== "text") {
+        throw UnsupportedError.action(
+          "edit",
+          "Telegram",
+          "only text edits are supported via Content; use editMedia/editCaption on the SDK directly for media edits"
+        );
+      }
+      return toRecord(
+        await client.messages.edit({
+          chatId: spaceId,
+          messageId: content.target.id,
+          text: content.content.text,
+        }),
+        spaceId,
+        content
+      );
+    }
+    default:
+      throw UnsupportedError.content(content.type);
+  }
+};
+
+const reactToMessage = async (
+  clients: TelegramClients,
+  spaceId: string,
+  messageId: string,
+  emoji: string
+): Promise<void> => {
+  await primary(clients).messages.react({
+    chatId: spaceId,
+    messageId,
+    emoji: [emoji],
+  });
+};
+
+export const replyToMessage = async (
+  clients: TelegramClients,
+  spaceId: string,
+  messageId: string,
+  content: Content
+): Promise<ProviderMessageRecord> => {
+  const client = primary(clients);
+  switch (content.type) {
+    case "text":
+      return toRecord(
+        await client.messages.send({
+          chatId: spaceId,
+          text: content.text,
+          replyToMessageId: messageId,
+        }),
+        spaceId,
+        content
+      );
+    case "attachment":
+      return toRecord(
+        await sendAttachment(client, spaceId, content, messageId),
+        spaceId,
+        content
+      );
+    case "voice": {
+      const media = await voiceContentToMedia(content);
+      return toRecord(
+        await client.messages.send({
+          chatId: spaceId,
+          voice: media,
+          replyToMessageId: messageId,
+        }),
+        spaceId,
+        content
+      );
+    }
+    case "poll": {
+      const sdkPoll = pollContentToSdk(content);
+      const result = await client.messages.send({
+        chatId: spaceId,
+        poll: sdkPoll,
+        replyToMessageId: messageId,
+      });
+      cachePoll(client, result.messageId, content);
+      return toRecord(result, spaceId, content);
+    }
+    default:
+      throw UnsupportedError.content(content.type);
+  }
+};

@@ -46,7 +46,7 @@ const toRecord = (
 
 // Poll cache: map from poll id → the Poll content we sent. Used to translate
 // inbound `poll_answer` events into `poll_option` content the app can match
-// against the original poll. Mirrors whatsapp-business.
+// against the original poll.
 const MAX_POLL_CACHE_SIZE = 1000;
 const pollCaches = new WeakMap<TelegramClient, Map<string, Poll>>();
 

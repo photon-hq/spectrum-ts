@@ -32,7 +32,7 @@ const cloudAuthState = new WeakMap<TelegramClient[], CloudAuth>();
 // `@photon-ai/telegram` does not (yet) accept a token callback, so we
 // recreate the underlying client when the cloud-issued credentials are near
 // expiry, and transparently re-subscribe long-lived event streams across
-// swaps. Mirrors `providers/whatsapp-business/auth.ts`.
+// swaps.
 export async function createCloudClients(
   projectId: string,
   projectSecret: string

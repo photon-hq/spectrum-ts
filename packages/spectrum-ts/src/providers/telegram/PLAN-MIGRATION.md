@@ -24,8 +24,7 @@ This doc captures the deferred work and the deltas a consumer may notice.
 The in-tree provider is now:
 
 - `types.ts` — direct vs cloud config union, space/user/message schemas.
-- `auth.ts` — cloud-mode token rotation + resubscribable streams (1:1
-  port of `providers/whatsapp-business/auth.ts`).
+- `auth.ts` — cloud-mode token rotation + resubscribable streams.
 - `messages.ts` — `TelegramEvent` ↔ Spectrum `Content` / `Message` mapper.
 - `index.ts` — `definePlatform("Telegram", { ... })`.
 
@@ -70,10 +69,10 @@ export const spaceSchema = z.object({
 ### 2. Multi-bot per Spectrum instance
 
 Cloud mode already returns `TelegramClient[]` and the inbound stream is
-multiplexed via `mergeStreams`. Outbound `send` picks `clients[0]` (mirrors
-the WhatsApp Business "primary line" pattern). When multi-bot send becomes
-a requirement, extend `spaceSchema` with `bot?: string` and route by that
-in `messages.ts`'s `primary(...)` helper.
+multiplexed via `mergeStreams`. Outbound `send` picks `clients[0]` as the
+primary bot. When multi-bot send becomes a requirement, extend
+`spaceSchema` with `bot?: string` and route by that in `messages.ts`'s
+`primary(...)` helper.
 
 ### 3. Lost surface area from the old in-tree provider
 
@@ -106,6 +105,6 @@ not yet surface them — add `space.params.threadId` and a
 
 `utils/cloud.ts` gained `issueTelegramTokens(projectId, projectSecret)`
 returning `{ auth: Record<botId, botToken>, endpoint?, expiresIn }`. The
-spectrum.photon.codes cloud expects a `POST /projects/{id}/telegram/tokens`
-endpoint shaped like the existing `whatsapp-business/tokens` route. The
+spectrum.photon.codes cloud needs to expose a `POST
+/projects/{id}/telegram/tokens` endpoint that returns this shape. The
 hosted transport then validates `bot_token` on every gRPC call as today.

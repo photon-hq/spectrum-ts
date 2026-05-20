@@ -27,7 +27,7 @@ export interface DedicatedTokenData {
 
 export type TokenData = SharedTokenData | DedicatedTokenData;
 
-export type CloudPlatform = "imessage" | "whatsapp_business";
+export type CloudPlatform = "imessage" | "whatsapp_business" | "slack";
 
 export interface PlatformStatus {
   enabled: boolean;
@@ -43,6 +43,19 @@ export interface WhatsappBusinessTokenData {
   auth: Record<string, string>;
   expiresIn: number;
   numbers: Record<string, string | null>;
+}
+
+export interface SlackTeamMeta {
+  appId: string;
+  botUserId: string;
+  grantedScopes: string[];
+  teamName: string;
+}
+
+export interface SlackTokenData {
+  auth: Record<string, string>;
+  expiresIn: number;
+  teams: Record<string, SlackTeamMeta>;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +153,15 @@ export const cloud = {
     projectSecret: string
   ): Promise<WhatsappBusinessTokenData> =>
     request(`/projects/${projectId}/whatsapp-business/tokens`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
+  issueSlackTokens: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<SlackTokenData> =>
+    request(`/projects/${projectId}/slack/tokens`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

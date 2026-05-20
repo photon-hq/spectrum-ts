@@ -56,6 +56,8 @@ export type {
   PlatformStatus,
   PlatformsData,
   SharedTokenData,
+  SlackTeamMeta,
+  SlackTokenData,
   SubscriptionData,
   SubscriptionStatus,
   TokenData,

@@ -47,6 +47,22 @@ const isEventFromCurrentAccount = (
     event.actor?.address !== undefined &&
     event.actor.address === phone);
 
+const POLL_RAW_LOG_ENV = "SPECTRUM_IMESSAGE_POLL_RAW_LOG";
+
+const isPollRawLogEnabled = (): boolean =>
+  process.env[POLL_RAW_LOG_ENV] === "1" ||
+  process.env[POLL_RAW_LOG_ENV] === "true";
+
+const logRawPollEvent = (event: PollEvent): void => {
+  if (!isPollRawLogEnabled()) {
+    return;
+  }
+  console.info("[spectrum-ts][imessage][poll][raw]", {
+    delta: event.delta,
+    options: "options" in event.delta ? event.delta.options : undefined,
+  });
+};
+
 const toMessageItem = async (
   client: AdvancedIMessage,
   event: MessageEvent,
@@ -97,6 +113,7 @@ const toPollItem = async (
   phone: string,
   cursor: string
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
+  logRawPollEvent(event);
   cachePollEvent(pollCache, event);
   if (isEventFromCurrentAccount(event, phone)) {
     return {

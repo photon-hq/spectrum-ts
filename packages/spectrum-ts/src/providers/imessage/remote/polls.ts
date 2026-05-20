@@ -32,6 +32,25 @@ interface PollOptionMessageInput {
   senderAddress: string;
 }
 
+const POLL_RAW_LOG_ENV = "SPECTRUM_IMESSAGE_POLL_RAW_LOG";
+
+const isPollRawLogEnabled = (): boolean =>
+  process.env[POLL_RAW_LOG_ENV] === "1" ||
+  process.env[POLL_RAW_LOG_ENV] === "true";
+
+const logPollOptionEmit = (
+  event: VotedPollEvent | UnvotedPollEvent,
+  message: IMessageMessage | undefined
+): void => {
+  if (!isPollRawLogEnabled()) {
+    return;
+  }
+  console.info("[spectrum-ts][imessage][poll][emit]", {
+    content: message?.content,
+    eventDelta: event.delta,
+  });
+};
+
 const isVotedPollEvent = (event: PollEvent): event is VotedPollEvent =>
   event.delta.type === "voted";
 
@@ -79,21 +98,6 @@ export const cachePollEvent = (
   }
 };
 
-const fetchPollInfo = async (
-  client: AdvancedIMessage,
-  cache: PollCache,
-  event: PollEvent
-): Promise<IMessagePoll | undefined> => {
-  try {
-    const info = await client.polls.get(event.pollMessageGuid);
-    cachePollInfo(cache, info);
-    return info;
-  } catch (e) {
-    console.error("[spectrum-ts][imessage][poll] failed to fetch poll", e);
-    return;
-  }
-};
-
 const resolvePoll = async (
   client: AdvancedIMessage,
   cache: PollCache,
@@ -109,6 +113,20 @@ const resolvePoll = async (
     return cachePollInfo(cache, info);
   } catch (e) {
     console.error("[spectrum-ts][imessage][poll] failed to resolve poll", e);
+    return;
+  }
+};
+
+const refreshPollMetadata = async (
+  client: AdvancedIMessage,
+  pollCache: PollCache,
+  event: VotedPollEvent | UnvotedPollEvent
+): Promise<CachedPoll | undefined> => {
+  try {
+    const info = await client.polls.get(event.pollMessageGuid);
+    return cachePollInfo(pollCache, info);
+  } catch (e) {
+    console.error("[spectrum-ts][imessage][poll] failed to refresh poll", e);
     return;
   }
 };
@@ -140,19 +158,7 @@ const buildPollOptionMessage = (
   };
 };
 
-const refreshPollMetadata = async (
-  client: AdvancedIMessage,
-  pollCache: PollCache,
-  event: VotedPollEvent | UnvotedPollEvent
-): Promise<CachedPoll | undefined> => {
-  const info = await fetchPollInfo(client, pollCache, event);
-  if (!info) {
-    return;
-  }
-  return pollCache.get(info.pollMessageGuid);
-};
-
-const toPollOptionMessage = async (
+const toPollOptionMessages = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
   event: VotedPollEvent | UnvotedPollEvent,
@@ -185,6 +191,7 @@ const toPollOptionMessage = async (
     selected: event.delta.type === "voted",
     senderAddress,
   });
+  logPollOptionEmit(event, message);
 
   return message ? [message] : [];
 };
@@ -196,10 +203,10 @@ export const toPollDeltaMessages = async (
   phone: string
 ): Promise<IMessageMessage[]> => {
   if (isVotedPollEvent(event)) {
-    return toPollOptionMessage(client, pollCache, event, phone);
+    return toPollOptionMessages(client, pollCache, event, phone);
   }
   if (isUnvotedPollEvent(event)) {
-    return toPollOptionMessage(client, pollCache, event, phone);
+    return toPollOptionMessages(client, pollCache, event, phone);
   }
   return [];
 };

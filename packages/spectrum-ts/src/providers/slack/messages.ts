@@ -29,6 +29,7 @@ const toRecord = (
   space: { id: result.channel, teamId: space.teamId },
   timestamp: tsToDate(result.ts),
   ts: result.ts,
+  isFromMe: true,
 });
 
 // Slack `ts` values are formatted as `<seconds>.<microseconds>`; parse to a
@@ -93,6 +94,7 @@ const toMessages = (client: SlackClient, event: SlackEvent): SlackMessage[] => {
         space: { id: event.mention.channel, teamId: event.teamId },
         timestamp: tsToDate(event.mention.ts),
         ts: event.mention.ts,
+        isFromMe: event.mention.isFromMe,
       },
     ];
   }
@@ -113,6 +115,7 @@ const messageToMessages = (
     ts: msg.ts,
     threadTs: msg.threadTs,
     subtype: msg.subtype,
+    isFromMe: msg.isFromMe,
   };
 
   // Slack delivers text + files in a single InboundMessage. Surface each as
@@ -148,6 +151,7 @@ const messageToMessages = (
 const reactionToMessage = (
   teamId: string,
   reaction: {
+    isFromMe: boolean;
     itemChannel: string;
     itemTs: string;
     name: string;
@@ -182,6 +186,7 @@ const reactionToMessage = (
     timestamp: new Date(),
     ts: reaction.itemTs,
     subtype: reaction.removed ? "reaction_removed" : "reaction_added",
+    isFromMe: reaction.isFromMe,
   };
 };
 
@@ -310,6 +315,7 @@ const sendContent = async (
         content,
         space: { id: space.id, teamId: space.teamId },
         timestamp: new Date(),
+        isFromMe: true,
       };
     }
     case "voice": {
@@ -325,6 +331,7 @@ const sendContent = async (
         content,
         space: { id: space.id, teamId: space.teamId },
         timestamp: new Date(),
+        isFromMe: true,
       };
     }
     default:

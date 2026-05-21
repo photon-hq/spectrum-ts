@@ -41,6 +41,9 @@ export const spaceParamsSchema = z.object({
 
 /**
  * Slack-specific per-message metadata surfaced on `SlackMessage`.
+ * - `isFromMe`: server-stamped by spectrum-slack — `true` when `sender.id` is
+ *   this installation's bot user id. Use this to filter self-echo without
+ *   plumbing `bot_user_id` from `client.teams()` into the consumer.
  * - `ts`: the canonical Slack message timestamp id (mirrors `id` for messages
  *   sourced from the events stream; useful when constructing replies that
  *   target the same thread).
@@ -48,6 +51,7 @@ export const spaceParamsSchema = z.object({
  * - `subtype`: Slack's subtype, e.g. `bot_message`, `message_changed`, etc.
  */
 export const messageSchema = z.object({
+  isFromMe: z.boolean(),
   subtype: z.string().optional(),
   threadTs: z.string().optional(),
   ts: z.string().optional(),
@@ -57,6 +61,7 @@ export type SlackMessage = SchemaMessage<
   typeof userSchema,
   typeof spaceSchema
 > & {
+  isFromMe: boolean;
   subtype?: string;
   threadTs?: string;
   ts?: string;

@@ -45,6 +45,7 @@ export type {
   PlatformUser,
   SchemaMessage,
 } from "./platform/types";
+export { SDK_HOMEPAGE, SDK_NAME } from "./sdk-info";
 export { Spectrum, type SpectrumInstance } from "./spectrum";
 export type { Message } from "./types/message";
 export type { Space } from "./types/space";

@@ -24,7 +24,7 @@
         "@photon-ai/advanced-imessage": "^0.7.2",
         "@photon-ai/imessage-kit": "^3.0.0",
         "@photon-ai/otel": "^0.1.1",
-        "@photon-ai/slack": "^0.1.0",
+        "@photon-ai/slack": "^0.2.0",
         "@photon-ai/whatsapp-business": "^0.1.1",
         "@repeaterjs/repeater": "^3.0.6",
         "better-grpc": "^0.3.2",
@@ -181,7 +181,7 @@
 
     "@photon-ai/otel": ["@photon-ai/otel@0.1.1", "", { "dependencies": { "@opentelemetry/api": "^1.9.1", "@opentelemetry/api-logs": "^0.216.0", "@opentelemetry/context-async-hooks": "^2.7.1", "@opentelemetry/exporter-logs-otlp-http": "^0.216.0", "@opentelemetry/exporter-trace-otlp-http": "^0.216.0", "@opentelemetry/resources": "^2.7.1", "@opentelemetry/sdk-logs": "^0.216.0", "@opentelemetry/sdk-trace-base": "^2.7.1" }, "peerDependencies": { "typescript": "^5 || ^6.0.0" } }, "sha512-t/NVepO5+fHOLWDI+Eht+RC8PTik0wi7HQsKhU4yPqBjY5JncXmoBZLnWFvG+/qJ/pn6w+tveabKG9pykfkqKg=="],
 
-    "@photon-ai/slack": ["@photon-ai/slack@0.1.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.0", "@grpc/grpc-js": "^1.14.3", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3" } }, "sha512-NuOxiPwAN1lYsFBSoSQHqUtGwPDuD9IZDTIWRQkvN3KC10xp7TkIXJy8XTPwuLONHN58KZOzSMohNhUyAv4mWg=="],
+    "@photon-ai/slack": ["@photon-ai/slack@0.2.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.0", "@grpc/grpc-js": "^1.14.3", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3" } }, "sha512-k3XzGKIVS1EsjrPz9pbWvrvScmiy/iqKdA2npS5xu1CtCoycBkdFsqJKyB6iIyDR02Q3/38kQh7MvKsCzUyo3Q=="],
 
     "@photon-ai/whatsapp-business": ["@photon-ai/whatsapp-business@0.1.1", "", { "dependencies": { "@grpc/grpc-js": "^1.14.3", "long": "^5.3.2", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3", "protobufjs": "^8.0.1" } }, "sha512-JAf/gHh92+H6h/7AMOQ6l+WFYBWdeRH5fZ+tvOUYJJnX1C4aJPDFa23VTH4ndhKPgA5bK/h++cxUZx2lMubvYQ=="],
 

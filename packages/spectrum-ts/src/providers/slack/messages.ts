@@ -1,4 +1,5 @@
 import type {
+  FileShare,
   SlackClient,
   SlackEvent,
   SlackFile,
@@ -31,6 +32,25 @@ const toRecord = (
   ts: result.ts,
   isFromMe: true,
 });
+
+// files.upload returns one `FileShare` per channel passed in `upload({ channel })`.
+// We only upload to a single channel, so pick that one's `ts` for reply/react
+// targeting. Falls back to `file.id` if the backend hasn't populated `shares`.
+const toUploadRecord = (
+  result: { file: SlackFile; shares: readonly FileShare[] },
+  space: SpaceRef,
+  content: Content
+): ProviderMessageRecord => {
+  const shareTs = result.shares.find((s) => s.channel === space.id)?.ts;
+  return {
+    id: shareTs ?? result.file.id,
+    content,
+    space: { id: space.id, teamId: space.teamId },
+    timestamp: shareTs ? tsToDate(shareTs) : new Date(),
+    ts: shareTs,
+    isFromMe: true,
+  };
+};
 
 // Slack `ts` values are formatted as `<seconds>.<microseconds>`; parse to a
 // Date for the universal Message contract. Falls back to `new Date()` when the
@@ -300,39 +320,24 @@ const sendContent = async (
       return toRecord(result, space, content);
     }
     case "attachment": {
-      const { file } = await team.files.upload({
+      const result = await team.files.upload({
         channel: space.id,
         content: await content.read(),
         filename: content.name,
         mimeType: content.mimeType,
         threadTs,
       });
-      // `files.upload` doesn't return a message ts on its own — the file
-      // share creates a message in the channel, but the SDK surfaces only
-      // the file metadata. Use the file id as a stable identifier.
-      return {
-        id: file.id,
-        content,
-        space: { id: space.id, teamId: space.teamId },
-        timestamp: new Date(),
-        isFromMe: true,
-      };
+      return toUploadRecord(result, space, content);
     }
     case "voice": {
-      const { file } = await team.files.upload({
+      const result = await team.files.upload({
         channel: space.id,
         content: await content.read(),
         filename: content.name ?? mimeToMediaName(content.mimeType, "voice"),
         mimeType: content.mimeType,
         threadTs,
       });
-      return {
-        id: file.id,
-        content,
-        space: { id: space.id, teamId: space.teamId },
-        timestamp: new Date(),
-        isFromMe: true,
-      };
+      return toUploadRecord(result, space, content);
     }
     default:
       throw UnsupportedError.content(content.type);

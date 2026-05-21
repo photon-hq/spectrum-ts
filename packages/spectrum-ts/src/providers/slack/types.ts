@@ -12,7 +12,11 @@ const teamMetadataSchema = z.object({
 const directConfig = z.object({
   endpoint: z.string().optional(),
   teams: z.record(z.string(), teamMetadataSchema).optional(),
-  tokens: z.record(z.string(), z.string()),
+  tokens: z
+    .record(z.string(), z.string().min(1))
+    .refine((t) => Object.keys(t).length > 0, {
+      message: "at least one token entry is required",
+    }),
 });
 
 const cloudConfig = z.object({}).strict();
@@ -36,7 +40,6 @@ export const spaceSchema = z.object({
 export const spaceParamsSchema = z.object({
   channel: z.string().optional(),
   teamId: z.string(),
-  threadTs: z.string().optional(),
 });
 
 /**

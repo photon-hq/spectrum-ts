@@ -57,6 +57,29 @@ export async function createCloudClients(
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   };
 
+  const scheduleRetry = () => {
+    if (disposed) {
+      return;
+    }
+    clearRenewalTimer();
+    renewalTimer = setTimeout(async () => {
+      if (disposed) {
+        return;
+      }
+      try {
+        await refreshTokens();
+        scheduleRenewal();
+      } catch (retryErr) {
+        console.warn(
+          `[spectrum-ts] Slack token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
+          retryErr
+        );
+        scheduleRetry();
+      }
+    }, RETRY_DELAY_MS);
+    renewalTimer?.unref?.();
+  };
+
   const scheduleRenewal = () => {
     if (disposed) {
       return;
@@ -74,9 +97,7 @@ export async function createCloudClients(
           `[spectrum-ts] Slack token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
           err
         );
-        clearRenewalTimer();
-        renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
-        renewalTimer?.unref?.();
+        scheduleRetry();
       }
     }, renewInMs);
     renewalTimer?.unref?.();

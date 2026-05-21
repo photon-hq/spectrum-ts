@@ -130,14 +130,14 @@ const messageToMessages = (
       content: asText(msg.text),
     });
   }
-  msg.files.forEach((file, index) => {
+  for (const [index, file] of msg.files.entries()) {
     const singleFile = msg.files.length === 1 && !msg.text;
     results.push({
       ...base,
       id: singleFile ? msg.ts : `${msg.ts}:file:${index}`,
       content: lazySlackFile(client, teamId, file),
     });
-  });
+  }
   if (results.length === 0) {
     results.push({
       ...base,

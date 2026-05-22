@@ -10,6 +10,7 @@ import type {
   CreateClientContext,
   EventProducer,
   InboundPlatformMessage,
+  MessageActionFactory,
   Platform,
   PlatformDef,
   PlatformInstance,
@@ -19,6 +20,7 @@ import type {
   PlatformSpace,
   PlatformUser,
   ProviderMessage,
+  SpaceActionFactory,
   SpectrumLike,
 } from "./types";
 
@@ -251,6 +253,14 @@ export function definePlatform<
       > & { messages?: never })
     | undefined = undefined,
   _Static extends Record<string, unknown> = Record<never, never>,
+  _SpaceActions extends Record<string, SpaceActionFactory> = Record<
+    never,
+    never
+  >,
+  _MessageActions extends Record<string, MessageActionFactory> = Record<
+    never,
+    never
+  >,
 >(
   name: _Name,
   def: {
@@ -275,7 +285,9 @@ export function definePlatform<
       _ResolvedSpace,
       _MessageSchema,
       _MessageType,
-      _Events
+      _Events,
+      _SpaceActions,
+      _MessageActions
     >,
     "lifecycle" | "name"
   > & { static?: _Static }
@@ -291,7 +303,9 @@ export function definePlatform<
     _ResolvedSpace,
     _MessageSchema,
     _MessageType,
-    _Events
+    _Events,
+    _SpaceActions,
+    _MessageActions
   >
 > &
   Readonly<_Static> {
@@ -306,7 +320,9 @@ export function definePlatform<
     _ResolvedSpace,
     _MessageSchema,
     _MessageType,
-    _Events
+    _Events,
+    _SpaceActions,
+    _MessageActions
   >;
 
   const fullDef = { name, ...def };

@@ -67,8 +67,29 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "responding",
 ]);
 
-const warnReservedAction = (name: string, platform: string) => {
-  const body = `[spectrum-ts] ${platform} declared space action "${name}" which collides with a reserved Space key; skipping.`;
+// Reserved keys on `Message` — platform-defined `message.actions` entries
+// with these names are skipped at runtime (with a warning) so the universal
+// sugar (`react`, `reply`, `edit`, …) always wins. The same names are
+// excluded from `MessageActionMethods<Def>` at the type level.
+const RESERVED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
+  "content",
+  "direction",
+  "edit",
+  "id",
+  "platform",
+  "react",
+  "reply",
+  "sender",
+  "space",
+  "timestamp",
+]);
+
+const warnReservedAction = (
+  scope: "space" | "message",
+  name: string,
+  platform: string
+) => {
+  const body = `[spectrum-ts] ${platform} declared ${scope} action "${name}" which collides with a reserved ${scope === "space" ? "Space" : "Message"} key; skipping.`;
   console.warn(
     supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
   );
@@ -479,7 +500,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
   if (declaredActions) {
     for (const [name, factory] of Object.entries(declaredActions)) {
       if (RESERVED_SPACE_KEYS.has(name)) {
-        warnReservedAction(name, definition.name);
+        warnReservedAction("space", name, definition.name);
         continue;
       }
       platformActions[name] = (...args: unknown[]) =>
@@ -540,7 +561,7 @@ export function buildMessage(params: BuildMessageParams): Message {
     await space.send(reactionContent(emoji, target));
   };
 
-  const requireBuiltMessage = (action: "react" | "reply" | "edit"): Message => {
+  const requireBuiltMessage = (action: string): Message => {
     if (!self) {
       throw new Error(
         `${action}() called before message construction completed (internal bug)`
@@ -578,9 +599,44 @@ export function buildMessage(params: BuildMessageParams): Message {
       ? undefined
       : { ...params.sender, __platform: definition.name };
 
+  // Platform-defined sugar methods declared via `PlatformDef.message.actions`.
+  // Each factory takes `self` as its first argument; the wrapper supplies
+  // `self` lazily (via `requireBuiltMessage`) so it sees the constructed
+  // object, then calls `space.send(factory(self, ...args))`. Spread order
+  // below mirrors `buildSpace` — actions go *before* the hardcoded universal
+  // sugar (`react`, `reply`, `edit`) so a same-named action loses both at
+  // runtime and at the type level (via `Exclude<…, keyof Message>`).
+  const messagePlatformActions: Record<
+    string,
+    (...args: unknown[]) => Promise<void>
+  > = {};
+  const declaredMessageActions = (
+    definition.message as
+      | {
+          actions?: Record<
+            string,
+            (message: Message, ...args: unknown[]) => ContentBuilder
+          >;
+        }
+      | undefined
+  )?.actions;
+  if (declaredMessageActions) {
+    for (const [name, factory] of Object.entries(declaredMessageActions)) {
+      if (RESERVED_MESSAGE_KEYS.has(name)) {
+        warnReservedAction("message", name, definition.name);
+        continue;
+      }
+      messagePlatformActions[name] = async (...args: unknown[]) => {
+        const target = requireBuiltMessage(name);
+        await space.send(factory(target, ...args));
+      };
+    }
+  }
+
   if (params.direction === "outbound") {
     const outbound = {
       ...params.extras,
+      ...messagePlatformActions,
       id: params.id,
       content: params.content,
       direction: "outbound",
@@ -604,6 +660,7 @@ export function buildMessage(params: BuildMessageParams): Message {
 
   const inbound = {
     ...params.extras,
+    ...messagePlatformActions,
     id: params.id,
     content: params.content,
     direction: "inbound",

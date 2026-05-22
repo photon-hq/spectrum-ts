@@ -7,6 +7,7 @@ import { UnsupportedError } from "../../utils/errors";
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
 export { type BackgroundInput, background } from "./content/background";
 export { effect, type IMessageMessageEffect } from "./content/effect";
+export { read } from "./content/read";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import {
@@ -14,6 +15,7 @@ import {
   background as backgroundContent,
   isBackground,
 } from "./content/background";
+import { isRead, read as readContent } from "./content/read";
 import {
   getMessage as localGetMessage,
   messages as localMessages,
@@ -22,6 +24,7 @@ import {
 import {
   editMessage as remoteEditMessage,
   getMessage as remoteGetMessage,
+  markRead as remoteMarkRead,
   messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
   replyToMessage as remoteReplyToMessage,
@@ -81,6 +84,21 @@ const handleBackground = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteSetBackground(remote, space.id, content);
+};
+
+const handleRead = async (
+  client: IMessageClient,
+  space: { id: string; phone: string }
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "read",
+      "iMessage (local mode)",
+      "marking chats as read requires remote iMessage"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteMarkRead(remote, space.id);
 };
 
 export const imessage = definePlatform("iMessage", {
@@ -185,11 +203,20 @@ export const imessage = definePlatform("iMessage", {
       // send pipeline so the unsupported-content + warn-and-skip path on
       // local-mode iMessage is identical to the canonical form.
       background: backgroundContent,
+      // Sugar: `space.read(message)` → `space.send(read(message))`. Same
+      // routing as `background` — the canonical form is the long-form
+      // `space.send(read(message))`.
+      read: readContent,
     },
   },
 
   message: {
     schema: messageSchema,
+    actions: {
+      // Sugar: `message.read()` → `space.send(read(self))`. `buildMessage`
+      // injects `self` as the first argument; callers pass nothing.
+      read: readContent,
+    },
   },
 
   messages: ({ client }) =>
@@ -256,12 +283,16 @@ export const imessage = definePlatform("iMessage", {
       await handleEdit(client, space, content);
       return;
     }
-    // `Background` is iMessage-only and lives outside the universal `Content`
-    // union — narrow via the runtime guard rather than a `content.type ===`
-    // check (which would not typecheck since `"background"` isn't a member
-    // of `Content["type"]`).
+    // `Background` and `Read` are iMessage-only and live outside the
+    // universal `Content` union — narrow via runtime guards rather than
+    // `content.type ===` checks (those literals aren't members of
+    // `Content["type"]`).
     if (isBackground(content)) {
       await handleBackground(client, space, content);
+      return;
+    }
+    if (isRead(content)) {
+      await handleRead(client, space);
       return;
     }
     if (isLocal(client)) {

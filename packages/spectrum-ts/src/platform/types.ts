@@ -23,6 +23,23 @@ import type { ManagedStream } from "../utils/stream";
  */
 export type SpaceActionFactory = (...args: never[]) => ContentBuilder;
 
+/**
+ * A platform-defined sugar method on `Message`. The first parameter is bound
+ * to the message itself (`self`) at build time, so callers only pass the
+ * trailing args. The runtime injects a thin wrapper that calls
+ * `space.send(factory(self, ...args))` — actions are fire-and-forget and
+ * return `Promise<void>`.
+ *
+ * Names that collide with reserved `Message` keys (`react`, `reply`, `edit`,
+ * `id`, `space`, `sender`, `content`, `platform`, `direction`, `timestamp`)
+ * are skipped at runtime with a warning and excluded at the type level via
+ * `Exclude<…, keyof Message>`.
+ */
+export type MessageActionFactory = (
+  message: Message,
+  ...args: never[]
+) => ContentBuilder;
+
 type ResolvedSpace = Pick<Space, "id">;
 type SpaceRef = Pick<Space, "id" | "__platform">;
 type ResolvedUser = Pick<User, "id">;
@@ -165,6 +182,14 @@ export interface PlatformDef<
         EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
       > & { messages?: never })
     | undefined = undefined,
+  _SpaceActions extends Record<string, SpaceActionFactory> = Record<
+    never,
+    never
+  >,
+  _MessageActions extends Record<string, MessageActionFactory> = Record<
+    never,
+    never
+  >,
 > {
   /**
    * Optional escape hatch: platform actions beyond `send`. Currently the
@@ -213,6 +238,26 @@ export interface PlatformDef<
 
   message?: {
     schema?: _MessageSchema;
+    /**
+     * Optional platform-specific sugar methods bound to `PlatformMessage<Def>`.
+     *
+     * Each entry is a `ContentBuilder` factory whose **first parameter** is
+     * the message itself (`self`); `buildMessage` injects a thin wrapper
+     * that supplies `self` and calls `space.send(factory(self, ...args))`.
+     * The wrapper is typed as `(...args) => Promise<void>` on
+     * `PlatformMessage<Def>` via `MessageActionMethods<Def>`.
+     *
+     * Mirrors `space.actions` — `space.actions` lives on the space slot for
+     * chat-level sugar (e.g. `space.background(...)`); `message.actions`
+     * lives here for per-message sugar that needs `self` (e.g.
+     * `message.read()`).
+     *
+     * Names that collide with reserved `Message` keys (`react`, `reply`,
+     * `edit`, `id`, `space`, `sender`, `content`, `platform`, `direction`,
+     * `timestamp`) are skipped at runtime with a warning and excluded at
+     * the type level.
+     */
+    actions?: _MessageActions;
   };
 
   /**
@@ -277,7 +322,7 @@ export interface PlatformDef<
      * `__platform`) are skipped at runtime with a warning and excluded at
      * the type level.
      */
-    actions?: Record<string, SpaceActionFactory>;
+    actions?: _SpaceActions;
   };
 
   user: {
@@ -313,7 +358,10 @@ export interface AnyPlatformDef {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard lifecycle
     destroyClient?: (ctx: any) => Promise<void>;
   };
-  message?: { schema?: z.ZodType<object> };
+  message?: {
+    schema?: z.ZodType<object>;
+    actions?: Record<string, MessageActionFactory>;
+  };
 
   // Required core message I/O — the universal contract.
   // biome-ignore lint/suspicious/noExplicitAny: wildcard event
@@ -507,6 +555,37 @@ export type SpaceActionMethods<Def extends AnyPlatformDef> = {
   ) => Promise<OutboundMessage | undefined>;
 };
 
+// Methods derived from `PlatformDef.message.actions`. Each factory's first
+// parameter is bound to the message itself at build time, so the public
+// surface drops it. Reserved `Message` keys (`react`, `reply`, `edit`, …)
+// are filtered out so universal sugar always wins.
+// `NonNullable<Def["message"]>` strips the `undefined` introduced by the
+// optional `message?:` slot — without it, the outer conditional
+// (`Def["message"] extends { actions?: infer A }`) fails because `undefined`
+// is not assignable to `{ actions?: … }`, and the whole type collapses to
+// the empty fallback, losing every declared action.
+type MessageActionFactories<Def extends AnyPlatformDef> =
+  NonNullable<Def["message"]> extends {
+    actions?: infer A;
+  }
+    ? A extends Record<string, MessageActionFactory>
+      ? A
+      : Record<string, never>
+    : Record<string, never>;
+
+type TailArgs<T extends readonly unknown[]> = T extends readonly [
+  unknown,
+  ...infer Rest,
+]
+  ? Rest
+  : [];
+
+export type MessageActionMethods<Def extends AnyPlatformDef> = {
+  [K in Exclude<keyof MessageActionFactories<Def>, keyof Message>]: (
+    ...args: TailArgs<Parameters<MessageActionFactories<Def>[K]>>
+  ) => Promise<void>;
+};
+
 // Both `keyof Space` and `keyof SpaceActionMethods<Def>` are removed from the
 // schema shape before merging — at runtime `buildSpace` spreads
 // `platformActions` after `extras`/`spaceRef`, so an action with the same
@@ -519,17 +598,24 @@ export type PlatformSpace<Def extends AnyPlatformDef> = Omit<
   Space &
   SpaceActionMethods<Def>;
 
+// Both `keyof Message` and `keyof MessageActionMethods<Def>` are removed from
+// the schema shape before merging — at runtime `buildMessage` spreads
+// `platformActions` after `extras`, so an action with the same name as a
+// schema field overrides the field. Stripping both at the type level mirrors
+// that and avoids an impossible `field & method` intersection.
 export type PlatformMessage<Def extends AnyPlatformDef> = Omit<
   SchemaInfer<Def["message"]>,
-  keyof Message
+  keyof Message | keyof MessageActionMethods<Def>
 > &
-  Message<Def["name"], PlatformUser<Def>, PlatformSpace<Def>>;
+  Message<Def["name"], PlatformUser<Def>, PlatformSpace<Def>> &
+  MessageActionMethods<Def>;
 
 export type InboundPlatformMessage<Def extends AnyPlatformDef> = Omit<
   SchemaInfer<Def["message"]>,
-  keyof InboundMessage
+  keyof InboundMessage | keyof MessageActionMethods<Def>
 > &
-  InboundMessage<Def["name"], PlatformUser<Def>, PlatformSpace<Def>>;
+  InboundMessage<Def["name"], PlatformUser<Def>, PlatformSpace<Def>> &
+  MessageActionMethods<Def>;
 
 export type PlatformUser<Def extends AnyPlatformDef> = Omit<
   ResolvedUserOf<Def>,

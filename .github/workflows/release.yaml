@@ -42,7 +42,7 @@ jobs:
       - name: Generate App token for spectrum-webhook
         if: fromJSON(steps.labels.outputs.labels).release
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}

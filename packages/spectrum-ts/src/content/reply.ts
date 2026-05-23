@@ -57,7 +57,8 @@ export function reply(content: ContentInput, target: Message): ContentBuilder {
         resolved.type === "reaction" ||
         resolved.type === "group" ||
         resolved.type === "typing" ||
-        resolved.type === "rename"
+        resolved.type === "rename" ||
+        resolved.type === "avatar"
       ) {
         throw new Error(`reply() cannot wrap "${resolved.type}" content`);
       }

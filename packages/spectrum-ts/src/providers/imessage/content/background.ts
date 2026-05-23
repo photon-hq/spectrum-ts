@@ -1,9 +1,10 @@
-import { readFile } from "node:fs/promises";
-import { basename } from "node:path";
-import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
 import type { Content, ContentBuilder } from "../../../content/types";
-import { readSchema } from "../../../utils/io";
+import {
+  buildPhotoAction,
+  type PhotoInput,
+  photoActionSchema,
+} from "../../../utils/photo-content";
 
 /**
  * iMessage-only chat background content. Lives entirely under the iMessage
@@ -20,20 +21,11 @@ import { readSchema } from "../../../utils/io";
  * iMessage's `send` handler narrows back to `Background` via the `isBackground`
  * type guard before dispatching to `chats.setBackground` / `removeBackground`.
  */
-const backgroundActionSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("set"),
-    read: readSchema,
-    mimeType: z.string().nonempty(),
-  }),
-  z.object({ kind: z.literal("clear") }),
-]);
-
 export const backgroundSchema = z.object({
   type: z.literal("background"),
   __platform: z.literal("iMessage"),
   __fireAndForget: z.literal(true),
-  action: backgroundActionSchema,
+  action: photoActionSchema,
 });
 
 export type Background = z.infer<typeof backgroundSchema>;
@@ -41,34 +33,7 @@ export type Background = z.infer<typeof backgroundSchema>;
 export const isBackground = (v: unknown): v is Background =>
   backgroundSchema.safeParse(v).success;
 
-const CLEAR_SENTINEL = "clear" as const;
-export type BackgroundInput = typeof CLEAR_SENTINEL | string | Buffer;
-
-const resolveMimeType = (input: string | Buffer, mimeType?: string): string => {
-  if (mimeType) {
-    return mimeType;
-  }
-  if (typeof input === "string") {
-    const resolved = lookupMimeType(basename(input));
-    if (resolved) {
-      return resolved;
-    }
-  }
-  throw new Error(
-    "Unable to resolve MIME type for background. Pass options.mimeType explicitly."
-  );
-};
-
-const cachedRead = (read: () => Promise<Buffer>): (() => Promise<Buffer>) => {
-  let cached: Promise<Buffer> | undefined;
-  return () => {
-    cached ??= read().catch((err: unknown) => {
-      cached = undefined;
-      throw err;
-    });
-    return cached;
-  };
-};
+export type BackgroundInput = PhotoInput;
 
 /**
  * Set or clear the chat background. iMessage-only, remote-only.
@@ -100,32 +65,16 @@ export function background(
   input: BackgroundInput,
   options?: { mimeType?: string }
 ): ContentBuilder {
-  if (input === CLEAR_SENTINEL) {
-    return {
-      build: async () =>
-        backgroundSchema.parse({
-          type: "background",
-          __platform: "iMessage",
-          __fireAndForget: true,
-          action: { kind: "clear" },
-        }) as unknown as Content,
-    };
-  }
-  // Snapshot the reader and MIME type at builder construction so that
-  // (a) re-invoking `build()` reuses the same cached read and (b) a missing
-  // MIME type fails fast rather than at send time.
-  const mimeType = resolveMimeType(input, options?.mimeType);
-  const read =
-    typeof input === "string"
-      ? cachedRead(() => readFile(input))
-      : cachedRead(async () => input);
+  // Snapshot the action at builder construction so (a) a missing MIME type
+  // fails fast and (b) the read is cached across repeated `build()` calls.
+  const action = buildPhotoAction(input, options, "background");
   return {
     build: async () =>
       backgroundSchema.parse({
         type: "background",
         __platform: "iMessage",
         __fireAndForget: true,
-        action: { kind: "set", read, mimeType },
+        action,
       }) as unknown as Content,
   };
 }

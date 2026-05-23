@@ -4,6 +4,24 @@ import type { AgentSender } from "./user";
 
 export interface Space<_Def = unknown> {
   readonly __platform: string;
+  /**
+   * Set or clear the current chat's avatar (group icon). Sugar for
+   * `send(avatar(input, options?))`.
+   *
+   * - `space.avatar("clear")` — remove the current avatar.
+   * - `space.avatar("./icon.png")` — set from a filesystem path; MIME type
+   *   is inferred from the extension.
+   * - `space.avatar(buffer, { mimeType })` — set from in-memory bytes;
+   *   `mimeType` is required.
+   *
+   * Universal API; per-platform constraints (e.g. iMessage: remote + group
+   * only) surface as `UnsupportedError` from the provider's send action.
+   */
+  avatar(input: "clear"): Promise<void>;
+  avatar(
+    input: string | Buffer,
+    options?: { mimeType?: string }
+  ): Promise<void>;
   edit(message: Message, newContent: ContentInput): Promise<void>;
   /**
    * Look up a message in this space by its id. Returns `undefined` if the

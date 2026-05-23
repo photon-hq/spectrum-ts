@@ -1,5 +1,6 @@
 import z from "zod";
 import { attachmentSchema } from "./attachment";
+import { avatarSchema } from "./avatar";
 import { contactSchema } from "./contact";
 import { customSchema } from "./custom";
 import { editSchema } from "./edit";
@@ -33,6 +34,7 @@ const baseContentSchemas = [
   messageEffectSchema,
   typingSchema,
   renameSchema,
+  avatarSchema,
 ] as const;
 
 export const baseContentSchema = z.discriminatedUnion(

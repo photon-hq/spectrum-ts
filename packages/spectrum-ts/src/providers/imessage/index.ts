@@ -1,5 +1,6 @@
 import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
+import type { Avatar } from "../../content/avatar";
 import type { Edit } from "../../content/edit";
 import type { Rename } from "../../content/rename";
 import { definePlatform } from "../../platform/define";
@@ -35,6 +36,7 @@ import {
   send as remoteSend,
   setBackground as remoteSetBackground,
   setDisplayName as remoteSetDisplayName,
+  setIcon as remoteSetIcon,
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
 } from "./remote/api";
@@ -145,6 +147,29 @@ const handleRename = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteSetDisplayName(remote, space.id, content);
+};
+
+const handleAvatar = async (
+  client: IMessageClient,
+  space: { id: string; phone: string; type: "dm" | "group" },
+  content: Avatar
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "avatar",
+      "iMessage (local mode)",
+      "setting group avatars requires remote iMessage"
+    );
+  }
+  if (space.type !== "group") {
+    throw UnsupportedError.action(
+      "avatar",
+      "iMessage",
+      "only group chats have avatars (this space is a DM)"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteSetIcon(remote, space.id, content);
 };
 
 export const imessage = definePlatform("iMessage", {
@@ -330,6 +355,10 @@ export const imessage = definePlatform("iMessage", {
     }
     if (content.type === "rename") {
       await handleRename(client, space, content);
+      return;
+    }
+    if (content.type === "avatar") {
+      await handleAvatar(client, space, content);
       return;
     }
     // `Background` and `Read` are iMessage-only and live outside the

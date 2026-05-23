@@ -18,3 +18,43 @@ jobs:
       publish-command: "bunx clean-publish --package-manager npm"
       dry-run: false
     secrets: inherit
+
+  # After a real publish (release-labelled PR), poke spectrum-webhook's
+  # self-hosted Renovate so it picks up the new spectrum-ts version within
+  # seconds instead of waiting for its hourly cron. Runs after `release`
+  # completes, so npm already has the new version by the time Renovate looks.
+  bump-webhook:
+    needs: release
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Was this a publish? (check the merged PR's release label)
+        id: labels
+        uses: photon-hq/buildspace/.github/blocks/check-pr-label@main
+        with:
+          labels: '["release"]'
+
+      # repository_dispatch to another repo needs a token with contents:write on
+      # the target; the default GITHUB_TOKEN can't reach spectrum-webhook.
+      - name: Generate App token for spectrum-webhook
+        if: fromJSON(steps.labels.outputs.labels).release
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: photon-hq
+          repositories: spectrum-webhook
+
+      - name: Dispatch Renovate run on spectrum-webhook
+        if: fromJSON(steps.labels.outputs.labels).release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/photon-hq/spectrum-webhook/dispatches \
+            --method POST \
+            -f event_type=spectrum-ts-released
+          echo "Dispatched spectrum-ts-released -> photon-hq/spectrum-webhook"

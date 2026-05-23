@@ -1,6 +1,16 @@
 {
   "name": "spectrum-ts",
   "version": "1.11.2",
+  "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/photon-hq/spectrum-ts.git",
+    "directory": "packages/spectrum-ts"
+  },
+  "homepage": "https://photon.codes/spectrum",
+  "bugs": {
+    "url": "https://github.com/photon-hq/spectrum-ts/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

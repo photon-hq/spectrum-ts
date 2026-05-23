@@ -3,7 +3,7 @@ import { edit as editContent } from "../content/edit";
 import { reaction as reactionContent } from "../content/reaction";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
-import type { Content, ContentBuilder, ContentInput } from "../content/types";
+import type { Content, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
@@ -477,13 +477,14 @@ export function buildSpace(params: BuildSpaceParams): Space {
   // universal sugar (`send`, `edit`, …) so a platform action declared with
   // a reserved name is also overridden at the type level via the
   // `Exclude<…, keyof Space>` in `SpaceActionMethods`.
-  const platformActions: Record<
-    string,
-    (...args: unknown[]) => Promise<Message<string, AgentSender> | undefined>
-  > = {};
+  const platformActions: Record<string, (...args: unknown[]) => Promise<void>> =
+    {};
   const declaredActions = (
     definition.space as {
-      actions?: Record<string, (...args: unknown[]) => ContentBuilder>;
+      actions?: Record<
+        string,
+        (space: Space, ...args: unknown[]) => Promise<void>
+      >;
     }
   ).actions;
   if (declaredActions) {
@@ -492,8 +493,9 @@ export function buildSpace(params: BuildSpaceParams): Space {
         warnReservedAction("space", name, definition.name);
         continue;
       }
-      platformActions[name] = (...args: unknown[]) =>
-        space.send(factory(...args));
+      platformActions[name] = async (...args: unknown[]) => {
+        await factory(space, ...args);
+      };
     }
   }
 
@@ -635,7 +637,7 @@ export function buildMessage(params: BuildMessageParams): Message {
       | {
           actions?: Record<
             string,
-            (message: Message, ...args: unknown[]) => ContentBuilder
+            (message: Message, ...args: unknown[]) => Promise<void>
           >;
         }
       | undefined
@@ -648,7 +650,7 @@ export function buildMessage(params: BuildMessageParams): Message {
       }
       messagePlatformActions[name] = async (...args: unknown[]) => {
         const target = requireBuiltMessage(name);
-        await space.send(factory(target, ...args));
+        await factory(target, ...args);
       };
     }
   }

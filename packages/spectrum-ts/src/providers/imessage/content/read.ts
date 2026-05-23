@@ -53,12 +53,18 @@ export const isRead = (v: unknown): v is Read =>
  */
 export function read(target: Message): ContentBuilder {
   return {
-    build: async () =>
-      readSchema.parse({
+    build: async () => {
+      if (target.direction !== "inbound") {
+        throw new Error(
+          `read() target must be an inbound message (got direction "${target.direction}", message id "${target.id}")`
+        );
+      }
+      return readSchema.parse({
         type: "read",
         __platform: "iMessage",
         __fireAndForget: true,
         target,
-      }) as unknown as Content,
+      }) as unknown as Content;
+    },
   };
 }

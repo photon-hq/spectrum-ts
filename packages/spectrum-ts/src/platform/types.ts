@@ -1,40 +1,42 @@
 import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
-import type { Content, ContentBuilder } from "../content/types";
+import type { Content } from "../content/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
-import type { AgentSender, User } from "../types/user";
+import type { User } from "../types/user";
 import type { Store } from "../utils/store";
 import type { ManagedStream } from "../utils/stream";
 
 /**
- * A platform-defined sugar method on `Space`. Each entry is a content-builder
- * factory; the runtime injects a thin wrapper that calls
- * `space.send(factory(...args))` and returns the result.
+ * A platform-defined method on `Space`. The first parameter is bound to the
+ * built `Space` at construction time, so callers only pass the trailing args.
+ * Actions are plain functions returning `Promise<void>` — they can delegate
+ * through `space.send(...)`, call the underlying SDK, or perform any other
+ * side effect.
  *
  * Names that collide with reserved `Space` keys (`send`, `edit`,
  * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
  * `__platform`) are skipped at runtime with a warning and excluded at the
  * type level via `Exclude<…, keyof Space>`.
  */
-export type SpaceActionFactory = (...args: never[]) => ContentBuilder;
+export type SpaceActionFn = (space: Space, ...args: never[]) => Promise<void>;
 
 /**
- * A platform-defined sugar method on `Message`. The first parameter is bound
- * to the message itself (`self`) at build time, so callers only pass the
- * trailing args. The runtime injects a thin wrapper that calls
- * `space.send(factory(self, ...args))` — actions are fire-and-forget and
- * return `Promise<void>`.
+ * A platform-defined method on `Message`. The first parameter is bound to
+ * the message itself (`self`) at build time, so callers only pass the
+ * trailing args. Actions are plain functions returning `Promise<void>` —
+ * they can delegate through `message.space.send(...)`, call the underlying
+ * SDK, or perform any other side effect.
  *
  * Names that collide with reserved `Message` keys (`react`, `reply`, `edit`,
  * `id`, `space`, `sender`, `content`, `platform`, `direction`, `timestamp`)
  * are skipped at runtime with a warning and excluded at the type level via
  * `Exclude<…, keyof Message>`.
  */
-export type MessageActionFactory = (
+export type MessageActionFn = (
   message: Message,
   ...args: never[]
-) => ContentBuilder;
+) => Promise<void>;
 
 type ResolvedSpace = Pick<Space, "id">;
 type SpaceRef = Pick<Space, "id" | "__platform">;
@@ -178,11 +180,8 @@ export interface PlatformDef<
         EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
       > & { messages?: never })
     | undefined = undefined,
-  _SpaceActions extends Record<string, SpaceActionFactory> = Record<
-    never,
-    never
-  >,
-  _MessageActions extends Record<string, MessageActionFactory> = Record<
+  _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,
+  _MessageActions extends Record<string, MessageActionFn> = Record<
     never,
     never
   >,
@@ -302,16 +301,18 @@ export interface PlatformDef<
       store: Store;
     }) => Promise<_ResolvedSpace>;
     /**
-     * Optional platform-specific sugar methods bound to `PlatformSpace<Def>`.
+     * Optional platform-specific methods bound to `PlatformSpace<Def>`.
      *
-     * Each entry is a `ContentBuilder` factory; `buildSpace` injects a thin
-     * wrapper that calls `space.send(factory(...args))`. The wrapper is
-     * typed as `(...args) => Promise<Message<string, AgentSender> | undefined>` on
-     * `PlatformSpace<Def>` via `SpaceActionMethods<Def>`.
+     * Each entry is a plain async function `(space, ...args) => Promise<void>`;
+     * `buildSpace` injects the built `PlatformSpace<Def>` as the first
+     * argument and exposes the trailing args as the public surface. Action
+     * implementations choose how to dispatch — `space.send(...)`, a direct
+     * SDK call, or any other side effect — and always return `Promise<void>`
+     * to callers.
      *
      * Mirrors the top-level `PlatformDef.actions` slot — `actions` lives at
      * the platform level for capabilities (e.g. `getMessage`); `space.actions`
-     * lives here for sugar that delegates through `send`.
+     * lives here for platform-specific surface area.
      *
      * Names that collide with reserved `Space` keys (`send`, `edit`,
      * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
@@ -356,7 +357,7 @@ export interface AnyPlatformDef {
   };
   message?: {
     schema?: z.ZodType<object>;
-    actions?: Record<string, MessageActionFactory>;
+    actions?: Record<string, MessageActionFn>;
   };
 
   // Required core message I/O — the universal contract.
@@ -370,7 +371,7 @@ export interface AnyPlatformDef {
     params?: z.ZodType<object>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard resolver
     resolve: (_: any) => Promise<any>;
-    actions?: Record<string, SpaceActionFactory>;
+    actions?: Record<string, SpaceActionFn>;
   };
   user: {
     schema?: z.ZodType<object>;
@@ -534,40 +535,17 @@ type SpaceArgs<Def extends AnyPlatformDef> =
   | SpaceArrayArgs<Def>
   | SpaceVarargArgs<Def>;
 
-// Methods derived from `PlatformDef.space.actions`. Each factory becomes a
-// space method that delegates through `space.send`. Reserved `Space` keys
-// (`send`, `edit`, …) are filtered out so universal sugar always wins.
-type SpaceActionFactories<Def extends AnyPlatformDef> = Def["space"] extends {
+// Methods derived from `PlatformDef.space.actions`. The first parameter
+// (`space`) is bound to the built `PlatformSpace<Def>` at construction time,
+// so the public surface drops it. Reserved `Space` keys (`send`, `edit`, …)
+// are filtered out so universal sugar always wins.
+type SpaceActionFns<Def extends AnyPlatformDef> = Def["space"] extends {
   actions?: infer A;
 }
-  ? A extends Record<string, SpaceActionFactory>
+  ? A extends Record<string, SpaceActionFn>
     ? A
     : Record<string, never>
   : Record<string, never>;
-
-export type SpaceActionMethods<Def extends AnyPlatformDef> = {
-  [K in Exclude<keyof SpaceActionFactories<Def>, keyof Space>]: (
-    ...args: Parameters<SpaceActionFactories<Def>[K]>
-  ) => Promise<Message<string, AgentSender> | undefined>;
-};
-
-// Methods derived from `PlatformDef.message.actions`. Each factory's first
-// parameter is bound to the message itself at build time, so the public
-// surface drops it. Reserved `Message` keys (`react`, `reply`, `edit`, …)
-// are filtered out so universal sugar always wins.
-// `NonNullable<Def["message"]>` strips the `undefined` introduced by the
-// optional `message?:` slot — without it, the outer conditional
-// (`Def["message"] extends { actions?: infer A }`) fails because `undefined`
-// is not assignable to `{ actions?: … }`, and the whole type collapses to
-// the empty fallback, losing every declared action.
-type MessageActionFactories<Def extends AnyPlatformDef> =
-  NonNullable<Def["message"]> extends {
-    actions?: infer A;
-  }
-    ? A extends Record<string, MessageActionFactory>
-      ? A
-      : Record<string, never>
-    : Record<string, never>;
 
 type TailArgs<T extends readonly unknown[]> = T extends readonly [
   unknown,
@@ -576,9 +554,33 @@ type TailArgs<T extends readonly unknown[]> = T extends readonly [
   ? Rest
   : [];
 
+export type SpaceActionMethods<Def extends AnyPlatformDef> = {
+  [K in Exclude<keyof SpaceActionFns<Def>, keyof Space>]: (
+    ...args: TailArgs<Parameters<SpaceActionFns<Def>[K]>>
+  ) => Promise<void>;
+};
+
+// Methods derived from `PlatformDef.message.actions`. The first parameter
+// (`message`) is bound to the built message at construction time, so the
+// public surface drops it. Reserved `Message` keys (`react`, `reply`,
+// `edit`, …) are filtered out so universal sugar always wins.
+// `NonNullable<Def["message"]>` strips the `undefined` introduced by the
+// optional `message?:` slot — without it, the outer conditional
+// (`Def["message"] extends { actions?: infer A }`) fails because `undefined`
+// is not assignable to `{ actions?: … }`, and the whole type collapses to
+// the empty fallback, losing every declared action.
+type MessageActionFns<Def extends AnyPlatformDef> =
+  NonNullable<Def["message"]> extends {
+    actions?: infer A;
+  }
+    ? A extends Record<string, MessageActionFn>
+      ? A
+      : Record<string, never>
+    : Record<string, never>;
+
 export type MessageActionMethods<Def extends AnyPlatformDef> = {
-  [K in Exclude<keyof MessageActionFactories<Def>, keyof Message>]: (
-    ...args: TailArgs<Parameters<MessageActionFactories<Def>[K]>>
+  [K in Exclude<keyof MessageActionFns<Def>, keyof Message>]: (
+    ...args: TailArgs<Parameters<MessageActionFns<Def>[K]>>
   ) => Promise<void>;
 };
 

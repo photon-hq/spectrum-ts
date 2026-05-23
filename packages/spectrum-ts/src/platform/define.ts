@@ -9,7 +9,7 @@ import type {
   AnyPlatformDef,
   CreateClientContext,
   EventProducer,
-  MessageActionFactory,
+  MessageActionFn,
   Platform,
   PlatformDef,
   PlatformInstance,
@@ -19,7 +19,7 @@ import type {
   PlatformSpace,
   PlatformUser,
   ProviderMessage,
-  SpaceActionFactory,
+  SpaceActionFn,
   SpectrumLike,
 } from "./types";
 
@@ -252,11 +252,8 @@ export function definePlatform<
       > & { messages?: never })
     | undefined = undefined,
   _Static extends Record<string, unknown> = Record<never, never>,
-  _SpaceActions extends Record<string, SpaceActionFactory> = Record<
-    never,
-    never
-  >,
-  _MessageActions extends Record<string, MessageActionFactory> = Record<
+  _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,
+  _MessageActions extends Record<string, MessageActionFn> = Record<
     never,
     never
   >,

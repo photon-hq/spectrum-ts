@@ -2,6 +2,8 @@ import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Edit } from "../../content/edit";
 import { definePlatform } from "../../platform/define";
+import type { Message } from "../../types/message";
+import type { Space } from "../../types/space";
 import { UnsupportedError } from "../../utils/errors";
 
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
@@ -12,6 +14,7 @@ export { read } from "./content/read";
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import {
   type Background,
+  type BackgroundInput,
   background as backgroundContent,
   isBackground,
 } from "./content/background";
@@ -199,23 +202,32 @@ export const imessage = definePlatform("iMessage", {
     },
     actions: {
       // Sugar: `space.background(input, opts?)` →
-      // `space.send(background(input, opts?))`. Wired through the universal
+      // `space.send(background(input, opts?))`. Routed through the universal
       // send pipeline so the unsupported-content + warn-and-skip path on
       // local-mode iMessage is identical to the canonical form.
-      background: backgroundContent,
-      // Sugar: `space.read(message)` → `space.send(read(message))`. Same
-      // routing as `background` — the canonical form is the long-form
-      // `space.send(read(message))`.
-      read: readContent,
+      background: async (
+        space: Space,
+        input: BackgroundInput,
+        opts?: { mimeType?: string }
+      ) => {
+        await space.send(backgroundContent(input as never, opts));
+      },
+      // Sugar: `space.read(message)` → `space.send(read(message))`.
+      read: async (space: Space, message: Message) => {
+        await space.send(readContent(message));
+      },
     },
   },
 
   message: {
     schema: messageSchema,
     actions: {
-      // Sugar: `message.read()` → `space.send(read(self))`. `buildMessage`
-      // injects `self` as the first argument; callers pass nothing.
-      read: readContent,
+      // Sugar: `message.read()` → `message.space.send(read(self))`.
+      // `buildMessage` injects the message as the first argument; callers
+      // pass nothing.
+      read: async (message: Message) => {
+        await message.space.send(readContent(message));
+      },
     },
   },
 

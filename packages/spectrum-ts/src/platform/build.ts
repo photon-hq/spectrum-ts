@@ -5,12 +5,9 @@ import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
 import type { Content, ContentBuilder, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
-import type {
-  InboundMessage,
-  Message,
-  OutboundMessage,
-} from "../types/message";
+import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import type { AgentSender } from "../types/user";
 import { UnsupportedError } from "../utils/errors";
 import type { Store } from "../utils/store";
 import { contentAttrs } from "../utils/telemetry";
@@ -257,16 +254,6 @@ const extractExtras = (
 export function wrapProviderMessage(
   raw: ProviderMessageRecord,
   ctx: WrapContext,
-  direction: "inbound"
-): InboundMessage;
-export function wrapProviderMessage(
-  raw: ProviderMessageRecord,
-  ctx: WrapContext,
-  direction: "outbound"
-): OutboundMessage;
-export function wrapProviderMessage(
-  raw: ProviderMessageRecord,
-  ctx: WrapContext,
   direction: "inbound" | "outbound"
 ): Message {
   const wrappedContent = wrapNestedContent(raw.content, ctx, direction);
@@ -369,7 +356,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
 
   async function dispatchSend(
     item: Content
-  ): Promise<OutboundMessage | undefined> {
+  ): Promise<Message<string, AgentSender> | undefined> {
     return withSpan(
       "spectrum.message.send",
       {
@@ -414,16 +401,18 @@ export function buildSpace(params: BuildSpaceParams): Space {
           raw,
           { client, config, definition, space, spaceRef, store },
           "outbound"
-        );
+        ) as Message<string, AgentSender>;
       }
     );
   }
 
   async function sendImpl(
     ...content: [ContentInput, ...ContentInput[]]
-  ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
+  ): Promise<
+    Message<string, AgentSender> | Message<string, AgentSender>[] | undefined
+  > {
     const resolved = await resolveContents(content);
-    const results: OutboundMessage[] = [];
+    const results: Message<string, AgentSender>[] = [];
     for (const item of resolved) {
       const sent = await dispatchSend(item);
       if (sent) {
@@ -490,7 +479,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
   // `Exclude<…, keyof Space>` in `SpaceActionMethods`.
   const platformActions: Record<
     string,
-    (...args: unknown[]) => Promise<OutboundMessage | undefined>
+    (...args: unknown[]) => Promise<Message<string, AgentSender> | undefined>
   > = {};
   const declaredActions = (
     definition.space as {
@@ -513,12 +502,11 @@ export function buildSpace(params: BuildSpaceParams): Space {
     ...spaceRef,
     ...platformActions,
     send: sendImpl as Space["send"],
-    edit: async (
-      message: OutboundMessage,
-      newContent: ContentInput
-    ): Promise<void> => {
+    edit: async (message: Message, newContent: ContentInput): Promise<void> => {
       // Sugar for `space.send(edit(newContent, message))`. Edits are
-      // fire-and-forget; the (always-undefined) result is discarded.
+      // fire-and-forget; the (always-undefined) result is discarded. The
+      // `edit()` content builder enforces `direction === "outbound"` at the
+      // top, so invalid targets fail fast here too.
       await space.send(editContent(newContent, message));
     },
     getMessage: getMessageImpl,
@@ -543,23 +531,12 @@ export function buildSpace(params: BuildSpaceParams): Space {
   return space;
 }
 
-export function buildMessage(params: BuildInboundParams): InboundMessage;
-export function buildMessage(params: BuildOutboundParams): OutboundMessage;
 export function buildMessage(params: BuildMessageParams): Message {
   const { definition, space } = params;
 
   // Late-bound self reference so `react()` can pass the built Message as the
   // reaction target.
   let self: Message | undefined;
-
-  const react = async (emoji: string): Promise<void> => {
-    const target = requireBuiltMessage("react");
-    // Sugar for `space.send(reaction(emoji, target))`. The canonical form
-    // returns `OutboundMessage | undefined`; this surface discards it because
-    // reactions are fire-and-forget on most platforms (callers reach for the
-    // canonical form when they need the result).
-    await space.send(reactionContent(emoji, target));
-  };
 
   const requireBuiltMessage = (action: string): Message => {
     if (!self) {
@@ -570,15 +547,26 @@ export function buildMessage(params: BuildMessageParams): Message {
     return self;
   };
 
+  const react = async (emoji: string): Promise<void> => {
+    const target = requireBuiltMessage("react");
+    // Sugar for `space.send(reaction(emoji, target))`. The canonical form
+    // returns a `Message` (or `undefined`); this surface discards it because
+    // reactions are fire-and-forget on most platforms (callers reach for the
+    // canonical form when they need the result).
+    await space.send(reactionContent(emoji, target));
+  };
+
   async function reply(
     content: ContentInput
-  ): Promise<OutboundMessage | undefined>;
+  ): Promise<Message<string, AgentSender> | undefined>;
   async function reply(
     ...content: [ContentInput, ContentInput, ...ContentInput[]]
-  ): Promise<OutboundMessage[]>;
+  ): Promise<Message<string, AgentSender>[]>;
   async function reply(
     ...content: [ContentInput, ...ContentInput[]]
-  ): Promise<OutboundMessage | OutboundMessage[] | undefined> {
+  ): Promise<
+    Message<string, AgentSender> | Message<string, AgentSender>[] | undefined
+  > {
     const target = requireBuiltMessage("reply");
     const wrapped = content.map((c) => replyContent(c, target)) as [
       ContentInput,
@@ -590,14 +578,46 @@ export function buildMessage(params: BuildMessageParams): Message {
     return (
       space.send as (
         ...c: [ContentInput, ...ContentInput[]]
-      ) => Promise<OutboundMessage | OutboundMessage[] | undefined>
+      ) => Promise<
+        | Message<string, AgentSender>
+        | Message<string, AgentSender>[]
+        | undefined
+      >
     )(...wrapped);
   }
 
-  const senderWithPlatform =
-    params.sender === undefined
-      ? undefined
-      : { ...params.sender, __platform: definition.name };
+  const edit = async (newContent: ContentInput): Promise<void> => {
+    // Defense-in-depth: the `edit()` content builder enforces the same guard
+    // before resolution, but checking here gives a clearer call-site stack
+    // for the most common misuse (calling `.edit()` on an inbound message).
+    const target = requireBuiltMessage("edit");
+    if (target.direction !== "outbound") {
+      throw new Error(
+        `cannot edit message ${target.id}: only outbound messages can be edited (direction: "${target.direction}")`
+      );
+    }
+    await space.send(editContent(newContent, target));
+  };
+
+  // Outbound senders are structurally tagged with `kind: "agent"` so the
+  // runtime shape matches the `AgentSender` type advertised by `send()`
+  // / `reply()` returns. Inbound senders are passed through untouched.
+  const buildSenderWithPlatform = ():
+    | ({ id: string } & Record<string, unknown>)
+    | undefined => {
+    if (params.sender === undefined) {
+      return;
+    }
+    if (params.direction === "outbound") {
+      return {
+        ...params.sender,
+        __platform: definition.name,
+        kind: "agent" as const,
+      };
+    }
+    return { ...params.sender, __platform: definition.name };
+  };
+  const senderWithPlatform = buildSenderWithPlatform();
 
   // Platform-defined sugar methods declared via `PlatformDef.message.actions`.
   // Each factory takes `self` as its first argument; the wrapper supplies
@@ -633,44 +653,20 @@ export function buildMessage(params: BuildMessageParams): Message {
     }
   }
 
-  if (params.direction === "outbound") {
-    const outbound = {
-      ...params.extras,
-      ...messagePlatformActions,
-      id: params.id,
-      content: params.content,
-      direction: "outbound",
-      platform: definition.name,
-      react,
-      reply,
-      edit: async (newContent: ContentInput): Promise<void> => {
-        // Sugar for `space.send(edit(newContent, self))`. Unsupported-content
-        // checks, fire-and-forget dispatch, and provider delegation all flow
-        // through the canonical send pipeline.
-        const target = requireBuiltMessage("edit") as OutboundMessage;
-        await space.send(editContent(newContent, target));
-      },
-      sender: senderWithPlatform,
-      space,
-      timestamp: params.timestamp,
-    } as OutboundMessage;
-    self = outbound;
-    return outbound;
-  }
-
-  const inbound = {
+  const message = {
     ...params.extras,
     ...messagePlatformActions,
     id: params.id,
     content: params.content,
-    direction: "inbound",
+    direction: params.direction,
     platform: definition.name,
     react,
     reply,
-    sender: senderWithPlatform as InboundMessage["sender"],
+    edit,
+    sender: senderWithPlatform,
     space,
     timestamp: params.timestamp,
-  } as InboundMessage;
-  self = inbound;
-  return inbound;
+  } as Message;
+  self = message;
+  return message;
 }

@@ -1,5 +1,5 @@
 import z from "zod";
-import type { Message, OutboundMessage } from "../types/message";
+import type { Message } from "../types/message";
 import { resolveContents } from "./resolve";
 import type { BaseContent, ContentBuilder, ContentInput } from "./types";
 
@@ -48,17 +48,18 @@ export const asEdit = (input: {
 /**
  * Construct an `edit` content value rewriting `target`'s content.
  *
- * `target` is typed as `OutboundMessage` because only messages you sent can
- * be edited; the schema field stays loose at `Message` (matching
- * reply/reaction) so providers receive the same shape regardless of
- * direction.
+ * Only outbound messages (those sent by the agent) can be edited; calling
+ * this with an inbound target throws at build time so the misuse surfaces
+ * before the send pipeline runs.
  */
-export function edit(
-  content: ContentInput,
-  target: OutboundMessage
-): ContentBuilder {
+export function edit(content: ContentInput, target: Message): ContentBuilder {
   return {
     build: async () => {
+      if (target.direction !== "outbound") {
+        throw new Error(
+          `edit() target must be an outbound message (got direction "${target.direction}", message id "${target.id}")`
+        );
+      }
       const [resolved] = await resolveContents([content]);
       if (!resolved) {
         throw new Error("edit() requires content");

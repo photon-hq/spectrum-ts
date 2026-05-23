@@ -1,13 +1,9 @@
 import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
 import type { Content, ContentBuilder } from "../content/types";
-import type {
-  InboundMessage,
-  Message,
-  OutboundMessage,
-} from "../types/message";
+import type { Message } from "../types/message";
 import type { Space } from "../types/space";
-import type { User } from "../types/user";
+import type { AgentSender, User } from "../types/user";
 import type { Store } from "../utils/store";
 import type { ManagedStream } from "../utils/stream";
 
@@ -310,7 +306,7 @@ export interface PlatformDef<
      *
      * Each entry is a `ContentBuilder` factory; `buildSpace` injects a thin
      * wrapper that calls `space.send(factory(...args))`. The wrapper is
-     * typed as `(...args) => Promise<OutboundMessage | undefined>` on
+     * typed as `(...args) => Promise<Message<string, AgentSender> | undefined>` on
      * `PlatformSpace<Def>` via `SpaceActionMethods<Def>`.
      *
      * Mirrors the top-level `PlatformDef.actions` slot — `actions` lives at
@@ -552,7 +548,7 @@ type SpaceActionFactories<Def extends AnyPlatformDef> = Def["space"] extends {
 export type SpaceActionMethods<Def extends AnyPlatformDef> = {
   [K in Exclude<keyof SpaceActionFactories<Def>, keyof Space>]: (
     ...args: Parameters<SpaceActionFactories<Def>[K]>
-  ) => Promise<OutboundMessage | undefined>;
+  ) => Promise<Message<string, AgentSender> | undefined>;
 };
 
 // Methods derived from `PlatformDef.message.actions`. Each factory's first
@@ -610,13 +606,6 @@ export type PlatformMessage<Def extends AnyPlatformDef> = Omit<
   Message<Def["name"], PlatformUser<Def>, PlatformSpace<Def>> &
   MessageActionMethods<Def>;
 
-export type InboundPlatformMessage<Def extends AnyPlatformDef> = Omit<
-  SchemaInfer<Def["message"]>,
-  keyof InboundMessage | keyof MessageActionMethods<Def>
-> &
-  InboundMessage<Def["name"], PlatformUser<Def>, PlatformSpace<Def>> &
-  MessageActionMethods<Def>;
-
 export type PlatformUser<Def extends AnyPlatformDef> = Omit<
   ResolvedUserOf<Def>,
   keyof User
@@ -628,9 +617,7 @@ export type PlatformUser<Def extends AnyPlatformDef> = Omit<
 // ---------------------------------------------------------------------------
 
 export type PlatformInstance<Def extends AnyPlatformDef> = {
-  readonly messages: AsyncIterable<
-    [PlatformSpace<Def>, InboundPlatformMessage<Def>]
-  >;
+  readonly messages: AsyncIterable<[PlatformSpace<Def>, PlatformMessage<Def>]>;
   space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
   user(userID: string): Promise<PlatformUser<Def>>;
 } & CustomEventInstanceProperties<Def>;
@@ -659,7 +646,7 @@ export interface PlatformRuntime {
   config: unknown;
   definition: AnyPlatformDef;
   store: Store;
-  subscribeMessages: () => ManagedStream<[Space, InboundMessage]>;
+  subscribeMessages: () => ManagedStream<[Space, Message]>;
 }
 
 export interface SpectrumLike<

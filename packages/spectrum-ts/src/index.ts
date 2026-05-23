@@ -34,7 +34,6 @@ export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,
   EventProducer,
-  InboundPlatformMessage,
   Platform,
   PlatformDef,
   PlatformInstance,
@@ -48,7 +47,7 @@ export type {
 export { Spectrum, type SpectrumInstance } from "./spectrum";
 export type { Message } from "./types/message";
 export type { Space } from "./types/space";
-export type { User } from "./types/user";
+export type { AgentSender, User } from "./types/user";
 export type {
   CloudPlatform,
   DedicatedTokenData,

@@ -24,8 +24,8 @@ export const asReaction = (input: {
  * Construct a `reaction` content value targeting the given message.
  *
  * `space.send(reaction(emoji, message))` is sugar for `message.react(emoji)`.
- * Reactions are fire-and-forget — the returned `OutboundMessage` will be
- * `undefined` because platforms do not surface a message id for reactions.
+ * Reactions are fire-and-forget — the returned `Message` will be `undefined`
+ * because platforms do not surface a message id for reactions.
  *
  * To react to a message known only by id, resolve it first via
  * `space.getMessage(id)`.

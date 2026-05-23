@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  id-token: write
 
 jobs:
   release:
@@ -16,6 +17,7 @@ jobs:
       working-directory: packages/spectrum-ts
       build-command: "bun run build"
       publish-command: "bunx clean-publish --package-manager npm"
+      use-oidc: true
       dry-run: false
     secrets: inherit
 

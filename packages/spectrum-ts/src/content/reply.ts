@@ -25,7 +25,8 @@ const isContent = (v: unknown): boolean =>
  * `message.reply(content)` is sugar that delegates here. Providers see
  * `reply` like any other content type and route to a threaded send.
  *
- * Reply cannot wrap `reply`, `reaction`, or `group` content.
+ * Reply cannot wrap `reply`, `edit`, `reaction`, `group`, `typing`, `rename`,
+ * or `avatar` content.
  */
 export const replySchema = z.object({
   type: z.literal("reply"),

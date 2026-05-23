@@ -26,7 +26,8 @@ const isContent = (v: unknown): boolean =>
  * them inside their `send` action and the resolved value is `undefined`
  * (no new message id is produced; the existing message mutates in place).
  *
- * Edit cannot wrap `edit`, `reply`, `reaction`, `group`, or `typing`.
+ * Edit cannot wrap `edit`, `reply`, `reaction`, `group`, `typing`, `rename`,
+ * or `avatar` content.
  */
 export const editSchema = z.object({
   type: z.literal("edit"),

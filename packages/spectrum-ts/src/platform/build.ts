@@ -531,7 +531,19 @@ export function buildSpace(params: BuildSpaceParams): Space {
       // Sugar for `space.send(avatar(input, options?))`. Fire-and-forget; the
       // (always-undefined) result is discarded. Per-platform support and
       // constraints live in each provider's `send` action.
-      await space.send(avatarContent(input as never, options));
+      //
+      // Branch by input shape so `avatarContent`'s narrow overloads pick the
+      // right signature (string vs Buffer + required mimeType) without a cast.
+      if (typeof input === "string") {
+        await space.send(avatarContent(input, options));
+        return;
+      }
+      if (!options?.mimeType) {
+        throw new Error(
+          "space.avatar(Buffer) requires options.mimeType — pass { mimeType: '...' }"
+        );
+      }
+      await space.send(avatarContent(input, { mimeType: options.mimeType }));
     }) as Space["avatar"],
     startTyping: async () => {
       // Sugar for `space.send(typing("start"))`. Typing is fire-and-forget;

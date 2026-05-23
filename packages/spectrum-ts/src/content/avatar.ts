@@ -33,16 +33,19 @@ export type AvatarInput = PhotoInput;
  * - `avatar("./icon.png")` — set avatar from a filesystem path. MIME type is
  *   inferred from the extension; override with `options.mimeType`.
  * - `avatar(buffer, { mimeType })` — set avatar from in-memory bytes.
- *   `options.mimeType` is required.
+ *   `options.mimeType` is required (enforced at the type level).
  *
  * `"clear"` is a reserved string-literal sentinel. If you have a file
  * literally named `clear` with no extension, pass `"./clear"` or load it as a
  * Buffer.
  */
-export function avatar(input: "clear"): ContentBuilder;
 export function avatar(
-  input: string | Buffer,
+  input: string,
   options?: { mimeType?: string }
+): ContentBuilder;
+export function avatar(
+  input: Buffer,
+  options: { mimeType: string }
 ): ContentBuilder;
 export function avatar(
   input: AvatarInput,

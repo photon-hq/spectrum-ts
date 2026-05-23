@@ -81,9 +81,15 @@ export const buildPhotoAction = (
     return { kind: "clear" };
   }
   const mimeType = resolveMimeType(input, options?.mimeType, contentLabel);
-  const read =
-    typeof input === "string"
-      ? cachedRead(() => readFile(input))
-      : cachedRead(async () => input);
+  let read: () => Promise<Buffer>;
+  if (typeof input === "string") {
+    read = cachedRead(() => readFile(input));
+  } else {
+    // Snapshot the bytes at builder-construction time so callers can safely
+    // mutate or reuse their Buffer after building (the cached read would
+    // otherwise surface any later writes through the same reference).
+    const snapshot = Buffer.from(input);
+    read = cachedRead(async () => snapshot);
+  }
   return { kind: "set", read, mimeType };
 };

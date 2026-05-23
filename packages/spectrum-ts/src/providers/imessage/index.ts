@@ -1,6 +1,7 @@
 import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Edit } from "../../content/edit";
+import type { Rename } from "../../content/rename";
 import { definePlatform } from "../../platform/define";
 import type { Message } from "../../types/message";
 import type { Space } from "../../types/space";
@@ -33,6 +34,7 @@ import {
   replyToMessage as remoteReplyToMessage,
   send as remoteSend,
   setBackground as remoteSetBackground,
+  setDisplayName as remoteSetDisplayName,
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
 } from "./remote/api";
@@ -102,6 +104,47 @@ const handleRead = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteMarkRead(remote, space.id);
+};
+
+const handleTyping = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  state: "start" | "stop"
+): Promise<void> => {
+  // Local mode has no typing API — silently no-op so callers can use
+  // `space.startTyping()` uniformly across modes.
+  if (isLocal(client)) {
+    return;
+  }
+  const remote = clientForPhone(client, space.phone);
+  if (state === "start") {
+    await remoteStartTyping(remote, space.id);
+  } else {
+    await remoteStopTyping(remote, space.id);
+  }
+};
+
+const handleRename = async (
+  client: IMessageClient,
+  space: { id: string; phone: string; type: "dm" | "group" },
+  content: Rename
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "rename",
+      "iMessage (local mode)",
+      "renaming chats requires remote iMessage"
+    );
+  }
+  if (space.type !== "group") {
+    throw UnsupportedError.action(
+      "rename",
+      "iMessage",
+      "only group chats can be renamed (this space is a DM)"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteSetDisplayName(remote, space.id, content);
 };
 
 export const imessage = definePlatform("iMessage", {
@@ -278,21 +321,15 @@ export const imessage = definePlatform("iMessage", {
       return;
     }
     if (content.type === "typing") {
-      // Local mode has no typing API — silently no-op so callers can use
-      // `space.startTyping()` uniformly across modes.
-      if (isLocal(client)) {
-        return;
-      }
-      const remote = clientForPhone(client, space.phone);
-      if (content.state === "start") {
-        await remoteStartTyping(remote, space.id);
-      } else {
-        await remoteStopTyping(remote, space.id);
-      }
+      await handleTyping(client, space, content.state);
       return;
     }
     if (content.type === "edit") {
       await handleEdit(client, space, content);
+      return;
+    }
+    if (content.type === "rename") {
+      await handleRename(client, space, content);
       return;
     }
     // `Background` and `Read` are iMessage-only and live outside the

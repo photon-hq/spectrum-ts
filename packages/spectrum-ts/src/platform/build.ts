@@ -1,6 +1,7 @@
 import { createLogger, withSpan } from "@photon-ai/otel";
 import { edit as editContent } from "../content/edit";
 import { reaction as reactionContent } from "../content/reaction";
+import { rename as renameContent } from "../content/rename";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
 import type { Content, ContentInput } from "../content/types";
@@ -43,6 +44,7 @@ const FIRE_AND_FORGET_TYPES: ReadonlySet<string> = new Set([
   "reaction",
   "typing",
   "edit",
+  "rename",
 ]);
 
 const isFireAndForget = (item: Content): boolean =>
@@ -59,6 +61,7 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "send",
   "edit",
   "getMessage",
+  "rename",
   "startTyping",
   "stopTyping",
   "responding",
@@ -512,6 +515,12 @@ export function buildSpace(params: BuildSpaceParams): Space {
       await space.send(editContent(newContent, message));
     },
     getMessage: getMessageImpl,
+    rename: async (displayName: string): Promise<void> => {
+      // Sugar for `space.send(rename(displayName))`. Fire-and-forget; the
+      // (always-undefined) result is discarded. Per-platform support and
+      // constraints live in each provider's `send` action.
+      await space.send(renameContent(displayName));
+    },
     startTyping: async () => {
       // Sugar for `space.send(typing("start"))`. Typing is fire-and-forget;
       // providers handle it inside their `send` action and any platforms

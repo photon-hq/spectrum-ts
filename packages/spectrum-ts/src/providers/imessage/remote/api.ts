@@ -1,4 +1,5 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { Rename } from "../../../content/rename";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ManagedStream } from "../../../utils/stream";
@@ -8,6 +9,7 @@ import { setBackground as setRemoteBackground } from "./background";
 import { getMessage as getRemoteMessage } from "./inbound";
 import { reactToMessage as reactToRemoteMessage } from "./reactions";
 import { markRead as markRemoteRead } from "./read";
+import { setDisplayName as setRemoteDisplayName } from "./rename";
 import {
   editMessage as editRemoteMessage,
   replyToMessage as replyToRemoteMessage,
@@ -28,6 +30,12 @@ export const setBackground = async (
   spaceId: string,
   content: Background
 ): Promise<void> => setRemoteBackground(remote, spaceId, content);
+
+export const setDisplayName = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: Rename
+): Promise<void> => setRemoteDisplayName(remote, spaceId, content);
 
 export const markRead = async (
   remote: AdvancedIMessage,

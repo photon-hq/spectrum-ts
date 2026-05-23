@@ -69,7 +69,8 @@ export function edit(content: ContentInput, target: Message): ContentBuilder {
         resolved.type === "reply" ||
         resolved.type === "reaction" ||
         resolved.type === "group" ||
-        resolved.type === "typing"
+        resolved.type === "typing" ||
+        resolved.type === "rename"
       ) {
         throw new Error(`edit() cannot wrap "${resolved.type}" content`);
       }

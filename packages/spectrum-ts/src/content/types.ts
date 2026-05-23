@@ -7,6 +7,7 @@ import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
 import { pollOptionSchema, pollSchema } from "./poll";
 import { reactionSchema } from "./reaction";
+import { renameSchema } from "./rename";
 import { replySchema } from "./reply";
 import { richlinkSchema } from "./richlink";
 import { textSchema } from "./text";
@@ -31,6 +32,7 @@ const baseContentSchemas = [
   pollOptionSchema,
   messageEffectSchema,
   typingSchema,
+  renameSchema,
 ] as const;
 
 export const baseContentSchema = z.discriminatedUnion(

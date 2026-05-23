@@ -13,6 +13,13 @@ export interface Space<_Def = unknown> {
    */
   getMessage(id: string): Promise<Message | undefined>;
   readonly id: string;
+  /**
+   * Rename the current chat. Sugar for `send(rename(displayName))`.
+   *
+   * Universal API; per-platform constraints (e.g. iMessage: remote + group
+   * only) surface as `UnsupportedError` from the provider's send action.
+   */
+  rename(displayName: string): Promise<void>;
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
   send(
     content: ContentInput

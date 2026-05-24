@@ -58,7 +58,7 @@
     "prepack": "bun scripts/prepare-package.ts --publish && tsup && bun scripts/prepare-package.ts"
   },
   "dependencies": {
-    "@photon-ai/advanced-imessage": "^0.8.0",
+    "@photon-ai/advanced-imessage": "^0.9.0",
     "@photon-ai/imessage-kit": "^3.0.0",
     "@photon-ai/otel": "^0.1.1",
     "@photon-ai/slack": "^0.2.0",

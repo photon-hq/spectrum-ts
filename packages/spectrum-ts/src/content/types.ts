@@ -6,6 +6,7 @@ import { customSchema } from "./custom";
 import { editSchema } from "./edit";
 import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
+import { miniAppSchema } from "./miniapp";
 import { pollOptionSchema, pollSchema } from "./poll";
 import { reactionSchema } from "./reaction";
 import { renameSchema } from "./rename";
@@ -27,6 +28,7 @@ const baseContentSchemas = [
   contactSchema,
   voiceSchema,
   richlinkSchema,
+  miniAppSchema,
   reactionSchema,
   groupSchema,
   pollSchema,

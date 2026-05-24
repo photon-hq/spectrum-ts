@@ -180,6 +180,28 @@ const sendContent = async (
       );
       return outboundMessage(spaceId, message, content);
     }
+    case "miniApp": {
+      if (replyTo) {
+        throw unsupportedRemoteContent(
+          "miniApp",
+          "mini app cards cannot be sent as replies"
+        );
+      }
+      const message = await remote.messages.sendMiniApp(chat, {
+        url: content.url,
+        preview: {
+          title: content.title,
+          subtitle: content.subtitle,
+          body: content.body,
+          imageJpeg: content.imageJpeg,
+          caption: content.caption,
+          footer: content.footer,
+          detail: content.detail,
+          summary: content.summary,
+        },
+      });
+      return outboundMessage(spaceId, message, content);
+    }
     case "attachment": {
       const { guid } = await uploadAttachment(remote, content);
       const message = await remote.messages.sendAttachment(

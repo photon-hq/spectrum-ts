@@ -14,6 +14,7 @@ export {
 export { custom } from "./content/custom";
 export { type Edit, edit } from "./content/edit";
 export { type Group, group } from "./content/group";
+export { type MiniApp, type MiniAppInput, miniApp } from "./content/miniapp";
 export {
   option,
   type Poll,

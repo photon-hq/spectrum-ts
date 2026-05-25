@@ -33,7 +33,8 @@
       "bun": "./src/providers/*/index.ts",
       "types": "./src/providers/*/index.ts",
       "default": "./dist/providers/*/index.js"
-    }
+    },
+    "./manifest.json": "./dist/manifest.json"
   },
   "publishConfig": {
     "exports": {
@@ -48,14 +49,16 @@
       "./providers/*": {
         "types": "./dist/providers/*/index.d.ts",
         "default": "./dist/providers/*/index.js"
-      }
+      },
+      "./manifest.json": "./dist/manifest.json"
     }
   },
   "scripts": {
-    "build": "bun scripts/prepare-package.ts && tsup",
+    "build": "bun scripts/prepare-package.ts && tsup && bun scripts/generate-manifest.ts",
     "dev": "tsup --watch",
     "generate:emoji": "bun scripts/generate-emoji.ts",
-    "prepack": "bun scripts/prepare-package.ts --publish && tsup && bun scripts/prepare-package.ts"
+    "generate:manifest": "bun scripts/generate-manifest.ts",
+    "prepack": "bun scripts/prepare-package.ts --publish && tsup && bun scripts/generate-manifest.ts && bun scripts/prepare-package.ts"
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.8.0",

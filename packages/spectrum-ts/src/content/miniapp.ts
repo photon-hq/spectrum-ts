@@ -2,7 +2,7 @@ import z from "zod";
 import type { ContentBuilder } from "./types";
 
 export const miniAppSchema = z.object({
-  type: z.literal("miniApp"),
+  type: z.literal("miniapp"),
   body: z.string().nonempty().optional(),
   caption: z.string().nonempty().optional(),
   detail: z.string().nonempty().optional(),
@@ -39,7 +39,7 @@ export interface MiniAppInput {
 
 export const asMiniApp = (input: MiniAppInput): MiniApp =>
   miniAppSchema.parse({
-    type: "miniApp",
+    type: "miniapp",
     body: input.body,
     caption: input.caption,
     detail: input.detail,

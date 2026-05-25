@@ -180,10 +180,10 @@ const sendContent = async (
       );
       return outboundMessage(spaceId, message, content);
     }
-    case "miniApp": {
+    case "miniapp": {
       if (replyTo) {
         throw unsupportedRemoteContent(
-          "miniApp",
+          "miniapp",
           "mini app cards cannot be sent as replies"
         );
       }

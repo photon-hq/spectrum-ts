@@ -67,10 +67,6 @@ async function buildManifest(): Promise<ManifestEntry[]> {
       throw new Error(`Failed to parse provider "${key}"`);
     }
 
-    // Guard against the manifest declaring a provider that tsup didn't
-    // actually compile (e.g. someone added src/providers/foo/ without also
-    // adding it to tsup.config.ts's entry list). Shipping such an entry
-    // would have downstream consumers fail to resolve the import path.
     const compiled = join(DIST_PROVIDERS_DIR, key, "index.js");
     if (!(await fileExists(compiled))) {
       throw new Error(
@@ -92,9 +88,6 @@ async function buildManifest(): Promise<ManifestEntry[]> {
 }
 
 const manifest = await buildManifest();
-// `mkdir … { recursive: true }` is a no-op when `dist/` already exists (the
-// normal case during `bun run build`), and creates it when running the
-// script standalone before tsup has populated the directory.
 await mkdir(dirname(OUT_PATH), { recursive: true });
 await writeFile(OUT_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
 process.stdout.write(

@@ -439,20 +439,11 @@ export async function Spectrum<
     }
     stopped = true;
 
-    const streamShutdowns = [
-      messagesStream.close(),
-      ...Array.from(customEventStreams.values(), (eventStream) =>
-        eventStream.close()
-      ),
-      ...Array.from(messageBroadcasters.values(), (broadcaster) =>
-        broadcaster.close()
-      ),
-    ];
-
     process.off("SIGINT", handleSignal);
     process.off("SIGTERM", handleSignal);
 
-    await Promise.allSettled(streamShutdowns);
+    // Phase 1: close clients
+    const clientCloseStart = performance.now();
     const clientShutdowns: Promise<void>[] = [];
     for (const state of platformStates.values()) {
       const destroy = state.definition.lifecycle.destroyClient;
@@ -474,10 +465,29 @@ export async function Spectrum<
       );
     }
     await Promise.allSettled(clientShutdowns);
+    const clientCloseEnd = performance.now();
+
+    // Phase 2: drain streams
+    const streamShutdowns = [
+      messagesStream.close(),
+      ...Array.from(customEventStreams.values(), (eventStream) =>
+        eventStream.close()
+      ),
+      ...Array.from(messageBroadcasters.values(), (broadcaster) =>
+        broadcaster.close()
+      ),
+    ];
+    await Promise.allSettled(streamShutdowns);
+    const streamCloseEnd = performance.now();
+
     customEventStreams.clear();
     messageBroadcasters.clear();
     platformStates.clear();
-    lifecycleLog.info("Spectrum stopped", { providers: providerNames });
+    lifecycleLog.info("Spectrum stopped", {
+      providers: providerNames,
+      clientCloseMs: Math.round(clientCloseEnd - clientCloseStart),
+      streamCloseMs: Math.round(streamCloseEnd - clientCloseEnd),
+    });
     if (otelHandle) {
       await otelHandle.shutdown();
     }

@@ -454,7 +454,7 @@ async function spectrumToProtocol(
   // crashes the whole process.
   throw UnsupportedError.content(
     (content as { type: string }).type,
-    "terminal"
+    "Terminal"
   );
 }
 

@@ -537,7 +537,7 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
 
 // ----- the provider -----
 
-export const terminal = definePlatform("terminal", {
+export const terminal = definePlatform("Terminal", {
   config: z.object({
     commands: z.array(commandSchema).optional(),
   }),

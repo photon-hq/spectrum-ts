@@ -206,6 +206,19 @@ const sendContent = async (
       });
       return outboundMessage(spaceId, message, content);
     }
+    case "customized-mini-app": {
+      if (replyTo) {
+        throw unsupportedRemoteContent(
+          "customized-mini-app",
+          "mini app cards cannot be sent as replies"
+        );
+      }
+      const message = await remote.messages.sendCustomizedMiniApp(
+        chat,
+        content
+      );
+      return outboundMessage(spaceId, message, content);
+    }
     case "poll":
       if (replyTo) {
         throw unsupportedRemoteContent(

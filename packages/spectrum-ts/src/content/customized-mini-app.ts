@@ -3,20 +3,13 @@ import type { ContentBuilder } from "./types";
 
 const TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/;
 
-const isParsableUrl = (value: string): boolean => {
-  try {
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /**
  * Visible layout of a mini-app card. Mirrors Apple's
  * `MSMessageTemplateLayout`. At least one of `caption`, `subcaption`,
  * `trailingCaption`, `trailingSubcaption`, or `image` must be set so the
- * bubble is not empty. `image` and `imageTitle` must be set together;
+ * bubble is not empty — `summary` is the fallback text shown on surfaces
+ * that cannot render the card (notifications, lock screen) and is not a
+ * visible slot on its own. `image` and `imageTitle` must be set together;
  * `imageSubtitle` requires `image`.
  */
 const layoutSchema = z
@@ -66,10 +59,7 @@ export const customizedMiniAppSchema = z.object({
   extensionBundleId: z.string().nonempty(),
   layout: layoutSchema,
   teamId: z.string().regex(TEAM_ID_PATTERN),
-  url: z
-    .string()
-    .nonempty()
-    .refine(isParsableUrl, { message: "url must be a parsable URL" }),
+  url: z.url(),
 });
 
 export type CustomizedMiniApp = z.infer<typeof customizedMiniAppSchema>;

@@ -452,12 +452,10 @@ export async function Spectrum<
     process.off("SIGINT", handleSignal);
     process.off("SIGTERM", handleSignal);
 
-    // Phase 1: stream cascade
     const streamCloseStart = performance.now();
     await Promise.allSettled(streamShutdowns);
     const streamCloseMs = Math.round(performance.now() - streamCloseStart);
 
-    // Phase 2: destroy clients
     const clientShutdowns: Promise<void>[] = [];
     for (const state of platformStates.values()) {
       const destroy = state.definition.lifecycle.destroyClient;

@@ -7,6 +7,13 @@ import {
 import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
+import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
+import { isFusorClient } from "./fusor/index";
+import type {
+  FusorMessages,
+  FusorMessagesReturn,
+  FusorReply,
+} from "./fusor/types";
 import {
   buildSpace,
   type ProviderMessageRecord,
@@ -24,8 +31,10 @@ import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
 import { createStore, type Store } from "./utils/store";
 import {
+  type AsyncQueue,
   type Broadcaster,
   broadcast,
+  createAsyncQueue,
   type ManagedStream,
   mergeStreams,
   stream,
@@ -178,6 +187,14 @@ export async function Spectrum<
 
   const platformStates = new Map<string, PlatformRuntime>();
 
+  // Per-platform fusor message queues (populated only for fusor-mode platforms).
+  // When set, the message stream pulls from this queue instead of calling
+  // `def.messages({ client, config, store })`.
+  const fusorMessageSources = new Map<
+    string,
+    AsyncQueue<ProviderMessageRecord>
+  >();
+
   // Per-platform message broadcasters (lazy: created on first subscribe).
   const messageBroadcasters = new Map<string, Broadcaster<[Space, Message]>>();
 
@@ -216,11 +233,14 @@ export async function Spectrum<
     store: Store;
   }): ManagedStream<[Space, Message]> => {
     const { client, config, definition, store } = state;
-    const raw = definition.messages({
-      client,
-      config,
-      store,
-    }) as AsyncIterable<ProviderMessageRecord>;
+    const fusorSource = fusorMessageSources.get(definition.name);
+    const raw = fusorSource
+      ? fusorSource.iterable
+      : (definition.messages({
+          client,
+          config,
+          store,
+        }) as unknown as AsyncIterable<ProviderMessageRecord>);
 
     const bindSend = async function* (): AsyncIterable<[Space, Message]> {
       for await (const msg of raw) {
@@ -343,6 +363,53 @@ export async function Spectrum<
     }
   );
 
+  // Bootstrap fusor: if any provider's createClient returned a FusorClient,
+  // open a single bidi gRPC stream to fusor and route inbound events to each
+  // matching provider's message stream.
+  let fusorCore: FusorCore | undefined;
+  const fusorPlatforms: { name: string; client: ReturnType<typeof Object> }[] =
+    [];
+  for (const [name, state] of platformStates) {
+    if (isFusorClient(state.client)) {
+      fusorPlatforms.push({ name, client: state.client });
+    }
+  }
+
+  if (fusorPlatforms.length > 0) {
+    if (!(projectId && projectSecret)) {
+      throw new Error(
+        "Fusor providers require Spectrum to be initialised with projectId and projectSecret"
+      );
+    }
+    fusorCore = new FusorCore({ projectId, projectSecret });
+    for (const { name, client } of fusorPlatforms) {
+      const fusorClient = client as {
+        platform: string;
+        verify: (req: unknown) => unknown;
+      };
+      const queue = createAsyncQueue<ProviderMessageRecord>();
+      fusorMessageSources.set(name, queue);
+
+      const runtime = platformStates.get(name);
+      if (!runtime) {
+        continue;
+      }
+      const userMessages = runtime.definition
+        .messages as unknown as FusorMessages<unknown>;
+
+      const handler: RegisteredFusorHandler = {
+        verify: fusorClient.verify as RegisteredFusorHandler["verify"],
+        messages: async (ctx: {
+          payload: unknown;
+          respond: (reply: FusorReply) => void;
+        }): Promise<FusorMessagesReturn> => userMessages(ctx),
+        pushMessage: (record) => queue.push(record),
+      };
+      fusorCore.register(fusorClient.platform, handler);
+    }
+    await fusorCore.start();
+  }
+
   const providerNames = providers
     .map((p) => (p as PlatformProviderConfig).__definition.name)
     .join(",");
@@ -457,7 +524,21 @@ export async function Spectrum<
     await Promise.allSettled(streamShutdowns);
     const streamCloseMs = Math.round(performance.now() - streamCloseStart);
 
-    // Phase 2: destroy clients
+    // Phase 2: fusor core shutdown (only when active)
+    let fusorCloseMs = 0;
+    if (fusorCore) {
+      const fusorCloseStart = performance.now();
+      await fusorCore.close().catch((error) => {
+        lifecycleLog.warn("fusor core close failed", { error });
+      });
+      fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
+      for (const queue of fusorMessageSources.values()) {
+        queue.close();
+      }
+      fusorMessageSources.clear();
+    }
+
+    // Phase 3: destroy clients
     const clientShutdowns: Promise<void>[] = [];
     for (const state of platformStates.values()) {
       const destroy = state.definition.lifecycle.destroyClient;
@@ -488,6 +569,7 @@ export async function Spectrum<
     lifecycleLog.info("Spectrum stopped", {
       providers: providerNames,
       streamCloseMs,
+      fusorCloseMs,
       clientCloseMs,
     });
     if (otelHandle) {

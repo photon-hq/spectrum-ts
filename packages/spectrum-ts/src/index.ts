@@ -32,7 +32,18 @@ export type { Content, ContentBuilder, ContentInput } from "./content/types";
 export { type Typing, typing } from "./content/typing";
 export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
-export { definePlatform } from "./platform/define";
+export type {
+  FusorClient,
+  FusorMessages,
+  FusorMessagesCtx,
+  FusorMessagesReturn,
+  FusorReply,
+  FusorRespond,
+  FusorVerify,
+  FusorVerifyRequest,
+} from "./fusor";
+export { fusor, isFusorClient } from "./fusor";
+export { defineFusorPlatform, definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,
   EventProducer,
@@ -53,6 +64,7 @@ export type { AgentSender, User } from "./types/user";
 export type {
   CloudPlatform,
   DedicatedTokenData,
+  FusorTokenData,
   ImessageInfoData,
   PlatformStatus,
   PlatformsData,

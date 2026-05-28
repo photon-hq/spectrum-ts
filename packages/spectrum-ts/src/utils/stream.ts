@@ -4,6 +4,71 @@ export interface ManagedStream<T> extends AsyncIterable<T> {
   close(): Promise<void>;
 }
 
+export interface AsyncQueue<T> {
+  close(): void;
+  iterable: AsyncIterable<T>;
+  push(value: T): void;
+}
+
+/**
+ * Unbounded FIFO queue with `AsyncIterable` consumer. Used by FusorCore to feed
+ * the per-platform message stream — events pushed before a consumer attaches
+ * are buffered, and a pending `next()` is woken when a value arrives.
+ */
+export function createAsyncQueue<T>(): AsyncQueue<T> {
+  const buffer: T[] = [];
+  const resolvers: ((result: IteratorResult<T, undefined>) => void)[] = [];
+  let closed = false;
+
+  const push = (value: T): void => {
+    if (closed) {
+      return;
+    }
+    const resolver = resolvers.shift();
+    if (resolver) {
+      resolver({ value, done: false });
+    } else {
+      buffer.push(value);
+    }
+  };
+
+  const close = (): void => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    while (resolvers.length > 0) {
+      const resolver = resolvers.shift();
+      resolver?.({ value: undefined, done: true });
+    }
+  };
+
+  const iterable: AsyncIterable<T> = {
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<T, undefined>> {
+          if (buffer.length > 0) {
+            const value = buffer.shift() as T;
+            return Promise.resolve({ value, done: false });
+          }
+          if (closed) {
+            return Promise.resolve({ value: undefined, done: true });
+          }
+          return new Promise((resolve) => {
+            resolvers.push(resolve);
+          });
+        },
+        return(): Promise<IteratorResult<T, undefined>> {
+          close();
+          return Promise.resolve({ value: undefined, done: true });
+        },
+      };
+    },
+  };
+
+  return { iterable, push, close };
+}
+
 type StreamCleanup = void | (() => void | Promise<void>);
 
 const ignoreCleanupError = () => undefined;

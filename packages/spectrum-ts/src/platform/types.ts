@@ -256,9 +256,16 @@ export interface PlatformDef<
   };
 
   /**
-   * Inbound message stream. Returns an `AsyncIterable<ProviderMessageRecord>`
-   * — Spectrum wraps each emitted record into a fully-built `Message` and
-   * fans it out via `spectrum.messages`.
+   * Inbound message stream.
+   *
+   * - **Default mode**: returns an `AsyncIterable<ProviderMessageRecord>` —
+   *   Spectrum wraps each emitted record into a fully-built `Message` and
+   *   fans it out via `spectrum.messages`.
+   * - **Fusor mode**: when `lifecycle.createClient` returns a `FusorClient`
+   *   (constructed via `fusor(platform, verify)`), the signature switches to a
+   *   per-payload callback `(ctx: { payload, respond }) => …` whose return
+   *   value is the message(s) to emit and whose optional `respond` call
+   *   customises the HTTP reply sent back to fusor.
    *
    * One of the two universal platform contracts (along with `send`). 99% of
    * integrations only need to implement `messages` + `send`.

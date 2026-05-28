@@ -58,6 +58,11 @@ export interface SlackTokenData {
   teams: Record<string, SlackTeamMeta>;
 }
 
+export interface FusorTokenData {
+  expiresIn: number;
+  token: string;
+}
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -162,6 +167,15 @@ export const cloud = {
     projectSecret: string
   ): Promise<SlackTokenData> =>
     request(`/projects/${projectId}/slack/tokens`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
+  issueFusorToken: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<FusorTokenData> =>
+    request(`/projects/${projectId}/fusor/token`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

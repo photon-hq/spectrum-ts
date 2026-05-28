@@ -13,13 +13,14 @@ const LIST_SECTION_TITLE = "Options";
 export const pollOptionId = (index: number): string => `opt_${index}`;
 
 export const pollToInteractive = (content: Poll): InteractiveInput => {
+  const body = content.title ?? "";
   if (content.options.length <= MAX_BUTTON_OPTIONS) {
     return buttons(
-      content.title,
+      body,
       ...content.options.map((o, i) => button(pollOptionId(i), o.title))
     );
   }
-  return list(content.title, LIST_BUTTON_TEXT).section(
+  return list(body, LIST_BUTTON_TEXT).section(
     LIST_SECTION_TITLE,
     content.options.map((o, i) => ({ id: pollOptionId(i), title: o.title }))
   );

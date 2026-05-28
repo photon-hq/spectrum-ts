@@ -217,7 +217,7 @@ const sendContent = async (
         spaceId,
         await remote.polls.create(
           chat,
-          content.title,
+          content.title ?? "",
           content.options.map((option) => option.title)
         ),
         content

@@ -1,13 +1,25 @@
 import z from "zod";
 import type { ContentBuilder } from "./types";
 
+// Lenient on the wire: iMessage's PollOption.text is a proto3 string, which
+// defaults to "" and carries no non-empty guarantee from the source. Strict
+// parsing here would silently drop entire polls if any option arrived with
+// empty text. If outbound construction needs to require non-empty options,
+// gate that at the customer-facing builder rather than this inbound parser.
 export const pollChoiceSchema = z.object({
-  title: z.string().nonempty(),
+  title: z.string(),
 });
 
+// Lenient on the wire: iMessage can deliver polls with empty or missing
+// titles (untitled polls, or partial deltas for `optionAdded` events that
+// don't always re-carry the title in practice). Strict `.nonempty()` parsing
+// dropped real customer polls silently — see
+// https://github.com/photon-hq/spectrum-ts (fix/poll-schema-allow-empty-title).
+// If outbound construction needs to require a title, gate that at the
+// customer-facing builder rather than this inbound parser.
 export const pollSchema = z.object({
   type: z.literal("poll"),
-  title: z.string().nonempty().max(300),
+  title: z.string().max(300).optional(),
   options: z.array(pollChoiceSchema).min(2).max(10),
 });
 
@@ -17,7 +29,10 @@ export const pollOptionSchema = z
     option: pollChoiceSchema,
     poll: pollSchema,
     selected: z.boolean(),
-    title: z.string().nonempty(),
+    // Mirrors pollChoiceSchema.title — the superRefine below still enforces
+    // structural equality with option.title, so empty strings round-trip
+    // correctly without silently dropping the vote.
+    title: z.string(),
   })
   .superRefine((value, ctx) => {
     if (value.title !== value.option.title) {

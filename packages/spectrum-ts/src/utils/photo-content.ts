@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
-import { readSchema } from "./io";
+import { fetchUrlBytes, readSchema } from "./io";
 
 /**
  * Shared building blocks for photo-style content (chat background, group
@@ -16,7 +16,7 @@ import { readSchema } from "./io";
 
 export const CLEAR_SENTINEL = "clear" as const;
 
-export type PhotoInput = typeof CLEAR_SENTINEL | string | Buffer;
+export type PhotoInput = typeof CLEAR_SENTINEL | string | Buffer | URL;
 
 export const photoActionSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -30,14 +30,19 @@ export const photoActionSchema = z.discriminatedUnion("kind", [
 export type PhotoAction = z.infer<typeof photoActionSchema>;
 
 const resolveMimeType = (
-  input: string | Buffer,
+  input: string | Buffer | URL,
   mimeType: string | undefined,
   contentLabel: string
 ): string => {
   if (mimeType) {
     return mimeType;
   }
-  if (typeof input === "string") {
+  if (input instanceof URL) {
+    const resolved = lookupMimeType(basename(input.pathname));
+    if (resolved) {
+      return resolved;
+    }
+  } else if (typeof input === "string") {
     const resolved = lookupMimeType(basename(input));
     if (resolved) {
       return resolved;
@@ -66,6 +71,10 @@ const cachedRead = (read: () => Promise<Buffer>): (() => Promise<Buffer>) => {
  *   file named `clear`, pass `"./clear"` or load it as a `Buffer`).
  * - `string` path → reads the file lazily via `node:fs/promises.readFile`;
  *   MIME type inferred from the filename extension.
+ * - `URL` → fetched lazily over the network into memory; never touches the
+ *   filesystem, so it works in read-only environments. MIME type is inferred
+ *   from the URL pathname extension at build time (override with
+ *   `options.mimeType` if the URL has no usable extension).
  * - `Buffer` → in-memory bytes; `options.mimeType` is required.
  *
  * Called at builder-construction time so a missing MIME type fails fast
@@ -82,7 +91,9 @@ export const buildPhotoAction = (
   }
   const mimeType = resolveMimeType(input, options?.mimeType, contentLabel);
   let read: () => Promise<Buffer>;
-  if (typeof input === "string") {
+  if (input instanceof URL) {
+    read = cachedRead(async () => (await fetchUrlBytes(input)).data);
+  } else if (typeof input === "string") {
     read = cachedRead(() => readFile(input));
   } else {
     // Snapshot the bytes at builder-construction time so callers can safely

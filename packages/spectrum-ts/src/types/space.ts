@@ -11,13 +11,16 @@ export interface Space<_Def = unknown> {
    * - `space.avatar("clear")` — remove the current avatar.
    * - `space.avatar("./icon.png")` — set from a filesystem path; MIME type
    *   is inferred from the extension.
+   * - `space.avatar(new URL("https://…/icon.png"))` — fetch the avatar
+   *   lazily over the network. Bytes stay in memory (safe in read-only
+   *   environments); MIME type is inferred from the URL pathname extension.
    * - `space.avatar(buffer, { mimeType })` — set from in-memory bytes;
    *   `mimeType` is required (enforced at the type level).
    *
    * Universal API; per-platform constraints (e.g. iMessage: remote + group
    * only) surface as `UnsupportedError` from the provider's send action.
    */
-  avatar(input: string, options?: { mimeType?: string }): Promise<void>;
+  avatar(input: string | URL, options?: { mimeType?: string }): Promise<void>;
   avatar(input: Buffer, options: { mimeType: string }): Promise<void>;
   edit(message: Message, newContent: ContentInput): Promise<void>;
   /**

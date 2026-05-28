@@ -4,7 +4,12 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
-import { bufferToStream, readSchema, streamSchema } from "../utils/io";
+import {
+  bufferToStream,
+  fetchUrlBytes,
+  readSchema,
+  streamSchema,
+} from "../utils/io";
 import type { ContentBuilder } from "./types";
 
 const AUDIO_MIME_PATTERN = /^audio\//i;
@@ -26,17 +31,35 @@ export const voiceSchema = z.object({
 
 export type Voice = z.infer<typeof voiceSchema>;
 
+export type VoiceInput = string | Buffer | URL;
+
 const resolveVoiceName = (
-  input: string | Buffer,
+  input: VoiceInput,
   name?: string
 ): string | undefined => {
   if (name) {
     return name;
   }
+  if (input instanceof URL) {
+    return basename(input.pathname) || undefined;
+  }
   if (typeof input === "string") {
     return basename(input);
   }
   return;
+};
+
+const resolveVoiceMimeHint = (
+  input: VoiceInput,
+  name: string | undefined
+): string | undefined => {
+  if (input instanceof URL) {
+    return basename(input.pathname) || undefined;
+  }
+  if (typeof input === "string") {
+    return basename(input);
+  }
+  return name;
 };
 
 const resolveVoiceMimeType = (
@@ -98,14 +121,23 @@ export const asVoice = (input: {
 };
 
 export function voice(
-  input: string | Buffer,
+  input: VoiceInput,
   options?: { mimeType?: string; name?: string; duration?: number }
 ): ContentBuilder {
   return {
     build: async () => {
       const name = resolveVoiceName(input, options?.name);
-      const mimeHint = typeof input === "string" ? basename(input) : name;
+      const mimeHint = resolveVoiceMimeHint(input, name);
       const mimeType = resolveVoiceMimeType(mimeHint, options?.mimeType);
+
+      if (input instanceof URL) {
+        return asVoice({
+          name,
+          mimeType,
+          duration: options?.duration,
+          read: async () => (await fetchUrlBytes(input)).data,
+        });
+      }
 
       if (typeof input === "string") {
         const stats = await stat(input);

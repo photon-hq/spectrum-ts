@@ -41,6 +41,10 @@ export type BackgroundInput = PhotoInput;
  * - `background("clear")` — remove the current chat background.
  * - `background("./photo.jpg")` — set background from a filesystem path.
  *   MIME type is inferred from the extension; override with `options.mimeType`.
+ * - `background(new URL("https://…/photo.jpg"))` — fetch the background
+ *   lazily over the network. Bytes stay in memory (safe in read-only
+ *   environments). MIME type is inferred from the URL pathname extension;
+ *   override with `options.mimeType` when the URL has no usable extension.
  * - `background(buffer, { mimeType })` — set background from in-memory bytes.
  *   `options.mimeType` is required.
  *
@@ -58,7 +62,7 @@ export type BackgroundInput = PhotoInput;
  */
 export function background(input: "clear"): ContentBuilder;
 export function background(
-  input: string | Buffer,
+  input: string | Buffer | URL,
   options?: { mimeType?: string }
 ): ContentBuilder;
 export function background(

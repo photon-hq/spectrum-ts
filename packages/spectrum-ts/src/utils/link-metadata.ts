@@ -1,4 +1,5 @@
 import ogs from "open-graph-scraper";
+import { type FetchedBytes, fetchUrlBytes } from "./io";
 
 export interface LinkMetadata {
   image?: { mimeType?: string; url: string };
@@ -6,10 +7,7 @@ export interface LinkMetadata {
   title?: string;
 }
 
-export interface FetchedImage {
-  data: Buffer;
-  mimeType?: string;
-}
+export type FetchedImage = FetchedBytes;
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const USER_AGENT =
@@ -77,21 +75,8 @@ export const fetchLinkMetadata = async (url: string): Promise<LinkMetadata> => {
   }
 };
 
-export const fetchImage = async (url: string): Promise<FetchedImage> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": USER_AGENT },
-    });
-    if (!res.ok) {
-      throw new Error(`image fetch ${url} returned ${res.status}`);
-    }
-    const data = Buffer.from(await res.arrayBuffer());
-    const mimeType = res.headers.get("content-type") ?? undefined;
-    return { data, mimeType };
-  } finally {
-    clearTimeout(timer);
-  }
-};
+export const fetchImage = (url: string): Promise<FetchedImage> =>
+  fetchUrlBytes(new URL(url), {
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    headers: { "User-Agent": USER_AGENT },
+  });

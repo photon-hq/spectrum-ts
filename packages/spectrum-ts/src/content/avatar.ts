@@ -32,6 +32,10 @@ export type AvatarInput = PhotoInput;
  * - `avatar("clear")` — remove the current chat avatar.
  * - `avatar("./icon.png")` — set avatar from a filesystem path. MIME type is
  *   inferred from the extension; override with `options.mimeType`.
+ * - `avatar(new URL("https://…/icon.png"))` — fetch the avatar lazily over
+ *   the network. Bytes stay in memory (safe in read-only environments). MIME
+ *   type is inferred from the URL pathname extension; override with
+ *   `options.mimeType` when the URL has no usable extension.
  * - `avatar(buffer, { mimeType })` — set avatar from in-memory bytes.
  *   `options.mimeType` is required (enforced at the type level).
  *
@@ -40,7 +44,7 @@ export type AvatarInput = PhotoInput;
  * Buffer.
  */
 export function avatar(
-  input: string,
+  input: string | URL,
   options?: { mimeType?: string }
 ): ContentBuilder;
 export function avatar(

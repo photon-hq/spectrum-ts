@@ -533,8 +533,9 @@ export function buildSpace(params: BuildSpaceParams): Space {
       // constraints live in each provider's `send` action.
       //
       // Branch by input shape so `avatarContent`'s narrow overloads pick the
-      // right signature (string vs Buffer + required mimeType) without a cast.
-      if (typeof input === "string") {
+      // right signature (string | URL vs Buffer + required mimeType) without a
+      // cast.
+      if (typeof input === "string" || input instanceof URL) {
         await space.send(avatarContent(input, options));
         return;
       }

@@ -4,7 +4,12 @@ import { basename } from "node:path";
 import { Readable } from "node:stream";
 import { lookup as lookupMimeType } from "mime-types";
 import z from "zod";
-import { bufferToStream, readSchema, streamSchema } from "../utils/io";
+import {
+  bufferToStream,
+  fetchUrlBytes,
+  readSchema,
+  streamSchema,
+} from "../utils/io";
 import type { ContentBuilder } from "./types";
 
 const DEFAULT_ATTACHMENT_NAME = "attachment";
@@ -20,9 +25,23 @@ export const attachmentSchema = z.object({
 
 export type Attachment = z.infer<typeof attachmentSchema>;
 
-const resolveAttachmentName = (input: string | Buffer, name?: string): string =>
-  name ||
-  (typeof input === "string" ? basename(input) : DEFAULT_ATTACHMENT_NAME);
+export type AttachmentInput = string | Buffer | URL;
+
+const resolveAttachmentName = (
+  input: AttachmentInput,
+  name?: string
+): string => {
+  if (name) {
+    return name;
+  }
+  if (input instanceof URL) {
+    return basename(input.pathname) || DEFAULT_ATTACHMENT_NAME;
+  }
+  if (typeof input === "string") {
+    return basename(input);
+  }
+  return DEFAULT_ATTACHMENT_NAME;
+};
 
 const resolveAttachmentMimeType = (name: string, mimeType?: string): string => {
   if (mimeType) {
@@ -68,13 +87,21 @@ export const asAttachment = (input: {
 };
 
 export function attachment(
-  input: string | Buffer,
+  input: AttachmentInput,
   options?: { mimeType?: string; name?: string }
 ): ContentBuilder {
   return {
     build: async () => {
       const name = resolveAttachmentName(input, options?.name);
       const mimeType = resolveAttachmentMimeType(name, options?.mimeType);
+
+      if (input instanceof URL) {
+        return asAttachment({
+          name,
+          mimeType,
+          read: async () => (await fetchUrlBytes(input)).data,
+        });
+      }
 
       if (typeof input === "string") {
         const stats = await stat(input);

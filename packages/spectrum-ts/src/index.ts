@@ -1,4 +1,8 @@
-export { attachment } from "./content/attachment";
+export {
+  type Attachment,
+  type AttachmentInput,
+  attachment,
+} from "./content/attachment";
 export { type Avatar, type AvatarInput, avatar } from "./content/avatar";
 export {
   type Contact,

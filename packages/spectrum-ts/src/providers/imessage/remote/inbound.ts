@@ -14,6 +14,10 @@ import { fromVCard } from "../../../utils/vcard";
 import { getMessageCache, type MessageCache } from "../cache";
 import { isVCardAttachment } from "../shared/vcard";
 import type { IMessageMessage } from "../types";
+import {
+  downloadPrimaryAttachment,
+  downloadPrimaryAttachmentStream,
+} from "./attachments";
 import { formatChildId, parseChildId, toChatGuid, toMessageGuid } from "./ids";
 
 const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
@@ -95,70 +99,6 @@ const toAttachmentContent = (
     read: async () => await downloadPrimaryAttachment(client, info.guid),
     stream: async () => downloadPrimaryAttachmentStream(client, info.guid),
   });
-
-const downloadPrimaryAttachmentStream = (
-  client: AdvancedIMessage,
-  attachmentGuid: string
-): ReadableStream<Uint8Array> => {
-  const frames = client.attachments.downloadStream(attachmentGuid);
-  const iterator = frames[Symbol.asyncIterator]();
-  let closed = false;
-
-  const closeFrames = async (): Promise<void> => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    try {
-      await iterator.return?.();
-    } finally {
-      await frames.close();
-    }
-  };
-
-  return new ReadableStream<Uint8Array>({
-    async cancel() {
-      await closeFrames();
-    },
-    async pull(controller) {
-      try {
-        while (true) {
-          const result = await iterator.next();
-          if (result.done) {
-            controller.close();
-            await closeFrames();
-            return;
-          }
-          if (result.value.type === "primaryChunk") {
-            controller.enqueue(result.value.data);
-            return;
-          }
-        }
-      } catch (error) {
-        await closeFrames();
-        throw error;
-      }
-    },
-  });
-};
-
-const downloadPrimaryAttachment = async (
-  client: AdvancedIMessage,
-  attachmentGuid: string
-): Promise<Buffer> => {
-  const chunks: Buffer[] = [];
-  const frames = client.attachments.downloadStream(attachmentGuid);
-  try {
-    for await (const frame of frames) {
-      if (frame.type === "primaryChunk") {
-        chunks.push(Buffer.from(frame.data));
-      }
-    }
-  } finally {
-    await frames.close();
-  }
-  return Buffer.concat(chunks);
-};
 
 const toVCardContent = async (
   client: AdvancedIMessage,

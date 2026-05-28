@@ -1,5 +1,7 @@
 import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
+import { withSpan } from "@photon-ai/otel";
+import type { Attachment } from "../../content/attachment";
 import type { Avatar } from "../../content/avatar";
 import type { Edit } from "../../content/edit";
 import type { Rename } from "../../content/rename";
@@ -40,7 +42,13 @@ import {
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
 } from "./remote/api";
-import { clientForPhone, isSharedMode, randomPhone } from "./remote/client";
+import { getRemoteAttachment } from "./remote/attachments";
+import {
+  availablePhones,
+  clientForPhone,
+  isSharedMode,
+  randomPhone,
+} from "./remote/client";
 import { dmChatGuid } from "./remote/ids";
 import {
   configSchema,
@@ -381,12 +389,58 @@ export const imessage = definePlatform("iMessage", {
   },
 
   actions: {
-    getMessage: async ({ space, messageId, client }) => {
+    getMessage: async ({ client }, space, messageId) => {
       if (isLocal(client)) {
         return localGetMessage(client, messageId);
       }
       const remote = clientForPhone(client, space.phone);
       return remoteGetMessage(remote, space.id, messageId, space.phone);
+    },
+    // Fetch an attachment by GUID. Returns a spectrum `Attachment` whose
+    // `.read()` / `.stream()` lazily download the bytes — calling both
+    // issues two independent gRPC downloads, so cache `.read()` if you
+    // need the bytes more than once. Returns `undefined` for unknown
+    // GUIDs. Local-mode iMessage is not supported.
+    getAttachment: async (
+      { client }: { client: IMessageClient },
+      guid: string,
+      phone?: string
+    ): Promise<Attachment | undefined> => {
+      if (isLocal(client)) {
+        throw UnsupportedError.action(
+          "getAttachment",
+          "iMessage (local mode)",
+          "fetching attachments by GUID requires remote iMessage"
+        );
+      }
+      if (client.length === 0) {
+        throw new Error("No iMessage clients configured");
+      }
+      const routedPhone = (() => {
+        if (isSharedMode(client)) {
+          return SHARED_PHONE;
+        }
+        if (phone) {
+          return phone;
+        }
+        if (client.length === 1) {
+          // biome-ignore lint/style/noNonNullAssertion: length checked above
+          return client[0]!.phone;
+        }
+        throw new Error(
+          `imessage.getAttachment requires a phone in multi-phone mode. Available: ${availablePhones(client).join(", ")}`
+        );
+      })();
+      const remote = clientForPhone(client, routedPhone);
+      return withSpan(
+        "spectrum.imessage.getAttachment",
+        {
+          "spectrum.provider": "iMessage",
+          "spectrum.imessage.attachment.guid": guid,
+          "spectrum.imessage.phone": routedPhone,
+        },
+        () => getRemoteAttachment(remote, guid)
+      );
     },
   },
 });

@@ -2,13 +2,19 @@ import { withSpan } from "@photon-ai/otel";
 import type z from "zod";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import { UnsupportedError } from "../utils/errors";
 import { classifyIdentifier as classifySingle } from "../utils/identifier";
 import type { Store } from "../utils/store";
-import { buildSpace } from "./build";
+import {
+  buildSpace,
+  PLATFORM_WISE_ACTION_KEYS,
+  warnReservedAction,
+} from "./build";
 import type {
   AnyPlatformDef,
   CreateClientContext,
   EventProducer,
+  InstanceActionFn,
   MessageActionFn,
   Platform,
   PlatformDef,
@@ -18,6 +24,7 @@ import type {
   PlatformRuntime,
   PlatformSpace,
   PlatformUser,
+  PlatformWiseActionKey,
   ProviderMessage,
   SpaceActionFn,
   SpectrumLike,
@@ -43,6 +50,60 @@ function classifySpaceIdentifier(args: unknown[]): {
 }
 
 type NoInferValue<T> = [T][T extends unknown ? 0 : never];
+
+type RawActionFactory = (
+  ctx: { client: unknown; config: unknown; store: Store },
+  ...rest: unknown[]
+) => Promise<unknown>;
+
+// Build the per-instance action map for one platform. Splits `def.actions`
+// into the two tiers and dispatches each entry accordingly:
+//
+// - **Platform-wise** (`PLATFORM_WISE_ACTION_KEYS`) — wired on every
+//   instance. Calls the provider's override if declared, else falls back
+//   to a default that throws `UnsupportedError`.
+// - **Platform-specific** — wired only when declared. Reserved-name
+//   collisions emit a warning and are skipped.
+//
+// Both tiers receive `{ client, config, store }` as the first arg before
+// the user-supplied trailing args.
+function buildInstanceActions(
+  platformName: string,
+  declared: Record<string, RawActionFactory> | undefined,
+  reservedKeys: ReadonlySet<string>,
+  buildCtx: () => { client: unknown; config: unknown; store: Store }
+): Record<string, (...args: unknown[]) => Promise<unknown>> {
+  const out: Record<string, (...args: unknown[]) => Promise<unknown>> = {};
+
+  for (const key of PLATFORM_WISE_ACTION_KEYS) {
+    const override = declared?.[key];
+    if (override && typeof override === "function") {
+      out[key] = (...args: unknown[]) => override(buildCtx(), ...args);
+    } else {
+      out[key] = () => {
+        throw UnsupportedError.action(key, platformName);
+      };
+    }
+  }
+
+  if (!declared) {
+    return out;
+  }
+  for (const [name, factory] of Object.entries(declared)) {
+    if (PLATFORM_WISE_ACTION_KEYS.has(name as PlatformWiseActionKey)) {
+      continue;
+    }
+    if (reservedKeys.has(name)) {
+      warnReservedAction("instance", name, platformName);
+      continue;
+    }
+    if (typeof factory !== "function") {
+      continue;
+    }
+    out[name] = (...args: unknown[]) => factory(buildCtx(), ...args);
+  }
+  return out;
+}
 
 function createPlatformInstance<
   Def extends AnyPlatformDef,
@@ -219,7 +280,32 @@ function createPlatformInstance<
     },
   });
 
-  return Object.assign(base, eventProperties) as PlatformInstance<Def>;
+  // Project `PlatformDef.actions` onto the platform instance via the helper
+  // above. See `buildInstanceActions` for the two-tier semantics.
+  const instanceActions = buildInstanceActions(
+    def.name,
+    (def as { actions?: Record<string, RawActionFactory> }).actions,
+    new Set<string>([
+      "user",
+      "space",
+      "messages",
+      ...Object.keys(customEvents),
+    ]),
+    () => ({
+      client: runtime.client,
+      config: runtime.config,
+      store: runtime.store,
+    })
+  );
+
+  // Spread order: actions first, events last — an event stream cannot be
+  // silently shadowed by an action of the same name (the reserved-key check
+  // above already skips such actions, so this is belt-and-braces).
+  return Object.assign(
+    base,
+    instanceActions,
+    eventProperties
+  ) as PlatformInstance<Def>;
 }
 
 export function definePlatform<
@@ -257,6 +343,7 @@ export function definePlatform<
     never,
     never
   >,
+  _Actions extends Record<string, InstanceActionFn> = Record<never, never>,
 >(
   name: _Name,
   def: {
@@ -283,7 +370,8 @@ export function definePlatform<
       _MessageType,
       _Events,
       _SpaceActions,
-      _MessageActions
+      _MessageActions,
+      _Actions
     >,
     "lifecycle" | "name"
   > & { static?: _Static }
@@ -301,7 +389,8 @@ export function definePlatform<
     _MessageType,
     _Events,
     _SpaceActions,
-    _MessageActions
+    _MessageActions,
+    _Actions
   >
 > &
   Readonly<_Static> {
@@ -318,7 +407,8 @@ export function definePlatform<
     _MessageType,
     _Events,
     _SpaceActions,
-    _MessageActions
+    _MessageActions,
+    _Actions
   >;
 
   const fullDef = { name, ...def };

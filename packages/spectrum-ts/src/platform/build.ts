@@ -13,7 +13,11 @@ import type { AgentSender } from "../types/user";
 import { UnsupportedError } from "../utils/errors";
 import type { Store } from "../utils/store";
 import { contentAttrs } from "../utils/telemetry";
-import type { AnyPlatformDef, ProviderMessageRecord } from "./types";
+import type {
+  AnyPlatformDef,
+  PlatformWiseActionKey,
+  ProviderMessageRecord,
+} from "./types";
 
 const platformLog = createLogger("spectrum.platform");
 
@@ -70,6 +74,14 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "responding",
 ]);
 
+// Framework-known action keys with default behavior. Used by `define.ts` to
+// distinguish platform-wise overrides from platform-specific extensions, and
+// to wire the same set onto every `PlatformInstance` regardless of override
+// status. The runtime list must stay in sync with `PlatformWiseActions` in
+// `types.ts` — the typed `satisfies` here catches typos at the element level.
+export const PLATFORM_WISE_ACTION_KEYS: ReadonlySet<PlatformWiseActionKey> =
+  new Set(["getMessage"] satisfies readonly PlatformWiseActionKey[]);
+
 // Reserved keys on `Message` — platform-defined `message.actions` entries
 // with these names are skipped at runtime (with a warning) so the universal
 // sugar (`react`, `reply`, `edit`, …) always wins. The same names are
@@ -87,12 +99,22 @@ const RESERVED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "timestamp",
 ]);
 
-const warnReservedAction = (
-  scope: "space" | "message",
+const scopeLabel = (scope: "space" | "message" | "instance"): string => {
+  if (scope === "space") {
+    return "Space";
+  }
+  if (scope === "message") {
+    return "Message";
+  }
+  return "PlatformInstance";
+};
+
+export const warnReservedAction = (
+  scope: "space" | "message" | "instance",
   name: string,
   platform: string
 ) => {
-  const body = `[spectrum-ts] ${platform} declared ${scope} action "${name}" which collides with a reserved ${scope === "space" ? "Space" : "Message"} key; skipping.`;
+  const body = `[spectrum-ts] ${platform} declared ${scope} action "${name}" which collides with a reserved ${scopeLabel(scope)} key; skipping.`;
   console.warn(
     supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
   );
@@ -434,11 +456,10 @@ export function buildSpace(params: BuildSpaceParams): Space {
   async function getMessageImpl(id: string): Promise<Message | undefined> {
     const getMessage = definition.actions?.getMessage;
     if (!getMessage) {
-      warnUnsupported(
-        UnsupportedError.action("getMessage", definition.name),
-        definition.name
-      );
-      return;
+      // Default behavior when the provider hasn't implemented the
+      // platform-wise `getMessage` action: throw `UnsupportedError`. Mirrors
+      // the same default the `PlatformInstance` wires for `im.getMessage`.
+      throw UnsupportedError.action("getMessage", definition.name);
     }
     return withSpan(
       "spectrum.message.get",
@@ -448,22 +469,11 @@ export function buildSpace(params: BuildSpaceParams): Space {
         "spectrum.message.id": id,
       },
       async () => {
-        let raw: ProviderMessageRecord | undefined;
-        try {
-          raw = (await getMessage({
-            space: spaceRef,
-            messageId: id,
-            client,
-            config,
-            store,
-          })) as ProviderMessageRecord | undefined;
-        } catch (err) {
-          if (err instanceof UnsupportedError) {
-            warnUnsupported(err, definition.name);
-            return;
-          }
-          throw err;
-        }
+        const raw = (await getMessage(
+          { client, config, store },
+          spaceRef,
+          id
+        )) as ProviderMessageRecord | undefined;
         if (!raw) {
           return;
         }

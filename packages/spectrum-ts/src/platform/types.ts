@@ -38,6 +38,71 @@ export type MessageActionFn = (
   ...args: never[]
 ) => Promise<void>;
 
+/**
+ * A platform-defined method projected onto the value returned by
+ * `provider(spectrum)` (e.g. `imessage(spectrum).getAttachment(guid)`). The
+ * first parameter is an injected runtime context (`{ client, config, store }`);
+ * `createPlatformInstance` supplies it so callers only pass the trailing args.
+ *
+ * Unlike `SpaceActionFn` / `MessageActionFn` (which always return
+ * `Promise<void>` because they dispatch through `send`), instance actions
+ * return arbitrary data — the public signature preserves the declared return
+ * type via `InstanceActionMethods<Def>`.
+ *
+ * Two tiers live in the same `actions?` slot:
+ *
+ * - **Platform-wise actions** — fixed framework-known names (currently just
+ *   `getMessage`) whose signatures are defined by `PlatformWiseActions`. They
+ *   power universal sugar (`space.getMessage(id)`) AND surface on the
+ *   platform instance. If a provider omits one, the framework wires a
+ *   default that throws `UnsupportedError`.
+ * - **Platform-specific actions** — free-form keys each platform declares
+ *   for its own ergonomics (e.g. iMessage's `getAttachment`). Surface on
+ *   the platform instance only.
+ *
+ * Names that collide with reserved instance keys (`user`, `space`, `messages`,
+ * plus any declared `events` key) are skipped at runtime with a warning and
+ * excluded at the type level.
+ */
+export type InstanceActionFn = (
+  // biome-ignore lint/suspicious/noExplicitAny: ctx is `any` so providers can annotate it with their platform's typed client without fighting contravariance; the runtime always passes `{ client, config, store }`
+  ctx: any,
+  // biome-ignore lint/suspicious/noExplicitAny: trailing args are user-defined
+  ...args: any[]
+) => Promise<unknown>;
+
+/**
+ * Framework-known action names that every platform implicitly has.
+ *
+ * Each entry's signature lives here; the framework wires the corresponding
+ * method onto the `PlatformInstance` for every platform — providers override
+ * by declaring the key inside their `actions` slot, and platforms that omit
+ * the key get a default that throws `UnsupportedError`.
+ *
+ * Add a new platform-wise capability by extending this record (and the
+ * runtime list in `define.ts`); the corresponding instance method will be
+ * surfaced on every `PlatformInstance` automatically.
+ */
+export interface PlatformWiseActions<
+  _ResolvedSpace extends { id: string },
+  _MessageType,
+  _Client,
+  _Config,
+> {
+  getMessage: (
+    ctx: { client: _Client; config: _Config; store: Store },
+    space: _ResolvedSpace & { id: string; __platform: string },
+    messageId: string
+  ) => Promise<_MessageType | undefined>;
+}
+
+export type PlatformWiseActionKey = keyof PlatformWiseActions<
+  { id: string },
+  unknown,
+  unknown,
+  unknown
+>;
+
 type ResolvedSpace = Pick<Space, "id">;
 type SpaceRef = Pick<Space, "id" | "__platform">;
 type ResolvedUser = Pick<User, "id">;
@@ -185,27 +250,39 @@ export interface PlatformDef<
     never,
     never
   >,
+  _Actions extends Record<string, InstanceActionFn> = Record<never, never>,
 > {
   /**
-   * Optional escape hatch: platform actions beyond `send`. Currently the
-   * framework recognizes one slot:
+   * Provider-defined methods exposed on the platform instance.
    *
-   * - **`getMessage?`** — fetch a message by id from a space. Powers
-   *   `space.getMessage(id)`. When omitted, `space.getMessage()` warns and
-   *   returns `undefined`.
+   * Two tiers share this slot:
    *
-   * 99% of integrations don't need this — `messages` + `send` is the
-   * universal contract.
+   * 1. **Platform-wise actions** (`getMessage`) — framework-recognized names
+   *    declared in `PlatformWiseActions`. Override by declaring the key here
+   *    with the matching signature. The framework injects `ctx = { client,
+   *    config, store }` as the first arg and surfaces the method on the
+   *    platform instance (`im.getMessage(space, id)`). If omitted, the
+   *    framework wires a default that throws `UnsupportedError`. Powers
+   *    universal sugar like `space.getMessage(id)`.
+   *
+   * 2. **Platform-specific actions** — free-form keys like `getAttachment`.
+   *    Each gets `ctx = { client, config, store }` as the first arg; the
+   *    public signature on `PlatformInstance<Def>` drops `ctx` and preserves
+   *    the declared return type.
+   *
+   * Names that collide with reserved instance keys (`user`, `space`,
+   * `messages`, plus any declared `events` key) are skipped at runtime with
+   * a warning and excluded at the type level.
    */
-  actions?: {
-    getMessage?: (_: {
-      space: _ResolvedSpace & SpaceRef;
-      messageId: string;
-      client: NoInferClient<_Client>;
-      config: z.infer<_ConfigSchema>;
-      store: Store;
-    }) => Promise<_MessageType | undefined>;
-  };
+  actions?: Partial<
+    PlatformWiseActions<
+      _ResolvedSpace,
+      _MessageType,
+      NoInferClient<_Client>,
+      z.infer<_ConfigSchema>
+    >
+  > &
+    _Actions;
 
   config: _ConfigSchema;
 
@@ -338,10 +415,7 @@ export interface PlatformDef<
 // ---------------------------------------------------------------------------
 
 export interface AnyPlatformDef {
-  actions?: {
-    // biome-ignore lint/suspicious/noExplicitAny: wildcard action
-    getMessage?: (_: any) => Promise<any>;
-  };
+  actions?: Record<string, InstanceActionFn>;
   config: z.ZodType<object>;
 
   // Optional escape hatches.
@@ -349,6 +423,7 @@ export interface AnyPlatformDef {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard event
     [key: string]: (ctx: any) => AsyncIterable<any>;
   };
+
   lifecycle: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard lifecycle
     createClient: (ctx: any) => Promise<any>;
@@ -584,6 +659,60 @@ export type MessageActionMethods<Def extends AnyPlatformDef> = {
   ) => Promise<void>;
 };
 
+// Methods derived from `PlatformDef.actions`. The first parameter (`ctx`) is
+// the runtime context (`{ client, config, store }`) injected by
+// `createPlatformInstance`, so the public surface drops it. Unlike
+// `SpaceActionMethods` / `MessageActionMethods`, the declared **return type**
+// is preserved — instance actions return data, not `Promise<void>`.
+// The inner `A extends Record<string, AnyInstanceActionFn>` uses a maximally
+// permissive function shape so concrete actions (with typed `client`) flow
+// through without contravariance fights.
+type AnyInstanceActionFn = (
+  // biome-ignore lint/suspicious/noExplicitAny: structural shape only
+  ...args: any[]
+) => Promise<unknown>;
+type InstanceActionFns<Def extends AnyPlatformDef> = Def["actions"] extends
+  | infer A
+  | undefined
+  ? A extends Record<string, AnyInstanceActionFn>
+    ? A
+    : Record<string, never>
+  : Record<string, never>;
+
+// Reserved keys on `PlatformInstance` — same set the runtime guards. Includes
+// the base members (`user`, `space`, `messages`) plus every event name the
+// platform projects onto the instance, plus the platform-wise action keys
+// (`getMessage`) whose public signatures come from `PlatformWiseInstanceMethods`.
+type ReservedInstanceKeys<Def extends AnyPlatformDef> =
+  | "user"
+  | "space"
+  | "messages"
+  | PlatformWiseActionKey
+  | Extract<keyof CustomEventInstanceProperties<Def>, string>;
+
+// Methods derived from `PlatformDef.actions`, *excluding* platform-wise keys
+// (those are covered by `PlatformWiseInstanceMethods<Def>` so their signatures
+// stay typed even when the provider omits the override).
+export type InstanceActionMethods<Def extends AnyPlatformDef> = {
+  [K in Exclude<
+    keyof InstanceActionFns<Def>,
+    ReservedInstanceKeys<Def> | symbol | number
+  >]: (
+    ...args: TailArgs<Parameters<InstanceActionFns<Def>[K]>>
+  ) => ReturnType<InstanceActionFns<Def>[K]>;
+};
+
+// Methods derived from `PlatformWiseActions` — always present on the
+// platform instance regardless of whether the provider overrides them.
+// Signatures use the platform's resolved Space/Message types so they
+// type-check against `space.getMessage`-style sugar.
+export interface PlatformWiseInstanceMethods<Def extends AnyPlatformDef> {
+  getMessage: (
+    space: PlatformSpace<Def>,
+    messageId: string
+  ) => Promise<PlatformMessage<Def> | undefined>;
+}
+
 // Both `keyof Space` and `keyof SpaceActionMethods<Def>` are removed from the
 // schema shape before merging — at runtime `buildSpace` spreads
 // `platformActions` after `extras`/`spaceRef`, so an action with the same
@@ -622,7 +751,9 @@ export type PlatformInstance<Def extends AnyPlatformDef> = {
   readonly messages: AsyncIterable<[PlatformSpace<Def>, PlatformMessage<Def>]>;
   space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
   user(userID: string): Promise<PlatformUser<Def>>;
-} & CustomEventInstanceProperties<Def>;
+} & CustomEventInstanceProperties<Def> &
+  PlatformWiseInstanceMethods<Def> &
+  InstanceActionMethods<Def>;
 
 // Project the optional `events?` slot onto the platform instance as flat
 // async-iterable properties. When `events` is undefined (the 99% case), this

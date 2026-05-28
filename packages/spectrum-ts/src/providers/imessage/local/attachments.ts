@@ -26,6 +26,7 @@ export const readLocalAttachment = async (
 const toAttachmentContent = (att: LocalAttachment): Content => {
   const { localPath } = att;
   return asAttachment({
+    id: att.id,
     name: att.fileName ?? DEFAULT_ATTACHMENT_NAME,
     mimeType: att.mimeType,
     size: att.sizeBytes,

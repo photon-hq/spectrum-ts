@@ -333,6 +333,7 @@ const lazyMedia = (
   media: { id: string; mimeType: string; filename?: string }
 ): Content =>
   asAttachment({
+    id: media.id,
     name: media.filename ?? `media-${media.id}`,
     mimeType: media.mimeType,
     read: async () =>

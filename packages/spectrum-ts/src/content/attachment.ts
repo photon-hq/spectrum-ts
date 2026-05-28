@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -16,6 +17,7 @@ const DEFAULT_ATTACHMENT_NAME = "attachment";
 
 export const attachmentSchema = z.object({
   type: z.literal("attachment"),
+  id: z.string().nonempty(),
   name: z.string().nonempty(),
   mimeType: z.string().nonempty(),
   size: z.number().int().nonnegative().optional(),
@@ -59,6 +61,7 @@ const resolveAttachmentMimeType = (name: string, mimeType?: string): string => {
 };
 
 export const asAttachment = (input: {
+  id?: string;
   name: string;
   mimeType: string;
   size?: number;
@@ -78,6 +81,7 @@ export const asAttachment = (input: {
 
   return attachmentSchema.parse({
     type: "attachment",
+    id: input.id ?? randomUUID(),
     name: input.name,
     mimeType: input.mimeType,
     size: input.size,
@@ -88,15 +92,17 @@ export const asAttachment = (input: {
 
 export function attachment(
   input: AttachmentInput,
-  options?: { mimeType?: string; name?: string }
+  options?: { id?: string; mimeType?: string; name?: string }
 ): ContentBuilder {
   return {
     build: async () => {
+      const id = options?.id;
       const name = resolveAttachmentName(input, options?.name);
       const mimeType = resolveAttachmentMimeType(name, options?.mimeType);
 
       if (input instanceof URL) {
         return asAttachment({
+          id,
           name,
           mimeType,
           read: async () => (await fetchUrlBytes(input)).data,
@@ -106,6 +112,7 @@ export function attachment(
       if (typeof input === "string") {
         const stats = await stat(input);
         return asAttachment({
+          id,
           name,
           mimeType,
           size: stats.size,
@@ -118,6 +125,7 @@ export function attachment(
       }
 
       return asAttachment({
+        id,
         name,
         mimeType,
         size: input.byteLength,

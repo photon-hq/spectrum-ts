@@ -72,6 +72,7 @@ const lazySlackFile = (
   file: SlackFile
 ): Content =>
   asAttachment({
+    id: file.id,
     name: file.name,
     mimeType: file.mimeType,
     size: file.size,

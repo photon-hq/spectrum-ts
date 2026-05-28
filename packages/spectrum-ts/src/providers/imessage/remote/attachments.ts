@@ -99,6 +99,7 @@ export const getRemoteAttachment = async (
     throw err;
   }
   return asAttachment({
+    id: info.guid,
     name: info.fileName,
     mimeType: info.mimeType,
     size: info.totalBytes,

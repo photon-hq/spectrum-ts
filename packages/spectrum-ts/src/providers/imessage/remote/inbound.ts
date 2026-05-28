@@ -93,6 +93,7 @@ const toAttachmentContent = (
   info: AppleAttachment
 ): Content =>
   asAttachment({
+    id: info.guid,
     name: info.fileName,
     mimeType: info.mimeType,
     size: info.totalBytes,

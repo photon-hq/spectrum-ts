@@ -5,7 +5,7 @@ import type {
   RawInboundEvent,
 } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import { type Channel, createChannel, createClient } from "nice-grpc";
-import { Metadata } from "nice-grpc-common";
+import { ClientError, Metadata, Status } from "nice-grpc-common";
 import type { ProviderMessageRecord } from "../platform/types";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
 import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
@@ -21,6 +21,12 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 
 const log = createLogger("spectrum.fusor");
+
+// A stale/expired stream token surfaces as a gRPC UNAUTHENTICATED error; detect
+// it so the reconnect path can drop the cached token before retrying.
+function isAuthError(error: unknown): boolean {
+  return error instanceof ClientError && error.code === Status.UNAUTHENTICATED;
+}
 
 export interface RegisteredFusorHandler<TPayload = unknown> {
   messages: (ctx: {
@@ -217,9 +223,13 @@ export class FusorCore {
   private tokenProvider?: FusorTokenProvider;
   private requestSink?: RequestSink;
   private connectionLoop?: Promise<void>;
+  private started = false;
   private stopped = false;
   private stopResolve?: () => void;
   private readonly stoppedPromise: Promise<void>;
+  // The reconnect backoff sleep, made cancelable so close() can wake it.
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private reconnectResolve?: () => void;
 
   constructor(options: FusorCoreOptions) {
     this.options = options;
@@ -247,6 +257,13 @@ export class FusorCore {
         "fusor: streaming via spectrum.messages requires projectId and projectSecret"
       );
     }
+    // Idempotent: a second start() must not spin up a duplicate token provider,
+    // channel, or connection loop. The flag is set synchronously before the
+    // first await so concurrent calls are guarded too.
+    if (this.started) {
+      return;
+    }
+    this.started = true;
     this.tokenProvider = await createFusorTokenProvider(
       this.options.projectId,
       this.options.projectSecret
@@ -268,6 +285,11 @@ export class FusorCore {
           return;
         }
         attempt += 1;
+        // Drop a stale token on auth failure so the next runOnce() mints a
+        // fresh one instead of replaying the rejected token.
+        if (isAuthError(error)) {
+          this.tokenProvider?.invalidate();
+        }
         const backoff = Math.min(
           RECONNECT_BASE_MS * 2 ** (attempt - 1),
           RECONNECT_MAX_MS
@@ -276,10 +298,16 @@ export class FusorCore {
           error: error instanceof Error ? error.message : String(error),
           backoff,
         });
+        // Cancelable sleep: close() clears the timer and resolves it so
+        // shutdown doesn't wait out the (up to 30s) backoff.
         await new Promise<void>((resolve) => {
+          this.reconnectResolve = resolve;
           const timer = setTimeout(resolve, backoff);
           timer.unref?.();
+          this.reconnectTimer = timer;
         });
+        this.reconnectTimer = undefined;
+        this.reconnectResolve = undefined;
       }
     }
   }
@@ -387,6 +415,14 @@ export class FusorCore {
     }
     this.stopped = true;
     this.requestSink?.close();
+    // Wake an in-progress reconnect backoff so the loop observes stopped and
+    // exits immediately instead of waiting out the timer.
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    this.reconnectResolve?.();
+    this.reconnectResolve = undefined;
     if (this.tokenProvider) {
       await this.tokenProvider.dispose();
     }

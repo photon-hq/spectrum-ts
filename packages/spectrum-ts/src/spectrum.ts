@@ -11,6 +11,7 @@ import type { ContentInput } from "./content/types";
 import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
 import { isFusorClient } from "./fusor/index";
 import type {
+  FusorClient,
   FusorMessages,
   FusorMessagesReturn,
   FusorReply,
@@ -419,8 +420,7 @@ export async function Spectrum<
   // drives the same handlers synchronously and never opens the stream.
   let fusorCore: FusorCore | undefined;
   let fusorStartPromise: Promise<void> | undefined;
-  const fusorPlatforms: { name: string; client: ReturnType<typeof Object> }[] =
-    [];
+  const fusorPlatforms: { name: string; client: FusorClient }[] = [];
   for (const [name, state] of platformStates) {
     if (isFusorClient(state.client)) {
       fusorPlatforms.push({ name, client: state.client });
@@ -430,10 +430,6 @@ export async function Spectrum<
   if (fusorPlatforms.length > 0) {
     fusorCore = new FusorCore({ projectId, projectSecret });
     for (const { name, client } of fusorPlatforms) {
-      const fusorClient = client as {
-        platform: string;
-        verify: (req: unknown) => unknown;
-      };
       const queue = createAsyncQueue<ProviderMessageRecord>();
       fusorMessageSources.set(name, queue);
 
@@ -445,14 +441,14 @@ export async function Spectrum<
         .messages as unknown as FusorMessages<unknown>;
 
       const handler: RegisteredFusorHandler = {
-        verify: fusorClient.verify as RegisteredFusorHandler["verify"],
+        verify: client.verify,
         messages: async (ctx: {
           payload: unknown;
           respond: (reply: FusorReply) => void;
         }): Promise<FusorMessagesReturn> => userMessages(ctx),
         pushMessage: (record) => queue.push(record),
       };
-      fusorCore.register(fusorClient.platform, handler);
+      fusorCore.register(client.platform, handler);
     }
   }
 

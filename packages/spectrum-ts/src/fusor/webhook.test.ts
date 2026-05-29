@@ -103,6 +103,12 @@ const baseConfig = {
 
 const NO_FUSOR_PROVIDER_ERROR = /requires at least one fusor provider/;
 
+// Timing knobs for the async coordination in these tests, named so intent is
+// clear and tuning is centralized.
+const SETTLE_CAP_MS = 150; // upper bound on idle teardown waits (see settleSoon)
+const TICK_MS = 0; // yield one event-loop turn so the lazy gRPC start can fire
+const NO_MESSAGE_WAIT_MS = 50; // long enough to confirm no message arrived
+
 // Bound teardown of an idle messages subscription: gracefully closing a fusor
 // stream that never received a live event waits on the (empty) queue, which is
 // irrelevant to these assertions. Cap it so the test always returns.
@@ -110,7 +116,7 @@ const settleSoon = (p: Promise<unknown> | undefined): Promise<unknown> =>
   Promise.race([
     Promise.resolve(p),
     new Promise((resolve) => {
-      setTimeout(resolve, 150);
+      setTimeout(resolve, SETTLE_CAP_MS);
     }),
   ]);
 
@@ -342,11 +348,11 @@ describe("spectrum.webhook", () => {
       // First subscription to spectrum.messages triggers the lazy gRPC start.
       const iterator = spectrum.messages[Symbol.asyncIterator]();
       const pending = iterator.next();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, TICK_MS));
       expect(startSpy).toHaveBeenCalledTimes(1);
 
       await settleSoon(iterator.return?.());
-      await pending.catch(() => undefined);
+      await settleSoon(pending.catch(() => undefined));
       await settleSoon(spectrum.stop());
     } finally {
       startSpy.mockRestore();
@@ -380,12 +386,14 @@ describe("spectrum.webhook", () => {
       const sentinel = Symbol("no-message");
       const winner = await Promise.race([
         next.then(() => "got-message"),
-        new Promise((resolve) => setTimeout(() => resolve(sentinel), 50)),
+        new Promise((resolve) =>
+          setTimeout(() => resolve(sentinel), NO_MESSAGE_WAIT_MS)
+        ),
       ]);
       expect(winner).toBe(sentinel);
 
       await settleSoon(iterator.return?.());
-      await next.catch(() => undefined);
+      await settleSoon(next.catch(() => undefined));
       await settleSoon(spectrum.stop());
     } finally {
       startSpy.mockRestore();

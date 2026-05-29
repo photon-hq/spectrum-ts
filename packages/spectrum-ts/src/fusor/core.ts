@@ -1,11 +1,14 @@
 import { ChannelCredentials } from "@grpc/grpc-js";
 import { createLogger } from "@photon-ai/otel";
-import type { InboundReply } from "@photon-ai/proto/photon/fusor/v1/inbound";
+import type {
+  InboundReply,
+  RawInboundEvent,
+} from "@photon-ai/proto/photon/fusor/v1/inbound";
 import { type Channel, createChannel, createClient } from "nice-grpc";
 import { Metadata } from "nice-grpc-common";
 import type { ProviderMessageRecord } from "../platform/types";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
-import { parseHttpRequest } from "./parse";
+import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
 import {
   EventsServiceDefinition,
   type SubscribeRequest,
@@ -159,12 +162,8 @@ function combineReplies(outcomes: HandlerOutcome[]): InboundReply {
 
 function runHandlerOnce<TPayload>(
   handler: RegisteredFusorHandler<TPayload>,
-  parsedRequest: {
-    method: string;
-    path: string;
-    headers: Record<string, string>;
-    rawBody: Uint8Array;
-  }
+  parsedRequest: ParsedHttpRequest,
+  deliver: (record: ProviderMessageRecord) => void = handler.pushMessage
 ): Promise<HandlerOutcome> {
   return (async () => {
     try {
@@ -189,7 +188,7 @@ function runHandlerOnce<TPayload>(
       if (result !== undefined) {
         const records = Array.isArray(result) ? result : [result];
         for (const record of records) {
-          handler.pushMessage(record);
+          deliver(record);
         }
       }
       return { ok: true, reply };
@@ -203,8 +202,11 @@ function runHandlerOnce<TPayload>(
 
 export interface FusorCoreOptions {
   endpoint?: string;
-  projectId: string;
-  projectSecret: string;
+  // Optional: only the gRPC stream (start) needs cloud credentials to mint a
+  // token. The webhook path (processEvent) routes registered handlers without
+  // them, so a webhook-only Spectrum can construct a core with neither set.
+  projectId?: string;
+  projectSecret?: string;
 }
 
 export class FusorCore {
@@ -240,6 +242,11 @@ export class FusorCore {
   }
 
   async start(): Promise<void> {
+    if (!(this.options.projectId && this.options.projectSecret)) {
+      throw new Error(
+        "fusor: streaming via spectrum.messages requires projectId and projectSecret"
+      );
+    }
     this.tokenProvider = await createFusorTokenProvider(
       this.options.projectId,
       this.options.projectSecret
@@ -306,27 +313,30 @@ export class FusorCore {
     }
   }
 
-  private async handleEvent(response: SubscribeResponse): Promise<void> {
-    const event = response.event;
-    if (!event) {
-      log.warn("fusor: received SubscribeResponse with no event");
-      return;
-    }
-
+  // Transport-independent event processing: route by platform, parse the wire
+  // request, run every registered handler (verify → messages), and combine the
+  // results into a single InboundReply. Returns the reply instead of writing it
+  // anywhere, so both the gRPC stream (sendReply) and the synchronous webhook
+  // path can drive it. `deliver` controls where produced records go: the gRPC
+  // path defaults to each handler's pushMessage (the per-platform queue feeding
+  // spectrum.messages); the webhook path collects them for the request instead.
+  async processEvent(
+    event: RawInboundEvent,
+    deliver?: (record: ProviderMessageRecord) => void
+  ): Promise<InboundReply> {
     const handlers = this.handlers.get(event.platform) ?? [];
     if (handlers.length === 0) {
       log.warn("fusor: no handler for platform", { platform: event.platform });
-      this.sendReply({
+      return {
         eventId: event.eventId,
         errorReason: `no handler for platform ${event.platform}`,
         status: 0,
         headers: {},
         body: new Uint8Array(0),
-      });
-      return;
+      };
     }
 
-    let parsedRequest: ReturnType<typeof parseHttpRequest>;
+    let parsedRequest: ParsedHttpRequest;
     try {
       parsedRequest = parseHttpRequest(event.rawRequest);
     } catch (error) {
@@ -336,23 +346,32 @@ export class FusorCore {
         platform: event.platform,
         error: errorReason,
       });
-      this.sendReply({
+      return {
         eventId: event.eventId,
         errorReason,
         status: 0,
         headers: {},
         body: new Uint8Array(0),
-      });
-      return;
+      };
     }
 
     const outcomes = await Promise.all(
-      handlers.map((handler) => runHandlerOnce(handler, parsedRequest))
+      handlers.map((handler) => runHandlerOnce(handler, parsedRequest, deliver))
     );
 
     const combined = combineReplies(outcomes);
     combined.eventId = event.eventId;
-    this.sendReply(combined);
+    return combined;
+  }
+
+  private async handleEvent(response: SubscribeResponse): Promise<void> {
+    const event = response.event;
+    if (!event) {
+      log.warn("fusor: received SubscribeResponse with no event");
+      return;
+    }
+    const reply = await this.processEvent(event);
+    this.sendReply(reply);
   }
 
   private sendReply(reply: InboundReply): void {

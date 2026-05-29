@@ -9,6 +9,9 @@ export type {
   FusorRespond,
   FusorVerify,
   FusorVerifyRequest,
+  WebhookHandler,
+  WebhookRawRequest,
+  WebhookRawResult,
 } from "./types";
 
 export function fusor<TPayload>(

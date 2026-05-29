@@ -41,6 +41,9 @@ export type {
   FusorRespond,
   FusorVerify,
   FusorVerifyRequest,
+  WebhookHandler,
+  WebhookRawRequest,
+  WebhookRawResult,
 } from "./fusor";
 export { fusor, isFusorClient } from "./fusor";
 export { defineFusorPlatform, definePlatform } from "./platform/define";

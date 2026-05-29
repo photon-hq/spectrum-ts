@@ -4,6 +4,7 @@ import {
   setupOtel,
   withSpan,
 } from "@photon-ai/otel";
+import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
@@ -13,6 +14,9 @@ import type {
   FusorMessages,
   FusorMessagesReturn,
   FusorReply,
+  WebhookHandler,
+  WebhookRawRequest,
+  WebhookRawResult,
 } from "./fusor/types";
 import {
   buildSpace,
@@ -69,6 +73,22 @@ export type SpectrumInstance<
     ): Promise<Message<string, AgentSender>[]>;
     edit(message: Message, newContent: ContentInput): Promise<void>;
     responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
+    /**
+     * Handle one inbound fusor webhook delivery. Call this from your HTTP
+     * server's POST route — it verifies, decodes, routes to the matching
+     * provider's verify + message pipeline, invokes `handler` once per resolved
+     * message, and returns the HTTP response fusor relays back to the platform
+     * (including protocol echoes like Slack `url_verification`).
+     *
+     * Stateless and request-scoped: it does NOT feed `spectrum.messages`, and it
+     * never opens the gRPC stream. fusor delivers at-least-once, so `handler`
+     * should dedupe on `message`/the event id for exactly-once side effects.
+     */
+    webhook(request: Request, handler: WebhookHandler): Promise<Response>;
+    webhook(
+      request: WebhookRawRequest,
+      handler: WebhookHandler
+    ): Promise<WebhookRawResult>;
   };
 
 // ---------------------------------------------------------------------------
@@ -109,6 +129,7 @@ const spectrumConfigSchema = z.union([
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
+    webhookSecret: z.string().min(1).optional(),
   }),
   z.object({
     projectId: z.undefined().optional(),
@@ -116,6 +137,7 @@ const spectrumConfigSchema = z.union([
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
+    webhookSecret: z.string().min(1).optional(),
   }),
 ]);
 
@@ -161,6 +183,7 @@ export async function Spectrum<
         providers: [...Providers];
         options?: SpectrumOptions;
         telemetry?: boolean;
+        webhookSecret?: string;
       }
     | {
         projectId?: never;
@@ -168,6 +191,7 @@ export async function Spectrum<
         providers: [...Providers];
         options?: SpectrumOptions;
         telemetry?: boolean;
+        webhookSecret?: string;
       }
 ): Promise<SpectrumInstance<Providers>> {
   spectrumConfigSchema.parse(options);
@@ -178,6 +202,7 @@ export async function Spectrum<
     providers,
     options: runtimeOptions,
     telemetry,
+    webhookSecret,
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
 
@@ -226,6 +251,68 @@ export async function Spectrum<
       };
     });
 
+  // Resolve a raw provider record into fully-built [space, message] tuples.
+  // Shared by the message stream and the synchronous webhook() path so both
+  // produce identical Spaces/Messages (including group flattening).
+  const resolveRecordToMessages = async (
+    record: ProviderMessageRecord,
+    rt: {
+      client: unknown;
+      config: unknown;
+      definition: AnyPlatformDef;
+      store: Store;
+    }
+  ): Promise<[Space, Message][]> => {
+    const { client, config, definition, store } = rt;
+    const built = await withSpan(
+      "spectrum.message.receive",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.message.id": record.id,
+        "spectrum.space.id": record.space?.id,
+        ...contentAttrs(record.content),
+        ...senderAttrs(record.sender),
+      },
+      () => {
+        const spaceRef = {
+          ...record.space,
+          __platform: definition.name,
+        };
+        const actionCtx = { space: spaceRef, client, config, store };
+        const space = buildSpace({
+          spaceRef,
+          extras: {},
+          actionCtx,
+          definition,
+          client,
+          config,
+          store,
+        });
+        const normalizedMessage = wrapProviderMessage(
+          record,
+          {
+            client,
+            config,
+            definition,
+            space,
+            spaceRef,
+            store,
+          },
+          "inbound"
+        );
+        return { space, normalizedMessage };
+      }
+    );
+    const { space, normalizedMessage } = built;
+    if (flattenGroups && normalizedMessage.content.type === "group") {
+      return normalizedMessage.content.items.map((item): [Space, Message] => [
+        space,
+        item,
+      ]);
+    }
+    return [[space, normalizedMessage]];
+  };
+
   const createProviderMessagesStream = (state: {
     client: unknown;
     config: unknown;
@@ -244,53 +331,15 @@ export async function Spectrum<
 
     const bindSend = async function* (): AsyncIterable<[Space, Message]> {
       for await (const msg of raw) {
-        const built = await withSpan(
-          "spectrum.message.receive",
-          {
-            "spectrum.provider": definition.name,
-            "spectrum.message.id": msg.id,
-            "spectrum.space.id": msg.space?.id,
-            ...contentAttrs(msg.content),
-            ...senderAttrs(msg.sender),
-          },
-          () => {
-            const spaceRef = {
-              ...msg.space,
-              __platform: definition.name,
-            };
-            const actionCtx = { space: spaceRef, client, config, store };
-            const space = buildSpace({
-              spaceRef,
-              extras: {},
-              actionCtx,
-              definition,
-              client,
-              config,
-              store,
-            });
-            const normalizedMessage = wrapProviderMessage(
-              msg,
-              {
-                client,
-                config,
-                definition,
-                space,
-                spaceRef,
-                store,
-              },
-              "inbound"
-            );
-            return { space, normalizedMessage };
-          }
-        );
-        const { space, normalizedMessage } = built;
-        if (flattenGroups && normalizedMessage.content.type === "group") {
-          for (const item of normalizedMessage.content.items) {
-            yield [space, item];
-          }
-          continue;
+        const tuples = await resolveRecordToMessages(msg, {
+          client,
+          config,
+          definition,
+          store,
+        });
+        for (const tuple of tuples) {
+          yield tuple;
         }
-        yield [space, normalizedMessage];
       }
     };
 
@@ -364,9 +413,12 @@ export async function Spectrum<
   );
 
   // Bootstrap fusor: if any provider's createClient returned a FusorClient,
-  // open a single bidi gRPC stream to fusor and route inbound events to each
-  // matching provider's message stream.
+  // register a handler per platform so both transports can route to it. The
+  // gRPC stream is NOT opened here — it starts lazily on the first
+  // spectrum.messages subscription (ensureFusorStarted). spectrum.webhook()
+  // drives the same handlers synchronously and never opens the stream.
   let fusorCore: FusorCore | undefined;
+  let fusorStartPromise: Promise<void> | undefined;
   const fusorPlatforms: { name: string; client: ReturnType<typeof Object> }[] =
     [];
   for (const [name, state] of platformStates) {
@@ -376,11 +428,6 @@ export async function Spectrum<
   }
 
   if (fusorPlatforms.length > 0) {
-    if (!(projectId && projectSecret)) {
-      throw new Error(
-        "Fusor providers require Spectrum to be initialised with projectId and projectSecret"
-      );
-    }
     fusorCore = new FusorCore({ projectId, projectSecret });
     for (const { name, client } of fusorPlatforms) {
       const fusorClient = client as {
@@ -407,8 +454,21 @@ export async function Spectrum<
       };
       fusorCore.register(fusorClient.platform, handler);
     }
-    await fusorCore.start();
   }
+
+  // Open the fusor gRPC stream on demand — exactly once, on the first
+  // spectrum.messages subscription. Requires cloud credentials (enforced in
+  // FusorCore.start). Webhook-only setups never call this, so they never
+  // connect and don't need credentials.
+  const ensureFusorStarted = (): Promise<void> => {
+    if (!fusorCore) {
+      return Promise.resolve();
+    }
+    if (!fusorStartPromise) {
+      fusorStartPromise = fusorCore.start();
+    }
+    return fusorStartPromise;
+  };
 
   const providerNames = providers
     .map((p) => (p as PlatformProviderConfig).__definition.name)
@@ -422,6 +482,10 @@ export async function Spectrum<
 
   const createMessagesStream = (): ManagedStream<[Space, Message]> =>
     stream<[Space, Message]>((emit, end) => {
+      // Open the fusor gRPC stream lazily on first subscription. A fatal connect
+      // failure (e.g. missing credentials) surfaces on this iterator. Non-async
+      // so subscribe stays non-blocking. Webhook-only setups never reach here.
+      ensureFusorStarted().catch((error) => end(error));
       const merged = mergeStreams(
         Array.from(platformStates.values(), (runtime) =>
           runtime.subscribeMessages()
@@ -528,6 +592,11 @@ export async function Spectrum<
     let fusorCloseMs = 0;
     if (fusorCore) {
       const fusorCloseStart = performance.now();
+      // If a lazy gRPC start is in flight, let it finish wiring before teardown
+      // so close() doesn't race a half-built connection.
+      if (fusorStartPromise) {
+        await fusorStartPromise.catch(ignoreCleanupError);
+      }
       await fusorCore.close().catch((error) => {
         lifecycleLog.warn("fusor core close failed", { error });
       });
@@ -603,11 +672,179 @@ export async function Spectrum<
     }
   );
 
+  const encodeText = (s: string): Uint8Array => new TextEncoder().encode(s);
+
+  // Build either a Web `Response` (when the caller passed a `Request`) or the
+  // raw `{ status, headers, body }` shape (Express/raw Node).
+  const buildWebhookResult = (
+    asWeb: boolean,
+    result: WebhookRawResult
+  ): Response | WebhookRawResult => {
+    if (asWeb) {
+      return new Response(result.body, {
+        status: result.status,
+        headers: result.headers,
+      });
+    }
+    return result;
+  };
+
+  // Read the RAW request bytes without re-encoding — protobuf decode (and the
+  // future fusor-origin HMAC) both need the exact bytes fusor sent. `asWeb`
+  // records whether to reply with a Web `Response` or the raw result shape.
+  const readWebhookInput = async (
+    request: Request | WebhookRawRequest
+  ): Promise<{ asWeb: boolean; bodyBytes: Uint8Array }> => {
+    if (typeof Request !== "undefined" && request instanceof Request) {
+      return {
+        asWeb: true,
+        bodyBytes: new Uint8Array(await request.arrayBuffer()),
+      };
+    }
+    // The compound `typeof Request` guard above doesn't narrow the union here.
+    const raw = request as WebhookRawRequest;
+    const bodyBytes =
+      raw.body instanceof ArrayBuffer ? new Uint8Array(raw.body) : raw.body;
+    return { asWeb: false, bodyBytes };
+  };
+
+  // Resolve each collected record and hand it to the request-scoped handler.
+  const deliverWebhookMessages = async (
+    collected: ProviderMessageRecord[],
+    runtime: PlatformRuntime,
+    handler: WebhookHandler
+  ): Promise<void> => {
+    for (const record of collected) {
+      const tuples = await resolveRecordToMessages(record, runtime);
+      for (const [space, message] of tuples) {
+        await handler(space, message);
+      }
+    }
+  };
+
+  // Verify the POST came from fusor. NO-OP SEAM for now: fusor does not sign
+  // outbound webhook POSTs yet (`X-Fusor-Signature` is reserved; see fusor
+  // ARCHITECTURE.md §16). When it does, HMAC `bodyBytes` against `webhookSecret`
+  // here (verify-if-present, with a strict mode). Distinct from the per-platform
+  // verify() that still runs in processEvent.
+  const assertFusorOrigin = (_bodyBytes: Uint8Array): void => {
+    if (!webhookSecret) {
+      return;
+    }
+    // Future: compare HMAC(_bodyBytes, webhookSecret) to X-Fusor-Signature.
+  };
+
+  // Decode the protobuf envelope; null = undecodable (poison → 400).
+  const decodeWebhookEvent = (
+    bodyBytes: Uint8Array
+  ): RawInboundEvent | null => {
+    try {
+      return RawInboundEvent.decode(bodyBytes);
+    } catch (error) {
+      lifecycleLog.warn("spectrum.webhook: undecodable RawInboundEvent body", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
+
+  // Deliver to the request-scoped handler. Returns a 500 result on a handler
+  // throw (fusor retries, at-least-once), or null on success.
+  const runWebhookDelivery = async (
+    collected: ProviderMessageRecord[],
+    runtime: PlatformRuntime,
+    handler: WebhookHandler,
+    event: RawInboundEvent
+  ): Promise<WebhookRawResult | null> => {
+    try {
+      await deliverWebhookMessages(collected, runtime, handler);
+      return null;
+    } catch (error) {
+      lifecycleLog.error("spectrum.webhook: handler threw", {
+        eventId: event.eventId,
+        platform: event.platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { status: 500, headers: {}, body: new Uint8Array(0) };
+    }
+  };
+
+  // Run the shared fusor pipeline for a decoded event and map it to an HTTP
+  // result. Records are collected for THIS request (webhook is stateless — they
+  // do not feed spectrum.messages).
+  const processWebhookEvent = async (
+    core: FusorCore,
+    event: RawInboundEvent,
+    handler: WebhookHandler
+  ): Promise<WebhookRawResult> => {
+    const collected: ProviderMessageRecord[] = [];
+    const reply = await core.processEvent(event, (record) => {
+      collected.push(record);
+    });
+
+    // A verify/parse/no-handler failure is poison — 400 (a retry won't help).
+    if (reply.errorReason) {
+      return {
+        status: 400,
+        headers: reply.headers ?? {},
+        body: encodeText(reply.errorReason),
+      };
+    }
+
+    const runtime = platformStates.get(event.platform);
+    if (runtime) {
+      const failure = await runWebhookDelivery(
+        collected,
+        runtime,
+        handler,
+        event
+      );
+      if (failure) {
+        return failure;
+      }
+    }
+
+    // Success: status 0 → 200. Carries protocol echoes (e.g. Slack
+    // url_verification) produced by the platform's messages() respond().
+    return {
+      status: reply.status === 0 ? 200 : reply.status,
+      headers: reply.headers ?? {},
+      body: reply.body ?? new Uint8Array(0),
+    };
+  };
+
+  const handleWebhook = async (
+    request: Request | WebhookRawRequest,
+    handler: WebhookHandler
+  ): Promise<Response | WebhookRawResult> => {
+    if (!fusorCore) {
+      throw new Error(
+        "spectrum.webhook() requires at least one fusor provider; none are configured"
+      );
+    }
+
+    const { asWeb, bodyBytes } = await readWebhookInput(request);
+    assertFusorOrigin(bodyBytes);
+
+    const event = decodeWebhookEvent(bodyBytes);
+    if (!event) {
+      return buildWebhookResult(asWeb, {
+        status: 400,
+        headers: {},
+        body: new Uint8Array(0),
+      });
+    }
+
+    const result = await processWebhookEvent(fusorCore, event, handler);
+    return buildWebhookResult(asWeb, result);
+  };
+
   const base = {
     __providers: providers,
     __internal: { platforms: platformStates },
     messages,
     stop: stopOnce,
+    webhook: handleWebhook as SpectrumInstance["webhook"],
     send: (async (
       space: Space,
       ...content: [ContentInput, ...ContentInput[]]

@@ -1,0 +1,394 @@
+import { describe, expect, it, spyOn } from "bun:test";
+import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
+import z from "zod";
+import type { Content } from "../content/types";
+import { defineFusorPlatform } from "../platform/define";
+import { Spectrum } from "../spectrum";
+import type { Message } from "../types/message";
+import { FusorCore } from "./core";
+import { fusor } from "./index";
+
+// A minimal fusor-mode provider standing in for a real platform (Slack-ish).
+// Its verify() parses the inner HTTP body to a typed payload; messages() turns
+// that into provider records (or a synchronous url_verification reply).
+type SlackPayload =
+  | { kind: "message"; text: string }
+  | { kind: "verify"; challenge: string }
+  | { kind: "group"; texts: string[] };
+
+const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
+  defineFusorPlatform("slack", {
+    config: z.object({}),
+    lifecycle: {
+      createClient: () =>
+        Promise.resolve(
+          fusor<SlackPayload>("slack", (req) => {
+            if (opts.verifyThrows) {
+              throw new Error("bad platform signature");
+            }
+            const body = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
+              type: string;
+              text?: string;
+              challenge?: string;
+              texts?: string[];
+            };
+            if (body.type === "url_verification") {
+              return { kind: "verify", challenge: body.challenge ?? "" };
+            }
+            if (body.type === "group") {
+              return { kind: "group", texts: body.texts ?? [] };
+            }
+            return { kind: "message", text: body.text ?? "" };
+          })
+        ),
+    },
+    user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+    space: {
+      resolve: ({ input }) =>
+        Promise.resolve({ id: input.users[0]?.id ?? "space" }),
+    },
+    messages: ({ payload, respond }) => {
+      if (payload.kind === "verify") {
+        respond({ status: 200, body: payload.challenge });
+        return;
+      }
+      if (payload.kind === "group") {
+        const items = payload.texts.map((text, i) => ({
+          id: `g${i}`,
+          content: { type: "text", text } as Content,
+          sender: { id: "u1" },
+          space: { id: "s1" },
+        }));
+        return {
+          id: "grp",
+          content: { type: "group", items } as unknown as Content,
+          sender: { id: "u1" },
+          space: { id: "s1" },
+        };
+      }
+      return {
+        id: "m1",
+        content: { type: "text", text: payload.text } as Content,
+        sender: { id: "u1" },
+        space: { id: "s1" },
+        timestamp: new Date(0),
+      };
+    },
+    send: () => Promise.resolve(undefined),
+  });
+
+// Build the protobuf POST body fusor would deliver: a RawInboundEvent whose
+// rawRequest is the platform's original HTTP/1.1 wire bytes.
+const encodeEvent = (
+  platform: string,
+  httpBody: string,
+  eventId = "evt-1"
+): Uint8Array => {
+  const wire = `POST /${platform} HTTP/1.1\r\ncontent-type: application/json\r\n\r\n${httpBody}`;
+  return RawInboundEvent.encode(
+    RawInboundEvent.create({
+      eventId,
+      projectId: "proj",
+      platform,
+      rawRequest: new TextEncoder().encode(wire),
+    })
+  ).finish();
+};
+
+const baseConfig = {
+  projectId: "proj",
+  projectSecret: "secret",
+  webhookSecret: "whsec_test",
+} as const;
+
+const NO_FUSOR_PROVIDER_ERROR = /requires at least one fusor provider/;
+
+// Bound teardown of an idle messages subscription: gracefully closing a fusor
+// stream that never received a live event waits on the (empty) queue, which is
+// irrelevant to these assertions. Cap it so the test always returns.
+const settleSoon = (p: Promise<unknown> | undefined): Promise<unknown> =>
+  Promise.race([
+    Promise.resolve(p),
+    new Promise((resolve) => {
+      setTimeout(resolve, 150);
+    }),
+  ]);
+
+describe("spectrum.webhook", () => {
+  it("routes by platform, resolves [space, message], and delivers to the handler", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const received: [unknown, Message][] = [];
+
+    const result = await spectrum.webhook(
+      {
+        headers: { "content-type": "application/x-protobuf" },
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "message", text: "hello" })
+        ),
+      },
+      (space, message) => {
+        received.push([space, message]);
+      }
+    );
+
+    expect(received).toHaveLength(1);
+    const first = received.at(0);
+    if (!first) {
+      throw new Error("expected one delivered message");
+    }
+    const [space, message] = first;
+    expect((space as { __platform: string }).__platform).toBe("slack");
+    expect(message.id).toBe("m1");
+    expect(message.direction).toBe("inbound");
+    expect(message.content).toEqual({ type: "text", text: "hello" });
+    expect(result.status).toBe(200);
+
+    await spectrum.stop();
+  });
+
+  it("echoes a url_verification reply as a Web Response", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+
+    const request = new Request("https://app.example.com/webhooks/fusor", {
+      method: "POST",
+      headers: { "content-type": "application/x-protobuf" },
+      body: encodeEvent(
+        "slack",
+        JSON.stringify({ type: "url_verification", challenge: "abc123" })
+      ),
+    });
+
+    let delivered = 0;
+    const response = await spectrum.webhook(request, () => {
+      delivered += 1;
+    });
+
+    expect(response).toBeInstanceOf(Response);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("abc123");
+    expect(delivered).toBe(0);
+
+    await spectrum.stop();
+  });
+
+  it("treats the Request and raw overloads equivalently", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const body = encodeEvent(
+      "slack",
+      JSON.stringify({ type: "message", text: "hi" })
+    );
+
+    const rawResult = await spectrum.webhook(
+      { headers: {}, body },
+      () => undefined
+    );
+    const webResult = await spectrum.webhook(
+      new Request("https://app.example.com/h", { method: "POST", body }),
+      () => undefined
+    );
+
+    expect(rawResult.status).toBe(200);
+    expect(webResult).toBeInstanceOf(Response);
+    expect(webResult.status).toBe(200);
+
+    await spectrum.stop();
+  });
+
+  it("returns 400 for an undecodable body (poison — no retry)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+
+    const result = await spectrum.webhook(
+      { headers: {}, body: new Uint8Array([0xff]) },
+      () => undefined
+    );
+
+    expect(result.status).toBe(400);
+    await spectrum.stop();
+  });
+
+  it("returns 400 when no handler is registered for the platform", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+
+    const result = await spectrum.webhook(
+      { headers: {}, body: encodeEvent("discord", "{}") },
+      () => undefined
+    );
+
+    expect(result.status).toBe(400);
+    await spectrum.stop();
+  });
+
+  it("returns 400 when the platform verify() rejects (poison)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack({ verifyThrows: true }).config({})],
+    });
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "message", text: "x" })
+        ),
+      },
+      () => undefined
+    );
+
+    expect(result.status).toBe(400);
+    await spectrum.stop();
+  });
+
+  it("returns 500 when the handler throws (fusor retries at-least-once)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "message", text: "x" })
+        ),
+      },
+      () => {
+        throw new Error("downstream db down");
+      }
+    );
+
+    expect(result.status).toBe(500);
+    await spectrum.stop();
+  });
+
+  it("flattens group messages into one handler call per item", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+      options: { flattenGroups: true },
+    });
+
+    const received: Message[] = [];
+    await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "group", texts: ["a", "b"] })
+        ),
+      },
+      (_space, message) => {
+        received.push(message);
+      }
+    );
+
+    expect(received.map((m) => m.content)).toEqual([
+      { type: "text", text: "a" },
+      { type: "text", text: "b" },
+    ]);
+
+    await spectrum.stop();
+  });
+
+  it("throws when no fusor provider is configured", async () => {
+    const spectrum = await Spectrum({ providers: [] });
+
+    await expect(
+      spectrum.webhook({ headers: {}, body: new Uint8Array() }, () => undefined)
+    ).rejects.toThrow(NO_FUSOR_PROVIDER_ERROR);
+
+    await spectrum.stop();
+  });
+
+  it("never opens the gRPC stream for webhook, but does for spectrum.messages", async () => {
+    const startSpy = spyOn(FusorCore.prototype, "start").mockResolvedValue(
+      undefined
+    );
+    try {
+      const spectrum = await Spectrum({
+        ...baseConfig,
+        providers: [makeSlack().config({})],
+      });
+
+      await spectrum.webhook(
+        {
+          headers: {},
+          body: encodeEvent(
+            "slack",
+            JSON.stringify({ type: "message", text: "x" })
+          ),
+        },
+        () => undefined
+      );
+      expect(startSpy).not.toHaveBeenCalled();
+
+      // First subscription to spectrum.messages triggers the lazy gRPC start.
+      const iterator = spectrum.messages[Symbol.asyncIterator]();
+      const pending = iterator.next();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      await settleSoon(iterator.return?.());
+      await pending.catch(() => undefined);
+      await settleSoon(spectrum.stop());
+    } finally {
+      startSpy.mockRestore();
+    }
+  });
+
+  it("does not feed spectrum.messages (webhook is request-scoped)", async () => {
+    const startSpy = spyOn(FusorCore.prototype, "start").mockResolvedValue(
+      undefined
+    );
+    try {
+      const spectrum = await Spectrum({
+        ...baseConfig,
+        providers: [makeSlack().config({})],
+      });
+
+      const iterator = spectrum.messages[Symbol.asyncIterator]();
+      const next = iterator.next();
+
+      await spectrum.webhook(
+        {
+          headers: {},
+          body: encodeEvent(
+            "slack",
+            JSON.stringify({ type: "message", text: "x" })
+          ),
+        },
+        () => undefined
+      );
+
+      const sentinel = Symbol("no-message");
+      const winner = await Promise.race([
+        next.then(() => "got-message"),
+        new Promise((resolve) => setTimeout(() => resolve(sentinel), 50)),
+      ]);
+      expect(winner).toBe(sentinel);
+
+      await settleSoon(iterator.return?.());
+      await next.catch(() => undefined);
+      await settleSoon(spectrum.stop());
+    } finally {
+      startSpy.mockRestore();
+    }
+  });
+});

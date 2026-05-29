@@ -17,9 +17,28 @@
         "spectrum-ts": "workspace:*",
       },
     },
+    "packages/linq": {
+      "name": "@photon-ai/linq",
+      "version": "0.1.0",
+      "dependencies": {
+        "@linqapp/sdk": "^0.25.0",
+      },
+      "devDependencies": {
+        "@photon-ai/proto": "^0.2.4",
+        "@types/bun": "latest",
+        "spectrum-ts": "workspace:*",
+        "tsup": "^8.4.0",
+        "zod": "^4",
+      },
+      "peerDependencies": {
+        "spectrum-ts": ">=1.15.0",
+        "typescript": "^5 || ^6.0.0",
+        "zod": "^4",
+      },
+    },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "1.13.1",
+      "version": "1.15.0",
       "dependencies": {
         "@photon-ai/advanced-imessage": "^0.10.0",
         "@photon-ai/imessage-kit": "^3.0.0",
@@ -145,6 +164,8 @@
 
     "@js-sdsl/ordered-map": ["@js-sdsl/ordered-map@4.4.2", "", {}, "sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw=="],
 
+    "@linqapp/sdk": ["@linqapp/sdk@0.25.0", "", {}, "sha512-V9X9DX26wuO2ueR+VzhCDbmmtsdWZTD3uwZaORuJX+UAg+769vN5+dVP0GT/ZOHnP2nbwv34S0+Pu2mBA+QC3A=="],
+
     "@opentelemetry/api": ["@opentelemetry/api@1.9.1", "", {}, "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="],
 
     "@opentelemetry/api-logs": ["@opentelemetry/api-logs@0.216.0", "", { "dependencies": { "@opentelemetry/api": "^1.3.0" } }, "sha512-KmGTgvxTJ0J01d4mOeX1wMV5NUTNf9HebIuOOGDfIn0a/IrnXIQbOnlylDyl9tkDv4h0DUpdI/GqCdLzfTkUXg=="],
@@ -178,6 +199,8 @@
     "@photon-ai/advanced-imessage": ["@photon-ai/advanced-imessage@0.10.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.11.0", "@grpc/grpc-js": "^1.12.6", "nice-grpc": "^2.1.11", "nice-grpc-common": "^2.0.2" } }, "sha512-ZQ/ebDf0L7gI0H0PWUQgcwgO8N1EbRB1J8tC96BqGcFdMmfegyDDV6/Cdn+v+C+Po2XUqIgqE55GYq5nJ9cUDg=="],
 
     "@photon-ai/imessage-kit": ["@photon-ai/imessage-kit@3.0.0", "", { "dependencies": { "@parseaple/typedstream": "^2.0.0" }, "optionalDependencies": { "better-sqlite3": "^12.5.0" } }, "sha512-GGDETlRbrPXP5eaRvswaead7MCBGQkm8f7d3aVbx8+rXhB4GEyPiw7Q1/yz5ix53rmxqKRevWywOfG7n+kZDBw=="],
+
+    "@photon-ai/linq": ["@photon-ai/linq@workspace:packages/linq"],
 
     "@photon-ai/otel": ["@photon-ai/otel@0.1.1", "", { "dependencies": { "@opentelemetry/api": "^1.9.1", "@opentelemetry/api-logs": "^0.216.0", "@opentelemetry/context-async-hooks": "^2.7.1", "@opentelemetry/exporter-logs-otlp-http": "^0.216.0", "@opentelemetry/exporter-trace-otlp-http": "^0.216.0", "@opentelemetry/resources": "^2.7.1", "@opentelemetry/sdk-logs": "^0.216.0", "@opentelemetry/sdk-trace-base": "^2.7.1" }, "peerDependencies": { "typescript": "^5 || ^6.0.0" } }, "sha512-t/NVepO5+fHOLWDI+Eht+RC8PTik0wi7HQsKhU4yPqBjY5JncXmoBZLnWFvG+/qJ/pn6w+tveabKG9pykfkqKg=="],
 
@@ -561,7 +584,7 @@
 
     "thenify-all": ["thenify-all@1.6.0", "", { "dependencies": { "thenify": ">= 3.1.0 < 4" } }, "sha512-RNxQH/qI8/t3thXJDwcstUO4zeqo64+Uy/+sNVRBx4Xn2OX+OZ9oP+iJnNFqplFra2ZUVeKCSa2oVWi3T4uVmA=="],
 
-    "tinyexec": ["tinyexec@1.1.1", "", {}, "sha512-VKS/ZaQhhkKFMANmAOhhXVoIfBXblQxGX1myCQ2faQrfmobMftXeJPcZGp0gS07ocvGJWDLZGyOZDadDBqYIJg=="],
+    "tinyexec": ["tinyexec@0.3.2", "", {}, "sha512-KQQR9yN7R5+OSwaK0XQoj22pwHoTlgYqmUscPYoknOoWCWfj/5/ABTMRi69FrKU5ffPVh5QcFikpWJI/P1ocHA=="],
 
     "tinyglobby": ["tinyglobby@0.2.16", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.4" } }, "sha512-pn99VhoACYR8nFHhxqix+uvsbXineAasWm5ojXoN8xEwK5Kd3/TrhNn1wByuD52UxWRLy8pu+kRMniEi6Eq9Zg=="],
 
@@ -625,17 +648,19 @@
 
     "@photon-ai/whatsapp-business/nice-grpc": ["nice-grpc@2.1.15", "", { "dependencies": { "@grpc/grpc-js": "^1.14.0", "abort-controller-x": "^0.5.0", "nice-grpc-common": "^2.0.3" } }, "sha512-agPIt7dtQASnN5p1X3c2S5amDhWRWRT0Jp62trmpMBKSbkm87l8bG2slqxSthlrGa4AnRPG8+lFf4y8nn+Pogw=="],
 
+    "clean-publish/tinyexec": ["tinyexec@1.1.1", "", {}, "sha512-VKS/ZaQhhkKFMANmAOhhXVoIfBXblQxGX1myCQ2faQrfmobMftXeJPcZGp0gS07ocvGJWDLZGyOZDadDBqYIJg=="],
+
     "encoding-sniffer/iconv-lite": ["iconv-lite@0.6.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw=="],
 
     "htmlparser2/entities": ["entities@7.0.1", "", {}, "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="],
+
+    "nypm/tinyexec": ["tinyexec@1.1.1", "", {}, "sha512-VKS/ZaQhhkKFMANmAOhhXVoIfBXblQxGX1myCQ2faQrfmobMftXeJPcZGp0gS07ocvGJWDLZGyOZDadDBqYIJg=="],
 
     "parse5/entities": ["entities@6.0.1", "", {}, "sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g=="],
 
     "protobufjs/@types/node": ["@types/node@25.0.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA=="],
 
     "sucrase/commander": ["commander@4.1.1", "", {}, "sha512-NOKm8xhkzAjzFx8B2v5OAHT+u5pRQc2UCa2Vq9jYL/31o2wi9mxBA7LIFs3sV5VSC49z6pEhfbMULvShKj26WA=="],
-
-    "tsup/tinyexec": ["tinyexec@0.3.2", "", {}, "sha512-KQQR9yN7R5+OSwaK0XQoj22pwHoTlgYqmUscPYoknOoWCWfj/5/ABTMRi69FrKU5ffPVh5QcFikpWJI/P1ocHA=="],
 
     "whatwg-encoding/iconv-lite": ["iconv-lite@0.6.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw=="],
 

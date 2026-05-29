@@ -14,7 +14,10 @@
   },
   "overrides": [
     {
-      "includes": ["packages/spectrum-ts/src/index.ts"],
+      "includes": [
+        "packages/spectrum-ts/src/index.ts",
+        "packages/spectrum-ts/src/authoring.ts"
+      ],
       "linter": {
         "rules": {
           "performance": {

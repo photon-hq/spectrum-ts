@@ -229,7 +229,17 @@ export async function Spectrum<
 
   let stopped = false;
 
-  const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> =>
+  const closeIfManaged = (source: unknown): Promise<void> | void => {
+    const close = (source as { close?: () => Promise<void> | void }).close;
+    if (typeof close === "function") {
+      return close.call(source);
+    }
+  };
+
+  const adaptIterable = <T>(
+    iterable: AsyncIterable<T>,
+    closeSource?: () => Promise<void> | void
+  ): ManagedStream<T> =>
     stream<T>((emit, end) => {
       const iterator = iterable[Symbol.asyncIterator]();
 
@@ -247,6 +257,7 @@ export async function Spectrum<
       })();
 
       return async () => {
+        await closeSource?.();
         await iterator.return?.();
         await pump.catch(ignoreCleanupError);
       };
@@ -344,7 +355,7 @@ export async function Spectrum<
       }
     };
 
-    return adaptIterable(bindSend());
+    return adaptIterable(bindSend(), () => closeIfManaged(raw));
   };
 
   const getOrCreateMessageBroadcast = (state: {
@@ -536,7 +547,9 @@ export async function Spectrum<
           }
         };
 
-        providerStreams.push(adaptIterable(annotatePlatform()));
+        providerStreams.push(
+          adaptIterable(annotatePlatform(), () => closeIfManaged(providerEvents))
+        );
       }
 
       const merged = mergeStreams(providerStreams);

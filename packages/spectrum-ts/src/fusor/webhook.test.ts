@@ -383,6 +383,42 @@ describe("spectrum.webhook", () => {
     await spectrum.stop();
   });
 
+  it("isolates a handler throw per message — the rest of the batch still delivers", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+      options: { flattenGroups: true },
+    });
+
+    const received: Message[] = [];
+    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
+    await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "group", texts: ["a", "b"] })
+        ),
+      },
+      (_space, message) => {
+        received.push(message);
+        // The first item throws; the second must still be delivered.
+        if (received.length === 1) {
+          throw new Error("first item failed");
+        }
+        done();
+      }
+    );
+    await finished;
+
+    expect(received.map((m) => m.content)).toEqual([
+      { type: "text", text: "a" },
+      { type: "text", text: "b" },
+    ]);
+
+    await spectrum.stop();
+  });
+
   it("throws when no fusor provider is configured", async () => {
     const spectrum = await Spectrum({ providers: [] });
 

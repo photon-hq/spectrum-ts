@@ -728,15 +728,30 @@ export async function Spectrum<
   };
 
   // Resolve each collected record and hand it to the request-scoped handler.
+  // Each handler invocation is isolated: a throw on one message is logged with
+  // its own context and does NOT skip the remaining messages in the batch.
   const deliverWebhookMessages = async (
     collected: ProviderMessageRecord[],
     runtime: PlatformRuntime,
-    handler: WebhookHandler
+    handler: WebhookHandler,
+    event: RawInboundEvent
   ): Promise<void> => {
     for (const record of collected) {
       const tuples = await resolveRecordToMessages(record, runtime);
       for (const [space, message] of tuples) {
-        await handler(space, message);
+        try {
+          await handler(space, message);
+        } catch (error) {
+          lifecycleLog.error(
+            `spectrum.webhook: handler threw (async), ${error}`,
+            {
+              eventId: event.eventId,
+              platform: event.platform,
+              messageId: message.id,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+        }
       }
     }
   };
@@ -810,16 +825,21 @@ export async function Spectrum<
     // the caller's responsibility (e.g. enqueue + process in a separate worker).
     const runtime = platformStates.get(event.platform);
     if (runtime && collected.length > 0) {
-      deliverWebhookMessages(collected, runtime, handler).catch((error) => {
-        lifecycleLog.error(
-          `spectrum.webhook: handler threw (async), ${error}`,
-          {
-            eventId: event.eventId,
-            platform: event.platform,
-            error: error instanceof Error ? error.message : String(error),
-          }
-        );
-      });
+      // Per-message handler throws are isolated + logged inside
+      // deliverWebhookMessages; this safety net only fires on a message
+      // resolution or otherwise unexpected error.
+      deliverWebhookMessages(collected, runtime, handler, event).catch(
+        (error) => {
+          lifecycleLog.error(
+            `spectrum.webhook: delivery failed (async), ${error}`,
+            {
+              eventId: event.eventId,
+              platform: event.platform,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+        }
+      );
     }
 
     return result;

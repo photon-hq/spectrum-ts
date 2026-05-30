@@ -210,7 +210,10 @@ interface BaseBuildParams {
 
 type BuildInboundParams = BaseBuildParams & {
   direction: "inbound";
-  sender: { id: string } & Record<string, unknown>;
+  // Optional: inbound system signals (typing indicators, reactions with no
+  // `from_handle`) carry no attributable author. buildMessage maps a missing
+  // sender to `undefined` on the resulting Message (whose `sender` is `| undefined`).
+  sender: ({ id: string } & Record<string, unknown>) | undefined;
 };
 
 type BuildOutboundParams = BaseBuildParams & {
@@ -297,12 +300,12 @@ export function wrapProviderMessage(
     config: ctx.config,
     store: ctx.store,
   };
+  // `sender` may be absent for inbound system signals that carry no attributable
+  // author — e.g. typing indicators, or reactions without a `from_handle`.
+  // `Message.sender` is `| undefined` and `buildMessage` maps a missing sender to
+  // `undefined`, so senderless inbound is allowed rather than rejected. The
+  // branch keeps `direction` a literal so it narrows BuildMessageParams.
   if (direction === "inbound") {
-    if (!raw.sender) {
-      throw new Error(
-        `Inbound provider message missing sender (platform "${ctx.definition.name}", id "${raw.id}")`
-      );
-    }
     return buildMessage({ ...base, sender: raw.sender, direction: "inbound" });
   }
   return buildMessage({ ...base, sender: raw.sender, direction: "outbound" });

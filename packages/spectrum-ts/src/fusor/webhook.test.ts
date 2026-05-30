@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
+import { createHmac } from "node:crypto";
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import type { Content } from "../content/types";
@@ -14,7 +15,8 @@ import { fusor } from "./index";
 type SlackPayload =
   | { kind: "message"; text: string }
   | { kind: "verify"; challenge: string }
-  | { kind: "group"; texts: string[] };
+  | { kind: "group"; texts: string[] }
+  | { kind: "typing" };
 
 const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
   defineFusorPlatform("slack", {
@@ -38,6 +40,9 @@ const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
             if (body.type === "group") {
               return { kind: "group", texts: body.texts ?? [] };
             }
+            if (body.type === "typing") {
+              return { kind: "typing" };
+            }
             return { kind: "message", text: body.text ?? "" };
           })
         ),
@@ -51,6 +56,15 @@ const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
       if (payload.kind === "verify") {
         respond({ status: 200, body: payload.challenge });
         return;
+      }
+      if (payload.kind === "typing") {
+        // A senderless inbound signal (no `sender` field): typing carries no
+        // attributable author. Core must resolve this without throwing.
+        return {
+          id: "t1",
+          content: { type: "typing", state: "start" } as unknown as Content,
+          space: { id: "s1" },
+        };
       }
       if (payload.kind === "group") {
         const items = payload.texts.map((text, i) => ({
@@ -95,11 +109,23 @@ const encodeEvent = (
   ).finish();
 };
 
+// No `webhookSecret` here: these baseline tests post unsigned, exercising the
+// opt-in/backward-compat path (signature checks off). The signature-enforcement
+// tests below opt in explicitly.
 const baseConfig = {
   projectId: "proj",
   projectSecret: "secret",
-  webhookSecret: "whsec_test",
 } as const;
+
+const WEBHOOK_SECRET = "whsec_test";
+
+// Mirror fanout-webhook's signer: HMAC-SHA256 over `v0:{ts}:` ++ rawBody bytes.
+const signEvent = (ts: string, body: Uint8Array): Record<string, string> => ({
+  "x-spectrum-timestamp": ts,
+  "x-spectrum-signature": `v0=${createHmac("sha256", WEBHOOK_SECRET)
+    .update(Buffer.concat([Buffer.from(`v0:${ts}:`, "utf8"), body]))
+    .digest("hex")}`,
+});
 
 const NO_FUSOR_PROVIDER_ERROR = /requires at least one fusor provider/;
 
@@ -152,6 +178,31 @@ describe("spectrum.webhook", () => {
     expect(message.direction).toBe("inbound");
     expect(message.content).toEqual({ type: "text", text: "hello" });
     expect(result.status).toBe(200);
+
+    await spectrum.stop();
+  });
+
+  it("delivers a senderless inbound message (sender undefined, no throw)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const received: Message[] = [];
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent("slack", JSON.stringify({ type: "typing" })),
+      },
+      (_space, message) => {
+        received.push(message);
+      }
+    );
+
+    expect(result.status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received.at(0)?.sender).toBeUndefined();
+    expect(received.at(0)?.content).toEqual({ type: "typing", state: "start" });
 
     await spectrum.stop();
   });
@@ -398,5 +449,132 @@ describe("spectrum.webhook", () => {
     } finally {
       startSpy.mockRestore();
     }
+  });
+
+  it("processes a delivery with a valid fusor signature", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      webhookSecret: WEBHOOK_SECRET,
+      providers: [makeSlack().config({})],
+    });
+    const body = encodeEvent(
+      "slack",
+      JSON.stringify({ type: "message", text: "hi" })
+    );
+
+    let delivered = 0;
+    const result = await spectrum.webhook(
+      { headers: signEvent("1700000000", body), body },
+      () => {
+        delivered += 1;
+      }
+    );
+
+    expect(result.status).toBe(200);
+    expect(delivered).toBe(1);
+    await spectrum.stop();
+  });
+
+  it("rejects a delivery with an invalid fusor signature (401)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      webhookSecret: WEBHOOK_SECRET,
+      providers: [makeSlack().config({})],
+    });
+    const body = encodeEvent(
+      "slack",
+      JSON.stringify({ type: "message", text: "hi" })
+    );
+
+    let delivered = 0;
+    const result = await spectrum.webhook(
+      {
+        headers: {
+          "x-spectrum-timestamp": "1700000000",
+          "x-spectrum-signature": "v0=deadbeef",
+        },
+        body,
+      },
+      () => {
+        delivered += 1;
+      }
+    );
+
+    expect(result.status).toBe(401);
+    expect(delivered).toBe(0);
+    await spectrum.stop();
+  });
+
+  it("rejects a delivery missing the signature header when a secret is set (401)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      webhookSecret: WEBHOOK_SECRET,
+      providers: [makeSlack().config({})],
+    });
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "message", text: "hi" })
+        ),
+      },
+      () => undefined
+    );
+
+    expect(result.status).toBe(401);
+    await spectrum.stop();
+  });
+
+  it("ignores signature headers when no webhookSecret is configured", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const body = encodeEvent(
+      "slack",
+      JSON.stringify({ type: "message", text: "hi" })
+    );
+
+    // A bogus signature is not checked at all without a configured secret.
+    const result = await spectrum.webhook(
+      {
+        headers: {
+          "x-spectrum-timestamp": "1700000000",
+          "x-spectrum-signature": "v0=bogus",
+        },
+        body,
+      },
+      () => undefined
+    );
+
+    expect(result.status).toBe(200);
+    await spectrum.stop();
+  });
+
+  it("verifies signatures via the Web Request overload too", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      webhookSecret: WEBHOOK_SECRET,
+      providers: [makeSlack().config({})],
+    });
+    const body = encodeEvent(
+      "slack",
+      JSON.stringify({ type: "message", text: "hi" })
+    );
+
+    const response = await spectrum.webhook(
+      new Request("https://app.example.com/webhooks/fusor", {
+        method: "POST",
+        headers: signEvent("1700000000", body),
+        body,
+      }),
+      () => undefined
+    );
+
+    expect(response).toBeInstanceOf(Response);
+    expect(response.status).toBe(200);
+    await spectrum.stop();
   });
 });

@@ -19,7 +19,7 @@
     },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "1.13.1",
+      "version": "1.15.0",
       "dependencies": {
         "@photon-ai/advanced-imessage": "^0.10.0",
         "@photon-ai/imessage-kit": "^3.0.0",

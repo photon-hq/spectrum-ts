@@ -62,6 +62,7 @@ export type {
   PlatformRuntime,
   PlatformSpace,
   PlatformUser,
+  ProviderMessage,
   SchemaMessage,
 } from "./platform/types";
 export { Spectrum, type SpectrumInstance } from "./spectrum";

@@ -10,6 +10,7 @@ import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
 import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
 import { isFusorClient } from "./fusor/index";
+import { verifyFusorSignature } from "./fusor/origin";
 import type {
   FusorClient,
   FusorMessages,
@@ -685,23 +686,37 @@ export async function Spectrum<
     return result;
   };
 
-  // Read the RAW request bytes without re-encoding — protobuf decode (and the
-  // future fusor-origin HMAC) both need the exact bytes fusor sent. `asWeb`
-  // records whether to reply with a Web `Response` or the raw result shape.
+  // Read the RAW request bytes without re-encoding — both the protobuf decode
+  // and the fusor-origin HMAC need the exact bytes fusor sent. Headers are
+  // captured (lowercased) for the signature check. `asWeb` records whether to
+  // reply with a Web `Response` or the raw result shape.
   const readWebhookInput = async (
     request: Request | WebhookRawRequest
-  ): Promise<{ asWeb: boolean; bodyBytes: Uint8Array }> => {
+  ): Promise<{
+    asWeb: boolean;
+    bodyBytes: Uint8Array;
+    headers: Record<string, string>;
+  }> => {
     if (typeof Request !== "undefined" && request instanceof Request) {
+      const headers: Record<string, string> = {};
+      request.headers.forEach((value, key) => {
+        headers[key.toLowerCase()] = value;
+      });
       return {
         asWeb: true,
         bodyBytes: new Uint8Array(await request.arrayBuffer()),
+        headers,
       };
     }
     // The compound `typeof Request` guard above doesn't narrow the union here.
     const raw = request as WebhookRawRequest;
     const bodyBytes =
       raw.body instanceof ArrayBuffer ? new Uint8Array(raw.body) : raw.body;
-    return { asWeb: false, bodyBytes };
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw.headers ?? {})) {
+      headers[key.toLowerCase()] = value;
+    }
+    return { asWeb: false, bodyBytes, headers };
   };
 
   // Resolve each collected record and hand it to the request-scoped handler.
@@ -718,16 +733,20 @@ export async function Spectrum<
     }
   };
 
-  // Verify the POST came from fusor. NO-OP SEAM for now: fusor does not sign
-  // outbound webhook POSTs yet (`X-Fusor-Signature` is reserved; see fusor
-  // ARCHITECTURE.md §16). When it does, HMAC `bodyBytes` against `webhookSecret`
-  // here (verify-if-present, with a strict mode). Distinct from the per-platform
-  // verify() that still runs in processEvent.
-  const assertFusorOrigin = (_bodyBytes: Uint8Array): void => {
+  // Verify the POST actually came from fusor (the OUTER signature, distinct from
+  // the per-platform verify() that runs later in processEvent). Opt-in: if
+  // `webhookSecret` is not configured we skip the check (backward compatible).
+  // The HMAC is over the EXACT raw body bytes (protobuf, not UTF-8), so it runs
+  // before/independent of decoding. See `verifyFusorSignature` for the scheme
+  // and the rationale for not enforcing a timestamp-freshness window.
+  const assertFusorOrigin = (
+    bodyBytes: Uint8Array,
+    headers: Record<string, string>
+  ): void => {
     if (!webhookSecret) {
       return;
     }
-    // Future: compare HMAC(_bodyBytes, webhookSecret) to X-Fusor-Signature.
+    verifyFusorSignature(webhookSecret, headers, bodyBytes);
   };
 
   // Decode the protobuf envelope; null = undecodable (poison → 400).
@@ -756,7 +775,7 @@ export async function Spectrum<
       await deliverWebhookMessages(collected, runtime, handler);
       return null;
     } catch (error) {
-      lifecycleLog.error("spectrum.webhook: handler threw", {
+      lifecycleLog.error(`spectrum.webhook: handler threw, ${error}`, {
         eventId: event.eventId,
         platform: event.platform,
         error: error instanceof Error ? error.message : String(error),
@@ -819,8 +838,21 @@ export async function Spectrum<
       );
     }
 
-    const { asWeb, bodyBytes } = await readWebhookInput(request);
-    assertFusorOrigin(bodyBytes);
+    const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
+    try {
+      assertFusorOrigin(bodyBytes, headers);
+    } catch (error) {
+      // A bad/missing signature is deterministic — reply 401 (a 4xx fusor
+      // treats as poison: dead-lettered, not retried). Never 2xx.
+      lifecycleLog.warn("spectrum.webhook: fusor origin verification failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return buildWebhookResult(asWeb, {
+        status: 401,
+        headers: {},
+        body: new Uint8Array(0),
+      });
+    }
 
     const event = decodeWebhookEvent(bodyBytes);
     if (!event) {

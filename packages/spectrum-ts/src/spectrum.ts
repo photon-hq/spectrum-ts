@@ -78,9 +78,17 @@ export type SpectrumInstance<
     /**
      * Handle one inbound fusor webhook delivery. Call this from your HTTP
      * server's POST route — it verifies, decodes, routes to the matching
-     * provider's verify + message pipeline, invokes `handler` once per resolved
-     * message, and returns the HTTP response fusor relays back to the platform
-     * (including protocol echoes like Slack `url_verification`).
+     * provider's verify + message pipeline, and returns the HTTP response fusor
+     * relays back to the platform: the platform's `respond()` reply (including
+     * protocol echoes like Slack `url_verification`), computed synchronously and
+     * returned immediately.
+     *
+     * `handler` is invoked once per resolved message **fire-and-forget** — it is
+     * dispatched after the response is computed and is NOT awaited, so its
+     * outcome never changes the response (a throw is logged, not surfaced). On a
+     * long-running server the event loop keeps it alive; on serverless/edge,
+     * keeping the work alive past the response is the caller's job (e.g. enqueue
+     * and process in a separate worker).
      *
      * Stateless and request-scoped: it does NOT feed `spectrum.messages`, and it
      * never opens the gRPC stream. fusor delivers at-least-once, so `handler`
@@ -763,27 +771,6 @@ export async function Spectrum<
     }
   };
 
-  // Deliver to the request-scoped handler. Returns a 500 result on a handler
-  // throw (fusor retries, at-least-once), or null on success.
-  const runWebhookDelivery = async (
-    collected: ProviderMessageRecord[],
-    runtime: PlatformRuntime,
-    handler: WebhookHandler,
-    event: RawInboundEvent
-  ): Promise<WebhookRawResult | null> => {
-    try {
-      await deliverWebhookMessages(collected, runtime, handler);
-      return null;
-    } catch (error) {
-      lifecycleLog.error(`spectrum.webhook: handler threw, ${error}`, {
-        eventId: event.eventId,
-        platform: event.platform,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return { status: 500, headers: {}, body: new Uint8Array(0) };
-    }
-  };
-
   // Run the shared fusor pipeline for a decoded event and map it to an HTTP
   // result. Records are collected for THIS request (webhook is stateless — they
   // do not feed spectrum.messages).
@@ -806,26 +793,36 @@ export async function Spectrum<
       };
     }
 
-    const runtime = platformStates.get(event.platform);
-    if (runtime) {
-      const failure = await runWebhookDelivery(
-        collected,
-        runtime,
-        handler,
-        event
-      );
-      if (failure) {
-        return failure;
-      }
-    }
-
-    // Success: status 0 → 200. Carries protocol echoes (e.g. Slack
-    // url_verification) produced by the platform's messages() respond().
-    return {
+    // The HTTP response is the platform's respond() reply (status 0 → 200,
+    // carrying protocol echoes like Slack url_verification). It is owned entirely
+    // by the pipeline — the handler dispatched below never affects it.
+    const result: WebhookRawResult = {
       status: reply.status === 0 ? 200 : reply.status,
       headers: reply.headers ?? {},
       body: reply.body ?? new Uint8Array(0),
     };
+
+    // Deliver to the request-scoped handler fire-and-forget: dispatched after
+    // the response is computed and NOT awaited, mirroring a
+    // `for await (… of spectrum.messages)` loop body. A throw is caught + logged,
+    // never surfaced as a 500 / fusor retry. On a long-running server the event
+    // loop keeps this alive; on serverless, keeping it alive past the response is
+    // the caller's responsibility (e.g. enqueue + process in a separate worker).
+    const runtime = platformStates.get(event.platform);
+    if (runtime && collected.length > 0) {
+      deliverWebhookMessages(collected, runtime, handler).catch((error) => {
+        lifecycleLog.error(
+          `spectrum.webhook: handler threw (async), ${error}`,
+          {
+            eventId: event.eventId,
+            platform: event.platform,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      });
+    }
+
+    return result;
   };
 
   const handleWebhook = async (

@@ -84,8 +84,10 @@ through the stream; you don't handle them.
 Use this when Fusor **POSTs** events to your own HTTPS endpoint (serverless
 functions, an existing HTTP server, edge runtimes). `app.webhook()` is
 **stateless and request-scoped**: you call it inside your POST handler, it runs
-the same pipeline, invokes your handler once per resolved message, and returns
-the HTTP response Fusor relays back to the platform.
+the same pipeline, returns the HTTP response Fusor relays back to the platform
+(the platform's `respond()` reply), and dispatches your handler once per resolved
+message fire-and-forget — the handler runs after the response and never affects
+it.
 
 ### Enable it
 
@@ -122,8 +124,13 @@ type WebhookHandler = (space: Space, message: Message) => void | Promise<void>;
 ```
 
 The `handler` receives the same `(space, message)` you'd get from
-`app.messages` — `space.send(...)`, `message.reply(...)`, etc. all work. It is
-awaited before the HTTP response is returned.
+`app.messages` — `space.send(...)`, `message.reply(...)`, etc. all work. It runs
+**fire-and-forget**: the HTTP response (the platform's `respond()` reply) is
+computed and returned *first*, then the handler is dispatched without being
+awaited — so a slow handler can never delay the response, and a handler error
+can't change it (it's caught and logged, like an error in a `for await (… of
+app.messages)` loop body). See [Keeping handler work alive](#keeping-handler-work-alive)
+for the serverless caveat.
 
 > ⚠️ **Pass the raw body bytes.** The POST body is a protobuf envelope
 > (`application/x-protobuf`). Capture it as bytes (`request.arrayBuffer()`,
@@ -141,6 +148,10 @@ server.post("/webhooks/fusor", (c) =>
   })
 );
 ```
+
+The reply Hono sends is the platform ack, produced by the pipeline — not
+whatever your handler does. `space.send(...)` posts a *new* message back to the
+platform out-of-band; it is not the HTTP response.
 
 **Bun.serve / Next.js App Router / Cloudflare Workers** — native `Request` →
 `Response`:
@@ -175,24 +186,45 @@ app.post(
 ### What's automatic vs. your job
 
 - **Automatic:** decode the envelope, route by platform, verify the platform
-  signature, parse, and echo protocol replies (e.g. Slack `url_verification`) in
-  the HTTP response.
-- **Your job:** the `handler` — your application logic for each message.
+  signature, parse, build the HTTP response (the platform's `respond()` reply,
+  including protocol echoes like Slack `url_verification`), and dispatch your
+  handler.
+- **Your job:** the `handler` — your application logic for each message. It can't
+  affect the HTTP response; it runs after it.
 
 ### Status codes & retries
 
-`app.webhook()` returns the status Fusor relays. Fusor delivers
-**at-least-once** and retries non-2xx, so the mapping matters:
+`app.webhook()` returns the status Fusor relays — derived **entirely from the
+pipeline**, never from your handler. Fusor delivers **at-least-once** and retries
+non-2xx, so the mapping matters:
 
 | Situation | HTTP status | Fusor behavior |
 | --- | --- | --- |
 | Success (incl. a protocol reply) | reply status, or `200` | done |
 | Undecodable body / unknown platform / platform `verify()` failed | `400` (poison) | won't retry |
-| Your `handler` threw | `500` | retries |
+| Your `handler` threw | `200` (the pipeline ack — the throw is logged, not surfaced) | done, not retried |
 
-Because delivery is at-least-once, **your handler should be idempotent** — a
-retry re-runs it. Dedupe on the stable `message.id` if a side effect must happen
-exactly once.
+Because the handler runs fire-and-forget, **a handler failure does not trigger a
+Fusor retry** — if a side effect must survive failure, make it durable yourself
+(see below). Delivery is still at-least-once at the Fusor level, so **keep your
+handler idempotent** and dedupe on the stable `message.id` for exactly-once
+effects.
+
+### Keeping handler work alive
+
+Because the handler runs *after* the response, the runtime must stay alive long
+enough for it to finish:
+
+- **Long-running server** (Node `http`, `Bun.serve`, Express, a persistent
+  worker) — nothing to do; the event loop keeps the handler running. The examples
+  above are all this shape.
+- **Serverless / edge** (Vercel, Cloudflare Workers, AWS Lambda) — the function
+  can be frozen or torn down the moment you return the response, dropping
+  un-awaited handler work. Keeping it alive is **your** responsibility. The
+  robust, platform-agnostic pattern is **ack-then-enqueue**: in the handler, push
+  the message onto a durable queue (Vercel Queue, Upstash QStash, Inngest, SQS, a
+  DB outbox) and do the real work in a separate worker that has its own retries.
+  Spectrum intentionally does not manage function lifetime.
 
 ### Does not feed `app.messages`
 

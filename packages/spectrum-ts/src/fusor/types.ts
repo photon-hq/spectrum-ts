@@ -50,8 +50,17 @@ export interface FusorClient<TPayload = unknown> {
 /**
  * Request-scoped handler invoked once per inbound message that
  * `spectrum.webhook()` resolves. Receives the same fully-built `[space,
- * message]` pair that `spectrum.messages` yields; awaited before the HTTP
- * response is returned to fusor.
+ * message]` pair that `spectrum.messages` yields.
+ *
+ * Runs **fire-and-forget**: it is dispatched after the HTTP response (the
+ * platform's `respond()` reply) has already been computed, so its outcome never
+ * affects the response, and a throw is caught + logged rather than surfaced —
+ * mirroring the body of a `for await (… of spectrum.messages)` loop.
+ *
+ * On a long-running server the event loop keeps the handler alive. On
+ * serverless/edge runtimes the function may be frozen once the response is
+ * returned, so keeping background work alive is the caller's responsibility —
+ * the usual pattern is to enqueue the work and process it in a separate worker.
  */
 export type WebhookHandler = (
   space: Space,

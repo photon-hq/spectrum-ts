@@ -61,7 +61,9 @@ export type WebhookHandler = (
 /**
  * Raw webhook input for HTTP servers without Web `Request`/`Response` (Express,
  * raw Node). `body` MUST be the exact bytes fusor POSTed — never a re-encoded
- * JSON/text body — so the protobuf decode (and future signature check) work.
+ * JSON/text body — so the protobuf decode and the fusor-origin signature check
+ * (HMAC over the raw bytes) work. `headers` carry the `X-Spectrum-*` signature
+ * headers fusor sets on signed deliveries.
  */
 export interface WebhookRawRequest {
   body: Uint8Array | ArrayBuffer;

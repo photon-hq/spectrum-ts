@@ -75,6 +75,8 @@ const fromReactionAdded = (
     data.message_id,
     asCustom({ linq: "reaction-target" })
   );
+  // `from_handle` is optional: when LinQ omits it the reaction resolves to a
+  // message with no `sender` (Spectrum allows senderless inbound).
   return {
     id: eventId,
     content: asReaction({ emoji, target }),
@@ -97,9 +99,11 @@ const fromTyping = (
 /**
  * Map a verified LinQ webhook event to the Spectrum message(s) Spectrum
  * delivers. Only events that carry a meaningful inbound signal are surfaced:
- * received messages, added reactions, and typing indicators. Status, edit,
- * group-metadata, participant, call, and phone-number events are ignored
- * (return `undefined`) — including `message.sent`, which echoes our own sends.
+ * received messages, added reactions, and typing indicators. Typing indicators
+ * (and reactions LinQ sends without a `from_handle`) resolve to messages with no
+ * `sender` — Spectrum allows senderless inbound. Status, edit, group-metadata,
+ * participant, call, and phone-number events are ignored (return `undefined`) —
+ * including `message.sent`, which echoes our own sends.
  */
 export const handleMessages = ({
   payload,

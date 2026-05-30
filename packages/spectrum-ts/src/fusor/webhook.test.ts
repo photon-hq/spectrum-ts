@@ -15,7 +15,8 @@ import { fusor } from "./index";
 type SlackPayload =
   | { kind: "message"; text: string }
   | { kind: "verify"; challenge: string }
-  | { kind: "group"; texts: string[] };
+  | { kind: "group"; texts: string[] }
+  | { kind: "typing" };
 
 const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
   defineFusorPlatform("slack", {
@@ -39,6 +40,9 @@ const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
             if (body.type === "group") {
               return { kind: "group", texts: body.texts ?? [] };
             }
+            if (body.type === "typing") {
+              return { kind: "typing" };
+            }
             return { kind: "message", text: body.text ?? "" };
           })
         ),
@@ -52,6 +56,15 @@ const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
       if (payload.kind === "verify") {
         respond({ status: 200, body: payload.challenge });
         return;
+      }
+      if (payload.kind === "typing") {
+        // A senderless inbound signal (no `sender` field): typing carries no
+        // attributable author. Core must resolve this without throwing.
+        return {
+          id: "t1",
+          content: { type: "typing", state: "start" } as unknown as Content,
+          space: { id: "s1" },
+        };
       }
       if (payload.kind === "group") {
         const items = payload.texts.map((text, i) => ({
@@ -165,6 +178,31 @@ describe("spectrum.webhook", () => {
     expect(message.direction).toBe("inbound");
     expect(message.content).toEqual({ type: "text", text: "hello" });
     expect(result.status).toBe(200);
+
+    await spectrum.stop();
+  });
+
+  it("delivers a senderless inbound message (sender undefined, no throw)", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const received: Message[] = [];
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent("slack", JSON.stringify({ type: "typing" })),
+      },
+      (_space, message) => {
+        received.push(message);
+      }
+    );
+
+    expect(result.status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received.at(0)?.sender).toBeUndefined();
+    expect(received.at(0)?.content).toEqual({ type: "typing", state: "start" });
 
     await spectrum.stop();
   });

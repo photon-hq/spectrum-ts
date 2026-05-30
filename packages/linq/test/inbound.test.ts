@@ -141,7 +141,7 @@ describe("handleMessages — reactions", () => {
     expect(record?.space.id).toBe("c1");
   });
 
-  it("maps a custom emoji reaction", () => {
+  it("maps a custom emoji reaction with no from_handle to a senderless record", () => {
     const record = handleMessages({
       payload: event("reaction.added", {
         is_from_me: false,
@@ -155,6 +155,7 @@ describe("handleMessages — reactions", () => {
     if (record?.content.type === "reaction") {
       expect(record.content.emoji).toBe("🎉");
     }
+    expect(record?.sender).toBeUndefined();
   });
 
   it("ignores sticker reactions (not representable as an emoji)", () => {
@@ -171,11 +172,12 @@ describe("handleMessages — reactions", () => {
 });
 
 describe("handleMessages — typing & ignored events", () => {
-  it("maps typing started/stopped to typing content", () => {
+  it("maps typing started/stopped to senderless typing content", () => {
     const started = handleMessages({
       payload: event("chat.typing_indicator.started", { chat_id: "c1" }),
     });
     expect(started?.content).toEqual({ type: "typing", state: "start" });
+    expect(started?.sender).toBeUndefined();
 
     const stopped = handleMessages({
       payload: event("chat.typing_indicator.stopped", { chat_id: "c1" }),

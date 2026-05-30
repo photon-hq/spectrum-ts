@@ -43,6 +43,18 @@ const receivedTextEnvelope = (text: string): string =>
     },
   });
 
+const typingStartedEnvelope = (): string =>
+  JSON.stringify({
+    api_version: "v3",
+    webhook_version: "2026-02-03",
+    event_type: "chat.typing_indicator.started",
+    event_id: "evt-typing-1",
+    created_at: "2026-05-29T00:00:00Z",
+    trace_id: "t",
+    partner_id: "p",
+    data: { chat_id: "chat-int-1" },
+  });
+
 describe("linq end-to-end via spectrum.webhook", () => {
   it("routes a LinQ message.received envelope to the handler as [space, message]", async () => {
     // No webhookSigningSecret → signature check is skipped for the smoke test.
@@ -69,6 +81,26 @@ describe("linq end-to-end via spectrum.webhook", () => {
     expect(message?.platform).toBe("linq");
     expect(message?.content).toEqual({ type: "text", text: "hello from linq" });
     expect(message?.sender?.id).toBe("u-int-1");
+
+    await app.stop();
+  });
+
+  it("delivers a typing indicator as a senderless message", async () => {
+    const app = await Spectrum({ providers: [linq.config({ apiKey: "k" })] });
+    const received: Message[] = [];
+
+    const result = await app.webhook(
+      { headers: {}, body: encodeEvent(typingStartedEnvelope()) },
+      (space, message) => {
+        expect(space.id).toBe("chat-int-1");
+        received.push(message);
+      }
+    );
+
+    expect(result.status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received[0]?.content).toEqual({ type: "typing", state: "start" });
+    expect(received[0]?.sender).toBeUndefined();
 
     await app.stop();
   });

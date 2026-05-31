@@ -6,12 +6,19 @@ import type { Avatar } from "../../content/avatar";
 import type { Edit } from "../../content/edit";
 import type { Rename } from "../../content/rename";
 import { definePlatform } from "../../platform/define";
+import type { ProviderMessageRecord } from "../../platform/types";
 import type { Message } from "../../types/message";
 import type { Space } from "../../types/space";
 import { UnsupportedError } from "../../utils/errors";
 
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
 export { type BackgroundInput, background } from "./content/background";
+export {
+  type CustomizedMiniApp,
+  type CustomizedMiniAppInput,
+  type CustomizedMiniAppLayout,
+  customizedMiniApp,
+} from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
 export { read } from "./content/read";
 
@@ -22,6 +29,10 @@ import {
   background as backgroundContent,
   isBackground,
 } from "./content/background";
+import {
+  type CustomizedMiniApp,
+  isCustomizedMiniApp,
+} from "./content/customized-mini-app";
 import { isRead, read as readContent } from "./content/read";
 import {
   getMessage as localGetMessage,
@@ -36,6 +47,7 @@ import {
   reactToMessage as remoteReactToMessage,
   replyToMessage as remoteReplyToMessage,
   send as remoteSend,
+  sendCustomizedMiniApp as remoteSendCustomizedMiniApp,
   setBackground as remoteSetBackground,
   setDisplayName as remoteSetDisplayName,
   setIcon as remoteSetIcon,
@@ -99,6 +111,22 @@ const handleBackground = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteSetBackground(remote, space.id, content);
+};
+
+const handleCustomizedMiniApp = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  content: CustomizedMiniApp
+): Promise<ProviderMessageRecord> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "customized-mini-app",
+      "iMessage (local mode)",
+      "mini app cards require remote iMessage"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  return await remoteSendCustomizedMiniApp(remote, space.id, content);
 };
 
 const handleRead = async (
@@ -382,6 +410,11 @@ export const imessage = definePlatform("iMessage", {
     if (isRead(content)) {
       await handleRead(client, space);
       return;
+    }
+    // Also iMessage-only, but unlike `background`/`read` it produces a real
+    // message — return the record rather than treating it as fire-and-forget.
+    if (isCustomizedMiniApp(content)) {
+      return await handleCustomizedMiniApp(client, space, content);
     }
     if (isLocal(client)) {
       return await localSend(client, space.id, content);

@@ -6,9 +6,11 @@ import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ProjectData } from "../../../utils/cloud";
 import type { ManagedStream } from "../../../utils/stream";
 import type { Background } from "../content/background";
+import type { CustomizedMiniApp } from "../content/customized-mini-app";
 import type { IMessageMessage, RemoteClient } from "../types";
 import { setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
+import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
 import { reactToMessage as reactToRemoteMessage } from "./reactions";
 import { markRead as markRemoteRead } from "./read";
@@ -34,6 +36,13 @@ export const setBackground = async (
   spaceId: string,
   content: Background
 ): Promise<void> => setRemoteBackground(remote, spaceId, content);
+
+export const sendCustomizedMiniApp = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: CustomizedMiniApp
+): Promise<ProviderMessageRecord> =>
+  sendRemoteCustomizedMiniApp(remote, spaceId, content);
 
 export const setDisplayName = async (
   remote: AdvancedIMessage,

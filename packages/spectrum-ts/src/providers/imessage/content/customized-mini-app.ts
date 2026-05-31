@@ -1,7 +1,5 @@
 import z from "zod";
-import type { ContentBuilder } from "./types";
-
-const TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/;
+import type { Content, ContentBuilder } from "../../../content/types";
 
 /**
  * Visible layout of a mini-app card. Mirrors Apple's
@@ -52,48 +50,59 @@ const layoutSchema = z
     }
   );
 
+/**
+ * iMessage-only mini-app card content. Lives entirely under the iMessage
+ * provider — never enters the universal `Content` discriminated union. The
+ * framework recognizes it via the generic content-level platform contract:
+ *
+ * - `__platform: "iMessage"` — `findUnsupportedPlatformContent` reads this tag
+ *   and warns-and-skips when a different platform receives it.
+ *
+ * Unlike `background` / `read`, this content is **not** `__fireAndForget`: it
+ * produces a real outbound message, so the iMessage `send` handler narrows
+ * back to `CustomizedMiniApp` via the `isCustomizedMiniApp` guard and returns
+ * the resulting `ProviderMessageRecord` (rather than `void`).
+ */
 export const customizedMiniAppSchema = z.object({
   type: z.literal("customized-mini-app"),
+  __platform: z.literal("iMessage"),
+  // Display name of the owning app, shown by Messages fallback UI.
   appName: z.string().nonempty(),
+  // Apple App Store numeric id of the owning app. Positive when set; omit to
+  // send a card whose extension is not published on the App Store.
   appStoreId: z.number().int().positive().optional(),
+  // Bundle identifier of the iMessage extension target.
   extensionBundleId: z.string().nonempty(),
+  // Visible card layout.
   layout: layoutSchema,
-  teamId: z.string().regex(TEAM_ID_PATTERN),
+  // 10-character uppercase alphanumeric Apple Team ID.
+  teamId: z.string(),
+  // Absolute URL delivered to the installed extension on tap.
   url: z.url(),
 });
 
 export type CustomizedMiniApp = z.infer<typeof customizedMiniAppSchema>;
 export type CustomizedMiniAppLayout = z.infer<typeof layoutSchema>;
 
-export interface CustomizedMiniAppInput {
-  /** Display name of the owning app, shown by Messages fallback UI. */
-  readonly appName: string;
-  /**
-   * Apple App Store numeric id of the owning app. Must be a positive integer
-   * when set. Omit to send a card whose extension is not published on the App
-   * Store — recipients without the extension installed then see no store entry.
-   */
-  readonly appStoreId?: number;
-  /** Bundle identifier of the iMessage extension target. */
-  readonly extensionBundleId: string;
-  /** Visible card layout. */
-  readonly layout: CustomizedMiniAppLayout;
-  /** 10-character uppercase alphanumeric Apple Team ID. */
-  readonly teamId: string;
-  /** Absolute URL delivered to the installed extension on tap. */
-  readonly url: string;
-}
+export type CustomizedMiniAppInput = Omit<
+  CustomizedMiniApp,
+  "type" | "__platform"
+>;
+
+export const isCustomizedMiniApp = (v: unknown): v is CustomizedMiniApp =>
+  customizedMiniAppSchema.safeParse(v).success;
 
 export const asCustomizedMiniApp = (
   input: CustomizedMiniAppInput
 ): CustomizedMiniApp =>
   customizedMiniAppSchema.parse({
     type: "customized-mini-app",
+    __platform: "iMessage",
     ...input,
   });
 
 /**
- * Construct a `customized-mini-app` content value.
+ * Construct a `customized-mini-app` content value. iMessage-only, remote-only.
  *
  * The layout is what recipients see in the bubble. `teamId` and
  * `extensionBundleId` identify the iMessage extension that receives `url` when
@@ -101,11 +110,17 @@ export const asCustomizedMiniApp = (
  * `MSMessageExtensionBalloonPlugin` plugin id from these values. `appStoreId`
  * is optional and only points recipients without the extension at its App
  * Store entry.
+ *
+ * `space.send(customizedMiniApp(...))` is the canonical form.
+ *
+ * `CustomizedMiniApp` is intentionally not a member of the universal `Content`
+ * union — the `as unknown as Content` cast keeps the builder shape compatible
+ * with the framework's `ContentBuilder.build(): Promise<Content>` signature.
  */
 export function customizedMiniApp(
   input: CustomizedMiniAppInput
 ): ContentBuilder {
   return {
-    build: async () => asCustomizedMiniApp(input),
+    build: async () => asCustomizedMiniApp(input) as unknown as Content,
   };
 }

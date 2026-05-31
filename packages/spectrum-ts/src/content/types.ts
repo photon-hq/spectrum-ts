@@ -3,7 +3,6 @@ import { attachmentSchema } from "./attachment";
 import { avatarSchema } from "./avatar";
 import { contactSchema } from "./contact";
 import { customSchema } from "./custom";
-import { customizedMiniAppSchema } from "./customized-mini-app";
 import { editSchema } from "./edit";
 import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
@@ -28,7 +27,6 @@ const baseContentSchemas = [
   contactSchema,
   voiceSchema,
   richlinkSchema,
-  customizedMiniAppSchema,
   reactionSchema,
   groupSchema,
   pollSchema,

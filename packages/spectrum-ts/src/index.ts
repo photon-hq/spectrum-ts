@@ -16,12 +16,6 @@ export {
   contact,
 } from "./content/contact";
 export { custom } from "./content/custom";
-export {
-  type CustomizedMiniApp,
-  type CustomizedMiniAppInput,
-  type CustomizedMiniAppLayout,
-  customizedMiniApp,
-} from "./content/customized-mini-app";
 export { type Edit, edit } from "./content/edit";
 export { type Group, group } from "./content/group";
 export {

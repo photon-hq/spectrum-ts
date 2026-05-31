@@ -8,7 +8,7 @@
         "@biomejs/biome": "^2.4.12",
         "@types/node": "^25.6.0",
         "turbo": "^2",
-        "ultracite": "7.8.0",
+        "ultracite": "7.8.1",
       },
     },
     "examples/basic": {
@@ -19,7 +19,7 @@
     },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "1.17.1",
+      "version": "1.18.0",
       "dependencies": {
         "@photon-ai/advanced-imessage": "^0.11.0",
         "@photon-ai/imessage-kit": "^3.0.0",
@@ -599,7 +599,7 @@
 
     "ufo": ["ufo@1.6.3", "", {}, "sha512-yDJTmhydvl5lJzBmy/hyOAA0d+aqCBuwl818haVdYCRrWV84o7YyeVm4QlVHStqNrrJSTb6jKuFAVqAFsr+K3Q=="],
 
-    "ultracite": ["ultracite@7.8.0", "", { "dependencies": { "@clack/prompts": "^1.4.0", "commander": "^14.0.3", "cross-spawn": "^7.0.6", "deepmerge": "^4.3.1", "glob": "^13.0.6", "jsonc-parser": "^3.3.1", "nypm": "^0.6.6", "yaml": "^2.9.0", "zod": "^4.4.3" }, "peerDependencies": { "oxfmt": ">=0.1.0", "oxlint": "^1.0.0" }, "optionalPeers": ["oxfmt", "oxlint"], "bin": { "ultracite": "dist/index.js" } }, "sha512-wAIdn7YTBjygSdpz3ubMCAqja0odk2SCn/YqrM6k17D7ASouo0qaODJa76Xo3tp13yPWnNnLvcduNlmLBAtzYg=="],
+    "ultracite": ["ultracite@7.8.1", "", { "dependencies": { "@clack/prompts": "^1.4.0", "commander": "^14.0.3", "cross-spawn": "^7.0.6", "deepmerge": "^4.3.1", "glob": "^13.0.6", "jsonc-parser": "^3.3.1", "nypm": "^0.6.6", "yaml": "^2.9.0", "zod": "^4.4.3" }, "peerDependencies": { "oxfmt": ">=0.1.0", "oxlint": "^1.0.0" }, "optionalPeers": ["oxfmt", "oxlint"], "bin": { "ultracite": "dist/index.js" } }, "sha512-yVkUHR9gMvqt7uEzC45tkSgJNUfAYztJPqZLSK6Z/PkWksoQOWjSVAcff7pEQarQKUJF/KR2S41UJ7wVAlo44Q=="],
 
     "undici": ["undici@7.25.0", "", {}, "sha512-xXnp4kTyor2Zq+J1FfPI6Eq3ew5h6Vl0F/8d9XU5zZQf1tX9s2Su1/3PiMmUANFULpmksxkClamIZcaUqryHsQ=="],
 

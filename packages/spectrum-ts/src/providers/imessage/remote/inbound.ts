@@ -18,7 +18,7 @@ import {
   downloadPrimaryAttachment,
   downloadPrimaryAttachmentStream,
 } from "./attachments";
-import { formatChildId, parseChildId, toChatGuid, toMessageGuid } from "./ids";
+import { formatChildId, parseChildId, toMessageGuid } from "./ids";
 
 const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
 
@@ -324,7 +324,6 @@ export const getMessage = async (
   if (childRef) {
     try {
       const fetched = await remote.messages.get(
-        toChatGuid(spaceId),
         toMessageGuid(childRef.parentGuid)
       );
       const parent = await rebuildFromAppleMessage(
@@ -348,10 +347,7 @@ export const getMessage = async (
   }
 
   try {
-    const fetched = await remote.messages.get(
-      toChatGuid(spaceId),
-      toMessageGuid(msgId)
-    );
+    const fetched = await remote.messages.get(toMessageGuid(msgId));
     const rebuilt = await rebuildFromAppleMessage(
       remote,
       fetched,

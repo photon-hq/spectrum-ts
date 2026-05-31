@@ -64,10 +64,7 @@ const resolveReactionTarget = async (
   let candidate = cache.get(targetGuid);
   if (!candidate) {
     try {
-      const fetched = await client.messages.get(
-        toChatGuid(chat),
-        toMessageGuid(targetGuid)
-      );
+      const fetched = await client.messages.get(toMessageGuid(targetGuid));
       candidate = await rebuildFromAppleMessage(client, fetched, phone, chat);
       cacheMessage(cache, candidate);
     } catch {

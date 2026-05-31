@@ -213,12 +213,10 @@ const sendContent = async (
           "mini app cards cannot be sent as replies"
         );
       }
-      // `appStoreId` is optional on our content but required by the wire type;
-      // a zero value is dropped by proto3, so it sends as "no App Store id".
-      const message = await remote.messages.sendCustomizedMiniApp(chat, {
-        ...content,
-        appStoreId: content.appStoreId ?? 0,
-      });
+      const message = await remote.messages.sendCustomizedMiniApp(
+        chat,
+        content
+      );
       return outboundMessage(spaceId, message, content);
     }
     case "poll":

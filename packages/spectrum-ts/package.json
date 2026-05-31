@@ -63,11 +63,11 @@
     }
   },
   "scripts": {
-    "build": "bun scripts/prepare-package.ts && tsup && bun scripts/generate-manifest.ts",
+    "build": "bun scripts/prepare-package.ts && tsup && node scripts/smoke-import.mjs && bun scripts/generate-manifest.ts",
     "dev": "tsup --watch",
     "generate:emoji": "bun scripts/generate-emoji.ts",
     "generate:manifest": "bun scripts/generate-manifest.ts",
-    "prepack": "bun scripts/prepare-package.ts --publish && tsup && bun scripts/generate-manifest.ts && bun scripts/prepare-package.ts"
+    "prepack": "bun scripts/prepare-package.ts --publish && tsup && node scripts/smoke-import.mjs && bun scripts/generate-manifest.ts && bun scripts/prepare-package.ts"
   },
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.10.0",

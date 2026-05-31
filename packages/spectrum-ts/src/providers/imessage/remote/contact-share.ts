@@ -1,4 +1,5 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import { sanitizeErrorMessage } from "@photon-ai/otel";
 import { LRUCache } from "lru-cache";
 
 const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -32,17 +33,19 @@ export class ContactShareTracker {
       return;
     }
     this.cache.set(chatGuid, true);
+    // chatGuid embeds the peer's phone/email for DMs — scrub it before logging.
+    const safeChatGuid = sanitizeErrorMessage(chatGuid);
     client.chats
       .shareContactInfo(chatGuid)
       .then(() => {
         console.info(
-          `[spectrum-ts][imessage][contact-share] shared contact info to ${chatGuid}`
+          `[spectrum-ts][imessage][contact-share] shared contact info to ${safeChatGuid}`
         );
       })
       .catch((error: unknown) => {
         this.cache.delete(chatGuid);
         console.warn(
-          `[spectrum-ts][imessage][contact-share] failed to share contact info to ${chatGuid}`,
+          `[spectrum-ts][imessage][contact-share] failed to share contact info to ${safeChatGuid}`,
           error
         );
       });

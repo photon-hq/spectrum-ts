@@ -1,5 +1,4 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { createHmac } from "node:crypto";
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import type { Content } from "../content/types";
@@ -119,23 +118,10 @@ const encodeEvent = (
   ).finish();
 };
 
-// No `webhookSecret` here: these baseline tests post unsigned, exercising the
-// opt-in/backward-compat path (signature checks off). The signature-enforcement
-// tests below opt in explicitly.
 const baseConfig = {
   projectId: "proj",
   projectSecret: "secret",
 } as const;
-
-const WEBHOOK_SECRET = "whsec_test";
-
-// Mirror fanout-webhook's signer: HMAC-SHA256 over `v0:{ts}:` ++ rawBody bytes.
-const signEvent = (ts: string, body: Uint8Array): Record<string, string> => ({
-  "x-spectrum-timestamp": ts,
-  "x-spectrum-signature": `v0=${createHmac("sha256", WEBHOOK_SECRET)
-    .update(Buffer.concat([Buffer.from(`v0:${ts}:`, "utf8"), body]))
-    .digest("hex")}`,
-});
 
 const NO_FUSOR_PROVIDER_ERROR = /requires at least one fusor provider/;
 
@@ -514,135 +500,5 @@ describe("spectrum.webhook", () => {
     } finally {
       startSpy.mockRestore();
     }
-  });
-
-  it("processes a delivery with a valid fusor signature", async () => {
-    const spectrum = await Spectrum({
-      ...baseConfig,
-      webhookSecret: WEBHOOK_SECRET,
-      providers: [makeSlack().config({})],
-    });
-    const body = encodeEvent(
-      "slack",
-      JSON.stringify({ type: "message", text: "hi" })
-    );
-
-    let delivered = 0;
-    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
-    const result = await spectrum.webhook(
-      { headers: signEvent("1700000000", body), body },
-      () => {
-        delivered += 1;
-        done();
-      }
-    );
-    await finished;
-
-    expect(result.status).toBe(200);
-    expect(delivered).toBe(1);
-    await spectrum.stop();
-  });
-
-  it("rejects a delivery with an invalid fusor signature (401)", async () => {
-    const spectrum = await Spectrum({
-      ...baseConfig,
-      webhookSecret: WEBHOOK_SECRET,
-      providers: [makeSlack().config({})],
-    });
-    const body = encodeEvent(
-      "slack",
-      JSON.stringify({ type: "message", text: "hi" })
-    );
-
-    let delivered = 0;
-    const result = await spectrum.webhook(
-      {
-        headers: {
-          "x-spectrum-timestamp": "1700000000",
-          "x-spectrum-signature": "v0=deadbeef",
-        },
-        body,
-      },
-      () => {
-        delivered += 1;
-      }
-    );
-
-    expect(result.status).toBe(401);
-    expect(delivered).toBe(0);
-    await spectrum.stop();
-  });
-
-  it("rejects a delivery missing the signature header when a secret is set (401)", async () => {
-    const spectrum = await Spectrum({
-      ...baseConfig,
-      webhookSecret: WEBHOOK_SECRET,
-      providers: [makeSlack().config({})],
-    });
-
-    const result = await spectrum.webhook(
-      {
-        headers: {},
-        body: encodeEvent(
-          "slack",
-          JSON.stringify({ type: "message", text: "hi" })
-        ),
-      },
-      () => undefined
-    );
-
-    expect(result.status).toBe(401);
-    await spectrum.stop();
-  });
-
-  it("ignores signature headers when no webhookSecret is configured", async () => {
-    const spectrum = await Spectrum({
-      ...baseConfig,
-      providers: [makeSlack().config({})],
-    });
-    const body = encodeEvent(
-      "slack",
-      JSON.stringify({ type: "message", text: "hi" })
-    );
-
-    // A bogus signature is not checked at all without a configured secret.
-    const result = await spectrum.webhook(
-      {
-        headers: {
-          "x-spectrum-timestamp": "1700000000",
-          "x-spectrum-signature": "v0=bogus",
-        },
-        body,
-      },
-      () => undefined
-    );
-
-    expect(result.status).toBe(200);
-    await spectrum.stop();
-  });
-
-  it("verifies signatures via the Web Request overload too", async () => {
-    const spectrum = await Spectrum({
-      ...baseConfig,
-      webhookSecret: WEBHOOK_SECRET,
-      providers: [makeSlack().config({})],
-    });
-    const body = encodeEvent(
-      "slack",
-      JSON.stringify({ type: "message", text: "hi" })
-    );
-
-    const response = await spectrum.webhook(
-      new Request("https://app.example.com/webhooks/fusor", {
-        method: "POST",
-        headers: signEvent("1700000000", body),
-        body,
-      }),
-      () => undefined
-    );
-
-    expect(response).toBeInstanceOf(Response);
-    expect(response.status).toBe(200);
-    await spectrum.stop();
   });
 });

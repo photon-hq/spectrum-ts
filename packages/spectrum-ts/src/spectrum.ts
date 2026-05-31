@@ -10,7 +10,6 @@ import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
 import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
 import { isFusorClient } from "./fusor/index";
-import { verifyFusorSignature } from "./fusor/origin";
 import type {
   FusorClient,
   FusorMessages,
@@ -140,7 +139,6 @@ const spectrumConfigSchema = z.union([
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
-    webhookSecret: z.string().min(1).optional(),
   }),
   z.object({
     projectId: z.undefined().optional(),
@@ -148,7 +146,6 @@ const spectrumConfigSchema = z.union([
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
-    webhookSecret: z.string().min(1).optional(),
   }),
 ]);
 
@@ -192,7 +189,6 @@ export async function Spectrum<
   providers: [...Providers];
   options?: SpectrumOptions;
   telemetry?: boolean;
-  webhookSecret?: string;
 }): Promise<SpectrumInstance<Providers> & { readonly config: ProjectData }>;
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
@@ -202,7 +198,6 @@ export async function Spectrum<
   providers: [...Providers];
   options?: SpectrumOptions;
   telemetry?: boolean;
-  webhookSecret?: string;
 }): Promise<SpectrumInstance<Providers>>;
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
@@ -214,7 +209,6 @@ export async function Spectrum<
         providers: [...Providers];
         options?: SpectrumOptions;
         telemetry?: boolean;
-        webhookSecret?: string;
       }
     | {
         projectId?: never;
@@ -222,7 +216,6 @@ export async function Spectrum<
         providers: [...Providers];
         options?: SpectrumOptions;
         telemetry?: boolean;
-        webhookSecret?: string;
       }
 ): Promise<SpectrumInstance<Providers>> {
   spectrumConfigSchema.parse(options);
@@ -233,7 +226,6 @@ export async function Spectrum<
     providers,
     options: runtimeOptions,
     telemetry,
-    webhookSecret,
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
 
@@ -731,37 +723,26 @@ export async function Spectrum<
     return result;
   };
 
-  // Read the RAW request bytes without re-encoding — both the protobuf decode
-  // and the fusor-origin HMAC need the exact bytes fusor sent. Headers are
-  // captured (lowercased) for the signature check. `asWeb` records whether to
-  // reply with a Web `Response` or the raw result shape.
+  // Read the RAW request bytes without re-encoding — the protobuf decode needs
+  // the exact bytes fusor sent. `asWeb` records whether to reply with a Web
+  // `Response` or the raw result shape.
   const readWebhookInput = async (
     request: Request | WebhookRawRequest
   ): Promise<{
     asWeb: boolean;
     bodyBytes: Uint8Array;
-    headers: Record<string, string>;
   }> => {
     if (typeof Request !== "undefined" && request instanceof Request) {
-      const headers: Record<string, string> = {};
-      request.headers.forEach((value, key) => {
-        headers[key.toLowerCase()] = value;
-      });
       return {
         asWeb: true,
         bodyBytes: new Uint8Array(await request.arrayBuffer()),
-        headers,
       };
     }
     // The compound `typeof Request` guard above doesn't narrow the union here.
     const raw = request as WebhookRawRequest;
     const bodyBytes =
       raw.body instanceof ArrayBuffer ? new Uint8Array(raw.body) : raw.body;
-    const headers: Record<string, string> = {};
-    for (const [key, value] of Object.entries(raw.headers ?? {})) {
-      headers[key.toLowerCase()] = value;
-    }
-    return { asWeb: false, bodyBytes, headers };
+    return { asWeb: false, bodyBytes };
   };
 
   // Resolve each collected record and hand it to the request-scoped handler.
@@ -791,22 +772,6 @@ export async function Spectrum<
         }
       }
     }
-  };
-
-  // Verify the POST actually came from fusor (the OUTER signature, distinct from
-  // the per-platform verify() that runs later in processEvent). Opt-in: if
-  // `webhookSecret` is not configured we skip the check (backward compatible).
-  // The HMAC is over the EXACT raw body bytes (protobuf, not UTF-8), so it runs
-  // before/independent of decoding. See `verifyFusorSignature` for the scheme
-  // and the rationale for not enforcing a timestamp-freshness window.
-  const assertFusorOrigin = (
-    bodyBytes: Uint8Array,
-    headers: Record<string, string>
-  ): void => {
-    if (!webhookSecret) {
-      return;
-    }
-    verifyFusorSignature(webhookSecret, headers, bodyBytes);
   };
 
   // Decode the protobuf envelope; null = undecodable (poison → 400).
@@ -892,21 +857,7 @@ export async function Spectrum<
       );
     }
 
-    const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
-    try {
-      assertFusorOrigin(bodyBytes, headers);
-    } catch (error) {
-      // A bad/missing signature is deterministic — reply 401 (a 4xx fusor
-      // treats as poison: dead-lettered, not retried). Never 2xx.
-      lifecycleLog.warn("spectrum.webhook: fusor origin verification failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return buildWebhookResult(asWeb, {
-        status: 401,
-        headers: {},
-        body: new Uint8Array(0),
-      });
-    }
+    const { asWeb, bodyBytes } = await readWebhookInput(request);
 
     const event = decodeWebhookEvent(bodyBytes);
     if (!event) {

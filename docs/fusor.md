@@ -91,22 +91,12 @@ it.
 
 ### Enable it
 
-Pass `webhookSecret` when constructing the app:
-
-```typescript
-const app = await Spectrum({
-  projectId: process.env.PROJECT_ID,
-  projectSecret: process.env.PROJECT_SECRET,
-  webhookSecret: process.env.FUSOR_WEBHOOK_SECRET, // optional today — see note below
-  providers: [/* a fusor-backed provider */],
-});
-```
-
-> **`webhookSecret` is reserved.** Fusor does not yet sign its outbound POSTs
-> (the `X-Fusor-Signature` header is reserved), so the "is this really from
-> Fusor?" check is currently a **no-op pass-through** — the option is accepted
-> and stored so your code is ready when signing ships. The **platform** signature
-> (Slack/WhatsApp/etc.) is always verified, regardless of this option.
+There's nothing extra to configure — just call `app.webhook()` from your POST
+route (see the examples below). No Fusor-specific secret is needed: inbound
+authenticity is established by the **platform** signature (Slack/WhatsApp/etc.),
+which the pipeline always verifies via the provider's `verify()`. Fusor does not
+sign its own outbound POSTs, so Spectrum performs no outer "is this from Fusor?"
+check.
 
 ### Signatures
 
@@ -115,8 +105,9 @@ const app = await Spectrum({
 app.webhook(request: Request, handler: WebhookHandler): Promise<Response>;
 
 // Raw — for Express / raw Node. Returns a plain result you write back yourself.
+// `headers` are accepted (so passing `req.headers` is fine) but unused.
 app.webhook(
-  request: { headers: Record<string, string>; body: Uint8Array | ArrayBuffer },
+  request: { body: Uint8Array | ArrayBuffer; headers?: Record<string, string> },
   handler: WebhookHandler
 ): Promise<{ status: number; headers: Record<string, string>; body: Uint8Array }>;
 
@@ -134,8 +125,7 @@ for the serverless caveat.
 
 > ⚠️ **Pass the raw body bytes.** The POST body is a protobuf envelope
 > (`application/x-protobuf`). Capture it as bytes (`request.arrayBuffer()`,
-> `express.raw(...)`) — never `req.json()`/re-encode, or the decode (and the
-> future signature check) will fail.
+> `express.raw(...)`) — never `req.json()`/re-encode, or the decode will fail.
 
 ### Examples
 

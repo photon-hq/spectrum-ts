@@ -18,4 +18,13 @@ export default defineConfig({
   outDir: "dist",
   target: "esnext",
   external: ["ffmpeg-static"],
+  // esbuild bundles CommonJS dependencies (e.g. transitive `@grpc/grpc-js`) into
+  // this ESM output and rewrites their `require(...)` calls to a `__require` shim
+  // whose fallback throws `Dynamic require of "x" is not supported` — because
+  // `require` is undefined in a real ESM context. Injecting a `createRequire`
+  // banner into every emitted file restores a working `require`, so that shim
+  // delegates to it instead of throwing at import time under Node.
+  banner: {
+    js: 'import { createRequire as __spectrumCreateRequire } from "node:module"; const require = __spectrumCreateRequire(import.meta.url);',
+  },
 });

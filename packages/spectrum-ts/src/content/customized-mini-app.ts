@@ -55,7 +55,7 @@ const layoutSchema = z
 export const customizedMiniAppSchema = z.object({
   type: z.literal("customized-mini-app"),
   appName: z.string().nonempty(),
-  appStoreId: z.number().int().positive(),
+  appStoreId: z.number().int().positive().optional(),
   extensionBundleId: z.string().nonempty(),
   layout: layoutSchema,
   teamId: z.string().regex(TEAM_ID_PATTERN),
@@ -68,8 +68,12 @@ export type CustomizedMiniAppLayout = z.infer<typeof layoutSchema>;
 export interface CustomizedMiniAppInput {
   /** Display name of the owning app, shown by Messages fallback UI. */
   readonly appName: string;
-  /** Apple App Store numeric id of the owning app. Must be a positive integer. */
-  readonly appStoreId: number;
+  /**
+   * Apple App Store numeric id of the owning app. Must be a positive integer
+   * when set. Omit to send a card whose extension is not published on the App
+   * Store — recipients without the extension installed then see no store entry.
+   */
+  readonly appStoreId?: number;
   /** Bundle identifier of the iMessage extension target. */
   readonly extensionBundleId: string;
   /** Visible card layout. */
@@ -91,10 +95,12 @@ export const asCustomizedMiniApp = (
 /**
  * Construct a `customized-mini-app` content value.
  *
- * The layout is what recipients see in the bubble. `teamId`,
- * `extensionBundleId`, and `appStoreId` identify the iMessage extension that
- * receives `url` when the recipient taps the card; the server constructs the
- * matching `MSMessageExtensionBalloonPlugin` plugin id from these values.
+ * The layout is what recipients see in the bubble. `teamId` and
+ * `extensionBundleId` identify the iMessage extension that receives `url` when
+ * the recipient taps the card; the server constructs the matching
+ * `MSMessageExtensionBalloonPlugin` plugin id from these values. `appStoreId`
+ * is optional and only points recipients without the extension at its App
+ * Store entry.
  */
 export function customizedMiniApp(
   input: CustomizedMiniAppInput

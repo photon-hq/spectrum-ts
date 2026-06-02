@@ -21,6 +21,7 @@ export {
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
 export { read } from "./content/read";
+export { requestLocation } from "./content/request-location";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import {
@@ -35,6 +36,10 @@ import {
 } from "./content/customized-mini-app";
 import { isRead, read as readContent } from "./content/read";
 import {
+  isRequestLocation,
+  requestLocation as requestLocationContent,
+} from "./content/request-location";
+import {
   getMessage as localGetMessage,
   messages as localMessages,
   send as localSend,
@@ -46,6 +51,7 @@ import {
   messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
   replyToMessage as remoteReplyToMessage,
+  requestLocation as remoteRequestLocation,
   send as remoteSend,
   sendCustomizedMiniApp as remoteSendCustomizedMiniApp,
   setBackground as remoteSetBackground,
@@ -111,6 +117,28 @@ const handleBackground = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteSetBackground(remote, space.id, content);
+};
+
+const handleRequestLocation = async (
+  client: IMessageClient,
+  space: { id: string; phone: string; type: "dm" | "group" }
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "request-location",
+      "iMessage (local mode)",
+      "requesting a location requires remote iMessage"
+    );
+  }
+  if (space.type === "group") {
+    throw UnsupportedError.action(
+      "request-location",
+      "iMessage",
+      "requesting a location is only supported in 1:1 chats"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteRequestLocation(remote, space.id);
 };
 
 const handleCustomizedMiniApp = async (
@@ -316,6 +344,10 @@ export const imessage = definePlatform("iMessage", {
       ) => {
         await space.send(backgroundContent(input as never, opts));
       },
+      // Sugar: `space.requestLocation()` → `space.send(requestLocation())`.
+      requestLocation: async (space: Space) => {
+        await space.send(requestLocationContent());
+      },
       // Sugar: `space.read(message)` → `space.send(read(message))`.
       read: async (space: Space, message: Message) => {
         await space.send(readContent(message));
@@ -405,6 +437,10 @@ export const imessage = definePlatform("iMessage", {
     // `Content["type"]`).
     if (isBackground(content)) {
       await handleBackground(client, space, content);
+      return;
+    }
+    if (isRequestLocation(content)) {
+      await handleRequestLocation(client, space);
       return;
     }
     if (isRead(content)) {

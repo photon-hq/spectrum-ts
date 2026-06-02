@@ -15,6 +15,7 @@ import { getMessage as getRemoteMessage } from "./inbound";
 import { reactToMessage as reactToRemoteMessage } from "./reactions";
 import { markRead as markRemoteRead } from "./read";
 import { setDisplayName as setRemoteDisplayName } from "./rename";
+import { requestLocation as requestRemoteLocation } from "./request-location";
 import {
   editMessage as editRemoteMessage,
   replyToMessage as replyToRemoteMessage,
@@ -36,6 +37,11 @@ export const setBackground = async (
   spaceId: string,
   content: Background
 ): Promise<void> => setRemoteBackground(remote, spaceId, content);
+
+export const requestLocation = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<void> => requestRemoteLocation(remote, spaceId);
 
 export const sendCustomizedMiniApp = async (
   remote: AdvancedIMessage,

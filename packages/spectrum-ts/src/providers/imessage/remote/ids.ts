@@ -6,6 +6,19 @@ export type MessageGuid = string;
 
 export const dmChatGuid = (address: string): ChatGuid => `any;-;${address}`;
 
+const DM_GUID_SEPARATOR = ";-;";
+
+/**
+ * Inverse of `dmChatGuid`: recover the participant address from a DM chat guid.
+ * Handles both the outbound form (`any;-;+1…`) and the inbound form
+ * (`iMessage;-;+1…`). Falls back to the whole guid when no separator is present.
+ * Group guids use `;+;` and are never passed here.
+ */
+export const dmAddress = (chatGuid: ChatGuid): string => {
+  const idx = chatGuid.indexOf(DM_GUID_SEPARATOR);
+  return idx === -1 ? chatGuid : chatGuid.slice(idx + DM_GUID_SEPARATOR.length);
+};
+
 export const toChatGuid = (value: string): ChatGuid => value;
 
 export const toMessageGuid = (value: string): MessageGuid => value;

@@ -12,6 +12,10 @@ import { setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
+import {
+  getLocation as getRemoteLocation,
+  type IMessageLocation,
+} from "./location";
 import { reactToMessage as reactToRemoteMessage } from "./reactions";
 import { markRead as markRemoteRead } from "./read";
 import { setDisplayName as setRemoteDisplayName } from "./rename";
@@ -42,6 +46,11 @@ export const requestLocation = async (
   remote: AdvancedIMessage,
   spaceId: string
 ): Promise<void> => requestRemoteLocation(remote, spaceId);
+
+export const getLocation = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<IMessageLocation | undefined> => getRemoteLocation(remote, spaceId);
 
 export const sendCustomizedMiniApp = async (
   remote: AdvancedIMessage,

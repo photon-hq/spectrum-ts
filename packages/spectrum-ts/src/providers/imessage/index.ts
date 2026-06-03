@@ -22,6 +22,7 @@ export {
 export { effect, type IMessageMessageEffect } from "./content/effect";
 export { read } from "./content/read";
 export { requestLocation } from "./content/request-location";
+export type { IMessageLocation } from "./remote/location";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import {
@@ -46,6 +47,7 @@ import {
 } from "./local/api";
 import {
   editMessage as remoteEditMessage,
+  getLocation as remoteGetLocation,
   getMessage as remoteGetMessage,
   markRead as remoteMarkRead,
   messages as remoteMessages,
@@ -68,6 +70,7 @@ import {
   randomPhone,
 } from "./remote/client";
 import { dmChatGuid } from "./remote/ids";
+import type { IMessageLocation } from "./remote/location";
 import {
   configSchema,
   type IMessageClient,
@@ -139,6 +142,28 @@ const handleRequestLocation = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteRequestLocation(remote, space.id);
+};
+
+const handleLocation = async (
+  client: IMessageClient,
+  space: { id: string; phone: string; type: "dm" | "group" }
+): Promise<IMessageLocation | undefined> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "location",
+      "iMessage (local mode)",
+      "fetching a shared location requires remote iMessage"
+    );
+  }
+  if (space.type === "group") {
+    throw UnsupportedError.action(
+      "location",
+      "iMessage",
+      "fetching a shared location is only supported in 1:1 chats"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  return remoteGetLocation(remote, space.id);
 };
 
 const handleCustomizedMiniApp = async (
@@ -338,20 +363,37 @@ export const imessage = definePlatform("iMessage", {
       // send pipeline so the unsupported-content + warn-and-skip path on
       // local-mode iMessage is identical to the canonical form.
       background: async (
-        space: Space,
+        { space }: { space: Space },
         input: BackgroundInput,
         opts?: { mimeType?: string }
       ) => {
         await space.send(backgroundContent(input as never, opts));
       },
       // Sugar: `space.requestLocation()` → `space.send(requestLocation())`.
-      requestLocation: async (space: Space) => {
+      requestLocation: async ({ space }: { space: Space }) => {
         await space.send(requestLocationContent());
       },
       // Sugar: `space.read(message)` → `space.send(read(message))`.
-      read: async (space: Space, message: Message) => {
+      read: async ({ space }: { space: Space }, message: Message) => {
         await space.send(readContent(message));
       },
+      // `space.location()` — fetch the friend's currently shared Find My
+      // location. Unlike the sugar above this is a read: it returns data via
+      // the SDK's `locations.get` rather than dispatching through `send`.
+      // 1:1 chats only; resolves `undefined` when the friend isn't sharing.
+      location: (ctx: {
+        space: { id: string; phone: string; type: "dm" | "group" };
+        client: IMessageClient;
+      }): Promise<IMessageLocation | undefined> =>
+        withSpan(
+          "spectrum.imessage.location",
+          {
+            "spectrum.provider": "iMessage",
+            "spectrum.space.id": ctx.space.id,
+            "spectrum.imessage.phone": ctx.space.phone,
+          },
+          () => handleLocation(ctx.client, ctx.space)
+        ),
     },
   },
 

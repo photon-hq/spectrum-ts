@@ -489,20 +489,27 @@ export function buildSpace(params: BuildSpaceParams): Space {
     );
   }
 
-  // Platform-defined sugar methods declared via `PlatformDef.space.actions`.
-  // Each factory becomes `space.<name>(...args) = space.send(factory(...args))`.
+  // Platform-defined methods declared via `PlatformDef.space.actions`. Each
+  // factory is invoked as `factory(ctx, ...args)` where `ctx = { space,
+  // client, config, store }`, and its return value is propagated to the
+  // caller (so actions can read data, not just fire-and-forget sends).
   // Spread order is load-bearing: actions go *after* `extras`/`spaceRef`
   // (so schema fields can't clobber the sugar) and *before* the hardcoded
   // universal sugar (`send`, `edit`, …) so a platform action declared with
   // a reserved name is also overridden at the type level via the
   // `Exclude<…, keyof Space>` in `SpaceActionMethods`.
-  const platformActions: Record<string, (...args: unknown[]) => Promise<void>> =
-    {};
+  const platformActions: Record<
+    string,
+    (...args: unknown[]) => Promise<unknown>
+  > = {};
   const declaredActions = (
     definition.space as {
       actions?: Record<
         string,
-        (space: Space, ...args: unknown[]) => Promise<void>
+        (
+          ctx: { space: Space; client: unknown; config: unknown; store: Store },
+          ...args: unknown[]
+        ) => Promise<unknown>
       >;
     }
   ).actions;
@@ -512,9 +519,11 @@ export function buildSpace(params: BuildSpaceParams): Space {
         warnReservedAction("space", name, definition.name);
         continue;
       }
-      platformActions[name] = async (...args: unknown[]) => {
-        await factory(space, ...args);
-      };
+      // `ctx` is built inside the wrapper because `space` is assigned below;
+      // the wrapper only runs post-construction, so the closure sees the
+      // fully built space (same pattern as `dispatchSend`/`getMessageImpl`).
+      platformActions[name] = (...args: unknown[]) =>
+        factory({ space, client, config, store }, ...args);
     }
   }
 

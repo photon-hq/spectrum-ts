@@ -9,18 +9,28 @@ import type { Store } from "../utils/store";
 import type { ManagedStream } from "../utils/stream";
 
 /**
- * A platform-defined method on `Space`. The first parameter is bound to the
- * built `Space` at construction time, so callers only pass the trailing args.
- * Actions are plain functions returning `Promise<void>` — they can delegate
- * through `space.send(...)`, call the underlying SDK, or perform any other
- * side effect.
+ * A platform-defined method on `Space`. The first parameter is an injected
+ * runtime context (`{ space, client, config, store }`) supplied by
+ * `buildSpace`, so callers only pass the trailing args. Actions can delegate
+ * through `ctx.space.send(...)`, call the underlying SDK via `ctx.client`, or
+ * perform any other side effect.
+ *
+ * Unlike the void-returning sugar they started as, actions may now return
+ * data — the public signature preserves the declared return type via
+ * `SpaceActionMethods<Def>` (a side-effecting action simply returns
+ * `Promise<void>`). Mirrors `InstanceActionFn`.
  *
  * Names that collide with reserved `Space` keys (`send`, `edit`,
  * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
  * `__platform`) are skipped at runtime with a warning and excluded at the
  * type level via `Exclude<…, keyof Space>`.
  */
-export type SpaceActionFn = (space: Space, ...args: never[]) => Promise<void>;
+export type SpaceActionFn = (
+  // biome-ignore lint/suspicious/noExplicitAny: ctx is `any` so providers can annotate it with their platform's typed client/space without fighting contravariance; the runtime always passes `{ space, client, config, store }`
+  ctx: any,
+  // biome-ignore lint/suspicious/noExplicitAny: trailing args are user-defined
+  ...args: any[]
+) => Promise<unknown>;
 
 /**
  * A platform-defined method on `Message`. The first parameter is bound to
@@ -395,12 +405,14 @@ export interface PlatformDef<
     /**
      * Optional platform-specific methods bound to `PlatformSpace<Def>`.
      *
-     * Each entry is a plain async function `(space, ...args) => Promise<void>`;
-     * `buildSpace` injects the built `PlatformSpace<Def>` as the first
-     * argument and exposes the trailing args as the public surface. Action
-     * implementations choose how to dispatch — `space.send(...)`, a direct
-     * SDK call, or any other side effect — and always return `Promise<void>`
-     * to callers.
+     * Each entry is a plain async function `(ctx, ...args) => Promise<…>`;
+     * `buildSpace` injects `ctx = { space, client, config, store }` (with
+     * `ctx.space` the built `PlatformSpace<Def>`) as the first argument and
+     * exposes the trailing args as the public surface. Action implementations
+     * choose how to dispatch — `ctx.space.send(...)`, a direct SDK call via
+     * `ctx.client`, or any other side effect — and the declared return type
+     * is preserved on the public method (a side-effecting action returns
+     * `Promise<void>`).
      *
      * Mirrors the top-level `PlatformDef.actions` slot — `actions` lives at
      * the platform level for capabilities (e.g. `getMessage`); `space.actions`
@@ -626,9 +638,9 @@ type SpaceArgs<Def extends AnyPlatformDef> =
   | SpaceVarargArgs<Def>;
 
 // Methods derived from `PlatformDef.space.actions`. The first parameter
-// (`space`) is bound to the built `PlatformSpace<Def>` at construction time,
-// so the public surface drops it. Reserved `Space` keys (`send`, `edit`, …)
-// are filtered out so universal sugar always wins.
+// (`ctx = { space, client, config, store }`) is injected by `buildSpace` at
+// construction time, so the public surface drops it. Reserved `Space` keys
+// (`send`, `edit`, …) are filtered out so universal sugar always wins.
 type SpaceActionFns<Def extends AnyPlatformDef> = Def["space"] extends {
   actions?: infer A;
 }
@@ -644,10 +656,14 @@ type TailArgs<T extends readonly unknown[]> = T extends readonly [
   ? Rest
   : [];
 
+// Unlike the void-only sugar these started as, the declared **return type**
+// is preserved (mirrors `InstanceActionMethods`) — space actions can return
+// data, not just `Promise<void>`. A side-effecting action whose factory
+// returns `Promise<void>` still surfaces as `(...) => Promise<void>`.
 export type SpaceActionMethods<Def extends AnyPlatformDef> = {
   [K in Exclude<keyof SpaceActionFns<Def>, keyof Space>]: (
     ...args: TailArgs<Parameters<SpaceActionFns<Def>[K]>>
-  ) => Promise<void>;
+  ) => ReturnType<SpaceActionFns<Def>[K]>;
 };
 
 // Methods derived from `PlatformDef.message.actions`. The first parameter

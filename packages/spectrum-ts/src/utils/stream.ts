@@ -160,6 +160,17 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
   let pumpPromise: Promise<void> | undefined;
   let closed = false;
 
+  const closeConsumers = (error?: unknown) => {
+    if (consumers.size === 0) {
+      return;
+    }
+    const currentConsumers = Array.from(consumers);
+    consumers.clear();
+    for (const consumer of currentConsumers) {
+      consumer.end(error);
+    }
+  };
+
   const startPump = () => {
     if (pumping || terminated) {
       return;
@@ -168,7 +179,10 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
     pumpPromise = (async () => {
       try {
         for await (const value of source) {
-          for (const consumer of consumers) {
+          if (terminated) {
+            break;
+          }
+          for (const consumer of Array.from(consumers)) {
             consumer.deliveries = consumer.deliveries.then(() =>
               consumer.emit(value).catch(() => {
                 // consumer closed mid-emit; cleanup removes it from the set
@@ -177,22 +191,20 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
           }
         }
         terminated = true;
+        if (closed) {
+          closeConsumers();
+          return;
+        }
         // Wait for in-flight deliveries to drain before ending each consumer
         // so values queued just before EOF still reach them.
         await Promise.allSettled(
           Array.from(consumers, (consumer) => consumer.deliveries)
         );
-        for (const consumer of consumers) {
-          consumer.end();
-        }
-        consumers.clear();
+        closeConsumers();
       } catch (error) {
         terminated = true;
         terminalError = error;
-        for (const consumer of consumers) {
-          consumer.end(error);
-        }
-        consumers.clear();
+        closeConsumers(error);
       }
     })();
   };
@@ -200,7 +212,7 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
   return {
     subscribe(): ManagedStream<T> {
       return stream<T>((emit, end) => {
-        if (terminated) {
+        if (terminated || closed) {
           end(terminalError);
           return;
         }
@@ -221,19 +233,15 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
         return;
       }
       closed = true;
+      closeConsumers();
       try {
         await source.close();
         if (pumpPromise) {
           await pumpPromise.catch(ignoreCleanupError);
         }
       } finally {
-        if (!terminated) {
-          terminated = true;
-          for (const consumer of consumers) {
-            consumer.end();
-          }
-          consumers.clear();
-        }
+        terminated = true;
+        closeConsumers(terminalError);
       }
     },
   };

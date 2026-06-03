@@ -260,15 +260,25 @@ export async function Spectrum<
 
   let stopped = false;
 
-  const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> =>
-    stream<T>((emit, end) => {
+  const adaptIterable = <TInput, TOutput = TInput>(
+    iterable: AsyncIterable<TInput>,
+    project?: (
+      value: TInput,
+      emit: (value: TOutput) => Promise<void>
+    ) => Promise<void>
+  ): ManagedStream<TOutput> =>
+    stream<TOutput>((emit, end) => {
       const iterator = iterable[Symbol.asyncIterator]();
 
       const pump = (async () => {
         try {
           let result = await iterator.next();
           while (!result.done) {
-            await emit(result.value);
+            if (project) {
+              await project(result.value, emit);
+            } else {
+              await emit(result.value as unknown as TOutput);
+            }
             result = await iterator.next();
           }
           end();
@@ -362,21 +372,17 @@ export async function Spectrum<
           store,
         }) as unknown as AsyncIterable<ProviderMessageRecord>);
 
-    const bindSend = async function* (): AsyncIterable<[Space, Message]> {
-      for await (const msg of raw) {
-        const tuples = await resolveRecordToMessages(msg, {
-          client,
-          config,
-          definition,
-          store,
-        });
-        for (const tuple of tuples) {
-          yield tuple;
-        }
+    return adaptIterable(raw, async (msg, emit) => {
+      const tuples = await resolveRecordToMessages(msg, {
+        client,
+        config,
+        definition,
+        store,
+      });
+      for (const tuple of tuples) {
+        await emit(tuple);
       }
-    };
-
-    return adaptIterable(bindSend());
+    });
   };
 
   const getOrCreateMessageBroadcast = (state: {
@@ -560,8 +566,9 @@ export async function Spectrum<
           projectConfig,
           store,
         });
-        const annotatePlatform = async function* (): AsyncIterable<unknown> {
-          for await (const value of providerEvents) {
+
+        providerStreams.push(
+          adaptIterable(providerEvents, async (value, emit) => {
             const annotated = await withSpan(
               "spectrum.event",
               {
@@ -570,11 +577,9 @@ export async function Spectrum<
               },
               () => ({ ...(value as object), platform: definition.name })
             );
-            yield annotated;
-          }
-        };
-
-        providerStreams.push(adaptIterable(annotatePlatform()));
+            await emit(annotated);
+          })
+        );
       }
 
       const merged = mergeStreams(providerStreams);
@@ -604,6 +609,9 @@ export async function Spectrum<
     }
     stopped = true;
 
+    process.off("SIGINT", handleSignal);
+    process.off("SIGTERM", handleSignal);
+
     const streamShutdowns = [
       messagesStream.close(),
       ...Array.from(customEventStreams.values(), (eventStream) =>
@@ -614,34 +622,14 @@ export async function Spectrum<
       ),
     ];
 
-    process.off("SIGINT", handleSignal);
-    process.off("SIGTERM", handleSignal);
-
-    // Phase 1: stream cascade
+    // Start stream shutdown first, but do not wait for it before beginning
+    // provider teardown — some provider iterators only finish after their
+    // client/session is already being destroyed.
     const streamCloseStart = performance.now();
-    await Promise.allSettled(streamShutdowns);
-    const streamCloseMs = Math.round(performance.now() - streamCloseStart);
+    const streamShutdownPromise = Promise.allSettled(streamShutdowns);
 
-    // Phase 2: fusor core shutdown (only when active)
-    let fusorCloseMs = 0;
-    if (fusorCore) {
-      const fusorCloseStart = performance.now();
-      // If a lazy gRPC start is in flight, let it finish wiring before teardown
-      // so close() doesn't race a half-built connection.
-      if (fusorStartPromise) {
-        await fusorStartPromise.catch(ignoreCleanupError);
-      }
-      await fusorCore.close().catch((error) => {
-        lifecycleLog.warn("fusor core close failed", { error });
-      });
-      fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
-      for (const queue of fusorMessageSources.values()) {
-        queue.close();
-      }
-      fusorMessageSources.clear();
-    }
-
-    // Phase 3: destroy clients
+    // Start provider teardown immediately so blocked stream cleanup cannot
+    // prevent destroyClient from ever running.
     const clientShutdowns: Promise<void>[] = [];
     for (const state of platformStates.values()) {
       const destroy = state.definition.lifecycle.destroyClient;
@@ -663,7 +651,31 @@ export async function Spectrum<
       );
     }
     const clientCloseStart = performance.now();
-    await Promise.allSettled(clientShutdowns);
+    const clientShutdownPromise = Promise.allSettled(clientShutdowns);
+
+    // Phase 2: fusor core shutdown (only when active)
+    let fusorCloseMs = 0;
+    if (fusorCore) {
+      const fusorCloseStart = performance.now();
+      // If a lazy gRPC start is in flight, let it finish wiring before teardown
+      // so close() doesn't race a half-built connection.
+      if (fusorStartPromise) {
+        await fusorStartPromise.catch(ignoreCleanupError);
+      }
+      await fusorCore.close().catch((error) => {
+        lifecycleLog.warn("fusor core close failed", { error });
+      });
+      fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
+      for (const queue of fusorMessageSources.values()) {
+        queue.close();
+      }
+      fusorMessageSources.clear();
+    }
+
+    await streamShutdownPromise;
+    const streamCloseMs = Math.round(performance.now() - streamCloseStart);
+
+    await clientShutdownPromise;
     const clientCloseMs = Math.round(performance.now() - clientCloseStart);
 
     customEventStreams.clear();

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import z from "zod";
-import { asText } from "../src/content/text";
-import { definePlatform } from "../src/platform/define";
-import type { ProviderMessageRecord } from "../src/platform/types";
-import { Spectrum } from "../src/spectrum";
+import { asText } from "./content/text";
+import { definePlatform } from "./platform/define";
+import type { ProviderMessageRecord } from "./platform/types";
+import { Spectrum } from "./spectrum";
 
 const STOP_TIMEOUT_MS = 1000;
 

@@ -75,3 +75,18 @@ export const getLocation = async (
   }
   return mapLocation(raw);
 };
+
+/**
+ * Fetch every friend currently sharing a Find My location with this account,
+ * mapping each SDK `SharedFriendLocation` to a spectrum `IMessageLocation`.
+ *
+ * Account-wide companion to `getLocation` (which targets a single 1:1 chat).
+ * Returns an empty array when nobody is sharing — unlike `getLocation`, there
+ * is no per-friend not-found case to map to `undefined`.
+ */
+export const getAllLocations = async (
+  remote: AdvancedIMessage
+): Promise<IMessageLocation[]> => {
+  const raw = await remote.locations.list();
+  return raw.map(mapLocation);
+};

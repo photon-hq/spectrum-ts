@@ -1,21 +1,24 @@
 # iMessage — shared location (`space.location()`)
 
 iMessage can share a contact's **Find My** location. Spectrum surfaces this as a
-pair of iMessage-only space actions:
+set of iMessage-only actions, at two levels:
 
-| Action | Direction | What it does |
-| --- | --- | --- |
-| `space.requestLocation()` | **send** | Drops a "share your location" Find My request card into the chat (fire-and-forget). |
-| `space.location()` | **read** | Fetches the friend's *currently shared* location and returns it. |
+| Action | Level | Direction | What it does |
+| --- | --- | --- | --- |
+| `space.requestLocation()` | space | **send** | Drops a "share your location" Find My request card into the chat (fire-and-forget). |
+| `space.location()` | space | **read** | Fetches *one* friend's *currently shared* location for a 1:1 chat. |
+| `imessage(app).getAllLocations()` | instance | **read** | Fetches *every* friend currently sharing a location with the account. |
 
-This page covers the **read** side. `location()` is a data-returning action: it
-calls the underlying `@photon-ai/advanced-imessage` `locations.get` and resolves
-the friend's latest known position, or `undefined` if they aren't sharing.
+This page covers the **read** side at both levels. `location()` calls the
+underlying `@photon-ai/advanced-imessage` `locations.get` for a single DM and
+resolves the friend's latest known position (or `undefined` if they aren't
+sharing); `getAllLocations()` calls `locations.list` and resolves *all* of them.
 
-> Both actions are **iMessage-only** and **1:1-only**, and require **remote**
-> iMessage (a real `@photon-ai/advanced-imessage` client). They are not part of
-> the universal `Content`/`Space` surface — reach them through the iMessage
-> projection (`imessage(space)`), which is where TypeScript knows they exist.
+> All three are **iMessage-only** and require **remote** iMessage (a real
+> `@photon-ai/advanced-imessage` client). They are not part of the universal
+> `Content`/`Space` surface — reach them through the iMessage projection, which
+> is where TypeScript knows they exist: the **space** actions via `imessage(space)`
+> (1:1 chats only), and the account-wide read via `imessage(app)`.
 
 ---
 
@@ -120,6 +123,63 @@ with the provider, space id, and routed phone.
 
 ---
 
+## Account-wide read — `imessage(app).getAllLocations()`
+
+`location()` answers "where is *this* friend?" for a single DM. Its instance-level
+companion answers "who is sharing with me *at all*?" — it lists every friend
+currently sharing a Find My location with the account in one call.
+
+Because it is account-wide rather than tied to a chat, it hangs off the **iMessage
+instance** (`imessage(app)` / `imessage(spectrum)`), not the space projection:
+
+```typescript
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID,
+  projectSecret: process.env.PROJECT_SECRET,
+  providers: [imessage.config({ /* … */ })],
+});
+
+// Every friend currently sharing — no chat needed.
+const locations = await imessage(app).getAllLocations();
+
+for (const loc of locations) {
+  console.log(`${loc.name ?? loc.address}: ${loc.shortAddress ?? "(resolving…)"}`);
+}
+```
+
+It resolves `Promise<IMessageLocation[]>` — the same per-friend shape as
+`location()`, just many of them — and returns an empty array when nobody is
+sharing (there is **no** `undefined` case). Use each entry's `address` field to map
+a result back to a contact or chat.
+
+### Multiple numbers
+
+`getAllLocations(phone?)` takes an optional phone to scope the lookup. Shared
+locations are per-account, so the no-arg form unions every configured number:
+
+| Mode | `getAllLocations()` | `getAllLocations(phone)` |
+| --- | --- | --- |
+| Single number / shared | lists that account | same (phone ignored in shared mode) |
+| Multiple numbers | **aggregates across every configured number** | lists just that number's account |
+
+A friend sharing with two of your numbers therefore appears once per number in the
+aggregated result.
+
+### Behavior & edge cases
+
+| Situation | Result |
+| --- | --- |
+| One or more friends sharing | resolves `IMessageLocation[]` |
+| Nobody sharing | resolves `[]` (never `undefined`) |
+| Coordinates not yet resolved | entries with `isLocatingInProgress: true` and absent lat/long |
+| **Local-mode** iMessage | throws `UnsupportedError` — requires remote iMessage |
+
+Unlike `location()` there is **no group/1:1 restriction** — it isn't tied to a chat
+at all. Each call is wrapped in a `spectrum.imessage.getAllLocations` telemetry span
+tagged with the provider and the routed phone (`"all"` when aggregating).
+
+---
+
 ## How it fits the framework
 
 `location()` is the first **data-returning space action**. Space actions used to
@@ -130,16 +190,27 @@ its return type is preserved on the public method. A side-effecting action that
 returns `Promise<void>` is unchanged; `location()` simply returns its data
 instead.
 
+`getAllLocations()` is the **instance-level** analog: it's a plain iMessage
+*instance action* (the same mechanism behind `imessage(app).getAttachment()`),
+declared in the provider's top-level `actions:` block. It receives an injected
+`{ client, config, store }` context — no `space`, since it isn't bound to one — and
+its `Promise<IMessageLocation[]>` return type flows straight through to the public
+method via `InstanceActionMethods`.
+
 ---
 
 ## Reference
 
-- `space.location()` action — `src/providers/imessage/index.ts`
-- Fetch + `IMessageLocation` type + mapper — `src/providers/imessage/remote/location.ts`
-- Remote API re-export — `src/providers/imessage/remote/api.ts`
+- `space.location()` action + `imessage(app).getAllLocations()` instance action —
+  `src/providers/imessage/index.ts`
+- Fetchers (`getLocation` / `getAllLocations`) + `IMessageLocation` type + mapper —
+  `src/providers/imessage/remote/location.ts`
+- Remote API re-exports — `src/providers/imessage/remote/api.ts`
 - Address resolution (`dmAddress` / `toChatGuid`) — `src/providers/imessage/remote/ids.ts`
 - Space-action mechanism (ctx injection, return-type preservation) —
   `buildSpace` in `src/platform/build.ts`, `SpaceActionFn` / `SpaceActionMethods`
   in `src/platform/types.ts`
-- Underlying SDK — `locations.get` in `@photon-ai/advanced-imessage`
+- Instance-action mechanism — `InstanceActionFn` / `InstanceActionMethods` in
+  `src/platform/types.ts`
+- Underlying SDK — `locations.get` / `locations.list` in `@photon-ai/advanced-imessage`
 - Request side — `space.requestLocation()` (Find My request card)

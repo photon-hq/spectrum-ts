@@ -13,6 +13,7 @@ import { setBackground as setRemoteBackground } from "./background";
 import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
 import {
+  getAllLocations as getRemoteAllLocations,
   getLocation as getRemoteLocation,
   type IMessageLocation,
 } from "./location";
@@ -51,6 +52,10 @@ export const getLocation = async (
   remote: AdvancedIMessage,
   spaceId: string
 ): Promise<IMessageLocation | undefined> => getRemoteLocation(remote, spaceId);
+
+export const getAllLocations = async (
+  remote: AdvancedIMessage
+): Promise<IMessageLocation[]> => getRemoteAllLocations(remote);
 
 export const sendCustomizedMiniApp = async (
   remote: AdvancedIMessage,

@@ -47,6 +47,7 @@ import {
 } from "./local/api";
 import {
   editMessage as remoteEditMessage,
+  getAllLocations as remoteGetAllLocations,
   getLocation as remoteGetLocation,
   getMessage as remoteGetMessage,
   markRead as remoteMarkRead,
@@ -553,6 +554,56 @@ export const imessage = definePlatform("iMessage", {
           "spectrum.imessage.phone": routedPhone,
         },
         () => getRemoteAttachment(remote, guid)
+      );
+    },
+    // Fetch every friend currently sharing a Find My location with the
+    // account — the account-wide companion to the 1:1 `space.location()`.
+    // In multi-phone mode, omit `phone` to aggregate across all configured
+    // numbers, or pass one to scope to a single account. Returns an empty
+    // array when nobody is sharing. Local-mode iMessage is not supported.
+    getAllLocations: async (
+      { client }: { client: IMessageClient },
+      phone?: string
+    ): Promise<IMessageLocation[]> => {
+      if (isLocal(client)) {
+        throw UnsupportedError.action(
+          "getAllLocations",
+          "iMessage (local mode)",
+          "fetching shared locations requires remote iMessage"
+        );
+      }
+      if (client.length === 0) {
+        throw new Error("No iMessage clients configured");
+      }
+      // Which accounts to query: one routed account, or all of them when no
+      // phone is given in multi-phone mode (`list()` is well-defined per
+      // account, so the union is just a flatten).
+      const targets = ((): string[] => {
+        if (isSharedMode(client)) {
+          return [SHARED_PHONE];
+        }
+        if (phone) {
+          return [phone];
+        }
+        if (client.length === 1) {
+          // biome-ignore lint/style/noNonNullAssertion: length checked above
+          return [client[0]!.phone];
+        }
+        return availablePhones(client);
+      })();
+      const phoneTag = (targets.length === 1 ? targets[0] : "all") ?? "all";
+      return withSpan(
+        "spectrum.imessage.getAllLocations",
+        {
+          "spectrum.provider": "iMessage",
+          "spectrum.imessage.phone": phoneTag,
+        },
+        async () => {
+          const lists = await Promise.all(
+            targets.map((p) => remoteGetAllLocations(clientForPhone(client, p)))
+          );
+          return lists.flat();
+        }
       );
     },
   },

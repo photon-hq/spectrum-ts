@@ -8,14 +8,41 @@ const VCARD_FILENAME = "contact.vcf";
 const VCARD_MIME = "text/vcard";
 const DEFAULT_VOICE_FILENAME = "voice.ogg";
 
+/**
+ * Telegram message ids are positive integers. Reject anything else up front so a
+ * malformed `target.id` surfaces a clear error here instead of being coerced to
+ * `NaN` and sent on to the Bot API as a confusing 400.
+ */
+export const parseMessageId = (id: string): number => {
+  const messageId = Number(id);
+  if (!Number.isInteger(messageId) || messageId <= 0) {
+    throw new Error(
+      `Telegram message id must be a positive integer (got "${id}").`
+    );
+  }
+  return messageId;
+};
+
 const customToSpec = (raw: unknown): TelegramSendSpec => {
   if (
     typeof raw === "object" &&
     raw !== null &&
     typeof (raw as { method?: unknown }).method === "string"
   ) {
-    const value = raw as { method: string; params?: Record<string, unknown> };
-    return { method: value.method, params: value.params ?? {} };
+    const value = raw as { method: string; params?: unknown };
+    const { params } = value;
+    if (
+      params !== undefined &&
+      (typeof params !== "object" || params === null || Array.isArray(params))
+    ) {
+      throw new Error(
+        "Telegram custom content `raw.params` must be an object when provided."
+      );
+    }
+    return {
+      method: value.method,
+      params: (params ?? {}) as Record<string, unknown>,
+    };
   }
   throw new Error(
     "Telegram custom content `raw` must be a `{ method, params }` Bot API call."
@@ -103,7 +130,7 @@ export const buildSend = async (
         ...inner,
         params: {
           ...inner.params,
-          reply_parameters: { message_id: Number(content.target.id) },
+          reply_parameters: { message_id: parseMessageId(content.target.id) },
         },
       };
     }

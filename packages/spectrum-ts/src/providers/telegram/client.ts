@@ -1,5 +1,5 @@
 import { botIdFromToken, type TelegramConfig } from "./config";
-import type { SentMessage, TelegramSendSpec } from "./types";
+import type { TelegramSendSpec } from "./types";
 
 const CLIENT_STORE_KEY = "telegram.client";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -22,7 +22,7 @@ export interface TelegramClient {
   /** The bot's own numeric id (token prefix), used to drop self-authored updates. */
   readonly botId: string;
   /** Execute one Bot API method and return its unwrapped `result`. */
-  call<T = SentMessage>(spec: TelegramSendSpec): Promise<T>;
+  call<T = unknown>(spec: TelegramSendSpec): Promise<T>;
   /** Fetch a file's bytes by `file_id` (`getFile` → token URL → bytes). */
   download(fileId: string): Promise<Buffer>;
 }
@@ -57,7 +57,7 @@ const makeTelegramClient = (config: TelegramConfig): TelegramClient => {
   const base = config.baseUrl.replace(TRAILING_SLASHES, "");
   const token = config.botToken;
 
-  const call = async <T = SentMessage>(spec: TelegramSendSpec): Promise<T> => {
+  const call = async <T = unknown>(spec: TelegramSendSpec): Promise<T> => {
     const { body, headers } = buildBody(spec);
     const res = await fetch(`${base}/bot${token}/${spec.method}`, {
       method: "POST",
@@ -65,11 +65,22 @@ const makeTelegramClient = (config: TelegramConfig): TelegramClient => {
       body,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    const json = (await res.json()) as BotApiResponse<T>;
-    if (!json.ok) {
-      // Never include the URL (it carries the bot token) in errors.
+    // Read the body as text first: an upstream proxy (or a custom `baseUrl`
+    // test server) can return a non-JSON error page, and an unguarded
+    // `res.json()` would throw an opaque parse error that hides the method and
+    // status. Never include the URL (it carries the bot token) in errors.
+    const raw = await res.text();
+    let json: BotApiResponse<T> | undefined;
+    try {
+      json = raw ? (JSON.parse(raw) as BotApiResponse<T>) : undefined;
+    } catch {
       throw new Error(
-        `Telegram ${spec.method} failed: ${json.error_code ?? res.status} ${json.description ?? res.statusText}`
+        `Telegram ${spec.method} failed: ${res.status} ${res.statusText}`
+      );
+    }
+    if (!json?.ok) {
+      throw new Error(
+        `Telegram ${spec.method} failed: ${json?.error_code ?? res.status} ${json?.description ?? res.statusText}`
       );
     }
     return json.result as T;

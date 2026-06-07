@@ -20,17 +20,12 @@ const target = {
   content: { type: "text", text: "x" },
 } as unknown as Message;
 
-const setup = (opts?: { callThrows?: boolean }) => {
+const setup = () => {
   const calls: TelegramSendSpec[] = [];
   const client: TelegramClient = {
     botId: "1",
     call: <T = SentMessage>(spec: TelegramSendSpec): Promise<T> => {
       calls.push(spec);
-      if (opts?.callThrows) {
-        return Promise.reject(
-          new Error("Telegram setMessageReaction failed: 400 REACTION_INVALID")
-        );
-      }
       return Promise.resolve({ message_id: 555, date: TS_SEC } as unknown as T);
     },
     download: () => Promise.resolve(Buffer.alloc(0)),
@@ -169,8 +164,8 @@ describe("send — fire-and-forget", () => {
     });
   });
 
-  it("rewraps an invalid reaction emoji as an UnsupportedError", async () => {
-    const { store } = setup({ callThrows: true });
+  it("rejects an invalid reaction emoji without calling the API", async () => {
+    const { calls, store } = setup();
     await expect(
       send({
         space,
@@ -179,6 +174,7 @@ describe("send — fire-and-forget", () => {
         store,
       })
     ).rejects.toThrow("not an allowed");
+    expect(calls).toHaveLength(0);
   });
 
   it("starts a typing action; stop is a no-op", async () => {

@@ -25,9 +25,18 @@ export const DEFAULT_BASE_URL = "https://api.telegram.org";
  */
 const SECRET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 
+/**
+ * Bot tokens are `<numeric_id>:<auth_token>`. Validating the shape fails fast on
+ * a malformed token instead of silently deriving a bad `botId` (token prefix)
+ * and Bot API URLs from it.
+ */
+const BOT_TOKEN_PATTERN = /^\d+:[A-Za-z0-9_-]+$/;
+
 export const configSchema = z.object({
   /** Bot token from @BotFather (outbound API calls + media downloads). */
-  botToken: z.string().min(1),
+  botToken: z
+    .string()
+    .regex(BOT_TOKEN_PATTERN, "botToken must be in the form '<id>:<token>'"),
   /**
    * The `secret_token` passed to `setWebhook`. When present, inbound webhooks
    * are verified against the `X-Telegram-Bot-Api-Secret-Token` header; when

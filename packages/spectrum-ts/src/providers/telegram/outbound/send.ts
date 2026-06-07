@@ -8,7 +8,7 @@ import { TELEGRAM_PLATFORM, type TelegramConfig } from "../config";
 import { isAllowedReactionEmoji, normalizeReactionEmoji } from "../reactions";
 import type { TelegramSpace } from "../space";
 import type { SentMessage } from "../types";
-import { buildSend } from "./message";
+import { buildSend, parseMessageId } from "./message";
 
 const MILLIS_PER_SECOND = 1000;
 
@@ -58,27 +58,26 @@ const sendReaction = async (
   space: TelegramSpace,
   content: Reaction
 ): Promise<undefined> => {
-  try {
-    await client.call({
-      method: "setMessageReaction",
-      params: {
-        chat_id: space.id,
-        message_id: Number(content.target.id),
-        reaction: [
-          { type: "emoji", emoji: normalizeReactionEmoji(content.emoji) },
-        ],
-      },
-    });
-  } catch (err) {
-    if (!isAllowedReactionEmoji(content.emoji)) {
-      throw UnsupportedError.content(
-        "reaction",
-        TELEGRAM_PLATFORM,
-        `"${content.emoji}" is not an allowed Telegram reaction emoji.`
-      );
-    }
-    throw err;
+  const messageId = parseMessageId(content.target.id);
+  const emoji = normalizeReactionEmoji(content.emoji);
+  // Validate before calling: setMessageReaction only accepts a fixed emoji set
+  // in non-premium chats. Checking up front gives a clear error and avoids
+  // mis-attributing an unrelated API failure (network, rate limit) to the emoji.
+  if (!isAllowedReactionEmoji(emoji)) {
+    throw UnsupportedError.content(
+      "reaction",
+      TELEGRAM_PLATFORM,
+      `"${content.emoji}" is not an allowed Telegram reaction emoji.`
+    );
   }
+  await client.call({
+    method: "setMessageReaction",
+    params: {
+      chat_id: space.id,
+      message_id: messageId,
+      reaction: [{ type: "emoji", emoji }],
+    },
+  });
   return;
 };
 
@@ -113,7 +112,7 @@ const sendEdit = async (
     method: "editMessageText",
     params: {
       chat_id: space.id,
-      message_id: Number(content.target.id),
+      message_id: parseMessageId(content.target.id),
       text: content.content.text,
     },
   });

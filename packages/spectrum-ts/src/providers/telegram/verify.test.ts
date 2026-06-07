@@ -80,4 +80,10 @@ describe("makeVerify", () => {
       verifyWith()(request(JSON.stringify({ message: {} }), {}))
     ).toThrow("update_id");
   });
+
+  it("rejects a payload with a non-numeric update_id", () => {
+    expect(() =>
+      verifyWith()(request(JSON.stringify({ update_id: "1" }), {}))
+    ).toThrow("update_id");
+  });
 });

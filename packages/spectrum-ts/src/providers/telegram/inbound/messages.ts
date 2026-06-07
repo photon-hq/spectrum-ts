@@ -95,9 +95,12 @@ const fromReaction = (
     String(reaction.message_id),
     asCustom({ telegram: "reaction-target" })
   );
-  // Telegram has no event id for reactions, so synthesize a stable one.
+  // Telegram has no event id for reactions, so synthesize a stable one. Include
+  // the actor and emoji so distinct users (or emoji) reacting to the same
+  // message within the same second don't collide on a shared id.
+  const actorId = reaction.user ? String(reaction.user.id) : "anonymous";
   return {
-    id: `reaction:${reaction.chat.id}:${reaction.message_id}:${reaction.date}`,
+    id: `reaction:${reaction.chat.id}:${reaction.message_id}:${reaction.date}:${actorId}:${emoji}`,
     content: asReaction({ emoji, target }),
     ...(reaction.user ? { sender: senderRef(reaction.user) } : {}),
     space: { id: String(reaction.chat.id) },

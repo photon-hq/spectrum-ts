@@ -256,8 +256,11 @@ export interface PlatformDef<
     | (Record<
         string,
         // Regular platforms supply a producer; fusor platforms declare a Zod
-        // schema (the channel payload type) and emit via `fusorEvent(...)`.
-        EventProducer<unknown, _Client, z.infer<_ConfigSchema>> | z.ZodType
+        // schema (the channel payload type) and emit via `fusorEvent(...)`. The
+        // schema must produce an object — event payloads are spread with a
+        // `platform` tag, so non-object outputs (e.g. `z.string()`) are invalid.
+        | EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
+        | z.ZodType<object>
       > & { messages?: never })
     | undefined = undefined,
   _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,
@@ -441,10 +444,11 @@ export interface AnyPlatformDef {
   config: z.ZodType<object>;
 
   // Optional escape hatches. A channel is either a producer (regular platforms)
-  // or a Zod schema declaring the payload of a fusor `fusorEvent(...)` channel.
+  // or an object-output Zod schema declaring the payload of a fusor
+  // `fusorEvent(...)` channel.
   events?: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard event
-    [key: string]: ((ctx: any) => AsyncIterable<any>) | z.ZodType;
+    [key: string]: ((ctx: any) => AsyncIterable<any>) | z.ZodType<object>;
   };
 
   lifecycle: {
@@ -801,6 +805,10 @@ export interface PlatformRuntime {
   client: unknown;
   config: unknown;
   definition: AnyPlatformDef;
+  // Spectrum Cloud project metadata, so instance-level event producers receive
+  // the same `{ client, config, projectConfig, store }` context as the
+  // top-level `spectrum.<event>` streams (the `EventProducer` contract).
+  projectConfig: ProjectData | undefined;
   store: Store;
   // Fanout subscription to a fusor custom event channel (declared as a schema
   // under `events`). Returns `undefined` when the platform has no such channel

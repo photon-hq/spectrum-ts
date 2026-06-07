@@ -3,6 +3,7 @@ import type z from "zod";
 import type { FusorClient, FusorMessages } from "../fusor/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import type { ProjectData } from "../utils/cloud";
 import { UnsupportedError } from "../utils/errors";
 import { classifyIdentifier as classifySingle } from "../utils/identifier";
 import type { Store } from "../utils/store";
@@ -252,15 +253,19 @@ function createPlatformInstance<
   for (const eventName of Object.keys(customEvents)) {
     const declared = customEvents[eventName];
     if (typeof declared === "function") {
-      // Regular platform: a producer driven by the long-lived client.
+      // Regular platform: a producer driven by the long-lived client. Pass the
+      // full EventProducer context (incl. projectConfig) so an instance-level
+      // `platform.<event>` matches the top-level `spectrum.<event>` stream.
       const producer = declared as (ctx: {
         client: unknown;
         config: unknown;
+        projectConfig: ProjectData | undefined;
         store: Store;
       }) => AsyncIterable<unknown>;
       eventProperties[eventName] = producer({
         client: runtime.client,
         config: runtime.config,
+        projectConfig: runtime.projectConfig,
         store: runtime.store,
       });
       continue;
@@ -442,7 +447,7 @@ export function definePlatform<
   // channel name. Surfaced as `spectrum.<channel>` and emitted from `messages`
   // via `fusorEvent(channel, data)`. (`messages` is reserved — the core stream.)
   _FusorEvents extends
-    | (Record<string, z.ZodType> & { messages?: never })
+    | (Record<string, z.ZodType<object>> & { messages?: never })
     | undefined = undefined,
   _Static extends Record<string, unknown> = Record<never, never>,
   _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,

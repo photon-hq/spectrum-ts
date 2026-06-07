@@ -473,6 +473,7 @@ export async function Spectrum<
 
         platformStates.set(def.name, {
           ...state,
+          projectConfig,
           subscribeMessages: () =>
             getOrCreateMessageBroadcast(state).subscribe(),
           // Fanout subscription to a fusor event channel. Returns undefined for

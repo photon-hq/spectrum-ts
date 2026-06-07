@@ -8,13 +8,14 @@ import { type Channel, createChannel, createClient } from "nice-grpc";
 import { ClientError, Metadata, Status } from "nice-grpc-common";
 import type { ProviderMessageRecord } from "../platform/types";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
+import { FUSOR_MESSAGES_CHANNEL, isFusorEvent } from "./event";
 import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
 import {
   EventsServiceDefinition,
   type SubscribeRequest,
   type SubscribeResponse,
 } from "./service";
-import type { FusorReply, FusorVerify } from "./types";
+import type { FusorMessagesReturn, FusorReply, FusorVerify } from "./types";
 
 const DEFAULT_FUSOR_GRPC_URL = "fusor.spectrum.photon.codes:443";
 const RECONNECT_BASE_MS = 1000;
@@ -32,11 +33,10 @@ export interface RegisteredFusorHandler<TPayload = unknown> {
   messages: (ctx: {
     payload: TPayload;
     respond: (reply: FusorReply) => void;
-  }) =>
-    | ProviderMessageRecord
-    | ProviderMessageRecord[]
-    | undefined
-    | Promise<ProviderMessageRecord | ProviderMessageRecord[] | undefined>;
+  }) => FusorMessagesReturn | Promise<FusorMessagesReturn>;
+  // Route a `fusorEvent(channel, data)` to its custom event channel. Wired by
+  // the Spectrum bootstrap to the per-(platform, channel) queue.
+  pushEvent: (channel: string, data: unknown) => void;
   pushMessage: (record: ProviderMessageRecord) => void;
   verify: FusorVerify<TPayload>;
 }
@@ -166,6 +166,32 @@ function combineReplies(outcomes: HandlerOutcome[]): InboundReply {
   };
 }
 
+// Route a handler's return value. A bare record (or `fusorEvent("messages", …)`)
+// goes to the message sink (`deliver`, which the webhook path overrides);
+// `fusorEvent(channel, …)` goes to its per-channel queue via `pushEvent` —
+// always, on both transports, since the webhook handler is messages-only.
+function routeHandlerResult(
+  result: FusorMessagesReturn,
+  handler: RegisteredFusorHandler,
+  deliver: (record: ProviderMessageRecord) => void
+): void {
+  if (result === undefined) {
+    return;
+  }
+  const items = Array.isArray(result) ? result : [result];
+  for (const item of items) {
+    if (!isFusorEvent(item)) {
+      deliver(item);
+      continue;
+    }
+    if (item.name === FUSOR_MESSAGES_CHANNEL) {
+      deliver(item.data as ProviderMessageRecord);
+    } else {
+      handler.pushEvent(item.name, item.data);
+    }
+  }
+}
+
 function runHandlerOnce<TPayload>(
   handler: RegisteredFusorHandler<TPayload>,
   parsedRequest: ParsedHttpRequest,
@@ -191,12 +217,7 @@ function runHandlerOnce<TPayload>(
       const result = await handler.messages({ payload, respond });
       returned = true;
 
-      if (result !== undefined) {
-        const records = Array.isArray(result) ? result : [result];
-        for (const record of records) {
-          deliver(record);
-        }
-      }
+      routeHandlerResult(result, handler as RegisteredFusorHandler, deliver);
       return { ok: true, reply };
     } catch (error) {
       const errorReason =

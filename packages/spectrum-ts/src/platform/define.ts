@@ -1,6 +1,5 @@
 import { withSpan } from "@photon-ai/otel";
 import type z from "zod";
-import type { Content } from "../content/types";
 import type { FusorClient, FusorMessages } from "../fusor/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
@@ -28,7 +27,6 @@ import type {
   PlatformUser,
   PlatformWiseActionKey,
   ProviderMessage,
-  ProviderMessageRecord,
   SpaceActionFn,
   SpectrumLike,
 } from "./types";
@@ -252,19 +250,27 @@ function createPlatformInstance<
   const eventProperties: Record<string, AsyncIterable<unknown>> = {};
   const customEvents = def.events ?? {};
   for (const eventName of Object.keys(customEvents)) {
-    const producer = customEvents[eventName] as
-      | ((ctx: {
-          client: unknown;
-          config: unknown;
-          store: Store;
-        }) => AsyncIterable<unknown>)
-      | undefined;
-    if (producer) {
+    const declared = customEvents[eventName];
+    if (typeof declared === "function") {
+      // Regular platform: a producer driven by the long-lived client.
+      const producer = declared as (ctx: {
+        client: unknown;
+        config: unknown;
+        store: Store;
+      }) => AsyncIterable<unknown>;
       eventProperties[eventName] = producer({
         client: runtime.client,
         config: runtime.config,
         store: runtime.store,
       });
+      continue;
+    }
+    // Fusor platform: the channel is a Zod schema; its data arrives via the
+    // `messages` handler returning `fusorEvent(eventName, data)`, buffered on a
+    // per-channel queue that the runtime exposes as a fanout subscription.
+    const fusorEvents = runtime.subscribeEvent?.(eventName);
+    if (fusorEvents) {
+      eventProperties[eventName] = fusorEvents;
     }
   }
 
@@ -311,6 +317,30 @@ function createPlatformInstance<
   ) as PlatformInstance<Def>;
 }
 
+// `definePlatform` has two call shapes, expressed as overloads:
+//
+// 1. **Fusor mode** — `lifecycle.createClient` returns `fusor(name, verify)`
+//    (a branded `FusorClient<TPayload>`). There is no long-lived SDK client;
+//    `messages` runs once per inbound webhook against an already-verified
+//    payload, returning the message(s) to emit on `spectrum.messages` (and
+//    optionally calling `respond(reply)` to shape the HTTP reply to fusor).
+// 2. **Regular mode** — `createClient` returns a normal SDK client and
+//    `messages` is a long-lived `EventProducer` (async-iterable) stream.
+//
+// Overloads (not one conditional signature): switching `messages`'s shape on
+// the resolved `_Client` via a conditional type breaks TS contextual typing of
+// `({ client, config })` for regular providers — the conditional collapses to
+// `unknown` before `_Client` resolves. Two concrete signatures sidestep that.
+//
+// The REGULAR overload is listed first. Overload resolution defers
+// context-sensitive (unannotated-param) arrows during applicability, so a def
+// whose `createClient` and `messages` are both inline arrows — every regular
+// provider — matches the first applicable overload (regular). A fusor provider
+// opts in by giving `messages` a typed `FusorMessages` reference (e.g.
+// telegram's `handleMessages`): that's non-context-sensitive, checked in pass 1,
+// so it rejects the regular overload and selects the fusor one. The fusor input
+// reuses `PlatformDef` with `_Client = FusorClient<_TPayload>` (which fixes
+// every client position), overriding only `lifecycle`/`messages`.
 export function definePlatform<
   _Name extends string,
   _ConfigSchema extends z.ZodType<object>,
@@ -396,25 +426,105 @@ export function definePlatform<
     _Actions
   >
 > &
-  Readonly<_Static> {
-  type Def = PlatformDef<
+  Readonly<_Static>;
+
+export function definePlatform<
+  _Name extends string,
+  _ConfigSchema extends z.ZodType<object>,
+  _UserSchema extends z.ZodType<object> | undefined,
+  _SpaceSchema extends z.ZodType<object> | undefined,
+  _SpaceParamsSchema extends z.ZodType<object> | undefined,
+  _TPayload,
+  _ResolvedUser extends { id: string },
+  _ResolvedSpace extends { id: string },
+  _MessageSchema extends z.ZodType<object> | undefined = undefined,
+  // Fusor custom event channels: each value is a Zod schema; the key is the
+  // channel name. Surfaced as `spectrum.<channel>` and emitted from `messages`
+  // via `fusorEvent(channel, data)`. (`messages` is reserved — the core stream.)
+  _FusorEvents extends
+    | (Record<string, z.ZodType> & { messages?: never })
+    | undefined = undefined,
+  _Static extends Record<string, unknown> = Record<never, never>,
+  _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,
+  _MessageActions extends Record<string, MessageActionFn> = Record<
+    never,
+    never
+  >,
+>(
+  name: _Name,
+  def: Omit<
+    PlatformDef<
+      _Name,
+      _ConfigSchema,
+      _UserSchema,
+      _SpaceSchema,
+      _SpaceParamsSchema,
+      FusorClient<_TPayload>,
+      _ResolvedUser,
+      _ResolvedSpace,
+      _MessageSchema,
+      ProviderMessage<
+        _ResolvedUser,
+        _ResolvedSpace,
+        _MessageSchema extends z.ZodType<object>
+          ? z.infer<_MessageSchema>
+          : Record<never, never>
+      >,
+      _FusorEvents,
+      _SpaceActions,
+      _MessageActions
+    >,
+    "lifecycle" | "name" | "messages"
+  > & {
+    lifecycle: {
+      createClient: (
+        ctx: CreateClientContext<_ConfigSchema>
+      ) => Promise<FusorClient<_TPayload>>;
+      destroyClient?: (ctx: {
+        client: FusorClient<_TPayload>;
+        store: Store;
+      }) => Promise<void>;
+    };
+    messages: FusorMessages<_TPayload>;
+    static?: _Static;
+  }
+): Platform<
+  PlatformDef<
     _Name,
     _ConfigSchema,
     _UserSchema,
     _SpaceSchema,
     _SpaceParamsSchema,
-    _Client,
+    FusorClient<_TPayload>,
     _ResolvedUser,
     _ResolvedSpace,
     _MessageSchema,
-    _MessageType,
-    _Events,
+    ProviderMessage<
+      _ResolvedUser,
+      _ResolvedSpace,
+      _MessageSchema extends z.ZodType<object>
+        ? z.infer<_MessageSchema>
+        : Record<never, never>
+    >,
+    _FusorEvents,
     _SpaceActions,
-    _MessageActions,
-    _Actions
-  >;
+    _MessageActions
+  >
+> &
+  Readonly<_Static>;
 
-  const fullDef = { name, ...def };
+// Implementation signature — intentionally loose so both overloads above are
+// assignable to it. Callers only ever see the overloads; the body erases to
+// `AnyPlatformDef` and the overload return types restore precision at the call
+// site. The runtime is identical for both modes: fusor's `messages`/`events`
+// are read off `__definition` by FusorCore, never invoked here.
+export function definePlatform(name: string, rawDef: unknown): unknown {
+  const def = rawDef as AnyPlatformDef & {
+    static?: Record<string, unknown>;
+  };
+  type Def = AnyPlatformDef;
+
+  const fullDef = { ...def, name };
 
   const platformCache = new WeakMap<SpectrumLike, PlatformInstance<Def>>();
 
@@ -429,7 +539,7 @@ export function definePlatform<
       throw new Error(`Platform "${name}" is not registered`);
     }
 
-    const instance = createPlatformInstance<Def, _Client, _ConfigSchema>(
+    const instance = createPlatformInstance<Def, unknown, z.ZodType<object>>(
       fullDef as Def & AnyPlatformDef,
       runtime
     );
@@ -468,7 +578,7 @@ export function definePlatform<
     throw new Error("Invalid input to platform narrowing function");
   }) as Platform<Def>;
 
-  narrower.config = (config?: z.input<_ConfigSchema>) => {
+  narrower.config = (config?: unknown) => {
     const resolvedConfig = config ?? {};
     return {
       __tag: "PlatformProviderConfig" as const,
@@ -496,158 +606,5 @@ export function definePlatform<
     Object.assign(narrower, def.static);
   }
 
-  return narrower as Platform<Def> & Readonly<_Static>;
-}
-
-// ---------------------------------------------------------------------------
-// defineFusorPlatform — fusor-mode entrypoint
-// ---------------------------------------------------------------------------
-//
-// Sibling to `definePlatform` for webhook-driven platforms whose
-// `lifecycle.createClient` returns `fusor(platform, verify)`. In fusor mode
-// there is no long-lived SDK client to talk to, and the `messages` callback
-// runs once per inbound webhook against an already-verified payload — its
-// return value becomes the message(s) emitted on `spectrum.messages`, and an
-// optional `respond(reply)` call customises the HTTP-shaped response sent
-// back to fusor.
-//
-// Why a separate function (instead of overloading `definePlatform`):
-// switching `messages`'s shape based on the resolved type of `_Client` via a
-// conditional type breaks TS contextual typing of the `({ client, config })`
-// parameter for non-fusor providers (Slack/iMessage `_Client` is a union or
-// branded type; the conditional collapses to `unknown` before `_Client`
-// resolves). Keeping the two entrypoints separate sidesteps the inference
-// race and gives each call site clean parameter types.
-export function defineFusorPlatform<
-  _Name extends string,
-  _ConfigSchema extends z.ZodType<object>,
-  _UserSchema extends z.ZodType<object> | undefined,
-  _SpaceSchema extends z.ZodType<object> | undefined,
-  _SpaceParamsSchema extends z.ZodType<object> | undefined,
-  _TPayload,
-  _ResolvedUser extends { id: string },
-  _ResolvedSpace extends { id: string },
-  _MessageSchema extends z.ZodType<object> | undefined = undefined,
-  _Static extends Record<string, unknown> = Record<never, never>,
-  _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,
-  _MessageActions extends Record<string, MessageActionFn> = Record<
-    never,
-    never
-  >,
->(
-  name: _Name,
-  def: {
-    config: _ConfigSchema;
-    lifecycle: {
-      createClient: (
-        ctx: CreateClientContext<_ConfigSchema>
-      ) => Promise<FusorClient<_TPayload>>;
-      destroyClient?: (ctx: {
-        client: FusorClient<_TPayload>;
-        store: Store;
-      }) => Promise<void>;
-    };
-    user: {
-      schema?: _UserSchema;
-      resolve: (_: {
-        input: { userID: string };
-        client: FusorClient<_TPayload>;
-        config: z.infer<_ConfigSchema>;
-        store: Store;
-      }) => Promise<_ResolvedUser>;
-    };
-    space: {
-      schema?: _SpaceSchema;
-      params?: _SpaceParamsSchema;
-      resolve: (_: {
-        input: {
-          users: (_ResolvedUser & { __platform: _Name })[];
-          params?: _SpaceParamsSchema extends z.ZodType<object>
-            ? z.infer<_SpaceParamsSchema>
-            : undefined;
-        };
-        client: FusorClient<_TPayload>;
-        config: z.infer<_ConfigSchema>;
-        store: Store;
-      }) => Promise<_ResolvedSpace>;
-      actions?: _SpaceActions;
-    };
-    message?: {
-      schema?: _MessageSchema;
-      actions?: _MessageActions;
-    };
-    messages: FusorMessages<_TPayload>;
-    send: (_: {
-      space: _ResolvedSpace & { id: string; __platform: _Name };
-      content: Content;
-      client: FusorClient<_TPayload>;
-      config: z.infer<_ConfigSchema>;
-      store: Store;
-    }) => Promise<ProviderMessageRecord | undefined>;
-    actions?: {
-      getMessage?: (_: {
-        space: _ResolvedSpace & { id: string; __platform: _Name };
-        messageId: string;
-        client: FusorClient<_TPayload>;
-        config: z.infer<_ConfigSchema>;
-        store: Store;
-      }) => Promise<unknown>;
-    };
-    static?: _Static;
-  }
-): Platform<
-  PlatformDef<
-    _Name,
-    _ConfigSchema,
-    _UserSchema,
-    _SpaceSchema,
-    _SpaceParamsSchema,
-    FusorClient<_TPayload>,
-    _ResolvedUser,
-    _ResolvedSpace,
-    _MessageSchema,
-    ProviderMessage<
-      _ResolvedUser,
-      _ResolvedSpace,
-      _MessageSchema extends z.ZodType<object>
-        ? z.infer<_MessageSchema>
-        : Record<never, never>
-    >,
-    undefined,
-    _SpaceActions,
-    _MessageActions
-  >
-> &
-  Readonly<_Static> {
-  // `messages` is typed as `FusorMessages<TPayload>` at the call-site, but the
-  // stored PlatformDef shape uses the unified `EventProducer<...>` type.
-  // FusorCore reads `messages` directly off `__definition` at runtime and
-  // invokes it with `{ payload, respond }`, so the cast is safe.
-  return definePlatform(
-    name,
-    def as unknown as Parameters<typeof definePlatform>[1]
-  ) as unknown as Platform<
-    PlatformDef<
-      _Name,
-      _ConfigSchema,
-      _UserSchema,
-      _SpaceSchema,
-      _SpaceParamsSchema,
-      FusorClient<_TPayload>,
-      _ResolvedUser,
-      _ResolvedSpace,
-      _MessageSchema,
-      ProviderMessage<
-        _ResolvedUser,
-        _ResolvedSpace,
-        _MessageSchema extends z.ZodType<object>
-          ? z.infer<_MessageSchema>
-          : Record<never, never>
-      >,
-      undefined,
-      _SpaceActions,
-      _MessageActions
-    >
-  > &
-    Readonly<_Static>;
+  return narrower as Platform<Def> & Record<string, unknown>;
 }

@@ -255,6 +255,14 @@ export async function Spectrum<
   // Per-platform message broadcasters (lazy: created on first subscribe).
   const messageBroadcasters = new Map<string, Broadcaster<[Space, Message]>>();
 
+  // Per-(platform, channel) fusor event queues (populated for fusor platforms
+  // that declare `events`). Fed by a `messages` handler returning
+  // `fusorEvent(channel, data)`; drained as `spectrum.<channel>`.
+  const fusorEventSources = new Map<string, Map<string, AsyncQueue<unknown>>>();
+
+  // Per-(platform, channel) event broadcasters (lazy: created on first subscribe).
+  const eventBroadcasters = new Map<string, Broadcaster<unknown>>();
+
   // Custom event streams keyed by event name
   const customEventStreams = new Map<string, ManagedStream<unknown>>();
 
@@ -399,6 +407,33 @@ export async function Spectrum<
     return broadcaster;
   };
 
+  // Broadcast a fusor platform's per-channel event queue so both the
+  // spectrum-level `spectrum.<channel>` stream and the instance-level
+  // `platform.<channel>` property can consume it independently. Returns
+  // undefined when the platform declared no such channel (every regular
+  // platform), so callers fall back to the producer path.
+  const getOrCreateEventBroadcast = (
+    platform: string,
+    channel: string
+  ): Broadcaster<unknown> | undefined => {
+    const queue = fusorEventSources.get(platform)?.get(channel);
+    if (!queue) {
+      return;
+    }
+    if (stopped) {
+      throw new Error(
+        `Spectrum instance has been stopped; cannot subscribe to "${platform}" event "${channel}"`
+      );
+    }
+    const key = `${platform} ${channel}`;
+    let broadcaster = eventBroadcasters.get(key);
+    if (!broadcaster) {
+      broadcaster = broadcast(adaptIterable(queue.iterable));
+      eventBroadcasters.set(key, broadcaster);
+    }
+    return broadcaster;
+  };
+
   // Initialize all provider clients eagerly. Each runtime exposes
   // `subscribeMessages()` that returns a fresh fanout consumer of the
   // platform's single upstream message stream.
@@ -440,6 +475,12 @@ export async function Spectrum<
           ...state,
           subscribeMessages: () =>
             getOrCreateMessageBroadcast(state).subscribe(),
+          // Fanout subscription to a fusor event channel. Returns undefined for
+          // regular platforms (no per-channel queue) — callers fall back to the
+          // producer path. Resolved lazily, after the fusor bootstrap below has
+          // created the per-(platform, channel) queues.
+          subscribeEvent: (channel: string) =>
+            getOrCreateEventBroadcast(def.name, channel)?.subscribe(),
         });
       }
     }
@@ -472,6 +513,20 @@ export async function Spectrum<
       const userMessages = runtime.definition
         .messages as unknown as FusorMessages<unknown>;
 
+      // One queue per declared event channel (schema-valued `events` keys).
+      // `pushEvent` routes a `fusorEvent(channel, data)` here; an undeclared
+      // channel (a typo in the handler) is warned and dropped rather than
+      // silently lost.
+      const declaredEvents = (runtime.definition.events ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const eventQueues = new Map<string, AsyncQueue<unknown>>();
+      for (const channel of Object.keys(declaredEvents)) {
+        eventQueues.set(channel, createAsyncQueue<unknown>());
+      }
+      fusorEventSources.set(name, eventQueues);
+
       const handler: RegisteredFusorHandler = {
         verify: client.verify,
         messages: async (ctx: {
@@ -479,6 +534,17 @@ export async function Spectrum<
           respond: (reply: FusorReply) => void;
         }): Promise<FusorMessagesReturn> => userMessages(ctx),
         pushMessage: (record) => queue.push(record),
+        pushEvent: (channel, data) => {
+          const eventQueue = eventQueues.get(channel);
+          if (!eventQueue) {
+            lifecycleLog.warn(
+              `spectrum: fusorEvent("${channel}", …) names a channel not declared in "${name}".events; dropping`,
+              { platform: name, channel }
+            );
+            return;
+          }
+          eventQueue.push(data);
+        },
       };
       fusorCore.register(client.platform, handler);
     }
@@ -542,24 +608,28 @@ export async function Spectrum<
       const providerStreams: ManagedStream<unknown>[] = [];
       for (const state of platformStates.values()) {
         const { client, config, definition, store } = state;
-        const producer = definition.events?.[eventName] as
-          | ((ctx: {
+
+        // Resolve this platform's raw source for `eventName`: a fusor platform's
+        // per-channel fanout (declared as a schema, fed by `fusorEvent(...)`) or
+        // a regular platform's producer. Skip platforms that have neither.
+        let source: AsyncIterable<unknown> | undefined =
+          state.subscribeEvent?.(eventName);
+        if (!source) {
+          const producer = definition.events?.[eventName];
+          if (typeof producer !== "function") {
+            continue;
+          }
+          source = (
+            producer as (ctx: {
               client: unknown;
               config: unknown;
               projectConfig: ProjectData | undefined;
               store: Store;
-            }) => AsyncIterable<unknown>)
-          | undefined;
-        if (!producer) {
-          continue;
+            }) => AsyncIterable<unknown>
+          )({ client, config, projectConfig, store });
         }
 
-        const providerEvents = producer({
-          client,
-          config,
-          projectConfig,
-          store,
-        });
+        const providerEvents = source;
         const annotatePlatform = async function* (): AsyncIterable<unknown> {
           for await (const value of providerEvents) {
             const annotated = await withSpan(
@@ -598,6 +668,22 @@ export async function Spectrum<
 
   const messagesStream = createMessagesStream();
 
+  // Close + drop every fusor queue (per-platform message queues and
+  // per-(platform, channel) event queues). Extracted from stopOnce to keep its
+  // cognitive complexity in check.
+  const closeFusorSources = () => {
+    for (const queue of fusorMessageSources.values()) {
+      queue.close();
+    }
+    fusorMessageSources.clear();
+    for (const queues of fusorEventSources.values()) {
+      for (const queue of queues.values()) {
+        queue.close();
+      }
+    }
+    fusorEventSources.clear();
+  };
+
   const stopOnce = async () => {
     if (stopped) {
       return;
@@ -610,6 +696,9 @@ export async function Spectrum<
         eventStream.close()
       ),
       ...Array.from(messageBroadcasters.values(), (broadcaster) =>
+        broadcaster.close()
+      ),
+      ...Array.from(eventBroadcasters.values(), (broadcaster) =>
         broadcaster.close()
       ),
     ];
@@ -635,10 +724,7 @@ export async function Spectrum<
         lifecycleLog.warn("fusor core close failed", { error });
       });
       fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
-      for (const queue of fusorMessageSources.values()) {
-        queue.close();
-      }
-      fusorMessageSources.clear();
+      closeFusorSources();
     }
 
     // Phase 3: destroy clients
@@ -668,6 +754,7 @@ export async function Spectrum<
 
     customEventStreams.clear();
     messageBroadcasters.clear();
+    eventBroadcasters.clear();
     platformStates.clear();
     lifecycleLog.info("Spectrum stopped", {
       providers: providerNames,

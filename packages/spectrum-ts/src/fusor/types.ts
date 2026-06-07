@@ -1,6 +1,7 @@
 import type { ProviderMessageRecord } from "../platform/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import type { FusorEvent } from "./event";
 
 export interface FusorVerifyRequest {
   headers: Record<string, string>;
@@ -28,7 +29,8 @@ export interface FusorMessagesCtx<TPayload> {
 
 export type FusorMessagesReturn =
   | ProviderMessageRecord
-  | ProviderMessageRecord[]
+  | FusorEvent
+  | (ProviderMessageRecord | FusorEvent)[]
   | undefined;
 
 export type FusorMessages<TPayload> = (

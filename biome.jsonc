@@ -16,7 +16,8 @@
     {
       "includes": [
         "packages/spectrum-ts/src/index.ts",
-        "packages/spectrum-ts/src/authoring.ts"
+        "packages/spectrum-ts/src/authoring.ts",
+        "packages/spectrum-ts/src/fusor/index.ts"
       ],
       "linter": {
         "rules": {

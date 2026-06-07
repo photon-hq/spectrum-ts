@@ -2,12 +2,13 @@ import { describe, expect, it, spyOn } from "bun:test";
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import type { Content } from "../content/types";
-import { defineFusorPlatform } from "../platform/define";
+import { definePlatform } from "../platform/define";
 import { Spectrum } from "../spectrum";
 import type { Message } from "../types/message";
 import { cloud } from "../utils/cloud";
 import { FusorCore } from "./core";
-import { fusor } from "./index";
+import { fusor, fusorEvent } from "./index";
+import type { FusorMessages } from "./types";
 
 // Spectrum() fetches project metadata up-front when projectId/projectSecret are
 // supplied. These tests use placeholder credentials, so stub the cloud call to
@@ -27,8 +28,49 @@ type SlackPayload =
   | { kind: "group"; texts: string[] }
   | { kind: "typing" };
 
+// A typed `FusorMessages` reference (not an inline arrow). Overload resolution
+// keys on this: a typed reference is non-context-sensitive, so it's checked in
+// pass 1, rejects the regular overload, and selects the fusor one. An inline
+// `messages: ({ payload }) => …` would be deferred and mis-commit to regular.
+const slackMessages: FusorMessages<SlackPayload> = ({ payload, respond }) => {
+  if (payload.kind === "verify") {
+    respond({ status: 200, body: payload.challenge });
+    return;
+  }
+  if (payload.kind === "typing") {
+    // A senderless inbound signal (no `sender` field): typing carries no
+    // attributable author. Core must resolve this without throwing.
+    return {
+      id: "t1",
+      content: { type: "typing", state: "start" } as unknown as Content,
+      space: { id: "s1" },
+    };
+  }
+  if (payload.kind === "group") {
+    const items = payload.texts.map((text, i) => ({
+      id: `g${i}`,
+      content: { type: "text", text } as Content,
+      sender: { id: "u1" },
+      space: { id: "s1" },
+    }));
+    return {
+      id: "grp",
+      content: { type: "group", items } as unknown as Content,
+      sender: { id: "u1" },
+      space: { id: "s1" },
+    };
+  }
+  return {
+    id: "m1",
+    content: { type: "text", text: payload.text } as Content,
+    sender: { id: "u1" },
+    space: { id: "s1" },
+    timestamp: new Date(0),
+  };
+};
+
 const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
-  defineFusorPlatform("slack", {
+  definePlatform("slack", {
     config: z.object({}),
     lifecycle: {
       createClient: () =>
@@ -61,42 +103,7 @@ const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
       resolve: ({ input }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "space" }),
     },
-    messages: ({ payload, respond }) => {
-      if (payload.kind === "verify") {
-        respond({ status: 200, body: payload.challenge });
-        return;
-      }
-      if (payload.kind === "typing") {
-        // A senderless inbound signal (no `sender` field): typing carries no
-        // attributable author. Core must resolve this without throwing.
-        return {
-          id: "t1",
-          content: { type: "typing", state: "start" } as unknown as Content,
-          space: { id: "s1" },
-        };
-      }
-      if (payload.kind === "group") {
-        const items = payload.texts.map((text, i) => ({
-          id: `g${i}`,
-          content: { type: "text", text } as Content,
-          sender: { id: "u1" },
-          space: { id: "s1" },
-        }));
-        return {
-          id: "grp",
-          content: { type: "group", items } as unknown as Content,
-          sender: { id: "u1" },
-          space: { id: "s1" },
-        };
-      }
-      return {
-        id: "m1",
-        content: { type: "text", text: payload.text } as Content,
-        sender: { id: "u1" },
-        space: { id: "s1" },
-        timestamp: new Date(0),
-      };
-    },
+    messages: slackMessages,
     send: () => Promise.resolve(undefined),
   });
 
@@ -500,5 +507,181 @@ describe("spectrum.webhook", () => {
     } finally {
       startSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fusor custom event channels (`events` schema + `fusorEvent`)
+// ---------------------------------------------------------------------------
+
+type PresencePayload =
+  | { kind: "message"; text: string }
+  | { kind: "presence"; user: string }
+  | { kind: "viaMessagesChannel"; text: string }
+  | { kind: "undeclared" };
+
+const presenceSchema = z.object({ user: z.string(), online: z.boolean() });
+
+// A typed `FusorMessages` reference (not inline) so overload resolution picks
+// the fusor overload. Demonstrates the three routes a fusor handler can take.
+const presenceMessages: FusorMessages<PresencePayload> = ({ payload }) => {
+  if (payload.kind === "presence") {
+    return fusorEvent("presence", { user: payload.user, online: true });
+  }
+  if (payload.kind === "viaMessagesChannel") {
+    // `fusorEvent("messages", record)` must behave exactly like returning the
+    // record bare — i.e. route to the core `spectrum.messages` stream.
+    return fusorEvent("messages", {
+      id: "viaev",
+      content: { type: "text", text: payload.text } as Content,
+      sender: { id: "u1" },
+      space: { id: "s1" },
+    });
+  }
+  if (payload.kind === "undeclared") {
+    return fusorEvent("ghost", { dropped: true });
+  }
+  return {
+    id: "pm1",
+    content: { type: "text", text: payload.text } as Content,
+    sender: { id: "u1" },
+    space: { id: "s1" },
+  };
+};
+
+const PRESENCE_PLATFORM = "pres";
+
+const makePresence = () =>
+  definePlatform(PRESENCE_PLATFORM, {
+    config: z.object({}),
+    lifecycle: {
+      createClient: () =>
+        Promise.resolve(
+          fusor<PresencePayload>(PRESENCE_PLATFORM, (req) => {
+            const body = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
+              type: string;
+              text?: string;
+              user?: string;
+            };
+            if (body.type === "presence") {
+              return { kind: "presence", user: body.user ?? "" };
+            }
+            if (body.type === "via-messages") {
+              return { kind: "viaMessagesChannel", text: body.text ?? "" };
+            }
+            if (body.type === "undeclared") {
+              return { kind: "undeclared" };
+            }
+            return { kind: "message", text: body.text ?? "" };
+          })
+        ),
+    },
+    user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+    space: {
+      resolve: ({ input }) =>
+        Promise.resolve({ id: input.users[0]?.id ?? "space" }),
+    },
+    events: { presence: presenceSchema },
+    messages: presenceMessages,
+    send: () => Promise.resolve(undefined),
+  });
+
+describe("fusor events", () => {
+  it("routes fusorEvent(channel) to spectrum.<channel>, not the message handler", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makePresence().config({})],
+    });
+    // Attach to the presence stream before firing so the broadcaster is wired.
+    const presence = (
+      spectrum as unknown as { presence: AsyncIterable<unknown> }
+    ).presence[Symbol.asyncIterator]();
+    const firstPresence = presence.next();
+
+    let handlerCalls = 0;
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          PRESENCE_PLATFORM,
+          JSON.stringify({ type: "presence", user: "alice" })
+        ),
+      },
+      () => {
+        handlerCalls += 1;
+      }
+    );
+    expect(result.status).toBe(200);
+
+    const event = await firstPresence;
+    expect(event.done).toBe(false);
+    expect(event.value).toEqual({
+      user: "alice",
+      online: true,
+      platform: PRESENCE_PLATFORM,
+    });
+    // The event went to the channel, NOT the (messages-only) webhook handler.
+    expect(handlerCalls).toBe(0);
+
+    await presence.return?.();
+    await spectrum.stop();
+  });
+
+  it("treats fusorEvent('messages', record) like a bare record", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makePresence().config({})],
+    });
+    const received: Message[] = [];
+    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          PRESENCE_PLATFORM,
+          JSON.stringify({ type: "via-messages", text: "hi" })
+        ),
+      },
+      (_space, message) => {
+        received.push(message);
+        done();
+      }
+    );
+    await finished;
+
+    expect(result.status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received.at(0)?.content).toEqual({ type: "text", text: "hi" });
+
+    await spectrum.stop();
+  });
+
+  it("drops an undeclared event channel without delivering to the handler", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makePresence().config({})],
+    });
+    let handlerCalls = 0;
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          PRESENCE_PLATFORM,
+          JSON.stringify({ type: "undeclared" })
+        ),
+      },
+      () => {
+        handlerCalls += 1;
+      }
+    );
+    // Graceful: a 200 reply and nothing delivered to the message handler.
+    expect(result.status).toBe(200);
+    await new Promise((resolve) => {
+      setTimeout(resolve, NO_MESSAGE_WAIT_MS);
+    });
+    expect(handlerCalls).toBe(0);
+
+    await spectrum.stop();
   });
 });

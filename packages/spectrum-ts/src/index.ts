@@ -38,6 +38,7 @@ export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
 export type {
   FusorClient,
+  FusorEvent,
   FusorMessages,
   FusorMessagesCtx,
   FusorMessagesReturn,
@@ -49,8 +50,8 @@ export type {
   WebhookRawRequest,
   WebhookRawResult,
 } from "./fusor";
-export { fusor, isFusorClient } from "./fusor";
-export { defineFusorPlatform, definePlatform } from "./platform/define";
+export { fusor, fusorEvent, isFusorClient, isFusorEvent } from "./fusor";
+export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,
   EventProducer,

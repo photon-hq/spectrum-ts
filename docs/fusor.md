@@ -15,10 +15,12 @@ parse the raw request, produce messages, and (optionally) reply. Only the
 transport differs. Pick whichever fits your deployment: a long-running worker
 (streaming) or a serverless / request-scoped HTTP handler (webhook).
 
-> Only **Fusor-backed providers** (those built with `defineFusorPlatform`, whose
-> `createClient` returns a `fusor(...)` client) use this. Providers with their
-> own transport — e.g. iMessage via `@photon-ai/advanced-imessage` — do **not**
-> go through the Fusor gRPC stream; see [When the gRPC stream
+> Only **Fusor-backed providers** use this: a provider is in *fusor mode* when
+> its `definePlatform` `lifecycle.createClient` returns a `fusor(...)` client
+> (rather than a long-lived SDK client). There is no separate
+> `defineFusorPlatform` — it's one overloaded `definePlatform`. Providers with
+> their own transport — e.g. iMessage via `@photon-ai/advanced-imessage` — do
+> **not** go through the Fusor gRPC stream; see [When the gRPC stream
 > opens](#when-the-grpc-stream-opens).
 
 ---
@@ -38,15 +40,17 @@ RawInboundEvent
 ```
 
 `verify()` and `messages()` here are **provider-authoring hooks** defined via
-`defineFusorPlatform` — the per-platform code that validates the signature and
+`definePlatform` — the per-platform code that validates the signature and
 parses the request. They are *not* something you call:
 
 - **`verify(req)`** turns the raw request into a typed `payload` (and rejects a
   bad signature).
 - **`messages({ payload, respond })`** returns the provider message record(s)
   Spectrum delivers, and may call `respond(...)` to set the synchronous reply.
-  ⚠️ This provider hook is distinct from **`app.messages`**, the stream *you*
-  consume — same word, different thing.
+  It can also return `fusorEvent(channel, data)` to route to a
+  [custom event channel](#custom-event-channels-fusorevent) instead of the
+  message stream. ⚠️ This provider hook is distinct from **`app.messages`**, the
+  stream *you* consume — same word, different thing.
 
 Internally this is `FusorCore.processEvent()`, driven either by the gRPC stream
 or by `app.webhook()`. You never call it directly.
@@ -224,6 +228,84 @@ expect a `for await (… of app.messages)` loop to observe webhook traffic.
 
 ---
 
+## Custom event channels (`fusorEvent`)
+
+Beyond the core message stream, a fusor provider can surface **custom event
+channels** — presence, read receipts, typing, reactions, anything that isn't a
+message. They appear as flat async-iterable properties on the app
+(`app.presence`, `app.readReceipt`, …), unified across every provider that
+declares the same channel.
+
+A regular (non-fusor) platform feeds a channel from a long-lived producer. A
+fusor platform has no client to stream from, so instead it **declares** each
+channel as a Zod schema and **emits** per webhook by returning
+`fusorEvent(channel, data)` from `messages`.
+
+### Authoring
+
+```typescript
+import { definePlatform, fusor, fusorEvent, type FusorMessages } from "spectrum-ts";
+import { z } from "zod";
+
+// 1. Declare each channel under `events` — the KEY is the channel name, the
+//    value is a Zod schema describing the payload (and typing `app.<channel>`).
+const presenceSchema = z.object({ user: z.string(), online: z.boolean() });
+
+// 2. `messages` MUST be a typed `FusorMessages<…>` reference (not an inline
+//    arrow) so overload resolution selects fusor mode — see the note below.
+const messages: FusorMessages<MyPayload> = ({ payload }) => {
+  if (payload.kind === "presence") {
+    return fusorEvent("presence", { user: payload.user, online: true });
+  }
+  // A bare record (or `fusorEvent("messages", record)`) goes to app.messages.
+  return { id: payload.id, content: payload.content, sender, space };
+};
+
+export const myProvider = definePlatform("myplatform", {
+  config: z.object({ /* … */ }),
+  lifecycle: { createClient: ({ config }) => Promise.resolve(fusor("myplatform", makeVerify(config))) },
+  user: { /* … */ },
+  space: { /* … */ },
+  events: { presence: presenceSchema }, // ← channel declaration
+  messages,
+  send,
+});
+```
+
+Three ways a `messages` handler can route its return value:
+
+| Return | Goes to |
+| --- | --- |
+| a bare `ProviderMessageRecord` (or array) | `app.messages` / the webhook handler |
+| `fusorEvent("messages", record)` | identical to the bare record above |
+| `fusorEvent("presence", data)` | the `presence` channel (`app.presence`) |
+
+The channel name in `fusorEvent(name, …)` is **not** type-checked against your
+declared `events` — a name that isn't a declared channel is logged with a
+warning and dropped (not silently lost). Keep it in sync with the `events` keys.
+
+### Consuming
+
+```typescript
+for await (const presence of app.presence) {
+  // presence: { user: string; online: boolean; platform: "myplatform" }
+}
+```
+
+Each event is the channel payload plus a `platform` tag identifying which
+provider emitted it. Custom events flow on **both** transports, but they go to
+the channel stream — **never** to the `app.webhook()` handler, which is
+messages-only.
+
+> **Authoring note — fusor mode selection.** `definePlatform` is overloaded; the
+> regular overload is tried first. A fusor provider is only matched when its
+> `messages` is a **typed `FusorMessages<…>` reference** (like the example
+> above) — an inline `messages: ({ payload }) => …` arrow is deferred during
+> overload resolution and mis-commits to the regular overload. Annotating
+> `createClient`'s return as `Promise<FusorClient<…>>` is also good practice.
+
+---
+
 ## When the gRPC stream opens
 
 The Fusor gRPC stream is opened **lazily** — only on the first time you consume
@@ -256,8 +338,10 @@ Consequences:
 
 - `app.webhook(request, handler)` — `src/spectrum.ts`
 - Shared pipeline — `FusorCore.processEvent()` in `src/fusor/core.ts`
-- Provider authoring — `defineFusorPlatform` / `fusor(platform, verify)` in
-  `src/platform/define.ts` and `src/fusor/index.ts`
+- Provider authoring — `definePlatform` (fusor overload) / `fusor(platform, verify)`
+  in `src/platform/define.ts` and `src/fusor/index.ts`
+- Custom events — `fusorEvent(channel, data)` in `src/fusor/event.ts`
 - Wire envelope — `RawInboundEvent` / `InboundReply` from
   `@photon-ai/proto/photon/fusor/v1/inbound`
-- Public types — `WebhookHandler`, `WebhookRawRequest`, `WebhookRawResult`
+- Public types — `WebhookHandler`, `WebhookRawRequest`, `WebhookRawResult`,
+  `FusorEvent`

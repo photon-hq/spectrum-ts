@@ -1,5 +1,5 @@
-import { fusor } from "../../fusor";
-import { defineFusorPlatform } from "../../platform/define";
+import { type FusorClient, fusor } from "../../fusor";
+import { definePlatform } from "../../platform/define";
 import { initClient } from "./client";
 import { configSchema, TELEGRAM_PLATFORM } from "./config";
 import { handleMessages } from "./inbound/messages";
@@ -20,14 +20,17 @@ export type { TelegramConfig } from "./config";
  * Telegram Bot API over HTTP. Drop `telegram.config({...})` into
  * `Spectrum({ providers: [...] })`.
  */
-export const telegram = defineFusorPlatform(TELEGRAM_PLATFORM, {
+export const telegram = definePlatform(TELEGRAM_PLATFORM, {
   config: configSchema,
   lifecycle: {
-    createClient: ({ config, store }) => {
+    // Annotate the return so overload selection sees the `FusorClient` brand
+    // without deferring this (context-sensitive) arrow — picks the fusor overload.
+    createClient: async ({
+      config,
+      store,
+    }): Promise<FusorClient<TelegramPayload>> => {
       const client = initClient(store, config);
-      return Promise.resolve(
-        fusor<TelegramPayload>(TELEGRAM_PLATFORM, makeVerify(config, client))
-      );
+      return fusor<TelegramPayload>(TELEGRAM_PLATFORM, makeVerify(config, client));
     },
   },
   user: { resolve: resolveUser },

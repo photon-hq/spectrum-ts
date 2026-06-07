@@ -3,7 +3,7 @@ import z from "zod";
 /**
  * The platform identifier — used for ALL THREE of:
  *
- * - the `defineFusorPlatform` name (so `message.platform` / `__platform` and
+ * - the `definePlatform` name (so `message.platform` / `__platform` and
  *   the `platformStates` key are this value),
  * - the `fusor(...)` routing key the handler is registered under, and
  * - the value Fusor tags inbound Telegram events with (`event.platform`).

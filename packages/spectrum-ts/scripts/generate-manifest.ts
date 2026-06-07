@@ -34,7 +34,7 @@ const DIST_PROVIDERS_DIR = join(PKG_ROOT, "dist", "providers");
 const OUT_PATH = join(PKG_ROOT, "dist", "manifest.json");
 
 const DEFINE_PLATFORM_RE =
-  /^export\s+const\s+(\w+)\s*=\s*define(?:Fusor)?Platform\(\s*(?:"([^"]+)"|(\w+))/m;
+  /^export\s+const\s+(\w+)\s*=\s*definePlatform\(\s*(?:"([^"]+)"|(\w+))/m;
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -45,7 +45,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-// Fusor providers (`defineFusorPlatform`) pass their platform name as a shared
+// Fusor providers pass their platform name as a shared
 // const — the single source of truth for the routing key — rather than a string
 // literal. When the label isn't inline, resolve the const from the provider's
 // own source files.
@@ -86,7 +86,7 @@ async function buildManifest(): Promise<ManifestEntry[]> {
     const match = source.match(DEFINE_PLATFORM_RE);
     if (!match) {
       throw new Error(
-        `Provider "${key}" at ${sourcePath} does not match the expected \`export const <name> = definePlatform("<label>", ...)\` (or \`defineFusorPlatform(...)\`) pattern. If you intentionally renamed the call, update generate-manifest.ts.`
+        `Provider "${key}" at ${sourcePath} does not match the expected \`export const <name> = definePlatform("<label>", ...)\` pattern. If you intentionally renamed the call, update generate-manifest.ts.`
       );
     }
     const [, importName, literalLabel, labelConst] = match;

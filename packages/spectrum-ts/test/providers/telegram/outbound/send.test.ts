@@ -1,16 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { attachment } from "../../../content/attachment";
-import { poll } from "../../../content/poll";
-import { reaction } from "../../../content/reaction";
-import { reply } from "../../../content/reply";
-import { text } from "../../../content/text";
-import type { Content } from "../../../content/types";
-import { voice } from "../../../content/voice";
-import type { Message } from "../../../types/message";
-import type { TelegramClient } from "../client";
-import { configSchema } from "../config";
-import type { SentMessage, TelegramSendSpec } from "../types";
-import { send } from "./send";
+import { attachment } from "@/content/attachment";
+import { poll } from "@/content/poll";
+import { reaction } from "@/content/reaction";
+import { reply } from "@/content/reply";
+import { text } from "@/content/text";
+import type { Content } from "@/content/types";
+import { voice } from "@/content/voice";
+import type { TelegramClient } from "@/providers/telegram/client";
+import { configSchema } from "@/providers/telegram/config";
+import { send } from "@/providers/telegram/outbound/send";
+import type { SentMessage, TelegramSendSpec } from "@/providers/telegram/types";
+import type { Message } from "@/types/message";
 
 const TS_SEC = 1_700_000_000;
 const config = configSchema.parse({ botToken: "1:abc" });

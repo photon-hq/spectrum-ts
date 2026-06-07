@@ -1,9 +1,10 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import { ContactShareTracker, getContactShareTracker } from "./contact-share";
-
-const flush = (): Promise<void> =>
-  new Promise((resolve) => setImmediate(resolve));
+import { flush } from "@test/support/timing";
+import {
+  ContactShareTracker,
+  getContactShareTracker,
+} from "@/providers/imessage/remote/contact-share";
 
 const makeClient = (
   share: (chatGuid: string) => Promise<void>

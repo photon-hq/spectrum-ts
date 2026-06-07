@@ -45,6 +45,24 @@ bun run dev
 bun run examples/basic/index.ts
 ```
 
+### Run tests
+
+```bash
+bun run test            # whole suite (via Turbo)
+```
+
+Or from inside `packages/spectrum-ts`:
+
+```bash
+bun test                      # whole suite
+bun test test/core            # core only
+bun test test/providers/telegram   # one provider
+bun run test:watch            # watch mode
+bun run test:coverage         # with coverage
+```
+
+Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in `packages/spectrum-ts/test/`, split into `core/` and `providers/<platform>/` mirroring `src/`. The test for `src/<path>.ts` lives at `test/core/<path>.test.ts` (non-provider) or `test/providers/<platform>/<rest>.test.ts`. Import the code under test through the `@/*` alias (`@/spectrum`, `@/providers/telegram/verify`) and shared fixtures from `@test/support/*`.
+
 ### Lint and format
 
 ```bash
@@ -62,6 +80,10 @@ packages/
     src/
       providers/         # Platform providers (iMessage, WhatsApp, terminal)
       ...
+    test/
+      core/              # Tests for the core SDK (mirrors src/)
+      providers/         # Tests per platform provider
+      support/           # Shared test fixtures/helpers
 examples/                # Example apps
 ```
 
@@ -70,9 +92,13 @@ examples/                # Example apps
 1. **Fork** the repository and create a feature branch from `main`.
 2. **Make your changes.** Keep commits focused and descriptive.
 3. **Run `bun run fix`** to format and lint.
-4. **Run `bun run build`** to verify the build passes.
-5. **Update documentation** if you're changing public APIs.
-6. **Open a pull request** with a clear description of the problem and your solution. Link any related issues.
+4. **Run `bun run typecheck`** to verify there are no type errors.
+5. **Run `bun run test`** to verify the suite passes.
+6. **Run `bun run build`** to verify the build passes.
+7. **Update documentation** if you're changing public APIs.
+8. **Open a pull request** with a clear description of the problem and your solution. Link any related issues.
+
+CI runs `check`, `typecheck`, `test`, and `build` on every pull request.
 
 ### Commit Messages
 

@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src"],
+  "include": ["src", "test"],
   "compilerOptions": {
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
+    }
   }
 }

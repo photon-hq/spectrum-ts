@@ -9,6 +9,8 @@
       "cache": false,
       "persistent": true
     },
-    "check": {}
+    "check": {},
+    "test": {},
+    "typecheck": {}
   }
 }

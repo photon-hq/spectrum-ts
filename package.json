@@ -11,7 +11,9 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "check": "ultracite check",
-    "fix": "ultracite fix"
+    "fix": "ultracite fix",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck"
   },
   "workspaces": [
     "packages/*",

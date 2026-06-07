@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import type { TelegramClient } from "./client";
-import { configSchema } from "./config";
-import type { TelegramPayload } from "./types";
-import { makeVerify } from "./verify";
+import type { TelegramClient } from "@/providers/telegram/client";
+import { configSchema } from "@/providers/telegram/config";
+import type { TelegramPayload } from "@/providers/telegram/types";
+import { makeVerify } from "@/providers/telegram/verify";
 
 const SECRET = "s3cr3t_token-123";
 

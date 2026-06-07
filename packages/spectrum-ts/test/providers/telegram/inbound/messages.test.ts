@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import type { TelegramClient } from "../client";
-import type { TelegramPayload, Update } from "../types";
-import { handleMessages } from "./messages";
+import type { TelegramClient } from "@/providers/telegram/client";
+import { handleMessages } from "@/providers/telegram/inbound/messages";
+import type { TelegramPayload, Update } from "@/providers/telegram/types";
 
 const TS_SEC = 1_700_000_000;
 const DOWNLOAD = Buffer.from("file-bytes");

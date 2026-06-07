@@ -30,7 +30,10 @@ export const telegram = definePlatform(TELEGRAM_PLATFORM, {
       store,
     }): Promise<FusorClient<TelegramPayload>> => {
       const client = initClient(store, config);
-      return fusor<TelegramPayload>(TELEGRAM_PLATFORM, makeVerify(config, client));
+      return fusor<TelegramPayload>(
+        TELEGRAM_PLATFORM,
+        makeVerify(config, client)
+      );
     },
   },
   user: { resolve: resolveUser },

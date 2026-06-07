@@ -659,7 +659,14 @@ export async function Spectrum<
                   "spectrum.provider": definition.name,
                   "spectrum.event.name": eventName,
                 },
-                () => ({ ...(value as object), platform: definition.name })
+                // Object payloads are flattened and tagged with `platform`. A
+                // primitive/null payload can't be spread (a string would mangle
+                // into indexed chars, a number/bool would vanish), so wrap it
+                // under `payload` instead.
+                () =>
+                  typeof value === "object" && value !== null
+                    ? { ...value, platform: definition.name }
+                    : { platform: definition.name, payload: value }
               );
               await emit(annotated);
             }

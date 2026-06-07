@@ -215,9 +215,9 @@ subscription, and a native-generator provider (bounded-then-rescued).
 ## Verification
 
 ```bash
-bun test packages/spectrum-ts/src/spectrum.shutdown.test.ts   # new regression
-bun test packages/spectrum-ts/src/fusor/webhook.test.ts       # heavy stop()/broadcast user
-bun test packages/spectrum-ts/src                             # full suite (60 pass)
+bun test packages/spectrum-ts/test/core/spectrum.shutdown.test.ts   # new regression
+bun test packages/spectrum-ts/test/core/fusor/webhook.test.ts       # heavy stop()/broadcast user
+bun test packages/spectrum-ts/test                                  # full suite (60 pass)
 bun run check                                                  # ultracite lint/format
 bun x tsc --noEmit -p packages/spectrum-ts/tsconfig.json      # types
 ```

@@ -10,6 +10,15 @@ import { Spectrum } from "@/spectrum";
 
 stubCloud();
 
+// A managed-stream provider tears down promptly; a generous upper bound that
+// still fails loudly on a regression to the old deadlock.
+const PROMPT_SHUTDOWN_TIMEOUT_MS = 1500;
+// A native generator can't be cancelled, so stop() waits out the bounded
+// Phase-1 window before destroyClient rescues it — allow for that.
+const NATIVE_SHUTDOWN_TIMEOUT_MS = 9000;
+// Per-test ceiling for the native case, comfortably above its shutdown wait.
+const NATIVE_TEST_TIMEOUT_MS = 12_000;
+
 describe("Spectrum.stop() shutdown", () => {
   it("managed-stream provider: resolves promptly after consuming a message", async () => {
     const app = await Spectrum({
@@ -18,11 +27,13 @@ describe("Spectrum.stop() shutdown", () => {
         makeManagedProvider("managed-a", { withDestroy: true }).config({}),
       ],
     });
-    const it = app.messages[Symbol.asyncIterator]();
-    const first = await it.next();
+    const messagesIterator = app.messages[Symbol.asyncIterator]();
+    const first = await messagesIterator.next();
     expect(first.done).toBe(false);
 
-    expect(await withinMs(app.stop(), 1500)).toBe("resolved");
+    expect(await withinMs(app.stop(), PROMPT_SHUTDOWN_TIMEOUT_MS)).toBe(
+      "resolved"
+    );
   });
 
   it("managed-stream provider with no destroyClient: resolves promptly (stream self-closes)", async () => {
@@ -30,10 +41,12 @@ describe("Spectrum.stop() shutdown", () => {
       ...baseConfig,
       providers: [makeManagedProvider("managed-nodestroy").config({})],
     });
-    const it = app.messages[Symbol.asyncIterator]();
-    await it.next();
+    const messagesIterator = app.messages[Symbol.asyncIterator]();
+    await messagesIterator.next();
 
-    expect(await withinMs(app.stop(), 1500)).toBe("resolved");
+    expect(await withinMs(app.stop(), PROMPT_SHUTDOWN_TIMEOUT_MS)).toBe(
+      "resolved"
+    );
   });
 
   it("multiple managed-stream providers: resolves promptly", async () => {
@@ -44,10 +57,12 @@ describe("Spectrum.stop() shutdown", () => {
         makeManagedProvider("managed-2").config({}),
       ],
     });
-    const it = app.messages[Symbol.asyncIterator]();
-    await it.next();
+    const messagesIterator = app.messages[Symbol.asyncIterator]();
+    await messagesIterator.next();
 
-    expect(await withinMs(app.stop(), 1500)).toBe("resolved");
+    expect(await withinMs(app.stop(), PROMPT_SHUTDOWN_TIMEOUT_MS)).toBe(
+      "resolved"
+    );
   });
 
   it("no subscription: resolves promptly", async () => {
@@ -57,21 +72,29 @@ describe("Spectrum.stop() shutdown", () => {
         makeManagedProvider("managed-nosub", { withDestroy: true }).config({}),
       ],
     });
-    expect(await withinMs(app.stop(), 1500)).toBe("resolved");
+    expect(await withinMs(app.stop(), PROMPT_SHUTDOWN_TIMEOUT_MS)).toBe(
+      "resolved"
+    );
   });
 
-  it("native-generator provider: does not hang — bounded then rescued by destroyClient", async () => {
-    const app = await Spectrum({
-      ...baseConfig,
-      providers: [makeNativeProvider("native").config({})],
-    });
-    const it = app.messages[Symbol.asyncIterator]();
-    const first = await it.next();
-    expect(first.done).toBe(false);
+  it(
+    "native-generator provider: does not hang — bounded then rescued by destroyClient",
+    async () => {
+      const app = await Spectrum({
+        ...baseConfig,
+        providers: [makeNativeProvider("native").config({})],
+      });
+      const messagesIterator = app.messages[Symbol.asyncIterator]();
+      const first = await messagesIterator.next();
+      expect(first.done).toBe(false);
 
-    // Can't cancel a parked native generator via return(); the bounded Phase-1
-    // wait (STREAM_CLOSE_TIMEOUT_MS) elapses, then destroyClient closes the
-    // queue from below. The point is it resolves at all (no infinite hang).
-    expect(await withinMs(app.stop(), 9000)).toBe("resolved");
-  }, 12_000);
+      // Can't cancel a parked native generator via return(); the bounded Phase-1
+      // wait (STREAM_CLOSE_TIMEOUT_MS) elapses, then destroyClient closes the
+      // queue from below. The point is it resolves at all (no infinite hang).
+      expect(await withinMs(app.stop(), NATIVE_SHUTDOWN_TIMEOUT_MS)).toBe(
+        "resolved"
+      );
+    },
+    NATIVE_TEST_TIMEOUT_MS
+  );
 });

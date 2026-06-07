@@ -1,0 +1,83 @@
+import { describe, expect, it } from "bun:test";
+import type { TelegramClient } from "./client";
+import { configSchema } from "./config";
+import type { TelegramPayload } from "./types";
+import { makeVerify } from "./verify";
+
+const SECRET = "s3cr3t_token-123";
+
+const fakeClient: TelegramClient = {
+  botId: "42",
+  call: () => Promise.reject(new Error("unused")),
+  download: () => Promise.reject(new Error("unused")),
+};
+
+const body = (updateId = 1): string =>
+  JSON.stringify({
+    update_id: updateId,
+    message: {
+      message_id: 5,
+      date: 1_700_000_000,
+      chat: { id: 100, type: "private" },
+      from: { id: 7, is_bot: false, first_name: "Alice" },
+      text: "hi",
+    },
+  });
+
+const request = (payload: string, headers: Record<string, string>) => ({
+  headers,
+  method: "POST",
+  path: "/telegram",
+  rawBody: new TextEncoder().encode(payload),
+});
+
+const verifyWith = (secret?: string) =>
+  makeVerify(
+    configSchema.parse({
+      botToken: "42:abc",
+      ...(secret ? { webhookSecret: secret } : {}),
+    }),
+    fakeClient
+  );
+
+describe("makeVerify", () => {
+  it("accepts when the secret token header matches", () => {
+    const result = verifyWith(SECRET)(
+      request(body(), { "x-telegram-bot-api-secret-token": SECRET })
+    ) as TelegramPayload;
+    expect(result.update.update_id).toBe(1);
+    expect(result.update.message?.text).toBe("hi");
+    expect(result.client).toBe(fakeClient);
+  });
+
+  it("rejects a mismatched secret token", () => {
+    expect(() =>
+      verifyWith(SECRET)(
+        request(body(), { "x-telegram-bot-api-secret-token": "wrong" })
+      )
+    ).toThrow("mismatch");
+  });
+
+  it("rejects a missing secret token header when a secret is configured", () => {
+    expect(() => verifyWith(SECRET)(request(body(), {}))).toThrow(
+      "missing the secret token"
+    );
+  });
+
+  it("skips verification when no secret is configured", () => {
+    const result = verifyWith()(request(body(), {})) as TelegramPayload;
+    expect(result.update.update_id).toBe(1);
+  });
+
+  it("rejects a body that is not valid JSON", () => {
+    expect(() => verifyWith()(request("not json", {}))).toThrow(
+      "not valid JSON"
+    );
+  });
+
+  it("rejects a payload missing update_id", () => {
+    expect(() =>
+      verifyWith()(request(JSON.stringify({ message: {} }), {}))
+    ).toThrow("update_id");
+  });
+});

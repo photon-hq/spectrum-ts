@@ -34,7 +34,7 @@ const DIST_PROVIDERS_DIR = join(PKG_ROOT, "dist", "providers");
 const OUT_PATH = join(PKG_ROOT, "dist", "manifest.json");
 
 const DEFINE_PLATFORM_RE =
-  /^export\s+const\s+(\w+)\s*=\s*definePlatform\(\s*"([^"]+)"/m;
+  /^export\s+const\s+(\w+)\s*=\s*define(?:Fusor)?Platform\(\s*(?:"([^"]+)"|(\w+))/m;
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -43,6 +43,33 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// Fusor providers (`defineFusorPlatform`) pass their platform name as a shared
+// const — the single source of truth for the routing key — rather than a string
+// literal. When the label isn't inline, resolve the const from the provider's
+// own source files.
+async function resolvePlatformLabel(
+  key: string,
+  constName: string
+): Promise<string> {
+  const dir = join(PROVIDERS_DIR, key);
+  const constRe = new RegExp(
+    `(?:export\\s+)?const\\s+${constName}\\s*=\\s*"([^"]+)"`
+  );
+  const files = await readdir(dir, { withFileTypes: true });
+  for (const file of files) {
+    if (!(file.isFile() && file.name.endsWith(".ts"))) {
+      continue;
+    }
+    const match = (await readFile(join(dir, file.name), "utf8")).match(constRe);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  throw new Error(
+    `Provider "${key}" references platform-name constant "${constName}" but no \`const ${constName} = "..."\` was found in its source.`
+  );
 }
 
 async function buildManifest(): Promise<ManifestEntry[]> {
@@ -59,12 +86,18 @@ async function buildManifest(): Promise<ManifestEntry[]> {
     const match = source.match(DEFINE_PLATFORM_RE);
     if (!match) {
       throw new Error(
-        `Provider "${key}" at ${sourcePath} does not match the expected \`export const <name> = definePlatform("<label>", ...)\` pattern. If you intentionally renamed the call, update generate-manifest.ts.`
+        `Provider "${key}" at ${sourcePath} does not match the expected \`export const <name> = definePlatform("<label>", ...)\` (or \`defineFusorPlatform(...)\`) pattern. If you intentionally renamed the call, update generate-manifest.ts.`
       );
     }
-    const [, importName, label] = match;
-    if (!(importName && label)) {
+    const [, importName, literalLabel, labelConst] = match;
+    if (!importName) {
       throw new Error(`Failed to parse provider "${key}"`);
+    }
+    const label =
+      literalLabel ??
+      (labelConst ? await resolvePlatformLabel(key, labelConst) : undefined);
+    if (!label) {
+      throw new Error(`Failed to parse label for provider "${key}"`);
     }
 
     // Guard against the manifest declaring a provider that tsup didn't

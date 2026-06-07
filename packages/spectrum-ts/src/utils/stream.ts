@@ -160,6 +160,20 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
   let pumpPromise: Promise<void> | undefined;
   let closed = false;
 
+  // End + drop every current consumer. Snapshot first so a consumer's cleanup
+  // mutating the set mid-iteration can't skip anyone. Idempotent: a second call
+  // after the set is cleared is a no-op.
+  const closeConsumers = (error?: unknown) => {
+    if (consumers.size === 0) {
+      return;
+    }
+    const current = Array.from(consumers);
+    consumers.clear();
+    for (const consumer of current) {
+      consumer.end(error);
+    }
+  };
+
   const startPump = () => {
     if (pumping || terminated) {
       return;
@@ -168,7 +182,11 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
     pumpPromise = (async () => {
       try {
         for await (const value of source) {
-          for (const consumer of consumers) {
+          // close() may have terminated us mid-stream; stop fanning out.
+          if (terminated) {
+            break;
+          }
+          for (const consumer of Array.from(consumers)) {
             consumer.deliveries = consumer.deliveries.then(() =>
               consumer.emit(value).catch(() => {
                 // consumer closed mid-emit; cleanup removes it from the set
@@ -176,23 +194,21 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
             );
           }
         }
+        if (terminated) {
+          // close() already ended consumers; don't wait on stalled deliveries.
+          return;
+        }
         terminated = true;
-        // Wait for in-flight deliveries to drain before ending each consumer
-        // so values queued just before EOF still reach them.
+        // Natural EOF: wait for in-flight deliveries to drain before ending each
+        // consumer so values queued just before EOF still reach them.
         await Promise.allSettled(
           Array.from(consumers, (consumer) => consumer.deliveries)
         );
-        for (const consumer of consumers) {
-          consumer.end();
-        }
-        consumers.clear();
+        closeConsumers();
       } catch (error) {
         terminated = true;
         terminalError = error;
-        for (const consumer of consumers) {
-          consumer.end(error);
-        }
-        consumers.clear();
+        closeConsumers(error);
       }
     })();
   };
@@ -200,7 +216,7 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
   return {
     subscribe(): ManagedStream<T> {
       return stream<T>((emit, end) => {
-        if (terminated) {
+        if (terminated || closed) {
           end(terminalError);
           return;
         }
@@ -221,19 +237,14 @@ export function broadcast<T>(source: ManagedStream<T>): Broadcaster<T> {
         return;
       }
       closed = true;
-      try {
-        await source.close();
-        if (pumpPromise) {
-          await pumpPromise.catch(ignoreCleanupError);
-        }
-      } finally {
-        if (!terminated) {
-          terminated = true;
-          for (const consumer of consumers) {
-            consumer.end();
-          }
-          consumers.clear();
-        }
+      // End consumers immediately — a stalled subscriber's in-flight delivery
+      // must not keep shutdown pending. `terminated` is then the single source
+      // of truth that stops the pump and prevents double-ending.
+      terminated = true;
+      closeConsumers();
+      await source.close().catch(ignoreCleanupError);
+      if (pumpPromise) {
+        await pumpPromise.catch(ignoreCleanupError);
       }
     },
   };

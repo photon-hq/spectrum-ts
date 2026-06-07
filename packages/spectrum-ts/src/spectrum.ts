@@ -51,6 +51,12 @@ import { contentAttrs, senderAttrs } from "./utils/telemetry";
 // OTEL_EXPORTER_OTLP_* env vars always override this.
 const PHOTON_OTEL_ENDPOINT = "https://otlp.photon.codes";
 
+// Upper bound on the Phase-1 stream cascade during stop(). Well-behaved
+// providers cancel via iterator.return() well under this; a misbehaving
+// (uncancellable) provider is rescued by destroyClient (Phase 3), and the
+// residual stream close is awaited at the very end — so stop() never hangs.
+const STREAM_CLOSE_TIMEOUT_MS = 5000;
+
 const lifecycleLog = createLogger("spectrum.lifecycle");
 
 const ignoreCleanupError = () => undefined;
@@ -268,15 +274,28 @@ export async function Spectrum<
 
   let stopped = false;
 
-  const adaptIterable = <T>(iterable: AsyncIterable<T>): ManagedStream<T> =>
-    stream<T>((emit, end) => {
+  // Adapt any AsyncIterable into a ManagedStream, optionally projecting each
+  // source value into zero or more output values via `project`. The pump is the
+  // only generator layer between the source and the stream, so cleanup's
+  // `iterator.return()` reaches the provider's own source directly — for a
+  // Repeater-backed ManagedStream or an AsyncQueue that settles immediately,
+  // which is what lets `stop()` cancel a parked read instead of deadlocking.
+  const adaptIterable = <TIn, TOut = TIn>(
+    iterable: AsyncIterable<TIn>,
+    project?: (value: TIn, emit: (out: TOut) => Promise<void>) => Promise<void>
+  ): ManagedStream<TOut> =>
+    stream<TOut>((emit, end) => {
       const iterator = iterable[Symbol.asyncIterator]();
 
       const pump = (async () => {
         try {
           let result = await iterator.next();
           while (!result.done) {
-            await emit(result.value);
+            if (project) {
+              await project(result.value, emit);
+            } else {
+              await emit(result.value as unknown as TOut);
+            }
             result = await iterator.next();
           }
           end();
@@ -370,21 +389,20 @@ export async function Spectrum<
           store,
         }) as unknown as AsyncIterable<ProviderMessageRecord>);
 
-    const bindSend = async function* (): AsyncIterable<[Space, Message]> {
-      for await (const msg of raw) {
-        const tuples = await resolveRecordToMessages(msg, {
+    return adaptIterable<ProviderMessageRecord, [Space, Message]>(
+      raw,
+      async (record, emit) => {
+        const tuples = await resolveRecordToMessages(record, {
           client,
           config,
           definition,
           store,
         });
         for (const tuple of tuples) {
-          yield tuple;
+          await emit(tuple);
         }
       }
-    };
-
-    return adaptIterable(bindSend());
+    );
   };
 
   const getOrCreateMessageBroadcast = (state: {
@@ -631,21 +649,22 @@ export async function Spectrum<
         }
 
         const providerEvents = source;
-        const annotatePlatform = async function* (): AsyncIterable<unknown> {
-          for await (const value of providerEvents) {
-            const annotated = await withSpan(
-              "spectrum.event",
-              {
-                "spectrum.provider": definition.name,
-                "spectrum.event.name": eventName,
-              },
-              () => ({ ...(value as object), platform: definition.name })
-            );
-            yield annotated;
-          }
-        };
-
-        providerStreams.push(adaptIterable(annotatePlatform()));
+        providerStreams.push(
+          adaptIterable<unknown, unknown>(
+            providerEvents,
+            async (value, emit) => {
+              const annotated = await withSpan(
+                "spectrum.event",
+                {
+                  "spectrum.provider": definition.name,
+                  "spectrum.event.name": eventName,
+                },
+                () => ({ ...(value as object), platform: definition.name })
+              );
+              await emit(annotated);
+            }
+          )
+        );
       }
 
       const merged = mergeStreams(providerStreams);
@@ -707,10 +726,27 @@ export async function Spectrum<
     process.off("SIGINT", handleSignal);
     process.off("SIGTERM", handleSignal);
 
-    // Phase 1: stream cascade
+    // Phase 1: stream cascade (bounded). Start the close, but don't let a
+    // misbehaving provider whose stream can't be cancelled block teardown
+    // forever — after a timeout, proceed to fusor close + destroyClient (which
+    // can unblock such a stream from below), then await the residual at the end.
     const streamCloseStart = performance.now();
-    await Promise.allSettled(streamShutdowns);
-    const streamCloseMs = Math.round(performance.now() - streamCloseStart);
+    const streamSettled = Promise.allSettled(streamShutdowns);
+    let streamTimedOut = false;
+    await Promise.race([
+      streamSettled,
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          streamTimedOut = true;
+          resolve();
+        }, STREAM_CLOSE_TIMEOUT_MS).unref();
+      }),
+    ]);
+    if (streamTimedOut) {
+      lifecycleLog.warn("stream close timed out; proceeding to teardown", {
+        timeoutMs: STREAM_CLOSE_TIMEOUT_MS,
+      });
+    }
 
     // Phase 2: fusor core shutdown (only when active)
     let fusorCloseMs = 0;
@@ -752,6 +788,11 @@ export async function Spectrum<
     const clientCloseStart = performance.now();
     await Promise.allSettled(clientShutdowns);
     const clientCloseMs = Math.round(performance.now() - clientCloseStart);
+
+    // Any stream rescued by destroyClient (Phase 3) drains now — ensure it has
+    // fully settled before we report stopped and clear the maps.
+    await streamSettled.catch(() => undefined);
+    const streamCloseMs = Math.round(performance.now() - streamCloseStart);
 
     customEventStreams.clear();
     messageBroadcasters.clear();

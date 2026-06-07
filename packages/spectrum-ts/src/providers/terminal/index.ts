@@ -19,6 +19,11 @@ import { asVoice } from "../../content/voice";
 import type { ProviderMessageRecord } from "../../platform/build";
 import { definePlatform } from "../../platform/define";
 import { UnsupportedError } from "../../utils/errors";
+// Aliased: `stream` is already used as a local name inside protocolToSpectrum.
+import {
+  type ManagedStream,
+  stream as managedStream,
+} from "../../utils/stream";
 import { fromVCard, toVCard } from "../../utils/vcard";
 import {
   type ProtocolContent,
@@ -537,6 +542,19 @@ function protocolToSpectrum(p: ProtocolContent): SpectrumContent {
 
 // ----- the provider -----
 
+// The exact inbound record shape the messages stream emits. Mirrors the
+// platform's resolved message type (required sender/space + the `replyTo`
+// extra), so the ManagedStream is assignable to the `messages` contract — the
+// looser `ProviderMessageRecord` (optional sender/space) is not.
+interface TerminalInboundMessage {
+  content: SpectrumContent;
+  id: string;
+  replyTo?: { messageId: string };
+  sender: { id: string };
+  space: { id: string };
+  timestamp: Date;
+}
+
 export const terminal = definePlatform("Terminal", {
   config: z.object({
     commands: z.array(commandSchema).optional(),
@@ -593,36 +611,62 @@ export const terminal = definePlatform("Terminal", {
     },
   },
 
-  async *messages({ client }) {
-    for await (const evt of client.events) {
-      if (evt.kind === "message") {
-        const msg = evt.value;
-        client.knownChats.add(msg.spaceId);
-        yield {
-          id: msg.id,
-          content: protocolToSpectrum(msg.content),
-          sender: { id: msg.senderId },
-          space: { id: msg.spaceId },
-          timestamp: parseTimestamp(msg.timestamp),
-          // replyTo is a terminal-specific extra — agents inspect via a
-          // cast until Spectrum's message model grows first-class support.
-          ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-        };
-        continue;
-      }
-      // Reactions ride the messages stream as first-class `reaction`
-      // content. The protocol only provides the target id, so synthesize a
-      // minimal raw target for core to wrap into a full Message at emit time.
-      const r = evt.value;
-      client.knownChats.add(r.spaceId);
-      yield {
-        id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
-        content: reactionContentFromProtocol(r),
-        sender: { id: r.senderId },
-        space: { id: r.spaceId },
-        timestamp: parseTimestamp(r.timestamp),
+  // Return a ManagedStream (not a native async generator): a native generator
+  // parked on an in-flight `client.events.next()` cannot be force-cancelled —
+  // a `.return()` queues behind the pending `next()` and never reaches the
+  // event queue, which would deadlock `Spectrum.stop()`. Driving the queue with
+  // an explicit pump lets cleanup call the queue iterator's `return()` directly
+  // (synchronous close + drain), so the stream tears down promptly on stop()
+  // without waiting for destroyClient.
+  messages({ client }): ManagedStream<TerminalInboundMessage> {
+    return managedStream<TerminalInboundMessage>((emit, end) => {
+      const iterator = client.events[Symbol.asyncIterator]();
+
+      const pump = (async () => {
+        try {
+          let result = await iterator.next();
+          while (!result.done) {
+            const evt = result.value;
+            if (evt.kind === "message") {
+              const msg = evt.value;
+              client.knownChats.add(msg.spaceId);
+              await emit({
+                id: msg.id,
+                content: protocolToSpectrum(msg.content),
+                sender: { id: msg.senderId },
+                space: { id: msg.spaceId },
+                timestamp: parseTimestamp(msg.timestamp),
+                // replyTo is a terminal-specific extra — agents inspect via a
+                // cast until Spectrum's message model grows first-class support.
+                ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+              });
+            } else {
+              // Reactions ride the messages stream as first-class `reaction`
+              // content. The protocol only provides the target id, so synthesize
+              // a minimal raw target for core to wrap into a full Message.
+              const r = evt.value;
+              client.knownChats.add(r.spaceId);
+              await emit({
+                id: `reaction:${r.messageId}:${r.reaction}:${r.timestamp}`,
+                content: reactionContentFromProtocol(r),
+                sender: { id: r.senderId },
+                space: { id: r.spaceId },
+                timestamp: parseTimestamp(r.timestamp),
+              });
+            }
+            result = await iterator.next();
+          }
+          end();
+        } catch (error) {
+          end(error);
+        }
+      })();
+
+      return async () => {
+        await iterator.return?.();
+        await pump.catch(() => undefined);
       };
-    }
+    });
   },
 
   send: async ({ client, content, space }) => {

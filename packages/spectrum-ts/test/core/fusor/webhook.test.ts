@@ -1,7 +1,10 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import { stubCloud } from "@test/support/cloud";
 import {
+  CTX_PROBE_PLATFORM,
+  type CtxProbeCapture,
   encodeEvent,
+  makeCtxProbe,
   makePresence,
   makeSlack,
   PRESENCE_PLATFORM,
@@ -51,6 +54,41 @@ describe("spectrum.webhook", () => {
     expect(message.direction).toBe("inbound");
     expect(message.content).toEqual({ type: "text", text: "hello" });
     expect(result.status).toBe(200);
+
+    await spectrum.stop();
+  });
+
+  it("threads config/store/projectConfig into the messages handler ctx", async () => {
+    const capture: CtxProbeCapture = {};
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeCtxProbe(capture).config({ token: "tok-123" })],
+    });
+    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
+
+    const result = await spectrum.webhook(
+      {
+        headers: {},
+        body: encodeEvent(
+          CTX_PROBE_PLATFORM,
+          JSON.stringify({ text: "hello ctx" })
+        ),
+      },
+      () => done()
+    );
+    await finished;
+
+    expect(result.status).toBe(200);
+    // Parsed provider config (from the platform's Zod schema), strongly typed.
+    expect(capture.config).toEqual({ token: "tok-123" });
+    // A live Store: the value written inside the handler reads back through it.
+    expect(capture.storeRoundTrip).toBe("hello ctx");
+    // Cloud project metadata (stubbed), matching the regular-mode contract.
+    expect(capture.projectConfig).toEqual({
+      id: "proj",
+      name: "Test Project",
+      profile: {},
+    });
 
     await spectrum.stop();
   });

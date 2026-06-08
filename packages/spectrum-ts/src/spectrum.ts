@@ -13,8 +13,6 @@ import { isFusorClient } from "./fusor/index";
 import type {
   FusorClient,
   FusorMessages,
-  FusorMessagesReturn,
-  FusorReply,
   WebhookHandler,
   WebhookRawRequest,
   WebhookRawResult,
@@ -548,10 +546,17 @@ export async function Spectrum<
 
       const handler: RegisteredFusorHandler = {
         verify: client.verify,
-        messages: async (ctx: {
-          payload: unknown;
-          respond: (reply: FusorReply) => void;
-        }): Promise<FusorMessagesReturn> => userMessages(ctx),
+        // Enrich the transport-level `{ payload, respond }` ctx with the same
+        // runtime context every other platform callback receives, so fusor
+        // handlers can read config/store/projectConfig directly instead of
+        // smuggling state through the payload.
+        messages: async (ctx) =>
+          userMessages({
+            ...ctx,
+            config: runtime.config,
+            store: runtime.store,
+            projectConfig: runtime.projectConfig,
+          }),
         pushMessage: (record) => queue.push(record),
         pushEvent: (channel, data) => {
           const eventQueue = eventQueues.get(channel);

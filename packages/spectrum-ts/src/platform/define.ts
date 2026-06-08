@@ -490,7 +490,7 @@ export function definePlatform<
         store: Store;
       }) => Promise<void>;
     };
-    messages: FusorMessages<_TPayload>;
+    messages: FusorMessages<_TPayload, z.infer<_ConfigSchema>>;
     static?: _Static;
   }
 ): Platform<

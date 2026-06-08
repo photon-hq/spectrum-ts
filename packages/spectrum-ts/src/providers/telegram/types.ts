@@ -19,10 +19,11 @@ export type {
 
 /**
  * The payload `verify()` produces and `messages()` consumes. The raw `Update`
- * plus the `TelegramClient` — the `messages` hook receives only `{ payload,
- * respond }` (no store/config), so the client is threaded through here to build
- * the lazy media `read()` closures (inbound media is fetched with the bot
- * token, unlike presigned-URL platforms). The client never lands in a
+ * plus the `TelegramClient` — the `messages` hook ctx exposes config/store/
+ * projectConfig, but not a usable client (the fusor client is just the
+ * `verify` brand), so the real client is threaded through here to build the
+ * lazy media `read()` closures (inbound media is fetched with the bot token,
+ * unlike presigned-URL platforms). The client never lands in a
  * `ProviderMessageRecord`; only `() => client.download(fileId)` closures do.
  */
 export interface TelegramPayload {

@@ -4,6 +4,7 @@ import type { Content } from "@/content/types";
 import { fusor, fusorEvent } from "@/fusor";
 import type { FusorMessages } from "@/fusor/types";
 import { definePlatform } from "@/platform/define";
+import type { ProjectData } from "@/utils/cloud";
 
 // A minimal fusor-mode provider standing in for a real platform (Slack-ish).
 // Its verify() parses the inner HTTP body to a typed payload; messages() turns
@@ -184,5 +185,65 @@ export const makePresence = () =>
     },
     events: { presence: presenceSchema },
     messages: presenceMessages,
+    send: () => Promise.resolve(undefined),
+  });
+
+// ---------------------------------------------------------------------------
+// Runtime-context probe — asserts the fusor `messages` ctx now carries
+// config/store/projectConfig (parity with the regular-mode handler contract).
+// ---------------------------------------------------------------------------
+
+export const CTX_PROBE_PLATFORM = "ctxprobe";
+
+const ctxProbeConfig = z.object({ token: z.string() });
+
+export interface CtxProbeCapture {
+  config?: z.infer<typeof ctxProbeConfig>;
+  projectConfig?: ProjectData | undefined;
+  storeRoundTrip?: string;
+}
+
+// Records the runtime ctx its `messages` handler is invoked with, so a test can
+// assert config/store/projectConfig were threaded in. A typed reference (not an
+// inline arrow) so overload resolution selects the fusor overload — and typed
+// `TConfig` so `config` lands as `{ token: string }`, not `unknown`.
+const ctxProbeMessages =
+  (
+    capture: CtxProbeCapture
+  ): FusorMessages<{ text: string }, z.infer<typeof ctxProbeConfig>> =>
+  ({ payload, config, store, projectConfig }) => {
+    capture.config = config;
+    capture.projectConfig = projectConfig;
+    // Prove `store` is a live Store, not a stub: a write reads back through it.
+    store.set("lastText", payload.text);
+    capture.storeRoundTrip = store.string("lastText");
+    return {
+      id: "c1",
+      content: { type: "text", text: payload.text } as Content,
+      sender: { id: "u1" },
+      space: { id: "s1" },
+    };
+  };
+
+export const makeCtxProbe = (capture: CtxProbeCapture) =>
+  definePlatform(CTX_PROBE_PLATFORM, {
+    config: ctxProbeConfig,
+    lifecycle: {
+      createClient: () =>
+        Promise.resolve(
+          fusor<{ text: string }>(CTX_PROBE_PLATFORM, (req) => {
+            const body = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
+              text?: string;
+            };
+            return { text: body.text ?? "" };
+          })
+        ),
+    },
+    user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+    space: {
+      resolve: ({ input }) =>
+        Promise.resolve({ id: input.users[0]?.id ?? "space" }),
+    },
+    messages: ctxProbeMessages(capture),
     send: () => Promise.resolve(undefined),
   });

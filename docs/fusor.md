@@ -45,12 +45,22 @@ parses the request. They are *not* something you call:
 
 - **`verify(req)`** turns the raw request into a typed `payload` (and rejects a
   bad signature).
-- **`messages({ payload, respond })`** returns the provider message record(s)
-  Spectrum delivers, and may call `respond(...)` to set the synchronous reply.
-  It can also return `fusorEvent(channel, data)` to route to a
+- **`messages({ payload, respond, config, store, projectConfig })`** returns the
+  provider message record(s) Spectrum delivers, and may call `respond(...)` to
+  set the synchronous reply. Besides `payload`/`respond`, the ctx carries the
+  same runtime context every other platform hook receives — the parsed `config`
+  (typed from your config schema), the per-platform `store`, and the Cloud
+  `projectConfig` — so you don't have to smuggle them through the payload. It can
+  also return `fusorEvent(channel, data)` to route to a
   [custom event channel](#custom-event-channels-fusorevent) instead of the
   message stream. ⚠️ This provider hook is distinct from **`app.messages`**, the
   stream *you* consume — same word, different thing.
+
+  > Note: in fusor mode the `client` returned by `createClient` is just the
+  > `fusor(...)` brand (platform + `verify`), **not** a usable API client, so it
+  > is intentionally absent from the ctx. A provider that needs a real client at
+  > message time threads it through the `payload` (as Telegram does for lazy
+  > media downloads).
 
 Internally this is `FusorCore.processEvent()`, driven either by the gRPC stream
 or by `app.webhook()`. You never call it directly.

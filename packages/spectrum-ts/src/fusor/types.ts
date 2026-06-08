@@ -1,6 +1,8 @@
 import type { ProviderMessageRecord } from "../platform/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
+import type { ProjectData } from "../utils/cloud";
+import type { Store } from "../utils/store";
 import type { FusorEvent } from "./event";
 
 export interface FusorVerifyRequest {
@@ -22,9 +24,19 @@ export interface FusorReply {
 
 export type FusorRespond = (reply: FusorReply) => void;
 
-export interface FusorMessagesCtx<TPayload> {
+export interface FusorMessagesCtx<TPayload, TConfig = unknown> {
+  /** Parsed provider config (`z.infer` of the platform's config schema). */
+  config: TConfig;
   payload: TPayload;
+  /**
+   * Spectrum Cloud project metadata, fetched once at `Spectrum()` init.
+   * `undefined` for local-only setups (no `projectId`/`projectSecret`). Read
+   * project-level toggles from `projectConfig.profile.<key>`.
+   */
+  projectConfig: ProjectData | undefined;
   respond: FusorRespond;
+  /** Per-platform in-memory key/value store, shared with the rest of the platform. */
+  store: Store;
 }
 
 export type FusorMessagesReturn =
@@ -33,8 +45,8 @@ export type FusorMessagesReturn =
   | (ProviderMessageRecord | FusorEvent)[]
   | undefined;
 
-export type FusorMessages<TPayload> = (
-  ctx: FusorMessagesCtx<TPayload>
+export type FusorMessages<TPayload, TConfig = unknown> = (
+  ctx: FusorMessagesCtx<TPayload, TConfig>
 ) => FusorMessagesReturn | Promise<FusorMessagesReturn>;
 
 export const FUSOR_BRAND: unique symbol = Symbol.for("spectrum.fusor.client");

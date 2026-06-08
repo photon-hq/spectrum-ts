@@ -2,9 +2,10 @@ import { asCustom } from "../../../content/custom";
 import { asGroup } from "../../../content/group";
 import { asReaction } from "../../../content/reaction";
 import type { Content } from "../../../content/types";
+import type { FusorMessagesCtx } from "../../../fusor/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { Message as SpectrumMessage } from "../../../types/message";
-import type { TelegramClient } from "../client";
+import { botIdFromToken, type TelegramConfig } from "../config";
 import type {
   Message,
   ReactionType,
@@ -51,15 +52,15 @@ const toRecordContent = (
 
 const fromMessage = (
   msg: Message,
-  client: TelegramClient
+  config: TelegramConfig
 ): ProviderMessageRecord | undefined => {
   // Drop the bot's own messages so it never echoes itself. Telegram normally
   // doesn't deliver them, so this is belt-and-suspenders.
-  if (msg.from && String(msg.from.id) === client.botId) {
+  if (msg.from && String(msg.from.id) === botIdFromToken(config.botToken)) {
     return;
   }
   const content = toRecordContent(
-    messageToContent(msg, client),
+    messageToContent(msg, config),
     String(msg.message_id)
   );
   if (!content) {
@@ -116,14 +117,14 @@ const fromReaction = (
  * other update types are ignored (return `undefined`).
  */
 export const handleMessages = ({
-  payload,
-}: {
-  payload: TelegramPayload;
-}): ProviderMessageRecord | undefined => {
-  const { update, client } = payload;
+  payload: update,
+  config,
+}: FusorMessagesCtx<TelegramPayload, TelegramConfig>):
+  | ProviderMessageRecord
+  | undefined => {
   const message = update.message ?? update.channel_post;
   if (message) {
-    return fromMessage(message, client);
+    return fromMessage(message, config);
   }
   if (update.message_reaction) {
     return fromReaction(update.message_reaction);

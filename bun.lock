@@ -26,6 +26,7 @@
         "@photon-ai/otel": "^0.1.1",
         "@photon-ai/proto": "^0.2.4",
         "@photon-ai/slack": "^0.2.0",
+        "@photon-ai/telegram-ts": "10.0.0",
         "@photon-ai/whatsapp-business": "^0.1.1",
         "@repeaterjs/repeater": "^3.0.6",
         "better-grpc": "^0.3.2",
@@ -39,7 +40,6 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
-        "@grammyjs/types": "^3.16.0",
         "@types/bun": "latest",
         "@types/mime-types": "^3.0.1",
         "@types/vcf": "^2.0.7",
@@ -134,8 +134,6 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.7", "", { "os": "win32", "cpu": "x64" }, "sha512-56hiAJPhwQ1R4i+21FVF7V8kSD5zZTdHcVuRFMW0hn753vVfQN8xlx4uOPT4xoGH0Z/oVATuR82AiqSTDIpaHg=="],
 
-    "@grammyjs/types": ["@grammyjs/types@3.27.3", "", {}, "sha512-yUKMLliGsGbnxu96YUJ7km7B0zy4PzeH/Jvti5705R/LeKDMqkDV4DckMSt+OrliWQpTwQljHE0QLol5zgxBkg=="],
-
     "@grpc/grpc-js": ["@grpc/grpc-js@1.14.3", "", { "dependencies": { "@grpc/proto-loader": "^0.8.0", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-Iq8QQQ/7X3Sac15oB6p0FmUg/klxQvXLeileoqrTRGJYLV+/9tubbr9ipz0GKHjmXVsgFPo/+W+2cA8eNcR+XA=="],
 
     "@grpc/proto-loader": ["@grpc/proto-loader@0.8.0", "", { "dependencies": { "lodash.camelcase": "^4.3.0", "long": "^5.0.0", "protobufjs": "^7.5.3", "yargs": "^17.7.2" }, "bin": { "proto-loader-gen-types": "build/bin/proto-loader-gen-types.js" } }, "sha512-rc1hOQtjIWGxcxpb9aHAfLpIctjEnsDehj0DAiVfBlmT84uvR0uUtN2hEi/ecvWVjXUGf5qPF4qEgiLOx1YIMQ=="],
@@ -191,6 +189,8 @@
     "@photon-ai/proto": ["@photon-ai/proto@0.2.4", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.0", "nice-grpc-common": "^2.0.3" } }, "sha512-DQANEp0gHvtwqpMGEF0ufa0hs1nniRdsSuo0Q/TG6GoL1WjC5tp59tHFSLUeIm6fvnAuRjREsGzURz3+/69g7g=="],
 
     "@photon-ai/slack": ["@photon-ai/slack@0.2.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.0", "@grpc/grpc-js": "^1.14.3", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3" } }, "sha512-k3XzGKIVS1EsjrPz9pbWvrvScmiy/iqKdA2npS5xu1CtCoycBkdFsqJKyB6iIyDR02Q3/38kQh7MvKsCzUyo3Q=="],
+
+    "@photon-ai/telegram-ts": ["@photon-ai/telegram-ts@10.0.0", "", { "dependencies": { "zod": "^4.4.3" } }, "sha512-kYGj/ieKOCG+OxoD1R69xHoT7zHl9dboF52LMPUl4FnorbwA8b2pid0uFoDYF55WIfoeo+VSqwlmY84GgpSedg=="],
 
     "@photon-ai/whatsapp-business": ["@photon-ai/whatsapp-business@0.1.1", "", { "dependencies": { "@grpc/grpc-js": "^1.14.3", "long": "^5.3.2", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3", "protobufjs": "^8.0.1" } }, "sha512-JAf/gHh92+H6h/7AMOQ6l+WFYBWdeRH5fZ+tvOUYJJnX1C4aJPDFa23VTH4ndhKPgA5bK/h++cxUZx2lMubvYQ=="],
 

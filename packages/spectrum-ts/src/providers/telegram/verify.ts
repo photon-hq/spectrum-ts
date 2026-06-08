@@ -1,6 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
 import type { FusorVerify, FusorVerifyRequest } from "../../fusor/types";
-import type { TelegramClient } from "./client";
 import type { TelegramConfig } from "./config";
 import type { TelegramPayload, Update } from "./types";
 
@@ -53,22 +52,19 @@ const parseUpdate = (bodyText: string): Update => {
 };
 
 /**
- * Build the Fusor `verify` hook. Closes over `config` (to check the secret
- * token) and the already-built `client` (so the inbound mapper can attach
- * token-authenticated lazy media `read()` closures — the `messages` hook gets
- * only `{ payload, respond }`, with no access to the client otherwise). When no
- * `webhookSecret` is configured the token check is skipped and the body is
+ * Build the Fusor `verify` hook. Receiving is pure parsing: it closes over
+ * `config` only to check the webhook secret token, then parses the raw body
+ * into an `Update` and returns it as the payload — no client is involved. When
+ * no `webhookSecret` is configured the token check is skipped and the body is
  * parsed directly. Throwing rejects the event (Fusor returns 400 — no retry).
+ * The inbound mapper reads `config` from its own ctx and builds a client inline
+ * only if it needs to download media.
  */
-export const makeVerify =
-  (
-    config: TelegramConfig,
-    client: TelegramClient
-  ): FusorVerify<TelegramPayload> =>
+export const verify =
+  (config: TelegramConfig): FusorVerify<TelegramPayload> =>
   (req: FusorVerifyRequest): TelegramPayload => {
     if (config.webhookSecret) {
       verifySecret(req.headers, config.webhookSecret);
     }
-    const update = parseUpdate(new TextDecoder().decode(req.rawBody));
-    return { client, update };
+    return parseUpdate(new TextDecoder().decode(req.rawBody));
   };

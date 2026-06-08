@@ -1,10 +1,13 @@
-import type { Message, MessageReactionUpdated, Update } from "@grammyjs/types";
-import type { TelegramClient } from "./client";
+import type {
+  Message,
+  MessageReactionUpdated,
+  Update,
+} from "@photon-ai/telegram-ts";
 
 // ---------------------------------------------------------------------------
-// Inbound — Telegram webhook payloads, typed from the official `@grammyjs/types`
-// package so the adapter stays in sync with the Bot API schema. These are
-// types-only imports and disappear at build time.
+// Inbound — Telegram webhook payloads, typed from `@photon-ai/telegram-ts` so
+// the adapter stays in sync with the Bot API schema. These are types-only
+// imports and disappear at build time.
 // ---------------------------------------------------------------------------
 
 export type {
@@ -15,29 +18,25 @@ export type {
   ReactionTypeEmoji,
   Update,
   User,
-} from "@grammyjs/types";
+} from "@photon-ai/telegram-ts";
 
 /**
- * The payload `verify()` produces and `messages()` consumes. The raw `Update`
- * plus the `TelegramClient` — the `messages` hook ctx exposes config/store/
- * projectConfig, but not a usable client (the fusor client is just the
- * `verify` brand), so the real client is threaded through here to build the
- * lazy media `read()` closures (inbound media is fetched with the bot token,
- * unlike presigned-URL platforms). The client never lands in a
- * `ProviderMessageRecord`; only `() => client.download(fileId)` closures do.
+ * The payload `verify()` produces and `messages()` consumes: just the parsed
+ * `Update`. Receiving is pure parsing — no client or config is bundled here.
+ * The inbound mapper reads `config` from its own ctx (the Fusor `messages`
+ * handler receives `{ config, payload, store, ... }`) and creates a client
+ * inline only when it needs to download media bytes.
  */
-export interface TelegramPayload {
-  client: TelegramClient;
-  update: Update;
-}
+export type TelegramPayload = Update;
 
 /** An inbound `message_reaction` update. */
 export type ReactionUpdate = MessageReactionUpdated;
 
 // ---------------------------------------------------------------------------
-// Outbound — the adapter's own DTOs at the `TelegramClient` boundary. Telegram
-// has no multi-part message: each content type is a distinct Bot API method, so
+// Outbound — the adapter's own DTOs at the Bot API boundary. Telegram has no
+// multi-part message: each content type is a distinct Bot API method, so
 // `buildSend` returns a *send spec* (one method call) rather than a parts list.
+// `executeSpec` runs it through the photon client.
 // ---------------------------------------------------------------------------
 
 /** A file to upload as `multipart/form-data` under `field` (e.g. `photo`). */

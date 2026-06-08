@@ -1,13 +1,18 @@
+import {
+  editMessageText,
+  sendChatAction,
+  setMessageReaction,
+} from "@photon-ai/telegram-ts";
 import type { Edit } from "../../../content/edit";
 import type { Reaction } from "../../../content/reaction";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import { UnsupportedError } from "../../../utils/errors";
-import { getClient, type StoreLike, type TelegramClient } from "../client";
+import { executeSpec, type TelegramClient, telegramClient } from "../client";
 import { TELEGRAM_PLATFORM, type TelegramConfig } from "../config";
 import { isAllowedReactionEmoji, normalizeReactionEmoji } from "../reactions";
 import type { TelegramSpace } from "../space";
-import type { SentMessage } from "../types";
+import type { ReactionTypeEmoji } from "../types";
 import { buildSend, parseMessageId } from "./message";
 
 const MILLIS_PER_SECOND = 1000;
@@ -16,7 +21,6 @@ interface SendArgs {
   config: TelegramConfig;
   content: Content;
   space: TelegramSpace;
-  store: StoreLike;
 }
 
 /** Build one content's spec, inject `chat_id`, execute it, return the record. */
@@ -26,7 +30,7 @@ const sendContent = async (
   content: Content
 ): Promise<ProviderMessageRecord> => {
   const spec = await buildSend(content);
-  const sent = await client.call<SentMessage>({
+  const sent = await executeSpec(client, {
     ...spec,
     params: { chat_id: space.id, ...spec.params },
   });
@@ -70,13 +74,14 @@ const sendReaction = async (
       `"${content.emoji}" is not an allowed Telegram reaction emoji.`
     );
   }
-  await client.call({
-    method: "setMessageReaction",
-    params: {
+  await setMessageReaction({
+    body: {
       chat_id: space.id,
       message_id: messageId,
-      reaction: [{ type: "emoji", emoji }],
+      // `emoji` is runtime-validated above; cast to photon's allowed-emoji union.
+      reaction: [{ emoji: emoji as ReactionTypeEmoji["emoji"], type: "emoji" }],
     },
+    client,
   });
   return;
 };
@@ -88,9 +93,9 @@ const sendTyping = async (
 ): Promise<undefined> => {
   // Telegram has no "stop typing" — the indicator auto-clears after ~5s.
   if (state === "start") {
-    await client.call({
-      method: "sendChatAction",
-      params: { chat_id: space.id, action: "typing" },
+    await sendChatAction({
+      body: { action: "typing", chat_id: space.id },
+      client,
     });
   }
   return;
@@ -108,13 +113,13 @@ const sendEdit = async (
       `only text content can be edited (got "${content.content.type}").`
     );
   }
-  await client.call({
-    method: "editMessageText",
-    params: {
+  await editMessageText({
+    body: {
       chat_id: space.id,
       message_id: parseMessageId(content.target.id),
       text: content.content.text,
     },
+    client,
   });
   return;
 };
@@ -130,9 +135,8 @@ export const send = async ({
   space,
   content,
   config,
-  store,
 }: SendArgs): Promise<ProviderMessageRecord | undefined> => {
-  const client = getClient(store, config);
+  const client = telegramClient(config);
   switch (content.type) {
     case "reaction":
       return await sendReaction(client, space, content);

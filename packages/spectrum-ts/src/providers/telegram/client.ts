@@ -1,135 +1,118 @@
-import { botIdFromToken, type TelegramConfig } from "./config";
-import type { TelegramSendSpec } from "./types";
+import { createTelegramClient, getFile } from "@photon-ai/telegram-ts";
+import type { TelegramConfig } from "./config";
+import type { SentMessage, TelegramSendSpec } from "./types";
 
-const CLIENT_STORE_KEY = "telegram.client";
 const REQUEST_TIMEOUT_MS = 30_000;
 const TRAILING_SLASHES = /\/+$/;
 
-interface BotApiResponse<T> {
-  description?: string;
-  error_code?: number;
-  ok: boolean;
-  result?: T;
-}
-
 /**
- * The adapter's view of the Telegram Bot API. The Bot API is plain HTTP/JSON,
- * so this wraps the global `fetch` directly (no SDK): `call` executes any
- * method (JSON, or `multipart/form-data` when a file is attached) and unwraps
- * the `{ ok, result }` envelope; `download` resolves a `file_id` to bytes.
+ * A photon Bot API client (hey-api `Client`). Created per request — the
+ * constructor makes no network call, so there is nothing to cache. Sending and
+ * inbound media download each build one inline from `config`.
  */
-export interface TelegramClient {
-  /** The bot's own numeric id (token prefix), used to drop self-authored updates. */
-  readonly botId: string;
-  /** Execute one Bot API method and return its unwrapped `result`. */
-  call<T = unknown>(spec: TelegramSendSpec): Promise<T>;
-  /** Fetch a file's bytes by `file_id` (`getFile` → token URL → bytes). */
-  download(fileId: string): Promise<Buffer>;
-}
+export type TelegramClient = ReturnType<typeof createTelegramClient>;
 
-const toFormValue = (value: unknown): string =>
-  typeof value === "object" ? JSON.stringify(value) : String(value);
+/** Build a photon client bound to the bot token. Cheap: no network on construction. */
+export const telegramClient = (config: TelegramConfig): TelegramClient =>
+  createTelegramClient({ token: config.botToken, baseUrl: config.baseUrl });
 
-const buildBody = (
-  spec: TelegramSendSpec
-): { body: string | FormData; headers?: Record<string, string> } => {
-  if (!spec.file) {
-    return {
-      body: JSON.stringify(spec.params),
-      headers: { "content-type": "application/json" },
-    };
+// photon's typed `send*` methods only accept a string file ref (file_id/URL) and
+// it does not export its form serializer, so raw-byte uploads go through the
+// low-level `client.post` with this serializer — a faithful copy of photon's
+// internal `formDataBodySerializer` (string/Blob verbatim, Date → ISO, else JSON).
+const appendFormValue = (form: FormData, key: string, value: unknown): void => {
+  if (typeof value === "string" || value instanceof Blob) {
+    form.append(key, value);
+  } else if (value instanceof Date) {
+    form.append(key, value.toISOString());
+  } else {
+    form.append(key, JSON.stringify(value));
   }
+};
+
+const toFormData = (body: unknown): FormData => {
   const form = new FormData();
-  for (const [key, value] of Object.entries(spec.params)) {
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
     if (value === undefined || value === null) {
       continue;
     }
-    form.append(key, toFormValue(value));
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        appendFormValue(form, key, item);
+      }
+    } else {
+      appendFormValue(form, key, value);
+    }
   }
-  const blob = new Blob([new Uint8Array(spec.file.bytes)], {
-    type: spec.file.mimeType,
-  });
-  form.append(spec.file.field, blob, spec.file.filename);
-  return { body: form };
+  return form;
 };
 
-const makeTelegramClient = (config: TelegramConfig): TelegramClient => {
-  const base = config.baseUrl.replace(TRAILING_SLASHES, "");
-  const token = config.botToken;
-
-  const call = async <T = unknown>(spec: TelegramSendSpec): Promise<T> => {
-    const { body, headers } = buildBody(spec);
-    const res = await fetch(`${base}/bot${token}/${spec.method}`, {
-      method: "POST",
-      ...(headers ? { headers } : {}),
-      body,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    // Read the body as text first: an upstream proxy (or a custom `baseUrl`
-    // test server) can return a non-JSON error page, and an unguarded
-    // `res.json()` would throw an opaque parse error that hides the method and
-    // status. Never include the URL (it carries the bot token) in errors.
-    const raw = await res.text();
-    let json: BotApiResponse<T> | undefined;
-    try {
-      json = raw ? (JSON.parse(raw) as BotApiResponse<T>) : undefined;
-    } catch {
-      throw new Error(
-        `Telegram ${spec.method} failed: ${res.status} ${res.statusText}`
-      );
-    }
-    if (!json?.ok) {
-      throw new Error(
-        `Telegram ${spec.method} failed: ${json?.error_code ?? res.status} ${json?.description ?? res.statusText}`
-      );
-    }
-    return json.result as T;
-  };
-
-  const download = async (fileId: string): Promise<Buffer> => {
-    const file = await call<{ file_path?: string }>({
-      method: "getFile",
-      params: { file_id: fileId },
-    });
-    if (!file.file_path) {
-      throw new Error(`Telegram getFile returned no file_path for ${fileId}`);
-    }
-    // The file URL embeds the bot token — keep it out of logs/errors.
-    const res = await fetch(`${base}/file/bot${token}/${file.file_path}`, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      throw new Error(
-        `Telegram media download failed: ${res.status} ${res.statusText}`
-      );
-    }
-    return Buffer.from(await res.arrayBuffer());
-  };
-
-  return { botId: botIdFromToken(token), call, download };
-};
-
-// Store is an SDK-internal KV reachable through lifecycle/send ctx. It isn't
-// exported from spectrum-ts, so we depend on its minimal structural shape.
-export interface StoreLike {
-  get(key: string): unknown;
-  set(key: string, value: unknown): void;
+/** The `{ ok, result }` envelope photon resolves to with `responseStyle: "data"`. */
+interface SendEnvelope {
+  result: SentMessage;
 }
 
-/** Build the client once (in `createClient`) and cache it on `store`. */
-export const initClient = (
-  store: StoreLike,
-  config: TelegramConfig
-): TelegramClient => {
-  const client = makeTelegramClient(config);
-  store.set(CLIENT_STORE_KEY, client);
-  return client;
+/**
+ * Execute one Bot API call through the photon client and return the sent
+ * message. JSON params go out as `application/json`; a `file` is uploaded as
+ * `multipart/form-data` — wrapped in a `File` so the part keeps its filename
+ * (`formDataBodySerializer` appends without an explicit name), with
+ * `Content-Type: null` dropping the default JSON header so fetch sets the
+ * multipart boundary. A failed call throws `TelegramApiError` (token-free).
+ */
+export const executeSpec = async (
+  client: TelegramClient,
+  spec: TelegramSendSpec
+): Promise<SentMessage> => {
+  const url = `/${spec.method}`;
+  if (spec.file) {
+    const file = new File(
+      [new Uint8Array(spec.file.bytes)],
+      spec.file.filename,
+      { type: spec.file.mimeType }
+    );
+    const res = await client.post({
+      body: { ...spec.params, [spec.file.field]: file },
+      bodySerializer: toFormData,
+      headers: { "Content-Type": null },
+      throwOnError: true,
+      url,
+    });
+    return (res.data as SendEnvelope).result;
+  }
+  const res = await client.post({ body: spec.params, throwOnError: true, url });
+  return (res.data as SendEnvelope).result;
 };
 
-/** Read the cached client in `send`/actions, rebuilding it if absent. */
-export const getClient = (
-  store: StoreLike,
-  config: TelegramConfig
-): TelegramClient =>
-  (store.get(CLIENT_STORE_KEY) as TelegramClient | undefined) ??
-  initClient(store, config);
+/**
+ * Resolve a `file_id` to its bytes. photon has no byte-download helper and the
+ * file endpoint is not a Bot API JSON method, so this is the one place that
+ * reaches Telegram outside photon: `getFile` (via photon) for the path, then a
+ * single authenticated `fetch`. The file URL embeds the bot token, so it is
+ * never interpolated into a thrown error.
+ */
+export const downloadFile = async (
+  config: TelegramConfig,
+  fileId: string
+): Promise<Buffer> => {
+  const client = telegramClient(config);
+  const meta = await getFile({
+    body: { file_id: fileId },
+    client,
+    throwOnError: true,
+  });
+  const filePath = meta.result?.file_path;
+  if (!filePath) {
+    throw new Error(`Telegram getFile returned no file_path for ${fileId}`);
+  }
+  const base = config.baseUrl.replace(TRAILING_SLASHES, "");
+  const res = await fetch(`${base}/file/bot${config.botToken}/${filePath}`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Telegram media download failed: ${res.status} ${res.statusText}`
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+};

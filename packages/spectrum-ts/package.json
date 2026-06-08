@@ -78,6 +78,7 @@
     "@photon-ai/imessage-kit": "^3.0.0",
     "@photon-ai/otel": "^0.1.1",
     "@photon-ai/slack": "^0.2.0",
+    "@photon-ai/telegram-ts": "10.0.0",
     "@photon-ai/whatsapp-business": "^0.1.1",
     "@photon-ai/proto": "^0.2.4",
     "@repeaterjs/repeater": "^3.0.6",
@@ -92,7 +93,6 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@grammyjs/types": "^3.16.0",
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",

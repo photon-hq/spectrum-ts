@@ -1,25 +1,21 @@
-import { describe, expect, it } from "bun:test";
-import type { TelegramClient } from "@/providers/telegram/client";
+import { describe, expect, it, spyOn } from "bun:test";
+import { configSchema } from "@/providers/telegram/config";
 import { handleMessages } from "@/providers/telegram/inbound/messages";
-import type { TelegramPayload, Update } from "@/providers/telegram/types";
+import type { Update } from "@/providers/telegram/types";
 
 const TS_SEC = 1_700_000_000;
 const DOWNLOAD = Buffer.from("file-bytes");
 
-const downloadCalls: string[] = [];
-const client: TelegramClient = {
-  botId: "999",
-  call: () => Promise.reject(new Error("unused")),
-  download: (fileId) => {
-    downloadCalls.push(fileId);
-    return Promise.resolve(DOWNLOAD);
-  },
-};
+// botToken prefix "999" is the bot's own id — drives the self-echo test.
+const config = configSchema.parse({ botToken: "999:abc" });
 
-const payload = (over: Record<string, unknown>): TelegramPayload => ({
-  client,
-  update: { update_id: 1, ...over } as unknown as Update,
-});
+const update = (over: Record<string, unknown>): Update =>
+  ({ update_id: 1, ...over }) as unknown as Update;
+
+// `handleMessages` is a Fusor handler; it only reads `payload` + `config`, so a
+// minimal ctx (cast to the full ctx type) is enough to exercise it.
+const ctx = (over: Record<string, unknown>) =>
+  ({ config, payload: update(over) }) as Parameters<typeof handleMessages>[0];
 
 const message = (over: Record<string, unknown>): Record<string, unknown> => ({
   message_id: 5,
@@ -30,7 +26,7 @@ const message = (over: Record<string, unknown>): Record<string, unknown> => ({
 });
 
 const handle = (over: Record<string, unknown>) =>
-  handleMessages({ payload: payload({ message: message(over) }) });
+  handleMessages(ctx({ message: message(over) }));
 
 describe("handleMessages — text", () => {
   it("maps a text message to text content", () => {
@@ -161,38 +157,65 @@ describe("handleMessages — media", () => {
     }
   });
 
-  it("downloads bytes lazily through the embedded client", async () => {
-    downloadCalls.length = 0;
-    const record = handle({
-      document: {
-        file_id: "doc-read",
-        file_unique_id: "u",
-        file_name: "f.bin",
-      },
-    });
-    expect(downloadCalls).toHaveLength(0); // not fetched yet
-    if (record?.content.type === "attachment") {
-      const bytes = await record.content.read();
-      expect(bytes).toEqual(DOWNLOAD);
-      expect(downloadCalls).toEqual(["doc-read"]);
-    } else {
-      throw new Error("expected attachment");
+  it("downloads bytes lazily through a client built inline", async () => {
+    const fetched: string[] = [];
+    const impl = (input: Request | string): Promise<Response> => {
+      const url = typeof input === "string" ? input : input.url;
+      fetched.push(url);
+      if (url.endsWith("/getFile")) {
+        return Promise.resolve(
+          Response.json({
+            ok: true,
+            result: {
+              file_id: "doc-read",
+              file_unique_id: "u",
+              file_path: "files/f.bin",
+            },
+          })
+        );
+      }
+      return Promise.resolve(new Response(DOWNLOAD));
+    };
+    const spy = spyOn(globalThis, "fetch").mockImplementation(
+      impl as unknown as typeof fetch
+    );
+    try {
+      const record = handle({
+        document: {
+          file_id: "doc-read",
+          file_unique_id: "u",
+          file_name: "f.bin",
+        },
+      });
+      expect(fetched).toHaveLength(0); // nothing fetched on the ack path
+      if (record?.content.type === "attachment") {
+        const bytes = await record.content.read();
+        expect(Buffer.from(bytes)).toEqual(DOWNLOAD);
+        expect(fetched.some((u) => u.endsWith("/getFile"))).toBe(true);
+        expect(
+          fetched.some((u) => u.includes("/file/bot999:abc/files/f.bin"))
+        ).toBe(true);
+      } else {
+        throw new Error("expected attachment");
+      }
+    } finally {
+      spy.mockRestore();
     }
   });
 });
 
 describe("handleMessages — channel posts & self-echo", () => {
   it("maps a senderless channel post", () => {
-    const record = handleMessages({
-      payload: payload({
+    const record = handleMessages(
+      ctx({
         channel_post: {
           message_id: 9,
           date: TS_SEC,
           chat: { id: -100, type: "channel" },
           text: "broadcast",
         },
-      }),
-    });
+      })
+    );
     expect(record?.content).toEqual({ type: "text", text: "broadcast" });
     expect(record?.sender).toBeUndefined();
     expect(record?.space.id).toBe("-100");
@@ -209,8 +232,8 @@ describe("handleMessages — channel posts & self-echo", () => {
 
 describe("handleMessages — reactions & ignored updates", () => {
   it("maps a message_reaction add to a reaction targeting the message", () => {
-    const record = handleMessages({
-      payload: payload({
+    const record = handleMessages(
+      ctx({
         message_reaction: {
           chat: { id: 100, type: "private" },
           message_id: 5,
@@ -219,8 +242,8 @@ describe("handleMessages — reactions & ignored updates", () => {
           old_reaction: [],
           new_reaction: [{ type: "emoji", emoji: "👍" }],
         },
-      }),
-    });
+      })
+    );
     expect(record?.content.type).toBe("reaction");
     if (record?.content.type === "reaction") {
       expect(record.content.emoji).toBe("👍");
@@ -230,8 +253,8 @@ describe("handleMessages — reactions & ignored updates", () => {
   });
 
   it("ignores a reaction removal (empty new_reaction)", () => {
-    const record = handleMessages({
-      payload: payload({
+    const record = handleMessages(
+      ctx({
         message_reaction: {
           chat: { id: 100, type: "private" },
           message_id: 5,
@@ -239,20 +262,18 @@ describe("handleMessages — reactions & ignored updates", () => {
           old_reaction: [{ type: "emoji", emoji: "👍" }],
           new_reaction: [],
         },
-      }),
-    });
+      })
+    );
     expect(record).toBeUndefined();
   });
 
   it("ignores update types outside v1 scope", () => {
     expect(
-      handleMessages({
-        payload: payload({ edited_message: message({ text: "x" }) }),
-      })
+      handleMessages(ctx({ edited_message: message({ text: "x" }) }))
     ).toBeUndefined();
     expect(
-      handleMessages({ payload: payload({ callback_query: { id: "cb" } }) })
+      handleMessages(ctx({ callback_query: { id: "cb" } }))
     ).toBeUndefined();
-    expect(handleMessages({ payload: payload({}) })).toBeUndefined();
+    expect(handleMessages(ctx({}))).toBeUndefined();
   });
 });

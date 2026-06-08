@@ -2,7 +2,8 @@ import { asAttachment } from "../../../content/attachment";
 import { asText } from "../../../content/text";
 import type { Content } from "../../../content/types";
 import { asVoice } from "../../../content/voice";
-import type { TelegramClient } from "../client";
+import { downloadFile } from "../client";
+import type { TelegramConfig } from "../config";
 import type { Message, PhotoSize } from "../types";
 
 const DEFAULT_VIDEO_MIME = "video/mp4";
@@ -30,12 +31,12 @@ interface TgFile {
   mime_type?: string;
 }
 
-const lazyRead = (client: TelegramClient, fileId: string) => () =>
-  client.download(fileId);
+const lazyRead = (config: TelegramConfig, fileId: string) => () =>
+  downloadFile(config, fileId);
 
 /** Build an attachment from any Telegram file, falling back when unnamed/untyped. */
 const fileAttachment = (
-  client: TelegramClient,
+  config: TelegramConfig,
   file: TgFile,
   fallbackExt: string,
   fallbackMime: string
@@ -45,11 +46,11 @@ const fileAttachment = (
     name: file.file_name ?? `${file.file_unique_id}.${fallbackExt}`,
     mimeType: file.mime_type ?? fallbackMime,
     size: file.file_size,
-    read: lazyRead(client, file.file_id),
+    read: lazyRead(config, file.file_id),
   });
 
 const stickerAttachment = (
-  client: TelegramClient,
+  config: TelegramConfig,
   sticker: NonNullable<Message["sticker"]>
 ): Content => {
   let ext = "webp";
@@ -66,7 +67,7 @@ const stickerAttachment = (
     name: `${sticker.file_unique_id}.${ext}`,
     mimeType,
     size: sticker.file_size,
-    read: lazyRead(client, sticker.file_id),
+    read: lazyRead(config, sticker.file_id),
   });
 };
 
@@ -83,41 +84,41 @@ const stickerAttachment = (
  */
 const mediaToContent = (
   msg: Message,
-  client: TelegramClient
+  config: TelegramConfig
 ): Content | undefined => {
   if (msg.voice) {
     return asVoice({
       mimeType: msg.voice.mime_type ?? DEFAULT_VOICE_MIME,
       duration: msg.voice.duration,
       size: msg.voice.file_size,
-      read: lazyRead(client, msg.voice.file_id),
+      read: lazyRead(config, msg.voice.file_id),
     });
   }
   if (msg.video_note) {
-    return fileAttachment(client, msg.video_note, "mp4", DEFAULT_VIDEO_MIME);
+    return fileAttachment(config, msg.video_note, "mp4", DEFAULT_VIDEO_MIME);
   }
   if (msg.animation) {
-    return fileAttachment(client, msg.animation, "mp4", DEFAULT_VIDEO_MIME);
+    return fileAttachment(config, msg.animation, "mp4", DEFAULT_VIDEO_MIME);
   }
   if (msg.video) {
-    return fileAttachment(client, msg.video, "mp4", DEFAULT_VIDEO_MIME);
+    return fileAttachment(config, msg.video, "mp4", DEFAULT_VIDEO_MIME);
   }
   if (msg.audio) {
-    return fileAttachment(client, msg.audio, "mp3", DEFAULT_AUDIO_MIME);
+    return fileAttachment(config, msg.audio, "mp3", DEFAULT_AUDIO_MIME);
   }
   if (msg.document) {
-    return fileAttachment(client, msg.document, "bin", DEFAULT_DOC_MIME);
+    return fileAttachment(config, msg.document, "bin", DEFAULT_DOC_MIME);
   }
   if (msg.photo && msg.photo.length > 0) {
     return fileAttachment(
-      client,
+      config,
       pickLargestPhoto(msg.photo),
       "jpg",
       "image/jpeg"
     );
   }
   if (msg.sticker) {
-    return stickerAttachment(client, msg.sticker);
+    return stickerAttachment(config, msg.sticker);
   }
   return;
 };
@@ -130,9 +131,9 @@ const mediaToContent = (
  */
 export const messageToContent = (
   msg: Message,
-  client: TelegramClient
+  config: TelegramConfig
 ): Content[] => {
-  const media = mediaToContent(msg, client);
+  const media = mediaToContent(msg, config);
   if (media) {
     const caption = msg.caption?.trim();
     return caption ? [asText(caption), media] : [media];

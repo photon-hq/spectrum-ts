@@ -1,4 +1,12 @@
-import { describe, expect, it } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from "bun:test";
 import { attachment } from "@/content/attachment";
 import { poll } from "@/content/poll";
 import { reaction } from "@/content/reaction";
@@ -6,10 +14,8 @@ import { reply } from "@/content/reply";
 import { text } from "@/content/text";
 import type { Content } from "@/content/types";
 import { voice } from "@/content/voice";
-import type { TelegramClient } from "@/providers/telegram/client";
 import { configSchema } from "@/providers/telegram/config";
 import { send } from "@/providers/telegram/outbound/send";
-import type { SentMessage, TelegramSendSpec } from "@/providers/telegram/types";
 import type { Message } from "@/types/message";
 
 const TS_SEC = 1_700_000_000;
@@ -20,43 +26,78 @@ const target = {
   content: { type: "text", text: "x" },
 } as unknown as Message;
 
-const setup = () => {
-  const calls: TelegramSendSpec[] = [];
-  const client: TelegramClient = {
-    botId: "1",
-    call: <T = SentMessage>(spec: TelegramSendSpec): Promise<T> => {
-      calls.push(spec);
-      return Promise.resolve({ message_id: 555, date: TS_SEC } as unknown as T);
-    },
-    download: () => Promise.resolve(Buffer.alloc(0)),
+interface Captured {
+  contentType: string | null;
+  form?: FormData;
+  json?: Record<string, unknown>;
+  method: string;
+}
+
+// setMessageReaction/sendChatAction/editMessageText go through photon's typed
+// functions, which validate the response against a Zod schema — so the mock
+// must echo their `{ ok, result: true }` shape; message sends accept any result.
+const FIRE_AND_FORGET = new Set([
+  "setMessageReaction",
+  "sendChatAction",
+  "editMessageText",
+]);
+
+const responseFor = (method: string): unknown =>
+  FIRE_AND_FORGET.has(method)
+    ? { ok: true, result: true }
+    : { ok: true, result: { message_id: 555, date: TS_SEC } };
+
+let calls: Captured[];
+
+beforeEach(() => {
+  calls = [];
+  const impl = (input: Request): Promise<Response> => {
+    const url = input.url;
+    const method = url.slice(url.lastIndexOf("/") + 1);
+    const contentType = input.headers.get("content-type");
+    const record = async (): Promise<Captured> => {
+      if (contentType?.includes("application/json")) {
+        return {
+          contentType,
+          json: (await input.clone().json()) as Record<string, unknown>,
+          method,
+        };
+      }
+      return {
+        contentType,
+        form: (await input.clone().formData()) as unknown as FormData,
+        method,
+      };
+    };
+    return record().then((captured) => {
+      calls.push(captured);
+      return Response.json(responseFor(method));
+    });
   };
-  const map = new Map<string, unknown>([["telegram.client", client]]);
-  const store = {
-    get: (key: string) => map.get(key),
-    set: (key: string, value: unknown) => {
-      map.set(key, value);
-    },
-  };
-  return { calls, store };
-};
+  spyOn(globalThis, "fetch").mockImplementation(
+    impl as unknown as typeof fetch
+  );
+});
+
+afterEach(() => {
+  mock.restore();
+});
 
 describe("send — messages", () => {
-  it("sends text as sendMessage with the chat id", async () => {
-    const { calls, store } = setup();
+  it("sends text as sendMessage with the chat id and returns the record", async () => {
     const result = await send({
       space,
       content: await text("hi").build(),
       config,
-      store,
     });
     expect(result?.id).toBe("555");
     expect(result?.space.id).toBe("100");
+    expect(result?.timestamp).toEqual(new Date(TS_SEC * 1000));
     expect(calls[0]?.method).toBe("sendMessage");
-    expect(calls[0]?.params).toEqual({ chat_id: "100", text: "hi" });
+    expect(calls[0]?.json).toEqual({ chat_id: "100", text: "hi" });
   });
 
-  it("sends an image attachment via sendPhoto", async () => {
-    const { calls, store } = setup();
+  it("sends an image attachment via sendPhoto as multipart, preserving the filename", async () => {
     await send({
       space,
       content: await attachment(Buffer.from("img"), {
@@ -64,16 +105,14 @@ describe("send — messages", () => {
         name: "p.png",
       }).build(),
       config,
-      store,
     });
     expect(calls[0]?.method).toBe("sendPhoto");
-    expect(calls[0]?.file?.field).toBe("photo");
-    expect(calls[0]?.file?.filename).toBe("p.png");
-    expect(calls[0]?.params.chat_id).toBe("100");
+    expect(calls[0]?.contentType).not.toContain("application/json");
+    expect(calls[0]?.form?.get("chat_id")).toBe("100");
+    expect((calls[0]?.form?.get("photo") as File).name).toBe("p.png");
   });
 
   it("sends a non-image attachment via sendDocument", async () => {
-    const { calls, store } = setup();
     await send({
       space,
       content: await attachment(Buffer.from("d"), {
@@ -81,14 +120,12 @@ describe("send — messages", () => {
         name: "d.pdf",
       }).build(),
       config,
-      store,
     });
     expect(calls[0]?.method).toBe("sendDocument");
-    expect(calls[0]?.file?.field).toBe("document");
+    expect((calls[0]?.form?.get("document") as File).name).toBe("d.pdf");
   });
 
   it("sends voice via sendVoice", async () => {
-    const { calls, store } = setup();
     await send({
       space,
       content: await voice(Buffer.from("a"), {
@@ -96,22 +133,15 @@ describe("send — messages", () => {
         name: "v.ogg",
       }).build(),
       config,
-      store,
     });
     expect(calls[0]?.method).toBe("sendVoice");
-    expect(calls[0]?.file?.field).toBe("voice");
+    expect((calls[0]?.form?.get("voice") as File).name).toBe("v.ogg");
   });
 
   it("threads a reply via reply_parameters", async () => {
-    const { calls, store } = setup();
-    await send({
-      space,
-      content: await reply("hey", target).build(),
-      config,
-      store,
-    });
+    await send({ space, content: await reply("hey", target).build(), config });
     expect(calls[0]?.method).toBe("sendMessage");
-    expect(calls[0]?.params).toEqual({
+    expect(calls[0]?.json).toEqual({
       chat_id: "100",
       text: "hey",
       reply_parameters: { message_id: 42 },
@@ -119,7 +149,6 @@ describe("send — messages", () => {
   });
 
   it("fans a group out to one message per item, returning the last", async () => {
-    const { calls, store } = setup();
     const group = {
       type: "group",
       items: [
@@ -127,37 +156,34 @@ describe("send — messages", () => {
         { id: "b", content: await text("two").build() },
       ],
     } as unknown as Content;
-    const result = await send({ space, content: group, config, store });
+    const result = await send({ space, content: group, config });
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.params).toMatchObject({ text: "one" });
-    expect(calls[1]?.params).toMatchObject({ text: "two" });
+    expect(calls[0]?.json).toMatchObject({ text: "one" });
+    expect(calls[1]?.json).toMatchObject({ text: "two" });
     expect(result?.id).toBe("555");
   });
 
   it("passes custom content straight to the named Bot API method", async () => {
-    const { calls, store } = setup();
     const custom = {
       type: "custom",
       raw: { method: "sendDice", params: { emoji: "🎲" } },
     } as unknown as Content;
-    await send({ space, content: custom, config, store });
+    await send({ space, content: custom, config });
     expect(calls[0]?.method).toBe("sendDice");
-    expect(calls[0]?.params).toEqual({ chat_id: "100", emoji: "🎲" });
+    expect(calls[0]?.json).toEqual({ chat_id: "100", emoji: "🎲" });
   });
 });
 
 describe("send — fire-and-forget", () => {
   it("sends a reaction via setMessageReaction and returns undefined", async () => {
-    const { calls, store } = setup();
     const result = await send({
       space,
       content: await reaction("👍", target).build(),
       config,
-      store,
     });
     expect(result).toBeUndefined();
     expect(calls[0]?.method).toBe("setMessageReaction");
-    expect(calls[0]?.params).toEqual({
+    expect(calls[0]?.json).toEqual({
       chat_id: "100",
       message_id: 42,
       reaction: [{ type: "emoji", emoji: "👍" }],
@@ -165,41 +191,32 @@ describe("send — fire-and-forget", () => {
   });
 
   it("rejects an invalid reaction emoji without calling the API", async () => {
-    const { calls, store } = setup();
     await expect(
-      send({
-        space,
-        content: await reaction("🚀", target).build(),
-        config,
-        store,
-      })
+      send({ space, content: await reaction("🚀", target).build(), config })
     ).rejects.toThrow("not an allowed");
     expect(calls).toHaveLength(0);
   });
 
-  it("starts a typing action; stop is a no-op", async () => {
-    const { calls, store } = setup();
+  it("starts a typing action via sendChatAction", async () => {
     await send({
       space,
       content: { type: "typing", state: "start" } as unknown as Content,
       config,
-      store,
     });
     expect(calls[0]?.method).toBe("sendChatAction");
-    expect(calls[0]?.params).toEqual({ chat_id: "100", action: "typing" });
+    expect(calls[0]?.json).toEqual({ action: "typing", chat_id: "100" });
+  });
 
-    const stop = setup();
+  it("treats typing stop as a no-op", async () => {
     await send({
       space,
       content: { type: "typing", state: "stop" } as unknown as Content,
       config,
-      store: stop.store,
     });
-    expect(stop.calls).toHaveLength(0);
+    expect(calls).toHaveLength(0);
   });
 
-  it("edits text via editMessageText and rejects non-text edits", async () => {
-    const { calls, store } = setup();
+  it("edits text via editMessageText", async () => {
     await send({
       space,
       content: {
@@ -208,15 +225,16 @@ describe("send — fire-and-forget", () => {
         target,
       } as unknown as Content,
       config,
-      store,
     });
     expect(calls[0]?.method).toBe("editMessageText");
-    expect(calls[0]?.params).toEqual({
+    expect(calls[0]?.json).toEqual({
       chat_id: "100",
       message_id: 42,
       text: "new",
     });
+  });
 
+  it("rejects a non-text edit without calling the API", async () => {
     await expect(
       send({
         space,
@@ -226,22 +244,16 @@ describe("send — fire-and-forget", () => {
           target,
         } as unknown as Content,
         config,
-        store,
       })
     ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
   });
 });
 
 describe("send — unsupported", () => {
   it("throws UnsupportedError for polls", async () => {
-    const { store } = setup();
     await expect(
-      send({
-        space,
-        content: await poll("Q?", "a", "b").build(),
-        config,
-        store,
-      })
+      send({ space, content: await poll("Q?", "a", "b").build(), config })
     ).rejects.toThrow();
   });
 });

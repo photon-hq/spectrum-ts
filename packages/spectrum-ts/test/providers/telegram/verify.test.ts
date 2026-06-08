@@ -1,16 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import type { TelegramClient } from "@/providers/telegram/client";
 import { configSchema } from "@/providers/telegram/config";
 import type { TelegramPayload } from "@/providers/telegram/types";
-import { makeVerify } from "@/providers/telegram/verify";
+import { verify } from "@/providers/telegram/verify";
 
 const SECRET = "s3cr3t_token-123";
-
-const fakeClient: TelegramClient = {
-  botId: "42",
-  call: () => Promise.reject(new Error("unused")),
-  download: () => Promise.reject(new Error("unused")),
-};
 
 const body = (updateId = 1): string =>
   JSON.stringify({
@@ -32,22 +25,20 @@ const request = (payload: string, headers: Record<string, string>) => ({
 });
 
 const verifyWith = (secret?: string) =>
-  makeVerify(
+  verify(
     configSchema.parse({
       botToken: "42:abc",
       ...(secret ? { webhookSecret: secret } : {}),
-    }),
-    fakeClient
+    })
   );
 
-describe("makeVerify", () => {
-  it("accepts when the secret token header matches", () => {
-    const result = verifyWith(SECRET)(
+describe("verify", () => {
+  it("accepts when the secret token header matches and returns the parsed update", () => {
+    const update = verifyWith(SECRET)(
       request(body(), { "x-telegram-bot-api-secret-token": SECRET })
     ) as TelegramPayload;
-    expect(result.update.update_id).toBe(1);
-    expect(result.update.message?.text).toBe("hi");
-    expect(result.client).toBe(fakeClient);
+    expect(update.update_id).toBe(1);
+    expect(update.message?.text).toBe("hi");
   });
 
   it("rejects a mismatched secret token", () => {
@@ -65,8 +56,8 @@ describe("makeVerify", () => {
   });
 
   it("skips verification when no secret is configured", () => {
-    const result = verifyWith()(request(body(), {})) as TelegramPayload;
-    expect(result.update.update_id).toBe(1);
+    const update = verifyWith()(request(body(), {})) as TelegramPayload;
+    expect(update.update_id).toBe(1);
   });
 
   it("rejects a body that is not valid JSON", () => {

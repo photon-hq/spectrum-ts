@@ -8,18 +8,21 @@ import type { ProviderMessageRecord } from "../../../platform/types";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { toChatGuid, toMessageGuid } from "./ids";
 
-// iMessage's native edit replaces the whole message body, so each update sends
-// the full accumulated text. Edits are throttled to keep the round-trip rate
-// sane; the default is a balance between feeling live and not flooding the
-// chat. Callers tune via `streamText(source, { throttleMs })`.
-const DEFAULT_THROTTLE_MS = 1500;
+// Delivery pacing is fixed logic, not configurable. iMessage's native edit
+// replaces the whole message body, so each update sends the full accumulated
+// text. We can't know a stream's final length up front, so the gap between
+// edits grows exponentially: the first edit waits `INITIAL_THROTTLE_MS`, then
+// each subsequent one waits `BACKOFF_FACTOR`× longer. This spreads a fixed edit
+// budget across short and long streams alike — short streams update quickly,
+// long ones don't burn the budget in the opening seconds.
+const INITIAL_THROTTLE_MS = 1000;
+const BACKOFF_FACTOR = 2;
 
 // iMessage caps a message at ~5 edits — the backend silently drops further
 // edits, which would otherwise strand the message on an intermediate chunk and
-// never show the complete text. Default the budget to that cap so we always
-// have room for the final flush; one edit is reserved for it (see below).
-// Callers raise/lower it via `streamText(source, { maxEdits })`.
-const DEFAULT_MAX_EDITS = 5;
+// never show the complete text. We stay within that cap and reserve the last
+// edit for the final flush (see the budget check below).
+const MAX_EDITS = 5;
 
 /**
  * Deliver a `streamText` content by sending the first chunk as a real message
@@ -33,12 +36,8 @@ export const sendStreamText = async (
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
   const chat = toChatGuid(spaceId);
-  const throttleMs = content.throttleMs ?? DEFAULT_THROTTLE_MS;
-  const maxEdits = content.maxEdits ?? DEFAULT_MAX_EDITS;
-  const { firstChunkChars } = content;
 
   let sent: SDKMessage | undefined; // the first (and only) message we created
-  let buffer = ""; // text accumulated before the first send
   let full = ""; // everything seen so far
   let lastSentText = ""; // last text actually pushed to iMessage
   let lastEditAt = 0;
@@ -58,37 +57,31 @@ export const sendStreamText = async (
     full += delta;
 
     if (!sent) {
-      buffer += delta;
-      const ready = firstChunkChars
-        ? buffer.length >= firstChunkChars
-        : buffer.length > 0;
-      if (ready) {
-        sent = await remote.messages.sendText(chat, buffer);
-        lastSentText = buffer;
-        lastEditAt = Date.now();
-        buffer = "";
-      }
+      // Send the first chunk straight away to get a message id to edit into.
+      sent = await remote.messages.sendText(chat, full);
+      lastSentText = full;
+      lastEditAt = Date.now();
       continue;
     }
 
-    // Reserve one edit from the budget for the guaranteed final flush, so
-    // whatever text is still pending always lands on the last edit.
-    const withinBudget = editCount < maxEdits - 1;
-    if (withinBudget && Date.now() - lastEditAt >= throttleMs) {
+    // Once only one edit of the budget remains, stop editing mid-stream and let
+    // the post-loop flush spend it — so the last edit always carries the full
+    // content (we wait for everything when it's our final chance).
+    const hasBudgetForInterimEdit = editCount < MAX_EDITS - 1;
+    // Exponential backoff: each edit waits longer than the previous one.
+    const requiredGap = INITIAL_THROTTLE_MS * BACKOFF_FACTOR ** editCount;
+    if (hasBudgetForInterimEdit && Date.now() - lastEditAt >= requiredGap) {
       await flushEdit(full);
     }
   }
 
   if (!sent) {
-    if (full.length === 0) {
-      throw unsupportedRemoteContent(
-        "streamText",
-        "stream produced no text — nothing to send"
-      );
-    }
-    // The stream ended before reaching `firstChunkChars`; send what we have.
-    sent = await remote.messages.sendText(chat, full);
-    lastSentText = full;
+    // Every non-empty delta sends immediately, so reaching here means the
+    // stream yielded no text at all.
+    throw unsupportedRemoteContent(
+      "streamText",
+      "stream produced no text — nothing to send"
+    );
   }
 
   // Always finish on the complete text (no-op if the last edit already had it).

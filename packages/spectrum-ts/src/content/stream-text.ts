@@ -29,12 +29,6 @@ export interface StreamTextOptions<T = unknown> {
    * messages, AI SDK text streams, and plain strings).
    */
   extract?: DeltaExtractor<T>;
-  /** Characters to buffer before sending the first message. Driver knob. */
-  firstChunkChars?: number;
-  /** Hard cap on the total number of edits applied. Driver knob. */
-  maxEdits?: number;
-  /** Minimum delay between in-place edits, in ms. Provider-driver knob. */
-  throttleMs?: number;
 }
 
 export const streamTextSchema = z.object({
@@ -49,10 +43,6 @@ export const streamTextSchema = z.object({
         "streamText.stream must be a function returning AsyncIterable<string>",
     }
   ),
-  // `throttleMs: 0` is allowed and means "edit on every delta" (no throttle).
-  throttleMs: z.number().int().nonnegative().optional(),
-  firstChunkChars: z.number().int().positive().optional(),
-  maxEdits: z.number().int().positive().optional(),
 });
 
 export type StreamText = z.infer<typeof streamTextSchema>;
@@ -251,17 +241,8 @@ const normalize = <T>(
 
 export const asStreamText = (input: {
   stream: () => AsyncIterable<string>;
-  throttleMs?: number;
-  firstChunkChars?: number;
-  maxEdits?: number;
 }): StreamText =>
-  streamTextSchema.parse({
-    type: "streamText",
-    stream: input.stream,
-    throttleMs: input.throttleMs,
-    firstChunkChars: input.firstChunkChars,
-    maxEdits: input.maxEdits,
-  });
+  streamTextSchema.parse({ type: "streamText", stream: input.stream });
 
 /**
  * Wrap a streaming LLM text response so it can be sent like any other content.
@@ -278,12 +259,6 @@ export function streamText<T = unknown>(
   options?: StreamTextOptions<T>
 ): ContentBuilder {
   return {
-    build: async () =>
-      asStreamText({
-        stream: normalize(source, options),
-        throttleMs: options?.throttleMs,
-        firstChunkChars: options?.firstChunkChars,
-        maxEdits: options?.maxEdits,
-      }),
+    build: async () => asStreamText({ stream: normalize(source, options) }),
   };
 }

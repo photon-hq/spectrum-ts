@@ -12,4 +12,5 @@ export const stubCloud = () =>
     id: "proj",
     name: "Test Project",
     profile: {},
+    slug: "test-project",
   });

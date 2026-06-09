@@ -58,9 +58,10 @@ parses the request. They are *not* something you call:
 
   > Note: in fusor mode the `client` returned by `createClient` is just the
   > `fusor(...)` brand (platform + `verify`), **not** a usable API client, so it
-  > is intentionally absent from the ctx. A provider that needs a real client at
-  > message time threads it through the `payload` (as Telegram does for lazy
-  > media downloads).
+  > is intentionally absent from the ctx. A provider that needs a real API client
+  > at message time builds one inline from the ctx `config` (as Telegram does for
+  > lazy media downloads — its `createTelegramClient(...)` makes no network call,
+  > so there is nothing to cache or thread through the payload).
 
 Internally this is `FusorCore.processEvent()`, driven either by the gRPC stream
 or by `app.webhook()`. You never call it directly.

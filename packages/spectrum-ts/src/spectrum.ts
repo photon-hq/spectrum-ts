@@ -476,6 +476,7 @@ export async function Spectrum<
               config: userConfig,
               projectId,
               projectSecret,
+              projectConfig,
               store,
             })
         );

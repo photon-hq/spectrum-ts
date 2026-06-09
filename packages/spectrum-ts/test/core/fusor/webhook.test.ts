@@ -88,6 +88,7 @@ describe("spectrum.webhook", () => {
       id: "proj",
       name: "Test Project",
       profile: {},
+      slug: "test-project",
     });
 
     await spectrum.stop();

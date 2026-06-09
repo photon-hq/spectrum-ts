@@ -80,6 +80,12 @@ export interface ProjectData {
   id: string;
   name: string;
   profile: ProjectProfile;
+  /**
+   * URL-safe project identifier (e.g. `what-c62a6`). Used as the subdomain of
+   * the Fusor "super webhook" edge a platform registers its provider webhook
+   * against — see Telegram's `webhookUrl`.
+   */
+  slug: string;
 }
 
 // ---------------------------------------------------------------------------

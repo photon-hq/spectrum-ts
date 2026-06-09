@@ -212,6 +212,13 @@ type ReservedNames = "stop" | "send" | "config" | "__internal" | "__providers";
 
 export interface CreateClientContext<_ConfigSchema extends z.ZodType<object>> {
   config: z.infer<_ConfigSchema>;
+  /**
+   * The resolved cloud project record (slug, profile, …) when `Spectrum()` runs
+   * with `projectId` + `projectSecret`; `undefined` in local/direct mode. Lets
+   * `createClient` self-register provider webhooks against the Fusor edge keyed
+   * by `projectConfig.slug` — see Telegram.
+   */
+  projectConfig: ProjectData | undefined;
   projectId: string | undefined;
   projectSecret: string | undefined;
   store: Store;

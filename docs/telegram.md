@@ -41,7 +41,7 @@ payload.
 
 ## Inbound (`verify` → `messages`)
 
-```
+```text
 webhook bytes
   → verify(config)      secret-token check + parse → Update         (no client)
   → handleMessages(ctx) Update + config → ProviderMessageRecord | undefined

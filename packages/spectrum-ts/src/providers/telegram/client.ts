@@ -18,8 +18,11 @@ export const telegramClient = (config: TelegramConfig): TelegramClient =>
 
 // photon's typed `send*` methods only accept a string file ref (file_id/URL) and
 // it does not export its form serializer, so raw-byte uploads go through the
-// low-level `client.post` with this serializer — a faithful copy of photon's
-// internal `formDataBodySerializer` (string/Blob verbatim, Date → ISO, else JSON).
+// low-level `client.post` with this serializer — modeled on photon's internal
+// `formDataBodySerializer` (string/Blob verbatim, Date → ISO, else JSON). Unlike
+// photon, an array/object is appended as a single JSON-encoded part: Telegram's
+// multipart fields (e.g. `caption_entities`, `media`) must be one JSON value, not
+// one part per element.
 const appendFormValue = (form: FormData, key: string, value: unknown): void => {
   if (typeof value === "string" || value instanceof Blob) {
     form.append(key, value);
@@ -36,13 +39,7 @@ const toFormData = (body: unknown): FormData => {
     if (value === undefined || value === null) {
       continue;
     }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        appendFormValue(form, key, item);
-      }
-    } else {
-      appendFormValue(form, key, value);
-    }
+    appendFormValue(form, key, value);
   }
   return form;
 };

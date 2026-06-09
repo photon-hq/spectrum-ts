@@ -54,6 +54,7 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 |----------|---------|
 | iMessage | `spectrum-ts/providers/imessage` |
 | WhatsApp | `spectrum-ts/providers/whatsapp` |
+| Telegram | `spectrum-ts/providers/telegram` |
 | Terminal | `spectrum-ts/providers/terminal` |
 | Custom   | `definePlatform` from `spectrum-ts` |
 

@@ -346,7 +346,9 @@ export class FusorCore {
 
     sink.push({ init: { startSeq: 0 }, reply: undefined });
 
-    const metadata = Metadata().set("authorization", `Bearer ${token}`);
+    // Fusor's gRPC auth (fanout-grpc `authorize()`) reads the raw JWT from the
+    // `access_token` metadata key — not an `authorization: Bearer …` header.
+    const metadata = Metadata().set("access_token", token);
     const stream = client.subscribe(requestIterable, { metadata });
 
     try {

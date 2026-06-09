@@ -11,6 +11,7 @@ import { reactionSchema } from "./reaction";
 import { renameSchema } from "./rename";
 import { replySchema } from "./reply";
 import { richlinkSchema } from "./richlink";
+import { streamTextSchema } from "./stream-text";
 import { textSchema } from "./text";
 import { typingSchema } from "./typing";
 import { voiceSchema } from "./voice";
@@ -22,6 +23,7 @@ import { voiceSchema } from "./voice";
 // in their reject-lists, so the looser typing here is also correct.
 const baseContentSchemas = [
   textSchema,
+  streamTextSchema,
   customSchema,
   attachmentSchema,
   contactSchema,

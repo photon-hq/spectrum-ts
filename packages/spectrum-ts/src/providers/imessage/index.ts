@@ -5,6 +5,7 @@ import type { Attachment } from "../../content/attachment";
 import type { Avatar } from "../../content/avatar";
 import type { Edit } from "../../content/edit";
 import type { Rename } from "../../content/rename";
+import type { StreamText } from "../../content/stream-text";
 import { definePlatform } from "../../platform/define";
 import type { ProviderMessageRecord } from "../../platform/types";
 import type { Message } from "../../types/message";
@@ -48,6 +49,7 @@ import {
   replyToMessage as remoteReplyToMessage,
   send as remoteSend,
   sendCustomizedMiniApp as remoteSendCustomizedMiniApp,
+  sendStreamText as remoteSendStreamText,
   setBackground as remoteSetBackground,
   setDisplayName as remoteSetDisplayName,
   setIcon as remoteSetIcon,
@@ -95,6 +97,22 @@ const handleEdit = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
+};
+
+const handleStreamText = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  content: StreamText
+): Promise<ProviderMessageRecord> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "streamText",
+      "iMessage (local mode)",
+      "streaming text responses require remote iMessage"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  return await remoteSendStreamText(remote, space.id, content);
 };
 
 const handleBackground = async (
@@ -390,6 +408,9 @@ export const imessage = definePlatform("iMessage", {
     if (content.type === "edit") {
       await handleEdit(client, space, content);
       return;
+    }
+    if (content.type === "streamText") {
+      return await handleStreamText(client, space, content);
     }
     if (content.type === "rename") {
       await handleRename(client, space, content);

@@ -1,6 +1,7 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import type { Avatar } from "../../../content/avatar";
 import type { Rename } from "../../../content/rename";
+import type { StreamText } from "../../../content/stream-text";
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { ProjectData } from "../../../utils/cloud";
@@ -21,6 +22,7 @@ import {
   send as sendRemoteMessage,
 } from "./send";
 import { messages as remoteMessages } from "./stream";
+import { sendStreamText as sendRemoteStreamText } from "./stream-text";
 import {
   startTyping as startRemoteTyping,
   stopTyping as stopRemoteTyping,
@@ -83,6 +85,13 @@ export const send = async (
   content: Content
 ): Promise<ProviderMessageRecord> =>
   sendRemoteMessage(remote, spaceId, content);
+
+export const sendStreamText = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: StreamText
+): Promise<ProviderMessageRecord> =>
+  sendRemoteStreamText(remote, spaceId, content);
 
 export const replyToMessage = async (
   remote: AdvancedIMessage,

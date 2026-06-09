@@ -1,4 +1,4 @@
-import { withSpan } from "@photon-ai/otel";
+import { createLogger, withSpan } from "@photon-ai/otel";
 import type z from "zod";
 import type { FusorClient, FusorMessages } from "../fusor/types";
 import type { Message } from "../types/message";
@@ -31,6 +31,8 @@ import type {
   SpaceActionFn,
   SpectrumLike,
 } from "./types";
+
+const platformLog = createLogger("spectrum.platform");
 
 function classifySpaceIdentifier(args: unknown[]): {
   kind: "phone" | "email" | "group" | "unknown";
@@ -554,18 +556,20 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
 
   const narrowSpace = (input: Space) => {
     if (input.__platform !== name) {
-      throw new Error(
-        `Expected space from "${name}", got "${input.__platform}"`
-      );
+      platformLog.warn("space platform mismatch; narrowing skipped", {
+        expected: name,
+        actual: input.__platform,
+      });
     }
     return input as PlatformSpace<Def>;
   };
 
   const narrowMessage = (input: Message) => {
     if (input.platform !== name) {
-      throw new Error(
-        `Expected message from "${name}", got "${input.platform}"`
-      );
+      platformLog.warn("message platform mismatch; narrowing skipped", {
+        expected: name,
+        actual: input.platform,
+      });
     }
     return input as PlatformMessage<Def>;
   };

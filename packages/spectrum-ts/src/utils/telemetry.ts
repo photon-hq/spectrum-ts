@@ -26,6 +26,14 @@ const replyOrEditAttrs = (content: Content): LogAttrs => {
   };
 };
 
+const unsendAttrs = (content: Content): LogAttrs => {
+  const target = (content as { target?: unknown }).target as RawTarget;
+  return {
+    "spectrum.message.content.target.id": targetId(target),
+    "spectrum.message.content.target.type": targetType(target),
+  };
+};
+
 const reactionAttrs = (content: Content): LogAttrs => {
   const target = (content as { target?: unknown }).target as RawTarget;
   const emoji = (content as { emoji?: unknown }).emoji;
@@ -91,6 +99,7 @@ const voiceAttrs = (content: Content): LogAttrs => {
 const CONTENT_ATTR_HANDLERS: Record<string, (content: Content) => LogAttrs> = {
   reply: replyOrEditAttrs,
   edit: replyOrEditAttrs,
+  unsend: unsendAttrs,
   reaction: reactionAttrs,
   group: groupAttrs,
   typing: typingAttrs,

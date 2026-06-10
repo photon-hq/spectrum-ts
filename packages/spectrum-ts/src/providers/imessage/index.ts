@@ -6,6 +6,7 @@ import type { Avatar } from "../../content/avatar";
 import type { Edit } from "../../content/edit";
 import type { Rename } from "../../content/rename";
 import type { StreamText } from "../../content/stream-text";
+import type { Unsend } from "../../content/unsend";
 import { definePlatform } from "../../platform/define";
 import type { ProviderMessageRecord } from "../../platform/types";
 import type { Message } from "../../types/message";
@@ -55,6 +56,8 @@ import {
   setIcon as remoteSetIcon,
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
+  unsendMessage as remoteUnsendMessage,
+  unsendReaction as remoteUnsendReaction,
 } from "./remote/api";
 import { getRemoteAttachment } from "./remote/attachments";
 import {
@@ -97,6 +100,40 @@ const handleEdit = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
+};
+
+const handleUnsend = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  content: Unsend
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action("unsend", "iMessage (local mode)");
+  }
+  if (isPollContent(content.target.content)) {
+    // The SDK has no poll delete; mirrors the reply/react poll guards.
+    throw UnsupportedError.action(
+      "unsend",
+      "iMessage",
+      "iMessage polls cannot be unsent"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  const targetContent = content.target.content;
+  if (targetContent.type === "reaction") {
+    // Tapbacks are removed via `setReaction(..., false)` against the
+    // original message, not by retracting the tapback message — so pass
+    // the reaction's own target (the message that was reacted to). Same
+    // unknown-cast widen as the reaction send branch.
+    await remoteUnsendReaction(
+      remote,
+      space.id,
+      targetContent.target as unknown as IMessageMessage,
+      targetContent.emoji
+    );
+    return;
+  }
+  await remoteUnsendMessage(remote, space.id, content.target.id);
 };
 
 const handleStreamText = async (
@@ -450,6 +487,10 @@ export const imessage = definePlatform("iMessage", {
     }
     if (content.type === "edit") {
       await handleEdit(client, space, content);
+      return;
+    }
+    if (content.type === "unsend") {
+      await handleUnsend(client, space, content);
       return;
     }
     if (content.type === "streamText") {

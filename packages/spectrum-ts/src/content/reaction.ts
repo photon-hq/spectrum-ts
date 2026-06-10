@@ -35,8 +35,8 @@ export const asReaction = (input: {
  *
  * `space.send(reaction(emoji, message))` is the canonical form of
  * `message.react(emoji)`. It resolves to the reaction `Message`
- * (`content.type === "reaction"`) — keep it as the handle for a future
- * unsend. Resolves `undefined` only when the platform does not support
+ * (`content.type === "reaction"`) — keep it as the handle to `unsend()`
+ * later. Resolves `undefined` only when the platform does not support
  * reactions (warned and skipped).
  *
  * Accepts `Message | undefined` so `space.send` results chain without

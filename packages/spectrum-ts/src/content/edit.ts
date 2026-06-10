@@ -27,7 +27,7 @@ const isContent = (v: unknown): boolean =>
  * (no new message id is produced; the existing message mutates in place).
  *
  * Edit cannot wrap `edit`, `reply`, `reaction`, `group`, `typing`, `rename`,
- * or `avatar` content.
+ * `avatar`, or `unsend` content.
  */
 export const editSchema = z.object({
   type: z.literal("edit"),
@@ -80,7 +80,8 @@ export function edit(
         resolved.type === "group" ||
         resolved.type === "typing" ||
         resolved.type === "rename" ||
-        resolved.type === "avatar"
+        resolved.type === "avatar" ||
+        resolved.type === "unsend"
       ) {
         throw new Error(`edit() cannot wrap "${resolved.type}" content`);
       }

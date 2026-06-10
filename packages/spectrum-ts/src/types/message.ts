@@ -15,7 +15,7 @@ export interface Message<
   platform: TPlatform;
   /**
    * React to this message. Resolves to the reaction `Message` (content
-   * narrowed to `Reaction`) — keep it as the handle for a future unsend.
+   * narrowed to `Reaction`) — keep it as the handle to `unsend()` later.
    * Resolves `undefined` when the platform does not support reactions
    * (warned and skipped).
    *
@@ -40,4 +40,12 @@ export interface Message<
   sender: TSender | undefined;
   space: TSpace;
   timestamp: Date;
+  /**
+   * Retract this message. Sugar for `space.send(unsend(this))`. Unsends are
+   * fire-and-forget; per-platform support and constraints (e.g. iMessage's
+   * ~2-minute unsend window for regular messages) surface from the
+   * provider's send action. Only outbound messages can be unsent; calling
+   * this on an inbound message throws.
+   */
+  unsend(): Promise<void>;
 }

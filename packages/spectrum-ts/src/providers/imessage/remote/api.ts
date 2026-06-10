@@ -13,13 +13,17 @@ import { setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
-import { reactToMessage as reactToRemoteMessage } from "./reactions";
+import {
+  reactToMessage as reactToRemoteMessage,
+  unsendReaction as unsendRemoteReaction,
+} from "./reactions";
 import { markRead as markRemoteRead } from "./read";
 import { setDisplayName as setRemoteDisplayName } from "./rename";
 import {
   editMessage as editRemoteMessage,
   replyToMessage as replyToRemoteMessage,
   send as sendRemoteMessage,
+  unsendMessage as unsendRemoteMessage,
 } from "./send";
 import { messages as remoteMessages } from "./stream";
 import { sendStreamText as sendRemoteStreamText } from "./stream-text";
@@ -115,6 +119,19 @@ export const reactToMessage = async (
   reaction: string
 ): Promise<ProviderMessageRecord> =>
   reactToRemoteMessage(remote, spaceId, target, reaction);
+
+export const unsendMessage = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  msgId: string
+): Promise<void> => unsendRemoteMessage(remote, spaceId, msgId);
+
+export const unsendReaction = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  target: IMessageMessage,
+  reaction: string
+): Promise<void> => unsendRemoteReaction(remote, spaceId, target, reaction);
 
 export const getMessage = async (
   remote: AdvancedIMessage,

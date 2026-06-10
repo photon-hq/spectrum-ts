@@ -340,3 +340,19 @@ export const editMessage = async (
     childRef ? { partIndex: childRef.partIndex } : undefined
   );
 };
+
+// Retract a previously-sent message. Apple enforces an ~2-minute unsend
+// window — late or repeated unsends reject with the SDK's error, which
+// propagates to the caller rather than warn-and-skip.
+export const unsendMessage = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  msgId: string
+): Promise<void> => {
+  const childRef = parseChildId(msgId);
+  await remote.messages.unsend(
+    toChatGuid(spaceId),
+    toMessageGuid(childRef?.parentGuid ?? msgId),
+    childRef ? { partIndex: childRef.partIndex } : undefined
+  );
+};

@@ -15,7 +15,7 @@ import type { ManagedStream } from "../utils/stream";
  * through `space.send(...)`, call the underlying SDK, or perform any other
  * side effect.
  *
- * Names that collide with reserved `Space` keys (`send`, `edit`,
+ * Names that collide with reserved `Space` keys (`send`, `edit`, `unsend`,
  * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
  * `__platform`) are skipped at runtime with a warning and excluded at the
  * type level via `Exclude<…, keyof Space>`.
@@ -30,9 +30,9 @@ export type SpaceActionFn = (space: Space, ...args: never[]) => Promise<void>;
  * SDK, or perform any other side effect.
  *
  * Names that collide with reserved `Message` keys (`react`, `reply`, `edit`,
- * `id`, `space`, `sender`, `content`, `platform`, `direction`, `timestamp`)
- * are skipped at runtime with a warning and excluded at the type level via
- * `Exclude<…, keyof Message>`.
+ * `unsend`, `id`, `space`, `sender`, `content`, `platform`, `direction`,
+ * `timestamp`) are skipped at runtime with a warning and excluded at the
+ * type level via `Exclude<…, keyof Message>`.
  */
 export type MessageActionFn = (
   message: Message,
@@ -385,7 +385,7 @@ export interface PlatformDef<
    * produces a message — including reactions, whose record is the unsend
    * handle (synthesize a deterministic id when the platform assigns none);
    * returns `undefined` only for fire-and-forget control signals (typing,
-   * edits, renames, avatars) on platforms that don't return ids.
+   * edits, renames, avatars, unsends) on platforms that don't return ids.
    *
    * One of the two universal platform contracts (along with `messages`).
    */
@@ -443,9 +443,9 @@ export interface PlatformDef<
      * lives here for platform-specific surface area.
      *
      * Names that collide with reserved `Space` keys (`send`, `edit`,
-     * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
-     * `__platform`) are skipped at runtime with a warning and excluded at
-     * the type level.
+     * `unsend`, `getMessage`, `startTyping`, `stopTyping`, `responding`,
+     * `id`, `__platform`) are skipped at runtime with a warning and excluded
+     * at the type level.
      */
     actions?: _SpaceActions;
   };

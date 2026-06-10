@@ -14,13 +14,16 @@ import { richlinkSchema } from "./richlink";
 import { streamTextSchema } from "./stream-text";
 import { textSchema } from "./text";
 import { typingSchema } from "./typing";
+import { unsendSchema } from "./unsend";
 import { voiceSchema } from "./voice";
 
-// `baseContentSchema` is everything except `reply` and `edit`. It exists so
-// the inner content of a `Reply` (and `Edit`) can be typed against this
-// non-circular union without `Content` referencing itself via
+// `baseContentSchema` is everything except `reply`, `edit`, and `unsend`.
+// It exists so the inner content of a `Reply` (and `Edit`) can be typed
+// against this non-circular union without `Content` referencing itself via
 // `Reply.content` / `Edit.content`. Both builders reject nested wrapping
 // in their reject-lists, so the looser typing here is also correct.
+// `unsend` carries no inner content but stays out of the base union too,
+// so reply/edit cannot statically wrap it.
 const baseContentSchemas = [
   textSchema,
   streamTextSchema,
@@ -50,6 +53,7 @@ export const contentSchema = z.discriminatedUnion("type", [
   ...baseContentSchemas,
   replySchema,
   editSchema,
+  unsendSchema,
 ]);
 
 export type Content = z.infer<typeof contentSchema>;

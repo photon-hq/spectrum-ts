@@ -47,7 +47,7 @@ export interface Space<_Def = unknown> {
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
   /**
    * A reaction send resolves to the reaction Message (`content` narrowed to
-   * `Reaction`) — the handle for a future unsend. Listed before the general
+   * `Reaction`) — the handle to `unsend()` later. Listed before the general
    * overload so `send(reaction(...))` picks it; every other `ContentBuilder`
    * fails the `ReactionBuilder` shape and falls through.
    */
@@ -64,4 +64,10 @@ export interface Space<_Def = unknown> {
   ): Promise<Message<string, AgentSender>[]>;
   startTyping(): Promise<void>;
   stopTyping(): Promise<void>;
+  /**
+   * Retract a previously-sent outbound message. Sugar for
+   * `send(unsend(message))`. Accepts `Message | undefined` so `send`
+   * results chain without narrowing; an undefined target throws.
+   */
+  unsend(message: Message | undefined): Promise<void>;
 }

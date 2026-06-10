@@ -26,7 +26,7 @@ const isContent = (v: unknown): boolean =>
  * `reply` like any other content type and route to a threaded send.
  *
  * Reply cannot wrap `reply`, `edit`, `reaction`, `group`, `typing`,
- * `rename`, or `avatar` content.
+ * `rename`, `avatar`, or `unsend` content.
  */
 export const replySchema = z.object({
   type: z.literal("reply"),
@@ -67,7 +67,8 @@ export function reply(
         resolved.type === "group" ||
         resolved.type === "typing" ||
         resolved.type === "rename" ||
-        resolved.type === "avatar"
+        resolved.type === "avatar" ||
+        resolved.type === "unsend"
       ) {
         throw new Error(`reply() cannot wrap "${resolved.type}" content`);
       }

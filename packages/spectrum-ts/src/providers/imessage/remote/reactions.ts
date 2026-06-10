@@ -129,43 +129,65 @@ export const toReactionMessages = async (
   ];
 };
 
+// Map a spectrum emoji onto the SDK reaction payload: native tapbacks keep
+// their kind, anything else goes through Apple's custom-emoji reaction.
+const toSettableReaction = (emoji: string): SettableMessageReaction => {
+  const native = EMOJI_TO_TAPBACK[emoji];
+  return native ? { kind: native } : { kind: "emoji", emoji };
+};
+
+// Tapbacks address the *original* message (parent guid + part index for
+// group children), both when set and when removed.
+const tapbackTarget = (
+  target: IMessageMessage
+): { guid: string; opts: { partIndex: number } | undefined } => ({
+  guid: toMessageGuid(target.parentId ?? target.id),
+  opts:
+    typeof target.partIndex === "number"
+      ? { partIndex: target.partIndex }
+      : undefined,
+});
+
 export const reactToMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
   target: IMessageMessage,
   reaction: string
 ): Promise<ProviderMessageRecord> => {
-  const chat = toChatGuid(spaceId);
-  const parentGuid = target.parentId ?? target.id;
-  const guid = toMessageGuid(parentGuid);
-  const opts =
-    typeof target.partIndex === "number"
-      ? { partIndex: target.partIndex }
-      : undefined;
+  const { guid, opts } = tapbackTarget(target);
+  const sent = await remote.messages.setReaction(
+    toChatGuid(spaceId),
+    guid,
+    toSettableReaction(reaction),
+    true,
+    opts
+  );
 
-  const native = EMOJI_TO_TAPBACK[reaction];
-  const sent = native
-    ? await remote.messages.setReaction(
-        chat,
-        guid,
-        { kind: native },
-        true,
-        opts
-      )
-    : await remote.messages.setReaction(
-        chat,
-        guid,
-        { kind: "emoji", emoji: reaction },
-        true,
-        opts
-      );
-
-  // `sent` is the real tapback message — its guid is a durable handle that
-  // the SDK's `unsend` / `setReaction(..., false)` can act on later.
+  // `sent` is the real tapback message — its guid gives the reaction Message
+  // a durable identity. `unsendReaction` re-derives the original target and
+  // emoji from the reaction content instead of using this guid, because
+  // Apple removes tapbacks via `setReaction(..., false)`, not by retracting
+  // the tapback message itself.
   return {
     id: sent.guid,
     content: asProviderReaction(reaction, target),
     space: { id: spaceId },
     timestamp: sent.dateCreated,
   };
+};
+
+export const unsendReaction = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  target: IMessageMessage,
+  reaction: string
+): Promise<void> => {
+  const { guid, opts } = tapbackTarget(target);
+  await remote.messages.setReaction(
+    toChatGuid(spaceId),
+    guid,
+    toSettableReaction(reaction),
+    false,
+    opts
+  );
 };

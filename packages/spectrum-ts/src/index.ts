@@ -45,6 +45,7 @@ export {
 export { text } from "./content/text";
 export type { Content, ContentBuilder, ContentInput } from "./content/types";
 export { type Typing, typing } from "./content/typing";
+export { type Unsend, unsend } from "./content/unsend";
 export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
 export type {

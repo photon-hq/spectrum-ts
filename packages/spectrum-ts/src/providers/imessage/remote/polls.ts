@@ -8,6 +8,7 @@ import type {
 import { asPoll, asPollOption, type PollChoice } from "../../../content/poll";
 import type { CachedPoll, PollCache } from "../cache";
 import type { IMessageMessage } from "../types";
+import { chatTypeFromGuid } from "./ids";
 
 type VotedPollEvent = PollEvent & {
   delta: Extract<PollChangeDelta, { type: "voted" }>;
@@ -128,7 +129,7 @@ const buildPollOptionMessage = (
     sender: { id: input.senderAddress },
     space: {
       id: input.chatGuid,
-      type: input.chatGuid.includes(";+;") ? "group" : "dm",
+      type: chatTypeFromGuid(input.chatGuid),
       phone: input.phone,
     },
     timestamp: input.event.occurredAt,

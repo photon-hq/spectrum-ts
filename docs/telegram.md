@@ -151,7 +151,7 @@ Errors from photon surface as `TelegramApiError` (token-free).
 | `verify.ts` | `verify(config)` — secret check + parse `Update` |
 | `client.ts` | `telegramClient`, `executeSpec`, `downloadFile` (all over photon) |
 | `types.ts` | photon type re-exports, `TelegramPayload = Update`, send DTOs |
-| `space.ts` | user/space resolution (`chat_id`) |
+| `space.ts` | user resolution + `space.create` (single-user private chats; existing chats go through `space.get(chatId)`) |
 | `reactions.ts` | allowed reaction-emoji set + normalization |
 | `inbound/messages.ts` | `handleMessages` — `Update` → record |
 | `inbound/media.ts` | media detection + lazy `read()` |

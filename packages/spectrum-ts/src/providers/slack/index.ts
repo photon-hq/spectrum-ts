@@ -61,29 +61,19 @@ export const slack = definePlatform("Slack", {
   space: {
     schema: spaceSchema,
     params: spaceParamsSchema,
-    resolve: async ({ input }) => {
+    create: async ({ input }) => {
       const teamId = input.params?.teamId;
       if (!teamId) {
         throw new Error(
           "Slack space creation requires a teamId param. " +
-            "Pass it via slack.space({ channel, teamId }) or " +
-            "slack.space([user], { teamId })."
-        );
-      }
-      const channel = input.params?.channel;
-      if (channel) {
-        return { id: channel, teamId };
-      }
-      if (input.users.length === 0) {
-        throw new Error(
-          "Slack space creation requires either a channel param or at least one user"
+            "Pass it via space.create(user, { teamId })."
         );
       }
       if (input.users.length > 1) {
         throw UnsupportedError.action(
-          "createSpace",
+          "space.create",
           "Slack",
-          "group DMs require an explicit channel id (Slack's conversations.open is not exposed); pass `channel` in params"
+          "group DMs require an explicit channel id (Slack's conversations.open is not exposed); use space.get(channelId, { teamId })"
         );
       }
       const user = input.users[0];
@@ -93,6 +83,16 @@ export const slack = definePlatform("Slack", {
       // Slack accepts a user id (`U...`) as a `channel` for DMs. Skip
       // `conversations.open` — the runtime resolves the IM channel on send.
       return { id: user.id, teamId };
+    },
+    get: async ({ input }) => {
+      const teamId = input.params?.teamId;
+      if (!teamId) {
+        throw new Error(
+          "Slack spaces require a teamId param. " +
+            "Pass it via space.get(channelId, { teamId })."
+        );
+      }
+      return { id: input.id, teamId };
     },
   },
 

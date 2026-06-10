@@ -6,6 +6,11 @@ export type MessageGuid = string;
 
 export const dmChatGuid = (address: string): ChatGuid => `any;-;${address}`;
 
+// Chat guids encode their kind in the separator: groups use `;+;`
+// (e.g. `iMessage;+;chat123…`), DMs use `;-;` (e.g. `any;-;+1555…`).
+export const chatTypeFromGuid = (guid: ChatGuid): "dm" | "group" =>
+  guid.includes(";+;") ? "group" : "dm";
+
 export const toChatGuid = (value: string): ChatGuid => value;
 
 export const toMessageGuid = (value: string): MessageGuid => value;

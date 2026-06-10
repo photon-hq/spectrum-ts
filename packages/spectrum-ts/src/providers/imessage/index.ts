@@ -63,7 +63,7 @@ import {
   isSharedMode,
   randomPhone,
 } from "./remote/client";
-import { dmChatGuid } from "./remote/ids";
+import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
 import {
   configSchema,
   type IMessageClient,
@@ -287,10 +287,10 @@ export const imessage = definePlatform("iMessage", {
   space: {
     schema: spaceSchema,
     params: spaceParamsSchema,
-    resolve: async ({ input, client }) => {
+    create: async ({ input, client }) => {
       if (isLocal(client)) {
         throw UnsupportedError.action(
-          "createSpace",
+          "space.create",
           "iMessage (local mode)",
           "local mode only supports replying to existing messages"
         );
@@ -303,24 +303,68 @@ export const imessage = definePlatform("iMessage", {
       if (client.length === 0) {
         throw new Error("No iMessage clients configured");
       }
-      // Shared mode: ignore any user-supplied phone — there is only one
-      // identity, tagged at the SHARED_PHONE sentinel.
-      const phone = isSharedMode(client)
-        ? SHARED_PHONE
-        : (input.params?.phone ?? randomPhone(client));
-      const remote = clientForPhone(client, phone);
+
       const addresses = input.users.map((u) => u.id);
 
-      if (input.users.length === 1) {
+      // Shared mode: one identity at the SHARED_PHONE sentinel. DM guids are
+      // deterministic (`any;-;{address}`), so no server call is needed — but
+      // the shared gateway cannot create group chats.
+      if (isSharedMode(client)) {
+        if (addresses.length > 1) {
+          throw UnsupportedError.action(
+            "space.create",
+            "iMessage (shared mode)",
+            "shared mode cannot create group chats — use a dedicated number, or space.get(chatGuid) for an existing group"
+          );
+        }
         return {
           id: dmChatGuid(addresses[0] ?? ""),
           type: "dm" as const,
-          phone,
+          phone: SHARED_PHONE,
         };
       }
 
+      // Dedicated mode: DMs and groups both go through the create API so the
+      // server-issued guid is authoritative.
+      const phone = input.params?.phone ?? randomPhone(client);
+      const remote = clientForPhone(client, phone);
       const { chat } = await remote.chats.create(addresses);
-      return { id: chat.guid as string, type: "group" as const, phone };
+      return {
+        id: chat.guid,
+        type: chat.isGroup ? ("group" as const) : ("dm" as const),
+        phone,
+      };
+    },
+    get: async ({ input, client }) => {
+      if (isLocal(client)) {
+        throw UnsupportedError.action(
+          "space.get",
+          "iMessage (local mode)",
+          "local mode only supports replying to existing messages"
+        );
+      }
+
+      if (client.length === 0) {
+        throw new Error("No iMessage clients configured");
+      }
+      // No server call: the guid itself encodes the chat type, and sends
+      // route by `phone`. Shared mode has a single identity, one configured
+      // client is unambiguous, anything else needs an explicit phone.
+      const phone = isSharedMode(client)
+        ? SHARED_PHONE
+        : (input.params?.phone ??
+          (client.length === 1 ? client[0]?.phone : undefined));
+      if (!phone) {
+        throw new Error(
+          "iMessage space.get requires params.phone when multiple clients " +
+            `are configured. Available: ${availablePhones(client).join(", ")}`
+        );
+      }
+      return {
+        id: input.id,
+        type: chatTypeFromGuid(input.id),
+        phone,
+      };
     },
     actions: {
       // Sugar: `space.background(input, opts?)` →

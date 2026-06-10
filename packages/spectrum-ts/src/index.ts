@@ -72,6 +72,7 @@ export type {
   PlatformUser,
   ProviderMessage,
   SchemaMessage,
+  SpaceNamespace,
 } from "./platform/types";
 export { Spectrum, type SpectrumInstance } from "./spectrum";
 export type { Message } from "./types/message";

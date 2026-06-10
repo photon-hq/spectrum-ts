@@ -34,25 +34,6 @@ import type {
 
 const platformLog = createLogger("spectrum.platform");
 
-function classifySpaceIdentifier(args: unknown[]): {
-  kind: "phone" | "email" | "group" | "unknown";
-  identifier?: string;
-} {
-  const stringArgs = args.filter((a): a is string => typeof a === "string");
-  if (stringArgs.length > 1) {
-    return { kind: "group" };
-  }
-  const s = stringArgs[0];
-  if (!s) {
-    return { kind: "unknown" };
-  }
-  const { kind, identifier } = classifySingle(s);
-  if (kind === "unknown") {
-    return { kind: "unknown" };
-  }
-  return { kind, identifier };
-}
-
 type NoInferValue<T> = [T][T extends unknown ? 0 : never];
 
 type RawActionFactory = (
@@ -114,12 +95,6 @@ function createPlatformInstance<
   _Client,
   _ConfigSchema extends z.ZodType<object>,
 >(def: Def, runtime: PlatformRuntime): PlatformInstance<Def> {
-  const isPlatformUser = (value: unknown): value is PlatformUser<Def> =>
-    typeof value === "object" &&
-    value !== null &&
-    "__platform" in value &&
-    (value as { __platform?: unknown }).__platform === def.name;
-
   const resolveUserID = async (userID: string): Promise<PlatformUser<Def>> => {
     const resolved = await def.user.resolve({
       input: { userID },
@@ -133,116 +108,114 @@ function createPlatformInstance<
     } as PlatformUser<Def>;
   };
 
-  const resolveStringUsers = async (args: unknown[]): Promise<unknown[]> => {
-    const convertArg = async (arg: unknown): Promise<unknown> => {
-      if (typeof arg === "string") {
-        return await resolveUserID(arg);
-      }
-      if (Array.isArray(arg)) {
-        return await Promise.all(arg.map(convertArg));
-      }
-      return arg;
+  const providerCtx = () => ({
+    client: runtime.client as _Client,
+    config: runtime.config as z.infer<_ConfigSchema>,
+    store: runtime.store,
+  });
+
+  const parseSpaceParams = (params: unknown): unknown =>
+    params !== undefined && def.space.params
+      ? def.space.params.parse(params)
+      : params;
+
+  // Schema-validate a provider-resolved space and wrap it as a full
+  // PlatformSpace (spaceRef + universal sugar via buildSpace).
+  const finalizeSpace = (resolved: { id: string }): PlatformSpace<Def> => {
+    const parsedSpace = (
+      def.space.schema ? def.space.schema.parse(resolved) : resolved
+    ) as { id: string };
+    const spaceRef = {
+      ...(parsedSpace as Record<string, unknown>),
+      id: parsedSpace.id,
+      __platform: def.name,
     };
-    return await Promise.all(args.map(convertArg));
-  };
-
-  const normalizeSpaceArgs = (
-    args: unknown[]
-  ): { users: PlatformUser<Def>[]; params: unknown } => {
-    if (args.length === 0) {
-      return { users: [], params: undefined };
-    }
-
-    const [first, ...rest] = args;
-    if (Array.isArray(first)) {
-      return {
-        users: first as PlatformUser<Def>[],
-        params: rest[0],
-      };
-    }
-
-    if (!isPlatformUser(first)) {
-      return {
-        users: [],
-        params: first,
-      };
-    }
-
-    const last = args.at(-1);
-    if (last !== undefined && !isPlatformUser(last)) {
-      return {
-        users: args.slice(0, -1) as PlatformUser<Def>[],
-        params: last,
-      };
-    }
-
-    return {
-      users: args as PlatformUser<Def>[],
-      params: undefined,
+    const actionCtx = {
+      space: spaceRef,
+      ...providerCtx(),
     };
+    return buildSpace({
+      spaceRef,
+      extras: parsedSpace as Record<string, unknown>,
+      actionCtx,
+      definition: def as unknown as AnyPlatformDef,
+      client: runtime.client,
+      config: runtime.config,
+      store: runtime.store,
+    }) as PlatformSpace<Def>;
   };
 
   const base = {
     async user(userID: string) {
-      const resolved = await def.user.resolve({
-        input: { userID },
-        client: runtime.client as _Client,
-        config: runtime.config as z.infer<_ConfigSchema>,
-        store: runtime.store,
-      });
-      return {
-        ...resolved,
-        __platform: def.name,
-      } as PlatformUser<Def>;
+      return await resolveUserID(userID);
     },
 
-    async space(...args: unknown[]) {
-      const { kind, identifier } = classifySpaceIdentifier(args);
-      return withSpan(
-        "spectrum.space.resolve",
-        {
-          "spectrum.provider": def.name,
-          "spectrum.space.identifier_kind": kind,
-          "spectrum.space.identifier": identifier,
-        },
-        async () => {
-          const convertedArgs = await resolveStringUsers(args);
-          const { users, params } = normalizeSpaceArgs(convertedArgs);
-          let parsedParams = params;
-          if (params !== undefined && def.space.params) {
-            parsedParams = def.space.params.parse(params);
+    space: {
+      create: async (
+        users: PlatformUser<Def> | string | (PlatformUser<Def> | string)[],
+        params?: unknown
+      ): Promise<PlatformSpace<Def>> => {
+        const userList = Array.isArray(users) ? users : [users];
+        const first = userList.length === 1 ? userList[0] : undefined;
+        const single =
+          typeof first === "string" ? classifySingle(first) : undefined;
+        const kind =
+          userList.length > 1 ? "group" : (single?.kind ?? "unknown");
+        return await withSpan(
+          "spectrum.space.create",
+          {
+            "spectrum.provider": def.name,
+            "spectrum.space.user_count": userList.length,
+            "spectrum.space.identifier_kind": kind,
+            "spectrum.space.identifier":
+              kind === "unknown" ? undefined : single?.identifier,
+          },
+          async () => {
+            const resolvedUsers = await Promise.all(
+              userList.map((u) =>
+                typeof u === "string" ? resolveUserID(u) : u
+              )
+            );
+            const resolved = await def.space.create({
+              input: { users: resolvedUsers, params: parseSpaceParams(params) },
+              ...providerCtx(),
+            });
+            return finalizeSpace(resolved);
           }
-          const resolved = await def.space.resolve({
-            input: { users, params: parsedParams },
-            client: runtime.client as _Client,
-            config: runtime.config as z.infer<_ConfigSchema>,
-            store: runtime.store,
-          });
-          const parsedSpace = def.space.schema
-            ? def.space.schema.parse(resolved)
-            : resolved;
-          const spaceRef = {
-            ...(parsedSpace as Record<string, unknown>),
-            id: parsedSpace.id,
-            __platform: def.name,
-          };
-          const actionCtx = {
-            space: spaceRef,
-            client: runtime.client as _Client,
-            config: runtime.config as z.infer<_ConfigSchema>,
-            store: runtime.store,
-          };
-          return buildSpace({
-            spaceRef,
-            extras: parsedSpace as Record<string, unknown>,
-            actionCtx,
-            definition: def as unknown as AnyPlatformDef,
-            client: runtime.client,
-            config: runtime.config,
-            store: runtime.store,
-          }) as PlatformSpace<Def>;
-        }
-      );
+        );
+      },
+
+      get: async (id: string, params?: unknown): Promise<PlatformSpace<Def>> =>
+        await withSpan(
+          "spectrum.space.get",
+          {
+            "spectrum.provider": def.name,
+            "spectrum.space.id": id,
+          },
+          async () => {
+            const parsedParams = parseSpaceParams(params);
+            if (def.space.get) {
+              const resolved = await def.space.get({
+                input: { id, params: parsedParams },
+                ...providerCtx(),
+              });
+              return finalizeSpace(resolved);
+            }
+            // Framework default: the id alone is the space. Providers whose
+            // schema needs more fields must implement `space.get`.
+            const candidate = { id };
+            if (def.space.schema) {
+              const parsed = def.space.schema.safeParse(candidate);
+              if (!parsed.success) {
+                throw new Error(
+                  `Platform "${def.name}" cannot construct a space from an id alone — its space schema requires more fields. Implement \`space.get\` in the "${def.name}" provider definition.`,
+                  { cause: parsed.error }
+                );
+              }
+            }
+            return finalizeSpace(candidate);
+          }
+        ),
     },
   };
 
@@ -317,11 +290,13 @@ function createPlatformInstance<
   // Spread order: actions first, events last — an event stream cannot be
   // silently shadowed by an action of the same name (the reserved-key check
   // above already skips such actions, so this is belt-and-braces).
+  // Two-step cast: `messages` is wired via defineProperty above, so `base`
+  // doesn't structurally satisfy PlatformInstance at the type level.
   return Object.assign(
     base,
     instanceActions,
     eventProperties
-  ) as PlatformInstance<Def>;
+  ) as unknown as PlatformInstance<Def>;
 }
 
 // `definePlatform` has two call shapes, expressed as overloads:

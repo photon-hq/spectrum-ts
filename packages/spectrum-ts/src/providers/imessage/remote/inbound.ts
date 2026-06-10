@@ -18,7 +18,12 @@ import {
   downloadPrimaryAttachment,
   downloadPrimaryAttachmentStream,
 } from "./attachments";
-import { formatChildId, parseChildId, toMessageGuid } from "./ids";
+import {
+  chatTypeFromGuid,
+  formatChildId,
+  parseChildId,
+  toMessageGuid,
+} from "./ids";
 
 const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
 
@@ -81,7 +86,7 @@ export const buildMessageBase = (
     sender: { id: resolveSenderId(message) },
     space: {
       id: chat,
-      type: chat.includes(";+;") ? "group" : "dm",
+      type: chatTypeFromGuid(chat),
       phone,
     },
     timestamp,

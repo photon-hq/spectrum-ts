@@ -3,7 +3,7 @@ import { definePlatform } from "../../platform/define";
 import { configSchema, TELEGRAM_PLATFORM } from "./config";
 import { handleMessages } from "./inbound/messages";
 import { send } from "./outbound/send";
-import { resolveSpace, resolveUser, spaceParamsSchema } from "./space";
+import { createSpace, resolveUser } from "./space";
 import type { TelegramPayload } from "./types";
 import { verify } from "./verify";
 import { ensureWebhook } from "./webhook";
@@ -42,7 +42,7 @@ export const telegram = definePlatform(TELEGRAM_PLATFORM, {
     },
   },
   user: { resolve: resolveUser },
-  space: { params: spaceParamsSchema, resolve: resolveSpace },
+  space: { create: createSpace },
   messages: handleMessages,
   send,
 });

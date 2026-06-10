@@ -52,13 +52,13 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
 
   space: {
     schema: spaceSchema,
-    resolve: async ({ input }) => {
+    create: async ({ input }) => {
       if (input.users.length === 0) {
         throw new Error("WhatsApp space creation requires at least one user");
       }
       if (input.users.length > 1) {
         throw UnsupportedError.action(
-          "createSpace",
+          "space.create",
           "WhatsApp Business",
           "only 1:1 conversations are supported"
         );

@@ -87,7 +87,7 @@ export const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
     },
     user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
     space: {
-      resolve: ({ input }) =>
+      create: ({ input }: { input: { users: { id: string }[] } }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "space" }),
     },
     messages: slackMessages,
@@ -180,7 +180,7 @@ export const makePresence = () =>
     },
     user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
     space: {
-      resolve: ({ input }) =>
+      create: ({ input }: { input: { users: { id: string }[] } }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "space" }),
     },
     events: { presence: presenceSchema },
@@ -241,7 +241,7 @@ export const makeCtxProbe = (capture: CtxProbeCapture) =>
     },
     user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
     space: {
-      resolve: ({ input }) =>
+      create: ({ input }: { input: { users: { id: string }[] } }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "space" }),
     },
     messages: ctxProbeMessages(capture),

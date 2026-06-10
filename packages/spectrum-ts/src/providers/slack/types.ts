@@ -38,7 +38,6 @@ export const spaceSchema = z.object({
 });
 
 export const spaceParamsSchema = z.object({
-  channel: z.string().optional(),
   teamId: z.string(),
 });
 

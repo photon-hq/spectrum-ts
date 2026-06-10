@@ -9,7 +9,7 @@ import {
 } from "../../../content/reaction";
 import type { MessageCache } from "../cache";
 import type { IMessageMessage } from "../types";
-import { toChatGuid, toMessageGuid } from "./ids";
+import { chatTypeFromGuid, toChatGuid, toMessageGuid } from "./ids";
 import {
   cacheMessage,
   isIMessageMessage,
@@ -118,7 +118,7 @@ export const toReactionMessages = async (
       sender: { id: senderAddress },
       space: {
         id: event.chatGuid,
-        type: event.chatGuid.includes(";+;") ? "group" : "dm",
+        type: chatTypeFromGuid(event.chatGuid),
         phone,
       },
       timestamp: event.occurredAt,

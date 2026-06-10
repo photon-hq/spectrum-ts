@@ -602,12 +602,18 @@ export const terminal = definePlatform("Terminal", {
   },
 
   space: {
-    params: z.object({ id: z.string().optional() }),
-    resolve: async ({ client, input }) => {
-      const id = input.params?.id ?? generateChatId(client);
+    create: async ({ client }) => {
+      const id = generateChatId(client);
       client.knownChats.add(id);
       await client.session.request("ensureSpace", { id });
       return { id };
+    },
+    // Explicit (not the framework default) so targeting a known id still
+    // materializes the chat in the TUI via `ensureSpace`.
+    get: async ({ client, input }) => {
+      client.knownChats.add(input.id);
+      await client.session.request("ensureSpace", { id: input.id });
+      return { id: input.id };
     },
   },
 

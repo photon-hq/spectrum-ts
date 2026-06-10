@@ -3,7 +3,6 @@
   "include": ["src", "test"],
   "compilerOptions": {
     "strictNullChecks": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@test/*": ["./test/*"]

@@ -398,9 +398,26 @@ export interface PlatformDef<
   space: {
     schema?: _SpaceSchema;
     params?: _SpaceParamsSchema;
-    resolve: (_: {
+    create: (_: {
       input: {
         users: (_ResolvedUser & { __platform: _Name })[];
+        params?: _SpaceParamsSchema extends z.ZodType<object>
+          ? z.infer<_SpaceParamsSchema>
+          : undefined;
+      };
+      client: NoInferClient<_Client>;
+      config: z.infer<_ConfigSchema>;
+      store: Store;
+    }) => Promise<_ResolvedSpace>;
+    /**
+     * Optional: hydrate a space from a known platform space id. When absent,
+     * the framework builds the candidate `{ id }` and validates it against
+     * `space.schema` — providers whose schema requires more fields must
+     * implement this.
+     */
+    get?: (_: {
+      input: {
+        id: string;
         params?: _SpaceParamsSchema extends z.ZodType<object>
           ? z.infer<_SpaceParamsSchema>
           : undefined;
@@ -479,7 +496,9 @@ export interface AnyPlatformDef {
     schema?: z.ZodType<object>;
     params?: z.ZodType<object>;
     // biome-ignore lint/suspicious/noExplicitAny: wildcard resolver
-    resolve: (_: any) => Promise<any>;
+    create: (_: any) => Promise<any>;
+    // biome-ignore lint/suspicious/noExplicitAny: wildcard resolver
+    get?: (_: any) => Promise<any>;
     actions?: Record<string, SpaceActionFn>;
   };
   user: {
@@ -603,7 +622,7 @@ export type CustomEventStreams<Providers extends PlatformProviderConfig[]> = {
 // ---------------------------------------------------------------------------
 
 type ResolvedSpaceOf<Def extends AnyPlatformDef> = AwaitedReturn<
-  Def["space"]["resolve"]
+  Def["space"]["create"]
 >;
 type SchemaSpaceOf<Def extends AnyPlatformDef> = InferOptionalSchema<
   Def["space"]["schema"]
@@ -619,30 +638,47 @@ type SpaceShapeOf<Def extends AnyPlatformDef> = [SchemaSpaceOf<Def>] extends [
   ? ResolvedSpaceOf<Def>
   : SchemaSpaceOf<Def>;
 
-type SpaceParamsInputOf<Def extends AnyPlatformDef> = InputSchema<
-  Def["space"]["params"]
->;
+// When a provider declares no `space.params`, `definePlatform`'s
+// `_SpaceParamsSchema` has no inference candidate and falls back to its
+// constraint — the broad `z.ZodType<object>`. A declared schema is always a
+// strict subtype (e.g. `ZodObject<…>`), so "is the broad type assignable
+// here?" cleanly separates absent (→ never, no params argument) from declared.
+type SpaceParamsInputOf<Def extends AnyPlatformDef> =
+  z.ZodType<object> extends Def["space"]["params"]
+    ? never
+    : InputSchema<Def["space"]["params"]>;
 
 type SpaceUserLike<Def extends AnyPlatformDef> = PlatformUser<Def> | string;
 
-type SpaceArrayArgs<Def extends AnyPlatformDef> = [
+// Params tuple for `space.create` / `space.get`:
+// - no params schema on the provider           → no params argument at all
+// - schema with only optional fields           → optional trailing params
+// - schema with required fields (slack teamId) → required trailing params
+type SpaceParamsArgs<Def extends AnyPlatformDef> = [
   SpaceParamsInputOf<Def>,
 ] extends [never]
-  ? [users: SpaceUserLike<Def>[]]
-  :
-      | [users: SpaceUserLike<Def>[]]
-      | [users: SpaceUserLike<Def>[], params: SpaceParamsInputOf<Def>]
-      | [params: SpaceParamsInputOf<Def>];
+  ? []
+  : Record<string, never> extends SpaceParamsInputOf<Def>
+    ? [params?: SpaceParamsInputOf<Def>]
+    : [params: SpaceParamsInputOf<Def>];
 
-type SpaceVarargArgs<Def extends AnyPlatformDef> = [
-  SpaceParamsInputOf<Def>,
-] extends [never]
-  ? SpaceUserLike<Def>[]
-  : SpaceUserLike<Def>[] | [...SpaceUserLike<Def>[], SpaceParamsInputOf<Def>];
-
-type SpaceArgs<Def extends AnyPlatformDef> =
-  | SpaceArrayArgs<Def>
-  | SpaceVarargArgs<Def>;
+export interface SpaceNamespace<Def extends AnyPlatformDef> {
+  /**
+   * Resolve or create a space from its participants — a single user (1:1
+   * conversation) or several (group, where the platform supports it). Users
+   * may be raw id strings or previously resolved `PlatformUser`s.
+   */
+  create(
+    users: SpaceUserLike<Def> | SpaceUserLike<Def>[],
+    ...params: SpaceParamsArgs<Def>
+  ): Promise<PlatformSpace<Def>>;
+  /**
+   * Construct a space from a known platform space id — e.g. one persisted
+   * from an earlier event. Providers may hydrate platform-specific fields
+   * (or verify existence) via their `space.get` hook.
+   */
+  get(id: string, ...params: SpaceParamsArgs<Def>): Promise<PlatformSpace<Def>>;
+}
 
 // Methods derived from `PlatformDef.space.actions`. The first parameter
 // (`space`) is bound to the built `PlatformSpace<Def>` at construction time,
@@ -783,7 +819,7 @@ export type PlatformUser<Def extends AnyPlatformDef> = Omit<
 
 export type PlatformInstance<Def extends AnyPlatformDef> = {
   readonly messages: AsyncIterable<[PlatformSpace<Def>, PlatformMessage<Def>]>;
-  space(...args: SpaceArgs<Def>): Promise<PlatformSpace<Def>>;
+  readonly space: SpaceNamespace<Def>;
   user(userID: string): Promise<PlatformUser<Def>>;
 } & CustomEventInstanceProperties<Def> &
   PlatformWiseInstanceMethods<Def> &

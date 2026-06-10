@@ -94,7 +94,7 @@ export const makeManagedProvider = (
     },
     user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
     space: {
-      resolve: ({ input }) =>
+      create: ({ input }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "s1" }),
     },
     messages(): ManagedStream<FakeInboundMessage> {
@@ -122,6 +122,51 @@ export const makeManagedProvider = (
   });
 };
 
+// Provider with a space schema + params schema (the slack/imessage shape) for
+// exercising space.create/space.get validation paths. `withGet` toggles a
+// provider-implemented `space.get` hook; without it the framework default
+// applies — and fails, because the schema requires `extra`.
+export const makeSchemaProvider = (
+  name: string,
+  opts: { withGet?: boolean } = {}
+) => {
+  // Closed-out queue: an immediately-done inbound stream — these fakes only
+  // exercise space resolution, never inbound messages.
+  const queue = makeQueue<never>();
+  queue.close();
+  return definePlatform(name, {
+    config: z.object({}),
+    lifecycle: {
+      createClient: () => Promise.resolve({}),
+    },
+    user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+    space: {
+      schema: z.object({ extra: z.string(), id: z.string() }),
+      params: z.object({ extra: z.string() }),
+      create: ({ input }) =>
+        Promise.resolve({
+          extra: input.params?.extra ?? "default",
+          id: input.users.map((u) => u.id).join("+"),
+        }),
+      ...(opts.withGet
+        ? {
+            get: ({
+              input,
+            }: {
+              input: { id: string; params?: { extra: string } };
+            }) =>
+              Promise.resolve({
+                extra: input.params?.extra ?? "hydrated",
+                id: input.id,
+              }),
+          }
+        : {}),
+    },
+    messages: () => queue.iter,
+    send: () => Promise.resolve(undefined),
+  });
+};
+
 // Provider whose `messages` is a NATIVE async generator blocking on a queue that
 // only closes in destroyClient (the terminal-BEFORE-fix shape). Its stream can't
 // be cancelled by return(); it relies on the bounded safety net + destroyClient.
@@ -139,7 +184,7 @@ export const makeNativeProvider = (name: string) => {
     },
     user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
     space: {
-      resolve: ({ input }) =>
+      create: ({ input }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "s1" }),
     },
     async *messages() {

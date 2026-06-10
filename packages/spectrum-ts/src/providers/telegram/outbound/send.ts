@@ -61,7 +61,7 @@ const sendReaction = async (
   client: TelegramClient,
   space: TelegramSpace,
   content: Reaction
-): Promise<undefined> => {
+): Promise<ProviderMessageRecord> => {
   const messageId = parseMessageId(content.target.id);
   const emoji = normalizeReactionEmoji(content.emoji);
   // Validate before calling: setMessageReaction only accepts a fixed emoji set
@@ -83,7 +83,17 @@ const sendReaction = async (
     },
     client,
   });
-  return;
+  // setMessageReaction returns only `true`; Telegram assigns no id to the
+  // bot's reaction and never echoes it back as an update. Mirror the inbound
+  // id format (inbound/messages.ts) with `bot` as the actor.
+  const timestamp = new Date();
+  const unixSeconds = Math.floor(timestamp.getTime() / MILLIS_PER_SECOND);
+  return {
+    id: `reaction:${space.id}:${messageId}:${unixSeconds}:bot:${emoji}`,
+    content,
+    space: { id: space.id },
+    timestamp,
+  };
 };
 
 const sendTyping = async (
@@ -125,9 +135,10 @@ const sendEdit = async (
 };
 
 /**
- * Outbound dispatcher. Fire-and-forget signals (reaction, typing, edit) return
+ * Outbound dispatcher. Fire-and-forget signals (typing, edit) return
  * `undefined`; message-producing content returns a record with the Telegram
- * message id. A `group` fans out to one message per item. `poll`, `effect`,
+ * message id. Reactions return a record with a synthetic id (Telegram assigns
+ * none). A `group` fans out to one message per item. `poll`, `effect`,
  * `rename` and `avatar` are unsupported in v1 (use `custom` to reach any other
  * Bot API method directly).
  */

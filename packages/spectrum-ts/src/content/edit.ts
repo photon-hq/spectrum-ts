@@ -53,9 +53,17 @@ export const asEdit = (input: {
  * this with an inbound target throws at build time so the misuse surfaces
  * before the send pipeline runs.
  */
-export function edit(content: ContentInput, target: Message): ContentBuilder {
+export function edit(
+  content: ContentInput,
+  target: Message | undefined
+): ContentBuilder {
   return {
     build: async () => {
+      if (!target) {
+        throw new Error(
+          "edit() target is undefined — the targeted message was never sent (space.send resolves undefined when a platform skips unsupported content)"
+        );
+      }
       if (target.direction !== "outbound") {
         throw new Error(
           `edit() target must be an outbound message (got direction "${target.direction}", message id "${target.id}")`

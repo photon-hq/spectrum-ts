@@ -7,7 +7,7 @@ import type {
 } from "@photon-ai/slack";
 import { asAttachment } from "../../content/attachment";
 import { asCustom } from "../../content/custom";
-import { asReaction } from "../../content/reaction";
+import { asReaction, type Reaction } from "../../content/reaction";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { ProviderMessageRecord } from "../../platform/types";
@@ -287,13 +287,12 @@ export const send = async (
     );
   }
   if (content.type === "reaction") {
-    await reactToMessage(
+    return await reactToMessage(
       client,
       space,
       (content.target as { ts?: string }).ts ?? content.target.id,
-      content.emoji
+      content
     );
-    return;
   }
   if (content.type === "typing") {
     // Slack's Web API has no typing-indicator RPC. Silently ignore so
@@ -349,16 +348,29 @@ const reactToMessage = async (
   client: SlackClient,
   space: SpaceRef,
   targetTs: string,
-  emoji: string
-): Promise<void> => {
+  content: Reaction
+): Promise<ProviderMessageRecord> => {
   await client.team(space.teamId).messages.send({
     channel: space.id,
     reaction: {
-      emoji,
+      emoji: content.emoji,
       itemChannel: space.id,
       itemTs: targetTs,
     },
   });
+  // reactions.add echoes an empty `ts`. Mirror the inbound id format
+  // (`<itemTs>:reaction:<user>:<name>`); `self` stands in for the bot user
+  // id, which the send path doesn't have at hand. `isFromMe` is required by
+  // the message extras schema; `ts` mirrors inbound reaction records and is
+  // what a future unsend needs to call reactions.remove.
+  return {
+    id: `${targetTs}:reaction:self:${content.emoji}`,
+    content,
+    space: { id: space.id, teamId: space.teamId },
+    timestamp: new Date(),
+    ts: targetTs,
+    isFromMe: true,
+  };
 };
 
 export const replyToMessage = async (

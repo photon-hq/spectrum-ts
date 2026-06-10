@@ -19,6 +19,7 @@ import { send } from "@/providers/telegram/outbound/send";
 import type { Message } from "@/types/message";
 
 const TS_SEC = 1_700_000_000;
+const SYNTHETIC_REACTION_ID = /^reaction:100:42:\d+:bot:👍$/;
 const config = configSchema.parse({ botToken: "1:abc" });
 const space = { id: "100" };
 const target = {
@@ -172,16 +173,17 @@ describe("send — messages", () => {
     expect(calls[0]?.method).toBe("sendDice");
     expect(calls[0]?.json).toEqual({ chat_id: "100", emoji: "🎲" });
   });
-});
 
-describe("send — fire-and-forget", () => {
-  it("sends a reaction via setMessageReaction and returns undefined", async () => {
+  it("sends a reaction via setMessageReaction and returns a synthetic record", async () => {
     const result = await send({
       space,
       content: await reaction("👍", target).build(),
       config,
     });
-    expect(result).toBeUndefined();
+    expect(result?.id).toMatch(SYNTHETIC_REACTION_ID);
+    expect((result?.content as { type?: string }).type).toBe("reaction");
+    expect(result?.space.id).toBe("100");
+    expect(result?.timestamp).toBeInstanceOf(Date);
     expect(calls[0]?.method).toBe("setMessageReaction");
     expect(calls[0]?.json).toEqual({
       chat_id: "100",
@@ -196,7 +198,9 @@ describe("send — fire-and-forget", () => {
     ).rejects.toThrow("not an allowed");
     expect(calls).toHaveLength(0);
   });
+});
 
+describe("send — fire-and-forget", () => {
   it("starts a typing action via sendChatAction", async () => {
     await send({
       space,

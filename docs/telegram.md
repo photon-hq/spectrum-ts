@@ -84,8 +84,8 @@ membership changes, and reaction **removals** (empty `new_reaction`).
 `send({ space, content, config })` (`outbound/send.ts`) builds a photon client
 inline and dispatches by content type. Message-producing content is mapped to a
 small `TelegramSendSpec` by the pure `buildSend` (`outbound/message.ts`) and run
-through `executeSpec`; fire-and-forget signals call photon's typed functions
-directly.
+through `executeSpec`; reactions and fire-and-forget signals call photon's
+typed functions directly.
 
 | Content | Bot API call |
 | --- | --- |
@@ -99,7 +99,7 @@ directly.
 | `reply` | wraps the inner send with `reply_parameters` |
 | `custom` | the named Bot API method, verbatim |
 | `group` | one message per item (returns the last) |
-| `reaction` | `setMessageReaction` (emoji pre-validated) → `undefined` |
+| `reaction` | `setMessageReaction` (emoji pre-validated) → synthetic record (Telegram assigns no reaction id) |
 | `typing` | `sendChatAction` (`start` only; `stop` is a no-op) → `undefined` |
 | `edit` | `editMessageText` (text only) → `undefined` |
 

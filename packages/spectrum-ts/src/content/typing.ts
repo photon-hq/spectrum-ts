@@ -3,7 +3,7 @@ import type { ContentBuilder } from "./types";
 
 /**
  * A `typing` content value carries a typing-indicator signal — either
- * `"start"` or `"stop"`. Like `reaction`, it's fire-and-forget: providers
+ * `"start"` or `"stop"`. Like `edit`, it's fire-and-forget: providers
  * dispatch on `content.type === "typing"` inside their `send()` action and
  * `space.send(typing(...))` resolves to `undefined`.
  *

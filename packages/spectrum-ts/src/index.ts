@@ -26,7 +26,11 @@ export {
   type PollOption,
   poll,
 } from "./content/poll";
-export { type Reaction, reaction } from "./content/reaction";
+export {
+  type Reaction,
+  type ReactionBuilder,
+  reaction,
+} from "./content/reaction";
 export { type Rename, rename } from "./content/rename";
 export { type Reply, reply } from "./content/reply";
 export { resolveContents } from "./content/resolve";

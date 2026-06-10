@@ -113,9 +113,8 @@ export const reactToMessage = async (
   spaceId: string,
   target: IMessageMessage,
   reaction: string
-): Promise<void> => {
-  await reactToRemoteMessage(remote, spaceId, target, reaction);
-};
+): Promise<ProviderMessageRecord> =>
+  reactToRemoteMessage(remote, spaceId, target, reaction);
 
 export const getMessage = async (
   remote: AdvancedIMessage,

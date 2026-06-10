@@ -17,7 +17,7 @@ import {
 } from "../../content/contact";
 import { asCustom } from "../../content/custom";
 import { asPollOption, type Poll } from "../../content/poll";
-import { asReaction } from "../../content/reaction";
+import { asReaction, type Reaction } from "../../content/reaction";
 import { asText } from "../../content/text";
 import type { Content } from "../../content/types";
 import type { ProviderMessageRecord } from "../../platform/types";
@@ -506,8 +506,7 @@ export const send = async (
     );
   }
   if (content.type === "reaction") {
-    await reactToMessage(clients, spaceId, content.target.id, content.emoji);
-    return;
+    return await reactToMessage(clients, spaceId, content);
   }
   if (content.type === "typing") {
     // WhatsApp Business has no typing-indicator API. Silently ignore so
@@ -583,13 +582,15 @@ export const send = async (
 const reactToMessage = async (
   clients: WhatsAppClients,
   spaceId: string,
-  messageId: string,
-  reaction: string
-): Promise<void> => {
-  await primary(clients).messages.send({
+  content: Reaction
+): Promise<ProviderMessageRecord> => {
+  // The Cloud API returns a real message id for reaction sends, so the
+  // record carries a genuine handle (usable by a future unsend).
+  const result = await primary(clients).messages.send({
     to: spaceId,
-    reaction: { messageId, emoji: reaction },
+    reaction: { messageId: content.target.id, emoji: content.emoji },
   });
+  return toRecord(result, spaceId, content);
 };
 
 export const replyToMessage = async (

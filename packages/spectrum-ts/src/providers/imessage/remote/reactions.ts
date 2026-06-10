@@ -7,6 +7,7 @@ import {
   type Reaction as ReactionContent,
   reactionSchema,
 } from "../../../content/reaction";
+import type { ProviderMessageRecord } from "../../../platform/types";
 import type { MessageCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid, toChatGuid, toMessageGuid } from "./ids";
@@ -133,7 +134,7 @@ export const reactToMessage = async (
   spaceId: string,
   target: IMessageMessage,
   reaction: string
-): Promise<void> => {
+): Promise<ProviderMessageRecord> => {
   const chat = toChatGuid(spaceId);
   const parentGuid = target.parentId ?? target.id;
   const guid = toMessageGuid(parentGuid);
@@ -143,15 +144,28 @@ export const reactToMessage = async (
       : undefined;
 
   const native = EMOJI_TO_TAPBACK[reaction];
-  if (native) {
-    await remote.messages.setReaction(chat, guid, { kind: native }, true, opts);
-  } else {
-    await remote.messages.setReaction(
-      chat,
-      guid,
-      { kind: "emoji", emoji: reaction },
-      true,
-      opts
-    );
-  }
+  const sent = native
+    ? await remote.messages.setReaction(
+        chat,
+        guid,
+        { kind: native },
+        true,
+        opts
+      )
+    : await remote.messages.setReaction(
+        chat,
+        guid,
+        { kind: "emoji", emoji: reaction },
+        true,
+        opts
+      );
+
+  // `sent` is the real tapback message — its guid is a durable handle that
+  // the SDK's `unsend` / `setReaction(..., false)` can act on later.
+  return {
+    id: sent.guid,
+    content: asProviderReaction(reaction, target),
+    space: { id: spaceId },
+    timestamp: sent.dateCreated,
+  };
 };

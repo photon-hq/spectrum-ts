@@ -437,13 +437,12 @@ export const imessage = definePlatform("iMessage", {
       // `content.target` is statically typed as the generic `Message`, but
       // execution only reaches this iMessage `send` action when the target
       // came from the iMessage stream — hence the unknown-cast widen.
-      await remoteReactToMessage(
+      return await remoteReactToMessage(
         remote,
         space.id,
         content.target as unknown as IMessageMessage,
         content.emoji
       );
-      return;
     }
     if (content.type === "typing") {
       await handleTyping(client, space, content.state);

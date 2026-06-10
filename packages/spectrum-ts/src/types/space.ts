@@ -1,3 +1,4 @@
+import type { Reaction, ReactionBuilder } from "../content/reaction";
 import type { ContentInput } from "../content/types";
 import type { Message } from "./message";
 import type { AgentSender } from "./user";
@@ -22,7 +23,12 @@ export interface Space<_Def = unknown> {
    */
   avatar(input: string | URL, options?: { mimeType?: string }): Promise<void>;
   avatar(input: Buffer, options: { mimeType: string }): Promise<void>;
-  edit(message: Message, newContent: ContentInput): Promise<void>;
+  /**
+   * Rewrite a previously-sent outbound message. Sugar for
+   * `send(edit(newContent, message))`. Accepts `Message | undefined` so
+   * `send` results chain without narrowing; an undefined target throws.
+   */
+  edit(message: Message | undefined, newContent: ContentInput): Promise<void>;
   /**
    * Look up a message in this space by its id. Returns `undefined` if the
    * platform has no way to resolve the id (e.g. cache miss with no by-id
@@ -39,6 +45,17 @@ export interface Space<_Def = unknown> {
    */
   rename(displayName: string): Promise<void>;
   responding<T>(fn: () => T | Promise<T>): Promise<T>;
+  /**
+   * A reaction send resolves to the reaction Message (`content` narrowed to
+   * `Reaction`) — the handle for a future unsend. Listed before the general
+   * overload so `send(reaction(...))` picks it; every other `ContentBuilder`
+   * fails the `ReactionBuilder` shape and falls through.
+   */
+  send(
+    content: ReactionBuilder
+  ): Promise<
+    (Message<string, AgentSender> & { content: Reaction }) | undefined
+  >;
   send(
     content: ContentInput
   ): Promise<Message<string, AgentSender> | undefined>;

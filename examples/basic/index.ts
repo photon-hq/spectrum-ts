@@ -32,8 +32,10 @@ for await (const [space, message] of app.messages) {
     continue;
   }
 
-  // Sugar form: message.react delegates to space.send(reaction(emoji, self)).
-  await message.react("👀");
+  // Sugar form: message.react delegates to space.send(reaction(emoji, self))
+  // and resolves to the reaction Message — the handle for a future unsend.
+  const sent = await message.react("👀");
+  console.log(`reacted ${sent?.content.emoji} → id ${sent?.id}`);
   // Canonical form: reaction as first-class content via space.send.
   await space.send(reaction("✨", message));
 

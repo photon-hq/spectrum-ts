@@ -382,8 +382,10 @@ export interface PlatformDef<
    * through this single action.
    *
    * Returns a `ProviderMessageRecord` (id + timestamp) for content that
-   * produces a message; returns `undefined` for fire-and-forget control
-   * signals (reactions, typing, edits) on platforms that don't return ids.
+   * produces a message — including reactions, whose record is the unsend
+   * handle (synthesize a deterministic id when the platform assigns none);
+   * returns `undefined` only for fire-and-forget control signals (typing,
+   * edits, renames, avatars) on platforms that don't return ids.
    *
    * One of the two universal platform contracts (along with `messages`).
    */

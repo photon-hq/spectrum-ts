@@ -694,7 +694,15 @@ export const terminal = definePlatform("Terminal", {
         messageId: content.target.id,
         reaction: content.emoji,
       });
-      return;
+      // The protocol ack carries no id; synthesize one mirroring the inbound
+      // reaction shape.
+      const timestamp = new Date();
+      return {
+        id: `reaction:${content.target.id}:${content.emoji}:${timestamp.toISOString()}`,
+        content,
+        space: { id: space.id },
+        timestamp,
+      };
     }
     if (content.type === "typing") {
       // Tuichat exposes start/stop as separate notifications; we keep the

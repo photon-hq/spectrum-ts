@@ -245,11 +245,26 @@ export const asStreamText = (input: {
   streamTextSchema.parse({ type: "streamText", stream: input.stream });
 
 /**
+ * Consume a `streamText` content's stream to completion and return the full
+ * accumulated text. Used by the send pipeline's plain-text fallback for
+ * platforms that can't stream. Consumes the single-use stream — the content
+ * cannot be sent afterwards.
+ */
+export const drainStreamText = async (content: StreamText): Promise<string> => {
+  let full = "";
+  for await (const delta of content.stream()) {
+    full += delta;
+  }
+  return full;
+};
+
+/**
  * Wrap a streaming LLM text response so it can be sent like any other content.
  *
  * Delivery is platform-specific — iMessage (remote) sends the first chunk as a
  * real message and then edits it in place as more text arrives. Platforms that
- * can't stream reject it (the send is warn-and-skipped).
+ * can't stream wait for the stream to finish and deliver the accumulated text
+ * as one plain message.
  *
  * Accepts whatever the popular SDKs return; pass `options.extract` for any
  * chunk shape the built-in detection doesn't recognize.

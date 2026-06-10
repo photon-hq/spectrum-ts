@@ -8,6 +8,8 @@ import {
 import { rename as renameContent } from "../content/rename";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
+import { drainStreamText, type StreamText } from "../content/stream-text";
+import { asText } from "../content/text";
 import type { Content, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
 import { unsend as unsendContent } from "../content/unsend";
@@ -197,6 +199,77 @@ const unsupportedPlatformContentError = (
     `requires ${requiredPlatform}`
   );
 };
+
+// Locate the stream a send carries, if any. A stream appears either as the
+// top-level content or wrapped one level deep in `reply`/`edit` (the only
+// wrappers whose inner content can be a `streamText`).
+const findStreamText = (item: Content): StreamText | undefined => {
+  if (item.type === "streamText") {
+    return item;
+  }
+  if (
+    (item.type === "reply" || item.type === "edit") &&
+    item.content.type === "streamText"
+  ) {
+    return item.content;
+  }
+  return;
+};
+
+// Rewrite a stream-bearing content as plain text, preserving a `reply`/`edit`
+// wrapper so the fallback send keeps its target.
+const replaceStreamText = (item: Content, full: string): Content => {
+  const text = asText(full);
+  if (item.type === "reply" || item.type === "edit") {
+    return { ...item, content: text };
+  }
+  return text;
+};
+
+type ProviderSend = (
+  content: Content
+) => Promise<ProviderMessageRecord | undefined>;
+
+/**
+ * Dispatch `content` to the provider, falling back to plain text on platforms
+ * that can't stream. When the provider rejects a stream-bearing send with
+ * `UnsupportedError`, wait for the stream to finish and re-send the
+ * accumulated text as `text` content (preserving a `reply`/`edit` wrapper) —
+ * so `streamText` works everywhere, just without live updates. Rethrows the
+ * original error when no fallback applies (non-stream content, or a stream
+ * that produced no text); an `UnsupportedError` from the fallback send itself
+ * propagates too. Both land in the caller's warn-and-skip handling.
+ */
+async function sendWithStreamTextFallback(
+  send: ProviderSend,
+  item: Content,
+  platform: string
+): Promise<ProviderMessageRecord | undefined> {
+  try {
+    return await send(item);
+  } catch (err) {
+    if (!(err instanceof UnsupportedError)) {
+      throw err;
+    }
+    const source = findStreamText(item);
+    if (!source) {
+      throw err;
+    }
+    platformLog.info(
+      `${platform} does not support streaming text; waiting for the stream to finish to send the full text as one message.`,
+      {
+        "spectrum.provider": platform,
+        "spectrum.stream_text.fallback": true,
+      }
+    );
+    const full = await drainStreamText(source);
+    if (!full) {
+      // The stream ended without any text — nothing to send.
+      throw err;
+    }
+    return await send(replaceStreamText(item, full));
+  }
+}
 
 export type SpaceRef = {
   id: string;
@@ -405,19 +478,26 @@ export function buildSpace(params: BuildSpaceParams): Space {
         ...contentAttrs(item),
       },
       async () => {
+        const platformError = unsupportedPlatformContentError(
+          item,
+          definition.name
+        );
+        if (platformError) {
+          warnUnsupported(platformError, definition.name);
+          return;
+        }
+        const providerSend: ProviderSend = async (content) =>
+          (await definition.send({
+            ...actionCtx,
+            content,
+          })) as ProviderMessageRecord | undefined;
         let raw: ProviderMessageRecord | undefined;
         try {
-          const platformError = unsupportedPlatformContentError(
+          raw = await sendWithStreamTextFallback(
+            providerSend,
             item,
             definition.name
           );
-          if (platformError) {
-            throw platformError;
-          }
-          raw = (await definition.send({
-            ...actionCtx,
-            content: item,
-          })) as ProviderMessageRecord | undefined;
         } catch (err) {
           if (err instanceof UnsupportedError) {
             warnUnsupported(err, definition.name);

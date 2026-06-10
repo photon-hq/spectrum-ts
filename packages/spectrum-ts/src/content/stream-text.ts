@@ -215,6 +215,20 @@ const resolveChunkIterable = <T>(
   );
 };
 
+/**
+ * Thrown when a single-use stream source is consumed a second time. The send
+ * pipeline's plain-text fallback matches on this to tell "the provider already
+ * consumed the stream" apart from a stream that errored mid-drain.
+ */
+export class StreamConsumedError extends Error {
+  constructor() {
+    super(
+      "streamText: this source has already been consumed — a stream can only be sent once."
+    );
+    this.name = "StreamConsumedError";
+  }
+}
+
 const normalize = <T>(
   source: StreamTextSource<T>,
   options?: StreamTextOptions<T>
@@ -225,9 +239,7 @@ const normalize = <T>(
   let consumed = false;
   return async function* normalized() {
     if (consumed) {
-      throw new Error(
-        "streamText: this source has already been consumed — a stream can only be sent once."
-      );
+      throw new StreamConsumedError();
     }
     consumed = true;
     for await (const chunk of resolveChunkIterable(source)) {
@@ -262,9 +274,10 @@ export const drainStreamText = async (content: StreamText): Promise<string> => {
  * Wrap a streaming LLM text response so it can be sent like any other content.
  *
  * Delivery is platform-specific — iMessage (remote) sends the first chunk as a
- * real message and then edits it in place as more text arrives. Platforms that
- * can't stream wait for the stream to finish and deliver the accumulated text
- * as one plain message.
+ * real message and then edits it in place as more text arrives; Telegram
+ * (private chats) animates a native draft preview and persists the final text
+ * as one message. Platforms that can't stream wait for the stream to finish
+ * and deliver the accumulated text as one plain message.
  *
  * Accepts whatever the popular SDKs return; pass `options.extract` for any
  * chunk shape the built-in detection doesn't recognize.

@@ -14,6 +14,7 @@ import { isAllowedReactionEmoji, normalizeReactionEmoji } from "../reactions";
 import type { TelegramSpace } from "../space";
 import type { ReactionTypeEmoji } from "../types";
 import { buildSend, parseMessageId } from "./message";
+import { sendStreamText } from "./stream-text";
 
 const MILLIS_PER_SECOND = 1000;
 
@@ -138,9 +139,10 @@ const sendEdit = async (
  * Outbound dispatcher. Fire-and-forget signals (typing, edit) return
  * `undefined`; message-producing content returns a record with the Telegram
  * message id. Reactions return a record with a synthetic id (Telegram assigns
- * none). A `group` fans out to one message per item. `poll`, `effect`,
- * `rename` and `avatar` are unsupported in v1 (use `custom` to reach any other
- * Bot API method directly).
+ * none). A `group` fans out to one message per item. `streamText` streams
+ * natively via message drafts in private chats (see `stream-text.ts`). `poll`,
+ * `effect`, `rename` and `avatar` are unsupported in v1 (use `custom` to reach
+ * any other Bot API method directly).
  */
 export const send = async ({
   space,
@@ -157,6 +159,8 @@ export const send = async ({
       return await sendEdit(client, space, content);
     case "group":
       return await sendGroup(client, space, content.items);
+    case "streamText":
+      return await sendStreamText(client, space, content);
     case "poll":
     case "poll_option":
     case "effect":

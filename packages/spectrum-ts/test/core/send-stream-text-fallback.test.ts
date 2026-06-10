@@ -172,6 +172,48 @@ describe("streamText plain-text fallback", () => {
     }
   });
 
+  it("warn-and-skips when a native driver consumed the stream before failing", async () => {
+    const seen: Content[] = [];
+    const sendImpl: SendImpl = async (content) => {
+      seen.push(content);
+      if (content.type === "streamText") {
+        // A native driver drains the stream, finds nothing to send, and
+        // rejects — re-draining for the fallback is impossible by then.
+        let drained = "";
+        for await (const delta of content.stream()) {
+          drained += delta;
+        }
+        throw UnsupportedError.content(
+          "streamText",
+          "stream-consumed",
+          `stream produced no text (got "${drained}")`
+        );
+      }
+      return {
+        id: `${content.type}-${seen.length}`,
+        content,
+        space: { id: "s1" },
+        timestamp: SENT_TIMESTAMP,
+      };
+    };
+    const provider = makeProvider("stream-consumed", sendImpl);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [space] = await firstMessage(app);
+      const sent = await space.send(streamText(chunks()));
+
+      // The original UnsupportedError lands in warn-and-skip — the consumed
+      // stream must not surface as a hard "already consumed" error.
+      expect(sent).toBeUndefined();
+      expect(seen.map((c) => c.type)).toEqual(["streamText"]);
+    } finally {
+      await app.stop();
+    }
+  });
+
   it("warn-and-skips when the fallback send is unsupported too", async () => {
     const seen: Content[] = [];
     const sendImpl: SendImpl = (content) => {

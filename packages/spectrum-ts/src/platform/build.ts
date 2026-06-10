@@ -8,7 +8,11 @@ import {
 import { rename as renameContent } from "../content/rename";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
-import { drainStreamText, type StreamText } from "../content/stream-text";
+import {
+  drainStreamText,
+  StreamConsumedError,
+  type StreamText,
+} from "../content/stream-text";
 import { asText } from "../content/text";
 import type { Content, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
@@ -236,9 +240,11 @@ type ProviderSend = (
  * `UnsupportedError`, wait for the stream to finish and re-send the
  * accumulated text as `text` content (preserving a `reply`/`edit` wrapper) —
  * so `streamText` works everywhere, just without live updates. Rethrows the
- * original error when no fallback applies (non-stream content, or a stream
- * that produced no text); an `UnsupportedError` from the fallback send itself
- * propagates too. Both land in the caller's warn-and-skip handling.
+ * original error when no fallback applies (non-stream content, a stream that
+ * produced no text, or a stream the provider already consumed — e.g. a native
+ * driver that streamed and then failed); an `UnsupportedError` from the
+ * fallback send itself propagates too. Both land in the caller's warn-and-skip
+ * handling.
  */
 async function sendWithStreamTextFallback(
   send: ProviderSend,
@@ -262,7 +268,19 @@ async function sendWithStreamTextFallback(
         "spectrum.stream_text.fallback": true,
       }
     );
-    const full = await drainStreamText(source);
+    let full: string;
+    try {
+      full = await drainStreamText(source);
+    } catch (drainErr) {
+      if (drainErr instanceof StreamConsumedError) {
+        // The provider already consumed the stream (a native driver streamed
+        // it and then failed) — re-draining is impossible, so surface the
+        // original UnsupportedError rather than the consumed-stream error.
+        throw err;
+      }
+      // A genuine stream failure mid-drain propagates as-is.
+      throw drainErr;
+    }
     if (!full) {
       // The stream ended without any text — nothing to send.
       throw err;

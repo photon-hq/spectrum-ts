@@ -6,6 +6,7 @@ import { customSchema } from "./custom";
 import { editSchema } from "./edit";
 import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
+import { markdownSchema } from "./markdown";
 import { pollOptionSchema, pollSchema } from "./poll";
 import { reactionSchema } from "./reaction";
 import { renameSchema } from "./rename";
@@ -26,6 +27,7 @@ import { voiceSchema } from "./voice";
 // so reply/edit cannot statically wrap it.
 const baseContentSchemas = [
   textSchema,
+  markdownSchema,
   streamTextSchema,
   customSchema,
   attachmentSchema,

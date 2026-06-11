@@ -259,6 +259,120 @@ describe("streamText plain-text fallback", () => {
     }
   });
 
+  it("re-sends a drained markdown-formatted stream as markdown content", async () => {
+    // `noStreamingSend` accepts everything except streams — so the drained
+    // markdown lands natively, without a second downgrade.
+    const { seen, sendImpl } = noStreamingSend("stream-md-supported");
+    const provider = makeProvider("stream-md-supported", sendImpl);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [space] = await firstMessage(app);
+      const sent = await space.send(
+        streamText(chunks("**Hi**"), { format: "markdown" })
+      );
+
+      expect(seen.map((c) => c.type)).toEqual(["streamText", "markdown"]);
+      expect(seen.at(-1)).toEqual({ type: "markdown", markdown: "**Hi**" });
+      expect(sent?.content).toEqual({ type: "markdown", markdown: "**Hi**" });
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("chains down to plain text when markdown is unsupported too", async () => {
+    const seen: Content[] = [];
+    const sendImpl: SendImpl = (content) => {
+      seen.push(content);
+      const inner =
+        content.type === "reply" || content.type === "edit"
+          ? content.content
+          : content;
+      if (inner.type === "streamText" || inner.type === "markdown") {
+        return Promise.reject(
+          UnsupportedError.content(inner.type, "stream-md-chain")
+        );
+      }
+      return Promise.resolve({
+        id: `${content.type}-${seen.length}`,
+        content,
+        space: { id: "s1" },
+        timestamp: SENT_TIMESTAMP,
+      });
+    };
+    const provider = makeProvider("stream-md-chain", sendImpl);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [space] = await firstMessage(app);
+      const sent = await space.send(
+        streamText(chunks("**Hi** [docs](https://d.test)"), {
+          format: "markdown",
+        })
+      );
+
+      expect(seen.map((c) => c.type)).toEqual([
+        "streamText",
+        "markdown",
+        "text",
+      ]);
+      expect(seen.at(-1)).toEqual({
+        type: "text",
+        text: "Hi docs (https://d.test)",
+      });
+      expect(sent?.content).toEqual({
+        type: "text",
+        text: "Hi docs (https://d.test)",
+      });
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("preserves the reply wrapper through the chained fallback", async () => {
+    const seen: Content[] = [];
+    const sendImpl: SendImpl = (content) => {
+      seen.push(content);
+      const inner = content.type === "reply" ? content.content : content;
+      if (inner.type === "streamText" || inner.type === "markdown") {
+        return Promise.reject(
+          UnsupportedError.content(inner.type, "stream-md-reply")
+        );
+      }
+      return Promise.resolve({
+        id: `${content.type}-${seen.length}`,
+        content,
+        space: { id: "s1" },
+        timestamp: SENT_TIMESTAMP,
+      });
+    };
+    const provider = makeProvider("stream-md-reply", sendImpl);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [, message] = await firstMessage(app);
+      await message.reply(
+        streamText(chunks("**hey**"), { format: "markdown" })
+      );
+
+      expect(seen.map((c) => c.type)).toEqual(["reply", "reply", "reply"]);
+      const fallback = seen.at(-1);
+      if (fallback?.type !== "reply") {
+        throw new Error("expected a reply fallback dispatch");
+      }
+      expect(fallback.content).toEqual({ type: "text", text: "hey" });
+      expect(fallback.target).toBe(message);
+    } finally {
+      await app.stop();
+    }
+  });
+
   it("does not interfere with platforms that stream natively", async () => {
     const seen: Content[] = [];
     const sendImpl: SendImpl = async (content) => {

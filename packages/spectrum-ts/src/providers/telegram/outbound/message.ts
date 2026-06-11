@@ -3,6 +3,7 @@ import { UnsupportedError } from "../../../utils/errors";
 import { toVCard } from "../../../utils/vcard";
 import { TELEGRAM_PLATFORM } from "../config";
 import type { TelegramSendSpec } from "../types";
+import { markdownToTelegramHtml } from "./markdown";
 
 const VCARD_FILENAME = "contact.vcf";
 const VCARD_MIME = "text/vcard";
@@ -92,6 +93,14 @@ export const buildSend = async (
   switch (content.type) {
     case "text":
       return { method: "sendMessage", params: { text: content.text } };
+    case "markdown":
+      return {
+        method: "sendMessage",
+        params: {
+          text: markdownToTelegramHtml(content.markdown),
+          parse_mode: "HTML",
+        },
+      };
     case "richlink":
       // Telegram auto-unfurls a bare URL in the message text.
       return { method: "sendMessage", params: { text: content.url } };

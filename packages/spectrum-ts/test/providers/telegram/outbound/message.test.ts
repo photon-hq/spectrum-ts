@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { attachment } from "@/content/attachment";
 import { contact } from "@/content/contact";
+import { markdown } from "@/content/markdown";
 import { poll } from "@/content/poll";
 import { reply } from "@/content/reply";
 import { richlink } from "@/content/richlink";
@@ -23,6 +24,25 @@ describe("buildSend", () => {
     expect(await buildSend(await text("hi").build())).toEqual({
       method: "sendMessage",
       params: { text: "hi" },
+    });
+  });
+
+  it("maps markdown to sendMessage with rendered HTML and parse_mode", async () => {
+    expect(await buildSend(await markdown("**hi** _there_").build())).toEqual({
+      method: "sendMessage",
+      params: { text: "<b>hi</b> <i>there</i>", parse_mode: "HTML" },
+    });
+  });
+
+  it("threads a reply around markdown, keeping parse_mode", async () => {
+    const spec = await buildSend(
+      await reply(markdown("**hey**"), target).build()
+    );
+    expect(spec.method).toBe("sendMessage");
+    expect(spec.params).toEqual({
+      text: "<b>hey</b>",
+      parse_mode: "HTML",
+      reply_parameters: { message_id: 42 },
     });
   });
 

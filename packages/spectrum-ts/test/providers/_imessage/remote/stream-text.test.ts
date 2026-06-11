@@ -67,6 +67,26 @@ const editArgs = (edit: ReturnType<typeof makeRemote>["edit"]): string[] =>
   edit.mock.calls.map((call) => call[2]);
 
 describe("sendStreamText", () => {
+  it("rejects a markdown-formatted stream before consuming it", async () => {
+    const { remote, sendText, edit } = makeRemote();
+    let pulled = false;
+    async function* tracking(): AsyncIterable<string> {
+      pulled = true;
+      yield "x";
+    }
+    const content = (await streamText(tracking(), {
+      format: "markdown",
+    }).build()) as StreamText;
+
+    await expect(
+      sendStreamText(remote, "chat", content)
+    ).rejects.toBeInstanceOf(UnsupportedError);
+    // The stream stays drainable for the pipeline's markdown fallback chain.
+    expect(pulled).toBe(false);
+    expect(sendText).not.toHaveBeenCalled();
+    expect(edit).not.toHaveBeenCalled();
+  });
+
   it("sends the first delta then flushes the full text on completion", async () => {
     setSystemTime(new Date(0)); // freeze: no time passes, so no interim edits
     const { remote, sendText, edit } = makeRemote();

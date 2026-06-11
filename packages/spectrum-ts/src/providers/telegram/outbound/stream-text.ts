@@ -1,4 +1,5 @@
 import { sendMessageDraft } from "@photon-ai/telegram-ts";
+import { asMarkdown } from "../../../content/markdown";
 import type { StreamText } from "../../../content/stream-text";
 import { asText } from "../../../content/text";
 import type { ProviderMessageRecord } from "../../../platform/types";
@@ -6,6 +7,7 @@ import { UnsupportedError } from "../../../utils/errors";
 import { executeSpec, type TelegramClient } from "../client";
 import { TELEGRAM_PLATFORM } from "../config";
 import type { TelegramSpace } from "../space";
+import { markdownToTelegramHtml } from "./markdown";
 
 const MILLIS_PER_SECOND = 1000;
 
@@ -45,6 +47,15 @@ export const sendStreamText = async (
   const draftId = nextDraftId;
   nextDraftId += 1;
 
+  // Markdown streams re-render the full accumulated text on every update
+  // (cheap at draft pace), so drafts preview styled text, not raw source.
+  // Mid-stream markdown can be incomplete — the renderer treats unclosed
+  // markers as literal text, so a partial render is always valid HTML.
+  const renderBody = (text: string): { text: string; parse_mode?: "HTML" } =>
+    content.format === "markdown"
+      ? { text: markdownToTelegramHtml(text), parse_mode: "HTML" }
+      : { text };
+
   let lastDraftText: string | undefined;
   let lastDraftAt = 0;
   let draftsAvailable = true;
@@ -55,7 +66,7 @@ export const sendStreamText = async (
     }
     try {
       await sendMessageDraft({
-        body: { chat_id: chatId, draft_id: draftId, text },
+        body: { chat_id: chatId, draft_id: draftId, ...renderBody(text) },
         client,
       });
       lastDraftText = text;
@@ -95,11 +106,11 @@ export const sendStreamText = async (
   // replaces the draft client-side).
   const sent = await executeSpec(client, {
     method: "sendMessage",
-    params: { chat_id: space.id, text: full },
+    params: { chat_id: space.id, ...renderBody(full) },
   });
   return {
     id: String(sent.message_id),
-    content: asText(full),
+    content: content.format === "markdown" ? asMarkdown(full) : asText(full),
     space: { id: space.id },
     timestamp: new Date(sent.date * MILLIS_PER_SECOND),
   };

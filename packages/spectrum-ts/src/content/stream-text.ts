@@ -29,6 +29,14 @@ export interface StreamTextOptions<T = unknown> {
    * messages, AI SDK text streams, and plain strings).
    */
   extract?: DeltaExtractor<T>;
+  /**
+   * How the streamed text should be interpreted. `"markdown"` marks it as
+   * standard markdown: platforms with native support render it styled
+   * (Telegram streams styled drafts and persists with `parse_mode`), and
+   * everywhere else the accumulated text is delivered through the `markdown`
+   * fallback chain (readable plain text at worst). Defaults to plain text.
+   */
+  format?: "plain" | "markdown";
 }
 
 export const streamTextSchema = z.object({
@@ -43,6 +51,8 @@ export const streamTextSchema = z.object({
         "streamText.stream must be a function returning AsyncIterable<string>",
     }
   ),
+  // How platforms should interpret the accumulated text; absent = plain.
+  format: z.enum(["plain", "markdown"]).optional(),
 });
 
 export type StreamText = z.infer<typeof streamTextSchema>;
@@ -253,8 +263,13 @@ const normalize = <T>(
 
 export const asStreamText = (input: {
   stream: () => AsyncIterable<string>;
+  format?: "plain" | "markdown";
 }): StreamText =>
-  streamTextSchema.parse({ type: "streamText", stream: input.stream });
+  streamTextSchema.parse({
+    type: "streamText",
+    stream: input.stream,
+    ...(input.format ? { format: input.format } : {}),
+  });
 
 /**
  * Consume a `streamText` content's stream to completion and return the full
@@ -279,6 +294,13 @@ export const drainStreamText = async (content: StreamText): Promise<string> => {
  * as one message. Platforms that can't stream wait for the stream to finish
  * and deliver the accumulated text as one plain message.
  *
+ * When the stream emits standard markdown, wrap the builder in
+ * `markdown(streamText(source))` — or equivalently pass
+ * `{ format: "markdown" }` — so platforms with native support deliver it
+ * styled (Telegram renders drafts and the final message via `parse_mode`),
+ * and everywhere else the accumulated text falls back through the `markdown`
+ * chain instead of surfacing raw `**` markers.
+ *
  * Accepts whatever the popular SDKs return; pass `options.extract` for any
  * chunk shape the built-in detection doesn't recognize.
  */
@@ -287,6 +309,10 @@ export function streamText<T = unknown>(
   options?: StreamTextOptions<T>
 ): ContentBuilder {
   return {
-    build: async () => asStreamText({ stream: normalize(source, options) }),
+    build: async () =>
+      asStreamText({
+        stream: normalize(source, options),
+        format: options?.format,
+      }),
   };
 }

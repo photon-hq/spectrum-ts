@@ -8,6 +8,7 @@ import {
   setSystemTime,
   spyOn,
 } from "bun:test";
+import { markdown } from "@/content/markdown";
 import { streamText } from "@/content/stream-text";
 import { configSchema } from "@/providers/telegram/config";
 import { send } from "@/providers/telegram/outbound/send";
@@ -188,6 +189,44 @@ describe("telegram sendStreamText", () => {
     expect(drafts()).toHaveLength(1);
     expect(finalSends().map((c) => c.json.text)).toEqual(["abc"]);
     expect(result?.id).toBe("555");
+  });
+
+  it("renders markdown drafts and the final send as HTML with parse_mode", async () => {
+    const result = await send({
+      space,
+      content: await markdown(
+        streamText(timed(["**Hello", " world**"], 1000))
+      ).build(),
+      config,
+    });
+
+    // Each draft re-renders the accumulated markdown; an unclosed marker
+    // mid-stream stays literal text, so every preview is valid HTML.
+    expect(drafts().map((c) => [c.json.text, c.json.parse_mode])).toEqual([
+      ["", "HTML"],
+      ["**Hello", "HTML"],
+      ["<b>Hello world</b>", "HTML"],
+    ]);
+    expect(finalSends().map((c) => c.json)).toEqual([
+      { chat_id: "100", text: "<b>Hello world</b>", parse_mode: "HTML" },
+    ]);
+    // The record carries the markdown source, not the rendered HTML.
+    expect(result?.content).toEqual({
+      type: "markdown",
+      markdown: "**Hello world**",
+    });
+  });
+
+  it("keeps plain streams free of parse_mode", async () => {
+    await send({
+      space,
+      content: await streamText(timed(["hi"], 1000)).build(),
+      config,
+    });
+
+    for (const call of calls) {
+      expect(call.json.parse_mode).toBeUndefined();
+    }
   });
 
   it("propagates a mid-stream error without sending the message", async () => {

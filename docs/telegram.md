@@ -77,6 +77,10 @@ Voice notes become `voice`; everything else becomes an `attachment`.
 Ignored (returns `undefined`): edited messages, callback queries, polls,
 membership changes, and reaction **removals** (empty `new_reaction`).
 
+Inbound formatting entities are **not** mapped to `markdown` — inbound text
+always surfaces as `text`. `markdown` is an outbound-only content type by
+design (a decision, not a gap).
+
 ---
 
 ## Outbound (`send`)
@@ -90,6 +94,7 @@ typed functions directly.
 | Content | Bot API call |
 | --- | --- |
 | `text` | `sendMessage` |
+| `markdown` | `sendMessage` with `parse_mode: "HTML"` (standard markdown → Telegram HTML via `outbound/markdown.ts`) |
 | `richlink` | `sendMessage` (Telegram auto-unfurls the URL) |
 | `attachment` (image) | `sendPhoto` |
 | `attachment` (video) | `sendVideo` |
@@ -101,10 +106,23 @@ typed functions directly.
 | `group` | one message per item (returns the last) |
 | `reaction` | `setMessageReaction` (emoji pre-validated) → synthetic record (Telegram assigns no reaction id) |
 | `typing` | `sendChatAction` (`start` only; `stop` is a no-op) → `undefined` |
-| `edit` | `editMessageText` (text only) → `undefined` |
+| `edit` | `editMessageText` (text or markdown) → `undefined` |
 
 Unsupported (throws `UnsupportedError`): `poll`, `poll_option`, `effect`,
 `rename`, `avatar`. Reach any other Bot API method through `custom`.
+
+Markdown rendering escapes all text — including raw HTML in the source — so
+the output can never fail Bot API parsing. On platforms without markdown
+support, the core send pipeline downgrades `markdown` to readable plain text
+(the same mechanism as the `streamText` fallback).
+
+`markdown(streamText(source))` — or equivalently
+`streamText(source, { format: "markdown" })` — streams markdown natively:
+every draft update re-renders the accumulated markdown through the same HTML
+pipeline (unclosed markers stay literal, so partial renders are always valid),
+and the final persist sends the rendered HTML with `parse_mode: "HTML"`. On
+platforms without native markdown streaming, the drained text re-enters the
+send pipeline as `markdown` content and downgrades to plain text at worst.
 
 ---
 
@@ -156,6 +174,7 @@ Errors from photon surface as `TelegramApiError` (token-free).
 | `inbound/messages.ts` | `handleMessages` — `Update` → record |
 | `inbound/media.ts` | media detection + lazy `read()` |
 | `outbound/message.ts` | `buildSend` — content → `TelegramSendSpec` (pure) |
+| `outbound/markdown.ts` | `markdownToTelegramHtml` — markdown → Telegram HTML (pure) |
 | `outbound/send.ts` | dispatcher; builds the client inline |
 
 ---
@@ -170,10 +189,12 @@ photon's actual request serialization.
 
 - `verify.test.ts` — secret-token cases + `Update` parsing (pure).
 - `outbound/message.test.ts` — `buildSend` content→method/params/file mapping
-  (pure, no client).
+  (pure, no client), including markdown `parse_mode`.
+- `outbound/markdown.test.ts` — `markdownToTelegramHtml` tag mapping and
+  escaping (pure).
 - `outbound/send.test.ts` — `send` end to end via a `fetch` spy: `chat_id`
   injection, multipart uploads (filename preserved), reply threading, group
-  fan-out, reaction validation, typing/edit, unsupported.
+  fan-out, reaction validation, typing/edit (text and markdown), unsupported.
 - `inbound/messages.test.ts` — record mapping for all media kinds, channel posts,
   self-echo drop, reactions; the lazy-download test drives `getFile` + the file
   fetch through the `fetch` spy.

@@ -37,6 +37,20 @@ const collect = async (source: StreamTextSource): Promise<string[]> => {
   return drain(content.stream());
 };
 
+describe("streamText format", () => {
+  it("carries the markdown format flag", async () => {
+    const content = (await streamText(fromArray(["x"]), {
+      format: "markdown",
+    }).build()) as StreamText;
+    expect(content.format).toBe("markdown");
+  });
+
+  it("has no format by default", async () => {
+    const content = (await streamText(fromArray(["x"])).build()) as StreamText;
+    expect(content.format).toBeUndefined();
+  });
+});
+
 describe("streamText normalization", () => {
   it("passes through a raw string async iterable", async () => {
     expect(await collect(fromArray(["Hel", "lo"]))).toEqual(["Hel", "lo"]);

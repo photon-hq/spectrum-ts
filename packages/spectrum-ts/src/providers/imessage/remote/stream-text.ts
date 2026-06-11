@@ -35,6 +35,16 @@ export const sendStreamText = async (
   spaceId: string,
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
+  if (content.format === "markdown") {
+    // Thrown before the stream is consumed, so the send pipeline's fallback
+    // can drain it and deliver the text through the `markdown` chain instead.
+    // This native driver edits raw text in place and would otherwise expose
+    // literal markdown source mid-stream.
+    throw unsupportedRemoteContent(
+      "streamText",
+      "markdown-formatted streams have no native iMessage delivery"
+    );
+  }
   const chat = toChatGuid(spaceId);
 
   let sent: SDKMessage | undefined; // the first (and only) message we created

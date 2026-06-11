@@ -8,6 +8,7 @@ import {
   spyOn,
 } from "bun:test";
 import { attachment } from "@/content/attachment";
+import { markdown } from "@/content/markdown";
 import { poll } from "@/content/poll";
 import { reaction } from "@/content/reaction";
 import { reply } from "@/content/reply";
@@ -96,6 +97,39 @@ describe("send — messages", () => {
     expect(result?.timestamp).toEqual(new Date(TS_SEC * 1000));
     expect(calls[0]?.method).toBe("sendMessage");
     expect(calls[0]?.json).toEqual({ chat_id: "100", text: "hi" });
+  });
+
+  it("sends markdown as sendMessage with rendered HTML and parse_mode", async () => {
+    const result = await send({
+      space,
+      content: await markdown("**hi**").build(),
+      config,
+    });
+    expect(result?.id).toBe("555");
+    expect(calls[0]?.method).toBe("sendMessage");
+    expect(calls[0]?.json).toEqual({
+      chat_id: "100",
+      text: "<b>hi</b>",
+      parse_mode: "HTML",
+    });
+  });
+
+  it("sends markdown group items with parse_mode", async () => {
+    const groupContent = {
+      type: "group",
+      items: [
+        { id: "a", content: await text("one").build() },
+        { id: "b", content: await markdown("**two**").build() },
+      ],
+    } as unknown as Content;
+    await send({ space, content: groupContent, config });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.json).toEqual({ chat_id: "100", text: "one" });
+    expect(calls[1]?.json).toEqual({
+      chat_id: "100",
+      text: "<b>two</b>",
+      parse_mode: "HTML",
+    });
   });
 
   it("sends an image attachment via sendPhoto as multipart, preserving the filename", async () => {
@@ -218,6 +252,25 @@ describe("send — fire-and-forget", () => {
       config,
     });
     expect(calls).toHaveLength(0);
+  });
+
+  it("edits markdown via editMessageText with parse_mode", async () => {
+    await send({
+      space,
+      content: {
+        type: "edit",
+        content: { type: "markdown", markdown: "**new**" },
+        target,
+      } as unknown as Content,
+      config,
+    });
+    expect(calls[0]?.method).toBe("editMessageText");
+    expect(calls[0]?.json).toEqual({
+      chat_id: "100",
+      message_id: 42,
+      text: "<b>new</b>",
+      parse_mode: "HTML",
+    });
   });
 
   it("edits text via editMessageText", async () => {

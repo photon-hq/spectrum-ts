@@ -1,6 +1,7 @@
 import { createLogger, withSpan } from "@photon-ai/otel";
 import { type AvatarInput, avatar as avatarContent } from "../content/avatar";
 import { edit as editContent } from "../content/edit";
+import { asMarkdown, type Markdown } from "../content/markdown";
 import {
   type Reaction,
   reaction as reactionContent,
@@ -14,13 +15,14 @@ import {
   type StreamText,
 } from "../content/stream-text";
 import { asText } from "../content/text";
-import type { Content, ContentInput } from "../content/types";
+import type { BaseContent, Content, ContentInput } from "../content/types";
 import { typing as typingContent } from "../content/typing";
 import { unsend as unsendContent } from "../content/unsend";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { AgentSender } from "../types/user";
 import { UnsupportedError } from "../utils/errors";
+import { markdownToPlainText } from "../utils/markdown";
 import type { Store } from "../utils/store";
 import { contentAttrs } from "../utils/telemetry";
 import type {
@@ -220,33 +222,133 @@ const findStreamText = (item: Content): StreamText | undefined => {
   return;
 };
 
-// Rewrite a stream-bearing content as plain text, preserving a `reply`/`edit`
-// wrapper so the fallback send keeps its target.
-const replaceStreamText = (item: Content, full: string): Content => {
-  const text = asText(full);
+// Rewrite a stream-bearing content as its accumulated text — `markdown` when
+// the stream was marked `format: "markdown"`, plain `text` otherwise —
+// preserving a `reply`/`edit` wrapper so the fallback send keeps its target.
+const replaceStreamText = (
+  item: Content,
+  source: StreamText,
+  full: string
+): Content => {
+  const inner = source.format === "markdown" ? asMarkdown(full) : asText(full);
   if (item.type === "reply" || item.type === "edit") {
-    return { ...item, content: text };
+    return { ...item, content: inner };
   }
-  return text;
+  return inner;
+};
+
+// `undefined` when the markdown renders to empty plain text (e.g. an
+// HTML-comment-only source) — there is nothing sensible to send.
+const downgradeMarkdown = (md: Markdown): BaseContent | undefined => {
+  const plain = markdownToPlainText(md.markdown);
+  return plain ? asText(plain) : undefined;
+};
+
+// Rewrite markdown-bearing content as readable plain text, preserving
+// `reply`/`edit` wrappers and `group` structure. Returns `item` itself
+// (reference-equal) when there is nothing to downgrade. Group items are
+// scanned here but deliberately not in `findStreamText`: a markdown caption
+// in an album downgrades to text meaningfully, while a live stream inside a
+// multipart bubble has no sensible downgrade.
+const replaceMarkdown = (item: Content): Content => {
+  if (item.type === "markdown") {
+    return downgradeMarkdown(item) ?? item;
+  }
+  if (
+    (item.type === "reply" || item.type === "edit") &&
+    item.content.type === "markdown"
+  ) {
+    const downgraded = downgradeMarkdown(item.content);
+    return downgraded ? { ...item, content: downgraded } : item;
+  }
+  if (item.type === "group") {
+    let changed = false;
+    const items = item.items.map((member) => {
+      if (member.content.type !== "markdown") {
+        return member;
+      }
+      const downgraded = downgradeMarkdown(member.content);
+      if (!downgraded) {
+        return member;
+      }
+      changed = true;
+      return { ...member, content: downgraded };
+    });
+    return changed ? { ...item, items } : item;
+  }
+  return item;
 };
 
 type ProviderSend = (
   content: Content
 ) => Promise<ProviderMessageRecord | undefined>;
 
+// The streamText arm of `sendWithFallbacks`: wait for the rejected stream to
+// finish, then re-send the accumulated text — as `markdown` content for a
+// markdown-formatted stream, plain `text` otherwise. The re-send goes back
+// through `sendWithFallbacks`, so a markdown re-send can downgrade once more
+// to plain text on platforms without markdown support. Rethrows the
+// provider's original `UnsupportedError` when the stream produced no text or
+// was already consumed (a native driver that streamed and then failed).
+async function resendDrainedStream(
+  send: ProviderSend,
+  item: Content,
+  source: StreamText,
+  platform: string,
+  unsupported: UnsupportedError
+): Promise<ProviderMessageRecord | undefined> {
+  platformLog.info(
+    `${platform} does not support streaming text; waiting for the stream to finish to send the full text as one message.`,
+    {
+      "spectrum.provider": platform,
+      "spectrum.stream_text.fallback": true,
+    }
+  );
+  let full: string;
+  try {
+    full = await drainStreamText(source);
+  } catch (drainErr) {
+    if (drainErr instanceof StreamConsumedError) {
+      // The provider already consumed the stream (a native driver streamed
+      // it and then failed) — re-draining is impossible, so surface the
+      // original UnsupportedError rather than the consumed-stream error.
+      throw unsupported;
+    }
+    // A genuine stream failure mid-drain propagates as-is.
+    throw drainErr;
+  }
+  if (!full) {
+    // The stream ended without any text — nothing to send.
+    throw unsupported;
+  }
+  // Recursion is bounded: the replaced content carries no stream, and the
+  // markdown branch does a one-shot send.
+  return await sendWithFallbacks(
+    send,
+    replaceStreamText(item, source, full),
+    platform
+  );
+}
+
 /**
- * Dispatch `content` to the provider, falling back to plain text on platforms
- * that can't stream. When the provider rejects a stream-bearing send with
- * `UnsupportedError`, wait for the stream to finish and re-send the
- * accumulated text as `text` content (preserving a `reply`/`edit` wrapper) —
- * so `streamText` works everywhere, just without live updates. Rethrows the
- * original error when no fallback applies (non-stream content, a stream that
- * produced no text, or a stream the provider already consumed — e.g. a native
- * driver that streamed and then failed); an `UnsupportedError` from the
- * fallback send itself propagates too. Both land in the caller's warn-and-skip
- * handling.
+ * Dispatch `content` to the provider, downgrading on platforms that reject it
+ * with `UnsupportedError`:
+ *
+ * - `streamText` (top-level or inside `reply`/`edit`): wait for the stream to
+ *   finish and re-send the accumulated text — as `markdown` content for a
+ *   markdown-formatted stream, plain `text` otherwise — so `streamText`
+ *   works everywhere, just without live updates.
+ * - `markdown` (top-level, inside `reply`/`edit`, or a `group` item): re-send
+ *   with each markdown occurrence rendered to readable plain text — so
+ *   `markdown` works everywhere, just without styling.
+ *
+ * The two chain rather than compete: a drained markdown stream re-enters this
+ * function as `markdown` content and can downgrade once more to plain text.
+ * Rethrows the original error when no fallback applies; an `UnsupportedError`
+ * from the final fallback send itself propagates too. Both land in the
+ * caller's warn-and-skip handling.
  */
-async function sendWithStreamTextFallback(
+async function sendWithFallbacks(
   send: ProviderSend,
   item: Content,
   platform: string
@@ -258,34 +360,21 @@ async function sendWithStreamTextFallback(
       throw err;
     }
     const source = findStreamText(item);
-    if (!source) {
+    if (source) {
+      return await resendDrainedStream(send, item, source, platform, err);
+    }
+    const downgraded = replaceMarkdown(item);
+    if (downgraded === item) {
       throw err;
     }
     platformLog.info(
-      `${platform} does not support streaming text; waiting for the stream to finish to send the full text as one message.`,
+      `${platform} does not support markdown; sending the content as plain text instead.`,
       {
         "spectrum.provider": platform,
-        "spectrum.stream_text.fallback": true,
+        "spectrum.markdown.fallback": true,
       }
     );
-    let full: string;
-    try {
-      full = await drainStreamText(source);
-    } catch (drainErr) {
-      if (drainErr instanceof StreamConsumedError) {
-        // The provider already consumed the stream (a native driver streamed
-        // it and then failed) — re-draining is impossible, so surface the
-        // original UnsupportedError rather than the consumed-stream error.
-        throw err;
-      }
-      // A genuine stream failure mid-drain propagates as-is.
-      throw drainErr;
-    }
-    if (!full) {
-      // The stream ended without any text — nothing to send.
-      throw err;
-    }
-    return await send(replaceStreamText(item, full));
+    return await send(downgraded);
   }
 }
 
@@ -511,11 +600,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
           })) as ProviderMessageRecord | undefined;
         let raw: ProviderMessageRecord | undefined;
         try {
-          raw = await sendWithStreamTextFallback(
-            providerSend,
-            item,
-            definition.name
-          );
+          raw = await sendWithFallbacks(providerSend, item, definition.name);
         } catch (err) {
           if (err instanceof UnsupportedError) {
             warnUnsupported(err, definition.name);

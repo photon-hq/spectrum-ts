@@ -13,6 +13,7 @@ import { TELEGRAM_PLATFORM, type TelegramConfig } from "../config";
 import { isAllowedReactionEmoji, normalizeReactionEmoji } from "../reactions";
 import type { TelegramSpace } from "../space";
 import type { ReactionTypeEmoji } from "../types";
+import { markdownToTelegramHtml } from "./markdown";
 import { buildSend, parseMessageId } from "./message";
 import { sendStreamText } from "./stream-text";
 
@@ -117,18 +118,26 @@ const sendEdit = async (
   space: TelegramSpace,
   content: Edit
 ): Promise<undefined> => {
-  if (content.content.type !== "text") {
+  const inner = content.content;
+  if (inner.type !== "text" && inner.type !== "markdown") {
     throw UnsupportedError.content(
       "edit",
       TELEGRAM_PLATFORM,
-      `only text content can be edited (got "${content.content.type}").`
+      `only text and markdown content can be edited (got "${inner.type}").`
     );
   }
+  const body =
+    inner.type === "markdown"
+      ? {
+          text: markdownToTelegramHtml(inner.markdown),
+          parse_mode: "HTML" as const,
+        }
+      : { text: inner.text };
   await editMessageText({
     body: {
       chat_id: space.id,
       message_id: parseMessageId(content.target.id),
-      text: content.content.text,
+      ...body,
     },
     client,
   });

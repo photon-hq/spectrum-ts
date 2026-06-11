@@ -5,9 +5,10 @@ import type {
 } from "@photon-ai/advanced-imessage";
 import { asAttachment } from "@/content/attachment";
 import { asGroup } from "@/content/group";
-import { asMarkdown } from "@/content/markdown";
+import { asMarkdown, markdown } from "@/content/markdown";
 import { asText } from "@/content/text";
 import type { Content } from "@/content/types";
+import { effect } from "@/providers/imessage/content/effect";
 import {
   editMessage,
   replyToMessage,
@@ -112,11 +113,9 @@ describe("send (markdown)", () => {
 
   it("carries an effect wrapper alongside formatting", async () => {
     const { remote, sendText } = makeRemote();
-    const content = {
-      type: "effect",
-      content: asMarkdown("**a**"),
-      effect: SLAM,
-    } as unknown as Content;
+    // Built via the real builder so the effect schema's inner-content union
+    // is exercised, not bypassed.
+    const content = await effect(markdown("**a**"), SLAM).build();
 
     await send(remote, "chat", content);
 

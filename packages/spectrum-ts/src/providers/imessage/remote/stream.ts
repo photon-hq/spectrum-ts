@@ -1,13 +1,11 @@
 import {
   type AdvancedIMessage,
-  AuthenticationError,
   type CatchUpEvent,
-  IMessageError,
   type MessageEvent,
-  NotFoundError,
   type PollEvent,
   ValidationError,
 } from "@photon-ai/advanced-imessage";
+import { sanitizePhone } from "@photon-ai/otel";
 import type { ProjectData } from "../../../utils/cloud";
 import {
   type CloseableAsyncIterable,
@@ -26,19 +24,14 @@ import { toInboundMessages } from "./inbound";
 import { cachePollEvent, toPollDeltaMessages } from "./polls";
 import { toReactionMessages } from "./reactions";
 
-const isRetryableIMessageStreamError = (error: unknown): boolean => {
-  if (
-    error instanceof AuthenticationError ||
-    error instanceof NotFoundError ||
-    error instanceof ValidationError
-  ) {
-    return false;
-  }
-  if (error instanceof IMessageError) {
-    return true;
-  }
-  return false;
-};
+// The proxy rejects an unknown/pruned resume cursor with INVALID_ARGUMENT,
+// which the client surfaces as ValidationError — the only ValidationError the
+// catch-up RPC produces (ENG-1566).
+const isCursorRejectedIMessageError = (error: unknown): boolean =>
+  error instanceof ValidationError;
+
+const streamLabel = (kind: "messages" | "polls", phone: string): string =>
+  `imessage.${kind}:${phone === SHARED_PHONE ? phone : sanitizePhone(phone)}`;
 
 const isEventFromCurrentAccount = (
   event: Pick<MessageEvent | PollEvent, "actor" | "isFromMe">,
@@ -210,7 +203,8 @@ const messageStream = (
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
-    isRetryableError: isRetryableIMessageStreamError,
+    isCursorRejectedError: isCursorRejectedIMessageError,
+    label: streamLabel("messages", phone),
     processLive: (event) =>
       toMessageItem(client, event, phone, String(event.sequence), onInbound),
     processMissed: (event) =>
@@ -234,7 +228,8 @@ const pollStream = (
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
-    isRetryableError: isRetryableIMessageStreamError,
+    isCursorRejectedError: isCursorRejectedIMessageError,
+    label: streamLabel("polls", phone),
     processLive: (event) =>
       toPollItem(client, pollCache, event, phone, String(event.sequence)),
     processMissed: (event) =>

@@ -11,8 +11,9 @@ import type { ContentBuilder } from "./types";
  * strikethrough). Outbound-only by design: inbound messages always surface as
  * `text` content — no provider maps platform formatting back to markdown.
  * Each platform renders the markdown to its native format (Telegram: HTML via
- * `parse_mode`); platforms without native support receive readable plain text
- * via the send pipeline's markdown fallback.
+ * `parse_mode`; remote iMessage: styled text via UTF-16 formatting ranges);
+ * platforms without native support receive readable plain text via the send
+ * pipeline's markdown fallback.
  */
 export const markdownSchema = z.object({
   type: z.literal("markdown"),

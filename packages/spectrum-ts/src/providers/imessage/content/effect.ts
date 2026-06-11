@@ -29,9 +29,13 @@ export function effect(
         );
       }
       const inner = await resolveContent(input);
-      if (inner.type !== "text" && inner.type !== "attachment") {
+      if (
+        inner.type !== "text" &&
+        inner.type !== "markdown" &&
+        inner.type !== "attachment"
+      ) {
         throw new Error(
-          `imessage effect() only supports text and attachment content, got "${inner.type}"`
+          `imessage effect() only supports text, markdown, and attachment content, got "${inner.type}"`
         );
       }
       return messageEffectSchema.parse({

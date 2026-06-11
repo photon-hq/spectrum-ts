@@ -5,6 +5,7 @@ import type {
   Poll,
   Message as SDKMessage,
   SendOptions,
+  TextFormatInput,
 } from "@photon-ai/advanced-imessage";
 import { asGroup } from "../../../content/group";
 import type { Content } from "../../../content/types";
@@ -23,12 +24,22 @@ import {
   toChatGuid,
   toMessageGuid,
 } from "./ids";
+import {
+  type IMessageRenderedMarkdown,
+  markdownToIMessageText,
+} from "./markdown";
 
 const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
   "text",
+  "markdown",
   "attachment",
   "contact",
   "voice",
+]);
+// Markdown renders to the group's single text part, so it shares the cap.
+const GROUP_TEXT_TYPES: ReadonlySet<Content["type"]> = new Set([
+  "text",
+  "markdown",
 ]);
 const MAX_GROUP_TEXT_ITEMS = 1;
 
@@ -76,6 +87,30 @@ const replyOptions = (
 const effectOption = (
   effect: MessageEffect | undefined
 ): Pick<SendOptions, "effect"> => (effect ? { effect } : {});
+
+const formattingOption = (
+  formatting: readonly TextFormatInput[]
+): Pick<SendOptions, "formatting"> =>
+  formatting.length > 0 ? { formatting } : {};
+
+const dataDetectionOption = (
+  hasLinks: boolean
+): Pick<SendOptions, "enableDataDetection"> =>
+  hasLinks ? { enableDataDetection: true } : {};
+
+// Markdown that renders to nothing (e.g. a whitespace-only source) throws
+// UnsupportedError so the pipeline's downgrade path handles it exactly like
+// platforms without native markdown support.
+const renderMarkdown = (markdown: string): IMessageRenderedMarkdown => {
+  const rendered = markdownToIMessageText(markdown);
+  if (!rendered.text) {
+    throw unsupportedRemoteContent(
+      "markdown",
+      "renders to empty text — nothing to send"
+    );
+  }
+  return rendered;
+};
 
 const replyTargetFromId = (messageId: string): ReplyTarget => {
   const childRef = parseChildId(messageId);
@@ -172,6 +207,22 @@ const sendContent = async (
       );
       return outboundMessage(spaceId, message, content);
     }
+    case "markdown": {
+      const rendered = renderMarkdown(content.markdown);
+      const message = await remote.messages.sendText(
+        chat,
+        rendered.text,
+        withReply(
+          {
+            ...effectOption(effect),
+            ...formattingOption(rendered.formatting),
+            ...dataDetectionOption(rendered.hasLinks),
+          },
+          replyTo
+        )
+      );
+      return outboundMessage(spaceId, message, content);
+    }
     case "richlink": {
       const message = await remote.messages.sendText(
         chat,
@@ -239,7 +290,7 @@ export const validateGroupContent = (
         `"${itemType}" items are not supported inside a group`
       );
     }
-    if (itemType === "text" && ++textCount > MAX_GROUP_TEXT_ITEMS) {
+    if (GROUP_TEXT_TYPES.has(itemType) && ++textCount > MAX_GROUP_TEXT_ITEMS) {
       throw unsupportedRemoteContent(
         "group",
         `groups can contain at most ${MAX_GROUP_TEXT_ITEMS} text item`
@@ -255,6 +306,11 @@ const resolvePart = async (
   switch (content.type) {
     case "text":
       return { text: content.text };
+    case "markdown": {
+      // `MessagePart` has no data-detection flag, so `hasLinks` is dropped.
+      const rendered = renderMarkdown(content.markdown);
+      return { text: rendered.text, ...formattingOption(rendered.formatting) };
+    }
     case "attachment": {
       const { guid, name } = await uploadAttachment(remote, content);
       return { attachmentGuid: guid, attachmentName: name };

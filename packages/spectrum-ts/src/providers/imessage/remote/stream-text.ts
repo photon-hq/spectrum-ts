@@ -37,9 +37,12 @@ export const sendStreamText = async (
 ): Promise<ProviderMessageRecord> => {
   if (content.format === "markdown") {
     // Thrown before the stream is consumed, so the send pipeline's fallback
-    // can drain it and deliver the text through the `markdown` chain instead.
-    // This native driver edits raw text in place and would otherwise expose
-    // literal markdown source mid-stream.
+    // can drain it and deliver the accumulated text through the `markdown`
+    // chain — which lands a natively formatted message (text + UTF-16
+    // formatting ranges). Streaming it here is impossible: this driver edits
+    // the message in place and `messages.edit` carries no formatting, so
+    // mid-stream updates would expose literal markdown source and the final
+    // flush could never restore the styling.
     throw unsupportedRemoteContent(
       "streamText",
       "markdown-formatted streams have no native iMessage delivery"

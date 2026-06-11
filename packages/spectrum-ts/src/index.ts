@@ -36,12 +36,11 @@ export { type Rename, rename } from "./content/rename";
 export { type Reply, reply } from "./content/reply";
 export { resolveContents } from "./content/resolve";
 export { type Richlink, richlink } from "./content/richlink";
-export {
-  type DeltaExtractor,
-  type StreamText,
-  type StreamTextOptions,
-  type StreamTextSource,
-  streamText,
+export type {
+  DeltaExtractor,
+  StreamText,
+  StreamTextSource,
+  TextStreamOptions,
 } from "./content/stream-text";
 export { text } from "./content/text";
 export type { Content, ContentBuilder, ContentInput } from "./content/types";

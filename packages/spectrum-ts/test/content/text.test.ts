@@ -1,12 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import {
-  type StreamText,
-  type StreamTextSource,
-  streamText,
-} from "@/content/stream-text";
+import type { StreamText, StreamTextSource } from "@/content/stream-text";
+import { text } from "@/content/text";
+import type { ContentBuilder } from "@/content/types";
 
 const UNRECOGNIZED_SHAPE = /unrecognized chunk shape/;
 const ALREADY_CONSUMED = /already been consumed/;
+const CONTENT_BUILDER = /not another content builder/;
 
 async function* fromArray<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) {
@@ -33,25 +32,44 @@ const drain = async (stream: AsyncIterable<string>): Promise<string[]> => {
 };
 
 const collect = async (source: StreamTextSource): Promise<string[]> => {
-  const content = (await streamText(source).build()) as StreamText;
+  const content = (await text(source).build()) as StreamText;
   return drain(content.stream());
 };
 
-describe("streamText format", () => {
-  it("carries the markdown format flag", async () => {
-    const content = (await streamText(fromArray(["x"]), {
-      format: "markdown",
-    }).build()) as StreamText;
-    expect(content.format).toBe("markdown");
+describe("text strings", () => {
+  it("builds a text content value", async () => {
+    expect(await text("hi").build()).toEqual({ type: "text", text: "hi" });
   });
 
-  it("has no format by default", async () => {
-    const content = (await streamText(fromArray(["x"])).build()) as StreamText;
-    expect(content.format).toBeUndefined();
+  it("rejects an empty string at build time", async () => {
+    await expect(text("").build()).rejects.toThrow();
+  });
+
+  it("ignores stream options on a string source", async () => {
+    const callText = text as unknown as (
+      source: string,
+      options?: unknown
+    ) => ContentBuilder;
+    expect(await callText("hi", { extract: () => "nope" }).build()).toEqual({
+      type: "text",
+      text: "hi",
+    });
   });
 });
 
-describe("streamText normalization", () => {
+describe("text streams", () => {
+  it("builds streamText content with no format", async () => {
+    const content = (await text(fromArray(["x"])).build()) as StreamText;
+    expect(content.type).toBe("streamText");
+    expect(content.format).toBeUndefined();
+  });
+
+  it("rejects a content builder passed as a stream source", () => {
+    expect(() => text(text("hi") as unknown as AsyncIterable<string>)).toThrow(
+      CONTENT_BUILDER
+    );
+  });
+
   it("passes through a raw string async iterable", async () => {
     expect(await collect(fromArray(["Hel", "lo"]))).toEqual(["Hel", "lo"]);
   });
@@ -117,7 +135,7 @@ describe("streamText normalization", () => {
 
   it("uses a custom extract over the built-in detection", async () => {
     const chunks = [{ piece: "Hel" }, { piece: "lo" }, { piece: null }];
-    const content = (await streamText(fromArray(chunks), {
+    const content = (await text(fromArray(chunks), {
       extract: (chunk) => chunk.piece,
     }).build()) as StreamText;
     expect(await drain(content.stream())).toEqual(["Hel", "lo"]);
@@ -128,16 +146,14 @@ describe("streamText normalization", () => {
   });
 
   it("throws a helpful error on an unrecognized chunk shape", async () => {
-    const content = (await streamText(
+    const content = (await text(
       fromArray([{ mystery: 1 }])
     ).build()) as StreamText;
     await expect(drain(content.stream())).rejects.toThrow(UNRECOGNIZED_SHAPE);
   });
 
   it("throws when the source is consumed twice", async () => {
-    const content = (await streamText(
-      fromArray(["a", "b"])
-    ).build()) as StreamText;
+    const content = (await text(fromArray(["a", "b"])).build()) as StreamText;
     await drain(content.stream());
     await expect(drain(content.stream())).rejects.toThrow(ALREADY_CONSUMED);
   });

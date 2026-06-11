@@ -1,5 +1,9 @@
 import z from "zod";
-import { asStreamText } from "./stream-text";
+import {
+  type StreamTextSource,
+  streamTextBuilder,
+  type TextStreamOptions,
+} from "./stream-text";
 import type { ContentBuilder } from "./types";
 
 /**
@@ -21,31 +25,30 @@ export const asMarkdown = (markdown: string): Markdown =>
   markdownSchema.parse({ type: "markdown", markdown });
 
 /**
- * Send styled text written in standard markdown.
+ * Send styled text written in standard markdown — a static string or a
+ * streaming LLM response.
  *
  * - `markdown("**hi**")` sends the markdown as one message.
- * - `markdown(streamText(source))` marks a text stream as markdown: it builds
- *   the inner `streamText` content with `format: "markdown"`, so platforms
- *   with native support stream it styled (Telegram renders drafts and the
- *   final message via `parse_mode`) and everywhere else the accumulated text
- *   falls back through the markdown chain instead of surfacing raw `**`.
+ * - `markdown(source)` marks a text stream as markdown: platforms with native
+ *   support stream it styled (Telegram renders drafts and the final message
+ *   via `parse_mode`), and everywhere else the accumulated text falls back
+ *   through the markdown chain instead of surfacing raw `**` markers.
  *
- * Only `streamText` builders can be wrapped — markdown describes text, and a
- * stream is the only other content whose payload is text.
+ * Stream sources and options work exactly as in `text()` — any SDK streaming
+ * result or `AsyncIterable` / `ReadableStream`, with `options.extract` for
+ * unrecognized chunk shapes.
  */
-export function markdown(source: string | ContentBuilder): ContentBuilder {
+export function markdown(source: string): ContentBuilder;
+export function markdown<T = unknown>(
+  source: StreamTextSource<T>,
+  options?: TextStreamOptions<T>
+): ContentBuilder;
+export function markdown<T = unknown>(
+  source: string | StreamTextSource<T>,
+  options?: TextStreamOptions<T>
+): ContentBuilder {
   if (typeof source === "string") {
     return { build: async () => asMarkdown(source) };
   }
-  return {
-    build: async () => {
-      const inner = await source.build();
-      if (inner.type !== "streamText") {
-        throw new Error(
-          `markdown() can only wrap streamText content (got "${inner.type}") — pass a string to send static markdown`
-        );
-      }
-      return asStreamText({ stream: inner.stream, format: "markdown" });
-    },
-  };
+  return streamTextBuilder("markdown", source, options);
 }

@@ -114,15 +114,16 @@ Unsupported (throws `UnsupportedError`): `poll`, `poll_option`, `effect`,
 Markdown rendering escapes all text — including raw HTML in the source — so
 the output can never fail Bot API parsing. On platforms without markdown
 support, the core send pipeline downgrades `markdown` to readable plain text
-(the same mechanism as the `streamText` fallback).
+(the same mechanism as the text-stream fallback).
 
-`markdown(streamText(source))` — or equivalently
-`streamText(source, { format: "markdown" })` — streams markdown natively:
-every draft update re-renders the accumulated markdown through the same HTML
-pipeline (unclosed markers stay literal, so partial renders are always valid),
-and the final persist sends the rendered HTML with `parse_mode: "HTML"`. On
-platforms without native markdown streaming, the drained text re-enters the
-send pipeline as `markdown` content and downgrades to plain text at worst.
+`markdown(source)` with a stream source (an AI SDK result, an OpenAI /
+Anthropic streaming response, or any AsyncIterable / ReadableStream) streams
+markdown natively: every draft update re-renders the accumulated markdown
+through the same HTML pipeline (unclosed markers stay literal, so partial
+renders are always valid), and the final persist sends the rendered HTML with
+`parse_mode: "HTML"`. On platforms without native markdown streaming, the
+drained text re-enters the send pipeline as `markdown` content and downgrades
+to plain text at worst.
 
 ---
 

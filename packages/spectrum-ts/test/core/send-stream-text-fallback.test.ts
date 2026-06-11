@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { stubCloud } from "@test/support/cloud";
 import { baseConfig, makeQueue, record } from "@test/support/platform";
 import z from "zod";
-import { streamText } from "@/content/stream-text";
+import { markdown } from "@/content/markdown";
+import { text } from "@/content/text";
 import type { Content } from "@/content/types";
 import { definePlatform } from "@/platform/define";
 import type { ProviderMessage, ProviderMessageRecord } from "@/platform/types";
@@ -91,7 +92,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [space] = await firstMessage(app);
-      const sent = await space.send(streamText(chunks("Hello, ", "world!")));
+      const sent = await space.send(text(chunks("Hello, ", "world!")));
 
       expect(seen.map((c) => c.type)).toEqual(["streamText", "text"]);
       expect(seen.at(-1)).toEqual({ type: "text", text: "Hello, world!" });
@@ -111,7 +112,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [, message] = await firstMessage(app);
-      const sent = await message.reply(streamText(chunks("a", "b", "c")));
+      const sent = await message.reply(text(chunks("a", "b", "c")));
 
       expect(seen.map((c) => c.type)).toEqual(["reply", "reply"]);
       const fallback = seen.at(-1);
@@ -139,7 +140,7 @@ describe("streamText plain-text fallback", () => {
       if (!sent) {
         throw new Error("expected the plain send to produce a message");
       }
-      await sent.edit(streamText(chunks("re", "vised")));
+      await sent.edit(text(chunks("re", "vised")));
 
       expect(seen.map((c) => c.type)).toEqual(["text", "edit", "edit"]);
       const fallback = seen.at(-1);
@@ -162,7 +163,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [space] = await firstMessage(app);
-      const sent = await space.send(streamText(chunks()));
+      const sent = await space.send(text(chunks()));
 
       // Nothing to send — warn-and-skip, no second dispatch.
       expect(sent).toBeUndefined();
@@ -203,7 +204,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [space] = await firstMessage(app);
-      const sent = await space.send(streamText(chunks()));
+      const sent = await space.send(text(chunks()));
 
       // The original UnsupportedError lands in warn-and-skip — the consumed
       // stream must not surface as a hard "already consumed" error.
@@ -229,7 +230,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [space] = await firstMessage(app);
-      const sent = await space.send(streamText(chunks("lost")));
+      const sent = await space.send(text(chunks("lost")));
 
       expect(sent).toBeUndefined();
       expect(seen.map((c) => c.type)).toEqual(["streamText", "text"]);
@@ -251,9 +252,7 @@ describe("streamText plain-text fallback", () => {
         yield "partial";
         throw new Error("stream blew up");
       }
-      await expect(space.send(streamText(boom()))).rejects.toThrow(
-        "stream blew up"
-      );
+      await expect(space.send(text(boom()))).rejects.toThrow("stream blew up");
     } finally {
       await app.stop();
     }
@@ -270,9 +269,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [space] = await firstMessage(app);
-      const sent = await space.send(
-        streamText(chunks("**Hi**"), { format: "markdown" })
-      );
+      const sent = await space.send(markdown(chunks("**Hi**")));
 
       expect(seen.map((c) => c.type)).toEqual(["streamText", "markdown"]);
       expect(seen.at(-1)).toEqual({ type: "markdown", markdown: "**Hi**" });
@@ -310,9 +307,7 @@ describe("streamText plain-text fallback", () => {
     try {
       const [space] = await firstMessage(app);
       const sent = await space.send(
-        streamText(chunks("**Hi** [docs](https://d.test)"), {
-          format: "markdown",
-        })
+        markdown(chunks("**Hi** [docs](https://d.test)"))
       );
 
       expect(seen.map((c) => c.type)).toEqual([
@@ -357,9 +352,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [, message] = await firstMessage(app);
-      await message.reply(
-        streamText(chunks("**hey**"), { format: "markdown" })
-      );
+      await message.reply(markdown(chunks("**hey**")));
 
       expect(seen.map((c) => c.type)).toEqual(["reply", "reply", "reply"]);
       const fallback = seen.at(-1);
@@ -405,7 +398,7 @@ describe("streamText plain-text fallback", () => {
     });
     try {
       const [space] = await firstMessage(app);
-      const sent = await space.send(streamText(chunks("live ", "stream")));
+      const sent = await space.send(text(chunks("live ", "stream")));
 
       expect(seen.map((c) => c.type)).toEqual(["streamText"]);
       expect(sent?.content).toEqual({ type: "text", text: "live stream" });

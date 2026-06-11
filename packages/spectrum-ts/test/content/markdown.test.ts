@@ -3,11 +3,12 @@ import { edit } from "@/content/edit";
 import { group } from "@/content/group";
 import { markdown } from "@/content/markdown";
 import { reply } from "@/content/reply";
-import { streamText } from "@/content/stream-text";
 import { text } from "@/content/text";
 import type { Message } from "@/types/message";
 
-async function* fromArray(items: string[]): AsyncIterable<string> {
+const CONTENT_BUILDER = /not another content builder/;
+
+async function* fromArray<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) {
     yield item;
   }
@@ -66,13 +67,13 @@ describe("markdown content", () => {
     ]);
   });
 
-  it("wraps a streamText builder, marking the stream as markdown", async () => {
-    const built = await markdown(streamText(fromArray(["**a", "**"]))).build();
+  it("marks a stream source as markdown", async () => {
+    const built = await markdown(fromArray(["**a", "**"])).build();
     if (built.type !== "streamText") {
       throw new Error("expected streamText content");
     }
     expect(built.format).toBe("markdown");
-    // The wrapped stream is intact and drainable.
+    // The stream is intact and drainable.
     let full = "";
     for await (const delta of built.stream()) {
       full += delta;
@@ -80,9 +81,23 @@ describe("markdown content", () => {
     expect(full).toBe("**a**");
   });
 
-  it("rejects wrapping non-stream content builders", async () => {
-    await expect(markdown(text("plain")).build()).rejects.toThrow(
-      'can only wrap streamText content (got "text")'
-    );
+  it("uses a custom extract for stream sources", async () => {
+    const built = await markdown(fromArray([{ piece: "**a**" }]), {
+      extract: (chunk) => chunk.piece,
+    }).build();
+    if (built.type !== "streamText") {
+      throw new Error("expected streamText content");
+    }
+    let full = "";
+    for await (const delta of built.stream()) {
+      full += delta;
+    }
+    expect(full).toBe("**a**");
+  });
+
+  it("rejects a content builder passed as a stream source", () => {
+    expect(() =>
+      markdown(text("plain") as unknown as AsyncIterable<string>)
+    ).toThrow(CONTENT_BUILDER);
   });
 });

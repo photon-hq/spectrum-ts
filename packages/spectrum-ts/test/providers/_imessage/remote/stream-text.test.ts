@@ -4,7 +4,9 @@ import type {
   Message as SDKMessage,
 } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
-import { type StreamText, streamText } from "@/content/stream-text";
+import { markdown } from "@/content/markdown";
+import type { StreamText } from "@/content/stream-text";
+import { text } from "@/content/text";
 import { imessage } from "@/providers/imessage";
 import { sendStreamText } from "@/providers/imessage/remote/stream-text";
 import { UnsupportedError } from "@/utils/errors";
@@ -60,7 +62,7 @@ function timed(items: string[], stepMs: number): AsyncIterable<string> {
 }
 
 const build = async (source: AsyncIterable<string>): Promise<StreamText> =>
-  (await streamText(source).build()) as StreamText;
+  (await text(source).build()) as StreamText;
 
 // `editArgs` → the new-text argument of each edit call, in order.
 const editArgs = (edit: ReturnType<typeof makeRemote>["edit"]): string[] =>
@@ -74,9 +76,7 @@ describe("sendStreamText", () => {
       pulled = true;
       yield "x";
     }
-    const content = (await streamText(tracking(), {
-      format: "markdown",
-    }).build()) as StreamText;
+    const content = (await markdown(tracking()).build()) as StreamText;
 
     await expect(
       sendStreamText(remote, "chat", content)

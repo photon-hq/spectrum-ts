@@ -3,17 +3,56 @@ import type {
   IMessageSDK,
   Message as LocalIMessage,
 } from "@photon-ai/imessage-kit";
+import { type Group, groupSchema } from "../../../content/group";
+import { asText } from "../../../content/text";
 import { type ManagedStream, stream } from "../../../utils/stream";
 import type { IMessageMessage } from "../types";
-import { localAttachmentContent } from "./attachments";
+import { type LocalAttachment, localAttachmentContent } from "./attachments";
 
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
 const ATTACHMENT_JOIN_RETRY_DELAY_MS = 250;
 const ATTACHMENT_JOIN_RETRY_LIMIT = 8;
 const ATTACHMENT_JOIN_FETCH_LIMIT = 10;
 
+type LocalMessageBase = Omit<IMessageMessage, "content" | "id">;
+type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
+
 const hasAttachmentPlaceholder = (message: LocalIMessage): boolean =>
   message.text?.includes(ATTACHMENT_PLACEHOLDER) ?? false;
+
+const textWithoutAttachmentPlaceholder = (
+  message: LocalIMessage
+): string | undefined => {
+  const text = message.text?.replaceAll(ATTACHMENT_PLACEHOLDER, "").trim();
+  return text ? text : undefined;
+};
+
+const asProviderGroup = (items: readonly RawProviderMessage[]): Group =>
+  groupSchema.parse({ type: "group", items });
+
+const textMessage = (
+  base: LocalMessageBase,
+  parentId: string,
+  text: string
+): IMessageMessage => ({
+  ...base,
+  id: `${parentId}:text`,
+  content: asText(text),
+  parentId,
+  partIndex: 0,
+});
+
+const attachmentMessage = async (
+  base: LocalMessageBase,
+  messageId: string,
+  attachment: LocalAttachment,
+  groupPart?: { parentId: string; partIndex: number }
+): Promise<IMessageMessage> => ({
+  ...base,
+  id: `${messageId}:${attachment.id}`,
+  content: await localAttachmentContent(attachment),
+  ...(groupPart ?? {}),
+});
 
 const isPendingAttachmentJoin = (message: LocalIMessage): boolean =>
   message.attachments.length === 0 &&
@@ -83,13 +122,33 @@ export const toMessages = async (
   };
 
   if (message.attachments.length > 0) {
-    return Promise.all(
-      message.attachments.map(async (att) => ({
-        ...base,
-        id: `${message.id}:${att.id}`,
-        content: await localAttachmentContent(att),
-      }))
+    const text = textWithoutAttachmentPlaceholder(message);
+    const textOffset = text ? 1 : 0;
+    const attachments = await Promise.all(
+      message.attachments.map((att, index) =>
+        attachmentMessage(
+          base,
+          message.id,
+          att,
+          message.attachments.length > 1 || text
+            ? { parentId: message.id, partIndex: index + textOffset }
+            : undefined
+        )
+      )
     );
+    if (!text && attachments.length === 1) {
+      return attachments;
+    }
+    const items = text
+      ? [textMessage(base, message.id, text), ...attachments]
+      : attachments;
+    return [
+      {
+        ...base,
+        id: message.id,
+        content: asProviderGroup(items),
+      },
+    ];
   }
 
   return [

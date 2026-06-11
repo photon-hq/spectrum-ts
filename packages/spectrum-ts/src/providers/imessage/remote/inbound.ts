@@ -26,6 +26,7 @@ import {
 } from "./ids";
 
 const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
+const ATTACHMENT_PLACEHOLDER = "\uFFFC";
 
 export type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 export type AppleMessage = ReceivedEvent["message"];
@@ -38,6 +39,15 @@ const getBalloonBundleId = (message: AppleMessage): string | undefined =>
 const messageAttachments = (
   message: AppleMessage
 ): readonly AppleAttachment[] => message.content.attachments;
+
+const textWithoutAttachmentPlaceholder = (
+  message: AppleMessage
+): string | undefined => {
+  const text = message.content.text
+    ?.replaceAll(ATTACHMENT_PLACEHOLDER, "")
+    .trim();
+  return text ? text : undefined;
+};
 
 const resolveChatGuid = (
   message: AppleMessage,
@@ -74,6 +84,20 @@ export const isIMessageMessage = (value: unknown): value is IMessageMessage => {
 
 const asProviderGroup = (items: readonly RawProviderMessage[]): Group =>
   groupSchema.parse({ type: "group", items });
+
+const buildTextMessage = (
+  base: RemoteMessageBase,
+  text: string,
+  id: string,
+  partIndex?: number,
+  parentId?: string
+): IMessageMessage => ({
+  ...base,
+  id,
+  content: asText(text),
+  ...(partIndex === undefined ? {} : { partIndex }),
+  ...(parentId === undefined ? {} : { parentId }),
+});
 
 export const buildMessageBase = (
   message: AppleMessage,
@@ -139,11 +163,68 @@ const buildAttachmentMessage = async (
   parentId?: string
 ): Promise<IMessageMessage> => {
   const content = await attachmentContent(client, info);
-  const msg: IMessageMessage = { ...base, id, content, partIndex };
-  if (parentId !== undefined) {
-    msg.parentId = parentId;
+  return {
+    ...base,
+    id,
+    content,
+    partIndex,
+    ...(parentId === undefined ? {} : { parentId }),
+  };
+};
+
+const buildAttachmentItems = async (
+  client: AdvancedIMessage,
+  base: RemoteMessageBase,
+  attachments: readonly AppleAttachment[],
+  parentId: string,
+  text: string | undefined
+): Promise<IMessageMessage[]> => {
+  const items: IMessageMessage[] = text
+    ? [buildTextMessage(base, text, formatChildId(0, parentId), 0, parentId)]
+    : [];
+  const attachmentPartOffset = items.length;
+
+  for (let i = 0; i < attachments.length; i++) {
+    const info = attachments[i];
+    if (!info) {
+      continue;
+    }
+    const partIndex = i + attachmentPartOffset;
+    items.push(
+      await buildAttachmentMessage(
+        client,
+        base,
+        info,
+        formatChildId(partIndex, parentId),
+        partIndex,
+        parentId
+      )
+    );
   }
-  return msg;
+
+  return items;
+};
+
+const buildAttachmentMessageOrGroup = async (
+  client: AdvancedIMessage,
+  base: RemoteMessageBase,
+  attachments: readonly AppleAttachment[],
+  messageId: string,
+  text: string | undefined
+): Promise<IMessageMessage> => {
+  const singleAttachment =
+    attachments.length === 1 ? attachments[0] : undefined;
+  if (singleAttachment && !text) {
+    return buildAttachmentMessage(client, base, singleAttachment, messageId, 0);
+  }
+
+  return {
+    ...base,
+    id: messageId,
+    content: asProviderGroup(
+      await buildAttachmentItems(client, base, attachments, messageId, text)
+    ),
+  };
 };
 
 const toRichlinkMessage = (
@@ -179,37 +260,14 @@ export const rebuildFromAppleMessage = async (
 
   const attachments = messageAttachments(message);
 
-  if (attachments.length === 1) {
-    const info = attachments[0];
-    if (!info) {
-      throw new Error("Unreachable: attachments.length === 1 but no element");
-    }
-    return buildAttachmentMessage(client, base, info, messageGuidStr, 0);
-  }
-
-  if (attachments.length > 1) {
-    const items: IMessageMessage[] = [];
-    for (let i = 0; i < attachments.length; i++) {
-      const info = attachments[i];
-      if (!info) {
-        continue;
-      }
-      items.push(
-        await buildAttachmentMessage(
-          client,
-          base,
-          info,
-          formatChildId(i, messageGuidStr),
-          i,
-          messageGuidStr
-        )
-      );
-    }
-    return {
-      ...base,
-      id: messageGuidStr,
-      content: asProviderGroup(items),
-    };
+  if (attachments.length > 0) {
+    return buildAttachmentMessageOrGroup(
+      client,
+      base,
+      attachments,
+      messageGuidStr,
+      textWithoutAttachmentPlaceholder(message)
+    );
   }
 
   if (getBalloonBundleId(message) === URL_BALLOON_BUNDLE_ID) {
@@ -260,47 +318,16 @@ export const toInboundMessages = async (
 
   const attachments = messageAttachments(event.message);
 
-  if (attachments.length === 1) {
-    const info = attachments[0];
-    if (!info) {
-      throw new Error("Unreachable: attachments.length === 1 but no element");
-    }
-    const msg = await buildAttachmentMessage(
+  if (attachments.length > 0) {
+    const msg = await buildAttachmentMessageOrGroup(
       client,
       base,
-      info,
+      attachments,
       messageGuidStr,
-      0
+      textWithoutAttachmentPlaceholder(event.message)
     );
     cacheMessage(cache, msg);
     return [msg];
-  }
-
-  if (attachments.length > 1) {
-    const items: IMessageMessage[] = [];
-    for (let i = 0; i < attachments.length; i++) {
-      const info = attachments[i];
-      if (!info) {
-        continue;
-      }
-      items.push(
-        await buildAttachmentMessage(
-          client,
-          base,
-          info,
-          formatChildId(i, messageGuidStr),
-          i,
-          messageGuidStr
-        )
-      );
-    }
-    const parent: IMessageMessage = {
-      ...base,
-      id: messageGuidStr,
-      content: asProviderGroup(items),
-    };
-    cacheMessage(cache, parent);
-    return [parent];
   }
 
   const text = event.message.content.text;

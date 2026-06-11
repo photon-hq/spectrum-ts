@@ -7,13 +7,30 @@ on Fusor supports both:
 
 | Transport | You write | Fusor → you over | Connection |
 | --- | --- | --- | --- |
-| **Streaming** | `for await (… of app.messages)` | a long-lived gRPC stream | Spectrum dials Fusor |
+| **Streaming** | `for await (… of app.messages)` | a long-lived stream (gRPC, with automatic WebSocket fallback) | Spectrum dials Fusor |
 | **Webhook** | `app.webhook(request, handler)` in an HTTP route | an HTTP POST to your endpoint | Fusor calls you |
 
 Both run the **same** per-platform pipeline — verify the platform's signature,
 parse the raw request, produce messages, and (optionally) reply. Only the
 transport differs. Pick whichever fits your deployment: a long-running worker
 (streaming) or a serverless / request-scoped HTTP handler (webhook).
+
+> **Streaming transport selection.** Spectrum dials the Fusor gRPC plane
+> first; if that stream can't be established (or dies), it falls back to
+> the Fusor WebSocket plane (`fusor.v1.json` protocol) for that session
+> and tries gRPC again on the next reconnect. The fallback exists because
+> the gRPC plane is scheduled to be retired — once it's turned off, the
+> gRPC attempt fails fast each cycle and every Fusor platform (Telegram
+> included) rides WebSocket with **no code change**; cursors and the
+> reply path behave identically on both planes. Endpoints:
+> `SPECTRUM_FUSOR_GRPC_URL` (default `fusor.spectrum.photon.codes:443`)
+> and `SPECTRUM_FUSOR_WS_URL` (default
+> `wss://fusor-ws.spectrum.photon.codes/v1/subscribe`). Force a transport
+> with `SPECTRUM_FUSOR_TRANSPORT=auto|grpc|websocket` (default `auto`) —
+> `websocket` skips gRPC entirely (the channel is never created), `grpc`
+> never falls back. The WebSocket transport uses the global `WebSocket` —
+> Bun, Node ≥ 22, browsers, and edge workers all qualify; no client
+> library.
 
 > Only **Fusor-backed providers** use this: a provider is in *fusor mode* when
 > its `definePlatform` `lifecycle.createClient` returns a `fusor(...)` client

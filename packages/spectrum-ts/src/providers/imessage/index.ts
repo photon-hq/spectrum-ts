@@ -1,4 +1,8 @@
-import { createClient, MessageEffect } from "@photon-ai/advanced-imessage";
+import {
+  type AdvancedIMessage,
+  createClient,
+  MessageEffect,
+} from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { withSpan } from "@photon-ai/otel";
 import type { Attachment } from "../../content/attachment";
@@ -25,6 +29,7 @@ export { effect, type IMessageMessageEffect } from "./content/effect";
 export { read } from "./content/read";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
+import { getMessageCache } from "./cache";
 import {
   type Background,
   type BackgroundInput,
@@ -67,6 +72,7 @@ import {
   randomPhone,
 } from "./remote/client";
 import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
+import { cacheMessage } from "./remote/inbound";
 import {
   configSchema,
   type IMessageClient,
@@ -80,6 +86,27 @@ import {
 
 const isPollContent = (content: { type: string }): boolean =>
   content.type === "poll" || content.type === "poll_option";
+
+const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
+  remote: AdvancedIMessage,
+  space: { id: string; phone: string; type: "dm" | "group" },
+  record: T
+): T => {
+  if (!record) {
+    return record;
+  }
+  cacheMessage(getMessageCache(remote), {
+    ...record,
+    direction: record.direction ?? "outbound",
+    space: {
+      ...record.space,
+      id: record.space.id,
+      phone: space.phone,
+      type: space.type,
+    },
+  } as IMessageMessage);
+  return record;
+};
 
 const handleEdit = async (
   client: IMessageClient,
@@ -138,7 +165,7 @@ const handleUnsend = async (
 
 const handleStreamText = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: { id: string; phone: string; type: "dm" | "group" },
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
   if (isLocal(client)) {
@@ -149,7 +176,11 @@ const handleStreamText = async (
     );
   }
   const remote = clientForPhone(client, space.phone);
-  return await remoteSendStreamText(remote, space.id, content);
+  return cacheRemoteOutbound(
+    remote,
+    space,
+    await remoteSendStreamText(remote, space.id, content)
+  );
 };
 
 const handleBackground = async (
@@ -170,7 +201,7 @@ const handleBackground = async (
 
 const handleCustomizedMiniApp = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: { id: string; phone: string; type: "dm" | "group" },
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> => {
   if (isLocal(client)) {
@@ -181,7 +212,11 @@ const handleCustomizedMiniApp = async (
     );
   }
   const remote = clientForPhone(client, space.phone);
-  return await remoteSendCustomizedMiniApp(remote, space.id, content);
+  return cacheRemoteOutbound(
+    remote,
+    space,
+    await remoteSendCustomizedMiniApp(remote, space.id, content)
+  );
 };
 
 const handleRead = async (
@@ -452,11 +487,15 @@ export const imessage = definePlatform("iMessage", {
         );
       }
       const remote = clientForPhone(client, space.phone);
-      return await remoteReplyToMessage(
+      return cacheRemoteOutbound(
         remote,
-        space.id,
-        content.target.id,
-        content.content
+        space,
+        await remoteReplyToMessage(
+          remote,
+          space.id,
+          content.target.id,
+          content.content
+        )
       );
     }
     if (content.type === "reaction") {
@@ -474,11 +513,15 @@ export const imessage = definePlatform("iMessage", {
       // `content.target` is statically typed as the generic `Message`, but
       // execution only reaches this iMessage `send` action when the target
       // came from the iMessage stream — hence the unknown-cast widen.
-      return await remoteReactToMessage(
+      return cacheRemoteOutbound(
         remote,
-        space.id,
-        content.target as unknown as IMessageMessage,
-        content.emoji
+        space,
+        await remoteReactToMessage(
+          remote,
+          space.id,
+          content.target as unknown as IMessageMessage,
+          content.emoji
+        )
       );
     }
     if (content.type === "typing") {
@@ -525,7 +568,11 @@ export const imessage = definePlatform("iMessage", {
       return await localSend(client, space.id, content);
     }
     const remote = clientForPhone(client, space.phone);
-    return await remoteSend(remote, space.id, content);
+    return cacheRemoteOutbound(
+      remote,
+      space,
+      await remoteSend(remote, space.id, content)
+    );
   },
 
   actions: {

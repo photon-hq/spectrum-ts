@@ -62,6 +62,7 @@ export type IMessageMessage = SchemaMessage<
   typeof userSchema,
   typeof spaceSchema
 > & {
+  direction?: "inbound" | "outbound";
   partIndex?: number;
   parentId?: string;
 };

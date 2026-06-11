@@ -2,11 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { stubCloud } from "@test/support/cloud";
 import { baseConfig, makeQueue, record } from "@test/support/platform";
 import z from "zod";
-import { reaction } from "@/content/reaction";
+import { asReaction, reaction } from "@/content/reaction";
 import type { Content } from "@/content/types";
 import { definePlatform } from "@/platform/define";
 import type { ProviderMessage, ProviderMessageRecord } from "@/platform/types";
 import { Spectrum } from "@/spectrum";
+import type { Message } from "@/types/message";
 import { UnsupportedError } from "@/utils/errors";
 
 stubCloud();
@@ -146,6 +147,88 @@ describe("reaction sends return a Message", () => {
     try {
       const [, message] = await firstMessage(app);
       await expect(message.react("👍")).rejects.toThrow(NO_MESSAGE_ID);
+    } finally {
+      await app.stop();
+    }
+  });
+});
+
+describe("inbound reaction target direction", () => {
+  const makeInboundReactionProvider = (
+    name: string,
+    target: ProviderMessageRecord
+  ) => {
+    const queue = makeQueue<ProviderMessage<{ id: string }, { id: string }>>();
+    queue.push({
+      id: "reaction-1",
+      content: asReaction({
+        emoji: "👍",
+        target: target as unknown as Message,
+      }),
+      sender: { id: "u1" },
+      space: { id: "s1" },
+      timestamp: REACTION_TIMESTAMP,
+    });
+    queue.close();
+    return definePlatform(name, {
+      config: z.object({}),
+      lifecycle: {
+        createClient: () => Promise.resolve({}),
+      },
+      user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+      space: {
+        create: ({ input }) =>
+          Promise.resolve({ id: input.users[0]?.id ?? "s1" }),
+      },
+      messages: () => queue.iter,
+      send: () => Promise.resolve(undefined),
+    });
+  };
+
+  it("honors a provider-supplied outbound direction on a raw reaction target", async () => {
+    const provider = makeInboundReactionProvider("react-target-outbound", {
+      id: "bot-message",
+      content: { type: "text", text: "from the bot" },
+      direction: "outbound",
+      space: { id: "s1" },
+      timestamp: new Date(0),
+    });
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [, message] = await firstMessage(app);
+
+      expect(message.direction).toBe("inbound");
+      expect(message.content.type).toBe("reaction");
+      if (message.content.type === "reaction") {
+        expect(message.content.target.direction).toBe("outbound");
+        expect(message.content.target.id).toBe("bot-message");
+      }
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("keeps the legacy inbound fallback when a raw reaction target has no direction", async () => {
+    const provider = makeInboundReactionProvider("react-target-fallback", {
+      id: "unknown-message",
+      content: { type: "text", text: "unknown owner" },
+      space: { id: "s1" },
+      timestamp: new Date(0),
+    });
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [, message] = await firstMessage(app);
+
+      expect(message.content.type).toBe("reaction");
+      if (message.content.type === "reaction") {
+        expect(message.content.target.direction).toBe("inbound");
+      }
     } finally {
       await app.stop();
     }

@@ -103,6 +103,7 @@ export const sendStreamText = async (
   return {
     id: sent.guid,
     content: asText(full),
+    direction: "outbound",
     space: { id: spaceId },
     timestamp: sent.dateCreated,
   };

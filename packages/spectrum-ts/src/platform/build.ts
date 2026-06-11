@@ -433,6 +433,7 @@ export interface BuildSpaceParams {
 // is platform-specific extras (e.g. `partIndex` for iMessage).
 export const providerMessageCoreKeys: ReadonlySet<string> = new Set([
   "content",
+  "direction",
   "id",
   "sender",
   "space",
@@ -461,12 +462,22 @@ const extractExtras = (
   ) as Record<string, unknown>;
 };
 
+const rawDirection = (
+  raw: ProviderMessageRecord
+): "inbound" | "outbound" | undefined =>
+  raw.direction === "inbound" || raw.direction === "outbound"
+    ? raw.direction
+    : undefined;
+
 /**
  * Wrap a raw provider message record (and any nested raw targets/items inside
  * its content) into a fully-built `Message`. The same path serves inbound
  * (`messages`, `actions.getMessage`) and outbound (`send`) flows — the only
  * difference is `direction`, which decides whether the resulting Message
- * exposes inbound (`react`/`reply`) or outbound (`edit`) affordances.
+ * exposes inbound (`react`/`reply`) or outbound (`edit`) affordances. A raw
+ * record can carry its own `direction` when the provider knows better than the
+ * wrapping context, which matters for inbound reactions targeting outbound
+ * messages.
  * Recursion through `wrapNestedContent` handles reaction targets and group
  * items, which providers return as nested raw records.
  */
@@ -475,7 +486,12 @@ export function wrapProviderMessage(
   ctx: WrapContext,
   direction: "inbound" | "outbound"
 ): Message {
-  const wrappedContent = wrapNestedContent(raw.content, ctx, direction);
+  const effectiveDirection = rawDirection(raw) ?? direction;
+  const wrappedContent = wrapNestedContent(
+    raw.content,
+    ctx,
+    effectiveDirection
+  );
   const base = {
     id: raw.id,
     content: wrappedContent,
@@ -493,7 +509,7 @@ export function wrapProviderMessage(
   // `Message.sender` is `| undefined` and `buildMessage` maps a missing sender to
   // `undefined`, so senderless inbound is allowed rather than rejected. The
   // branch keeps `direction` a literal so it narrows BuildMessageParams.
-  if (direction === "inbound") {
+  if (effectiveDirection === "inbound") {
     return buildMessage({ ...base, sender: raw.sender, direction: "inbound" });
   }
   return buildMessage({ ...base, sender: raw.sender, direction: "outbound" });
@@ -507,13 +523,9 @@ const wrapNestedContent = (
   if (content.type === "reaction") {
     const target = content.target as unknown;
     if (isRawProviderRecord(target)) {
-      // Reaction targets are always wrapped as "inbound": the target refers to
-      // the original received message, not the reaction event itself. So even
-      // when the wrapping reaction is outbound (e.g. our own reaction sent via
-      // `space.send(reaction(...))`), the *target* it points at is a message
-      // we received. This differs from `group.items`, which propagate the
-      // wrapping direction because each item is itself one piece of the same
-      // send.
+      // Most providers can only synthesize an inbound target stub for reaction
+      // events. Providers that can resolve the real target may set
+      // `target.direction`, and wrapProviderMessage will honor it.
       return {
         ...content,
         target: wrapProviderMessage(target, ctx, "inbound"),

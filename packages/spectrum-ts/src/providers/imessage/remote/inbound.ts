@@ -65,8 +65,6 @@ export const isIMessageMessage = (value: unknown): value is IMessageMessage => {
     record.id.length > 0 &&
     typeof record.content === "object" &&
     record.content !== null &&
-    typeof record.sender === "object" &&
-    record.sender !== null &&
     typeof record.space === "object" &&
     record.space !== null
   );
@@ -83,6 +81,7 @@ export const buildMessageBase = (
 ): RemoteMessageBase => {
   const chat = resolveChatGuid(message, chatGuidHint);
   return {
+    direction: message.isFromMe ? "outbound" : "inbound",
     sender: { id: resolveSenderId(message) },
     space: {
       id: chat,

@@ -169,6 +169,7 @@ export type ProviderMessage<
 export type ProviderMessageRecord = {
   id: string;
   content: Content;
+  direction?: "inbound" | "outbound";
   sender?: { id: string } & Record<string, unknown>;
   space: { id: string } & Record<string, unknown>;
   timestamp?: Date;

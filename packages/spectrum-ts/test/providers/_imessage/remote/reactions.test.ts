@@ -1,10 +1,17 @@
 import { describe, expect, it, mock } from "bun:test";
 import type {
   AdvancedIMessage,
+  MessageEvent,
   Message as SDKMessage,
   SettableMessageReaction,
 } from "@photon-ai/advanced-imessage";
-import { reactToMessage } from "@/providers/imessage/remote/reactions";
+import { text } from "@/content/text";
+import { imessage } from "@/providers/imessage";
+import { getMessageCache, MessageCache } from "@/providers/imessage/cache";
+import {
+  reactToMessage,
+  toReactionMessages,
+} from "@/providers/imessage/remote/reactions";
 import type { IMessageMessage } from "@/providers/imessage/types";
 
 const SENT_DATE = new Date(1_700_000_000_000);
@@ -38,6 +45,45 @@ const target = (overrides: Partial<IMessageMessage> = {}): IMessageMessage =>
     timestamp: new Date(0),
     ...overrides,
   }) as unknown as IMessageMessage;
+
+async function* fromArray(items: string[]): AsyncIterable<string> {
+  for (const item of items) {
+    yield item;
+  }
+}
+
+const sdkMessage = (overrides: Partial<SDKMessage> = {}): SDKMessage =>
+  ({
+    guid: "msg-guid",
+    chatGuids: ["s1"],
+    content: {
+      attachments: [],
+      formatting: [],
+      mentions: [],
+      text: "from the bot",
+    },
+    dateCreated: SENT_DATE,
+    isFromMe: true,
+    sender: { address: "+15551234567" },
+    ...overrides,
+  }) as unknown as SDKMessage;
+
+const reactionEvent = (
+  overrides: Partial<
+    Extract<MessageEvent, { type: "message.reactionAdded" }>
+  > = {}
+): Extract<MessageEvent, { type: "message.reactionAdded" }> =>
+  ({
+    actor: { address: "user@example.com" },
+    chatGuid: "s1",
+    isFromMe: false,
+    messageGuid: "msg-guid",
+    occurredAt: SENT_DATE,
+    reaction: { kind: "like" },
+    sequence: 1,
+    type: "message.reactionAdded",
+    ...overrides,
+  }) as unknown as Extract<MessageEvent, { type: "message.reactionAdded" }>;
 
 describe("iMessage remote reactToMessage", () => {
   it("maps a native tapback emoji and returns the tapback record", async () => {
@@ -77,5 +123,80 @@ describe("iMessage remote reactToMessage", () => {
     const [, message, , , options] = setReaction.mock.calls[0] ?? [];
     expect(message).toContain("parent-guid");
     expect(options).toEqual({ partIndex: 2 });
+  });
+});
+
+describe("iMessage remote toReactionMessages", () => {
+  it("marks a fetched self-authored reaction target as outbound", async () => {
+    const get = mock((_message: string) => Promise.resolve(sdkMessage()));
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+
+    const messages = await toReactionMessages(
+      remote,
+      new MessageCache(),
+      reactionEvent(),
+      "+15551234567"
+    );
+
+    expect(messages).toHaveLength(1);
+    const message = messages[0];
+    expect(message?.content.type).toBe("reaction");
+    if (message?.content.type === "reaction") {
+      expect(message.content.target.direction).toBe("outbound");
+      expect(message.content.target.id).toBe("msg-guid");
+    }
+  });
+
+  it("resolves tapbacks on a just-sent streamText message from the outbound cache", async () => {
+    const sent = sdkMessage({ guid: "outbound-stream-guid" });
+    const sendText = mock((_chat: string, _text: string) =>
+      Promise.resolve(sent)
+    );
+    const edit = mock((_chat: string, _guid: string, _text: string) =>
+      Promise.resolve(sent)
+    );
+    const get = mock((_message: string) =>
+      Promise.reject(new Error("message API has not caught up"))
+    );
+    const remote = {
+      messages: { edit, get, sendText },
+    } as unknown as AdvancedIMessage;
+    const send = imessage.config().__definition.send;
+
+    const record = await send({
+      client: [{ client: remote, phone: "+15551234567" }],
+      content: await text(fromArray(["hello"])).build(),
+      space: {
+        __platform: "iMessage",
+        id: "s1",
+        phone: "+15551234567",
+        type: "dm",
+      },
+    });
+
+    expect(record?.id).toBe("outbound-stream-guid");
+    expect(sendText).toHaveBeenCalledTimes(1);
+
+    const messages = await toReactionMessages(
+      remote,
+      getMessageCache(remote),
+      reactionEvent({ messageGuid: "outbound-stream-guid" }),
+      "+15551234567"
+    );
+
+    expect(get).not.toHaveBeenCalled();
+    expect(messages).toHaveLength(1);
+    const message = messages[0];
+    expect(message?.content.type).toBe("reaction");
+    if (message?.content.type === "reaction") {
+      expect(message.content.target.direction).toBe("outbound");
+      expect(message.content.target.id).toBe("outbound-stream-guid");
+      expect(message.content.target.content).toEqual({
+        text: "hello",
+        type: "text",
+      });
+    }
   });
 });

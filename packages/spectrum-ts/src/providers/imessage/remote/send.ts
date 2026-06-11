@@ -54,6 +54,7 @@ const outboundRecord = (
 ): ProviderMessageRecord => ({
   id,
   content,
+  direction: "outbound",
   space: { id: spaceId },
   timestamp,
   ...extras,

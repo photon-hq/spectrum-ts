@@ -23,6 +23,7 @@ export const sendCustomizedMiniApp = async (
   return {
     id: message.guid,
     content: content as unknown as Content,
+    direction: "outbound",
     space: { id: spaceId },
     timestamp: message.dateCreated,
   };

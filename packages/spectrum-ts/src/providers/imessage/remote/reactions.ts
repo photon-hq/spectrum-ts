@@ -171,6 +171,7 @@ export const reactToMessage = async (
   return {
     id: sent.guid,
     content: asProviderReaction(reaction, target),
+    direction: "outbound",
     space: { id: spaceId },
     timestamp: sent.dateCreated,
   };

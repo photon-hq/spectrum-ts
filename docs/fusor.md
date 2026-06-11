@@ -362,6 +362,130 @@ Consequences:
 
 ---
 
+## The WebSocket transport
+
+The streaming fallback (and, once the gRPC plane is retired, the only
+streaming transport) speaks **`fusor.v1.json`** — Fusor's public WebSocket
+protocol. This section documents what's on the wire, why it's shaped that
+way, and the liveness machinery around it. You don't need any of it to
+*use* the SDK — `app.messages` is identical on both transports — but it's
+the contract to implement if you're building a non-TypeScript client.
+
+### Why raw WebSocket (and not Socket.IO)
+
+`fusor.v1.json` is plain RFC 6455 WebSocket plus JSON text frames —
+deliberately **not** Socket.IO or any framework protocol:
+
+- **Reach is the whole point.** The gRPC plane needs a private proto
+  package and gRPC tooling; the WebSocket plane exists so browsers, edge
+  workers, and any language's stdlib can consume events. Socket.IO would
+  recreate the same lock-in one layer down: every consumer must embed a
+  Socket.IO client of a compatible major version (the v2/v3/v4 protocol
+  breaks are notorious), and those clients are weak outside JavaScript
+  and painful in edge runtimes. A raw socket works with the bare
+  `WebSocket` global and is debuggable with `wscat`.
+- **It's the industry pattern for platform realtime APIs.** Discord's
+  gateway, Slack's Socket Mode, OpenAI's Realtime API, and GraphQL's
+  `graphql-transport-ws` are all raw WebSocket + a documented JSON
+  protocol negotiated per connection. Socket.IO is popular for
+  app-internal realtime where one team owns both ends — not as a public
+  contract.
+- **What Socket.IO would add, the protocol already covers** with
+  Fusor-specific semantics a generic library can't provide: versioning
+  via subprotocol negotiation, app-level heartbeats, resume via the
+  JetStream cursor (not session replay), and typed errors mapped to the
+  gRPC plane's status vocabulary. Its one unique feature — HTTP
+  long-polling fallback — would break streaming semantics for a network
+  condition that's effectively extinct.
+
+### The protocol
+
+**Handshake.** `GET wss://…/v1/subscribe` offering the subprotocol
+`fusor.v1.json` (`Sec-WebSocket-Protocol`); the server echoes it on the
+`101`. `fusor.v1.proto` is reserved for a future binary variant. All
+frames are JSON text; binary frames are a protocol violation. Receivers
+ignore unknown *fields*, and clients must ignore unknown *server frame
+types* (v1 can grow).
+
+**Field naming is the protobuf JSON mapping** of the same public messages
+the gRPC plane uses (`RawInboundEvent` / `InboundReply` from
+`@photon-ai/proto`): `eventId`, `startSeq`, base64 for `bytes`, RFC3339
+for timestamps. A future binary subprotocol is lossless by construction,
+and field names match the gRPC plane one-for-one.
+
+| Direction | Frame | Purpose |
+| --- | --- | --- |
+| → server | `init` | First frame, required: `{ "type":"init", "startSeq":0, "token":"<jwt>" }`. `startSeq` is the JetStream cursor — `0` = live tail, `>0` = replay after that sequence (identical to gRPC `SubscribeInit.start_seq`). |
+| → server | `reply` | Synchronous reply for an event that carried `replyExpected: true`: `{ "type":"reply", "eventId", "status", "headers", "body":"<base64>", "errorReason" }`. |
+| → server | `ping` | Optional liveness escape hatch; echoed as `pong`. |
+| ← client | `ready` | Auth + subscription live. Carries `projectId`, the `startSeq` echo, `heartbeatIntervalMs`, and server limits. |
+| ← client | `event` | `{ "type":"event", "seq", "replyExpected"?, "event": { "eventId", "projectId", "platform", "receivedAt", "prevSubjectSeq", "rawRequest":"<base64>" } }` — `rawRequest` is the same HTTP/1.1 wire bytes the gRPC plane delivers; the SDK pipeline is shared. |
+| ← client | `heartbeat` | App-level keepalive (see below). |
+| ← client | `error` | Typed notice. `fatal: true` is always followed by a close with a mapped code; `fatal: false` means the stream keeps running (e.g. `reply_unknown_event`). |
+
+**Replies.** `replyExpected` is a boolean — reply only when it's `true`.
+(The gRPC plane lets clients fire replies blind and drops unknown ones
+silently; the WebSocket server answers them with a non-fatal
+`reply_unknown_event` notice instead.) The SDK handles this for you.
+
+**Close codes.** Every server-initiated close is preceded by a fatal
+`error` frame: `4401` unauthenticated (re-mint the token — the SDK
+invalidates its cached JWT automatically), `4400` protocol violation and
+`4413` frame too large (fix the client; don't hot-loop), `4408` init
+timeout, `4429` slow consumer (the server closes rather than buffer
+unboundedly), `1001` server draining, `1013` upstream unavailable —
+the last three plus `1011` are plain reconnect-with-backoff cases.
+
+### Auth
+
+The same LightAuth JWT as the gRPC plane — **one token works on both
+transports** (`aud: codes.photon.spectrum.fusor`, minted by
+spectrum-cloud from your project credentials). The SDK sends it inside
+the `init` frame rather than an `Authorization` header so the transport
+works in runtimes that can't set upgrade headers (browsers, some
+workers); the server also accepts `Authorization: Bearer` at upgrade for
+clients that can.
+
+### Keepalive & liveness
+
+Three layers, each with a distinct job:
+
+- **Server → client heartbeats.** The server sends
+  `{ "type":"heartbeat" }` frames on the cadence advertised in `ready`
+  (`heartbeatIntervalMs`, 30s today). They're app-level *data* frames —
+  browsers can't observe protocol-level pings — and they double as
+  traffic that keeps the connection far inside the edge load balancer's
+  idle timeout.
+- **Client staleness watchdog.** The SDK treats *no frame of any kind*
+  for `2 × heartbeatIntervalMs + 5s` as a dead intermediary, fails the
+  session, and lets the reconnect loop take over. Implement the same rule
+  in a custom client.
+- **Client → server `ping`.** Optional; for runtimes whose protocol-ping
+  handling is broken. Any received frame counts as liveness on the server
+  side too.
+
+There is no Socket.IO-style per-message ack machinery: delivery
+guarantees come from the broker (the server acks its stream only once a
+frame is accepted into the transport buffer) plus the `seq` cursor and
+`eventId` dedup on reconnect.
+
+### Reconnect
+
+The SDK reconnects with exponential backoff (1s → 30s) under the
+transport policy described in the selection note near the top of this
+doc (`SPECTRUM_FUSOR_TRANSPORT`): `auto` retries gRPC first each cycle,
+`websocket` pins this transport. On `4401` it re-mints the token before
+retrying. Today reconnects resume as a live tail (`startSeq: 0`); cursor
+persistence — resuming from the last seen `seq` across restarts — is
+tracked in [photon-hq/fusor#9](https://github.com/photon-hq/fusor/issues/9)
+and will slot into the same `init` field on both transports.
+
+**Runtime requirements:** the global `WebSocket` constructor — Bun,
+Node ≥ 22, browsers, and edge workers qualify; no client library is
+involved.
+
+---
+
 ## Reference
 
 - `app.webhook(request, handler)` — `src/spectrum.ts`
@@ -371,5 +495,9 @@ Consequences:
 - Custom events — `fusorEvent(channel, data)` in `src/fusor/event.ts`
 - Wire envelope — `RawInboundEvent` / `InboundReply` from
   `@photon-ai/proto/photon/fusor/v1/inbound`
+- WebSocket transport client — `runFusorWsSession` in
+  `src/fusor/websocket.ts`; transport policy in `FusorCore` (`src/fusor/core.ts`)
+- Server-side `fusor.v1.json` spec — `apps/fanout-websocket/BEHAVIOR.md`
+  in the fusor repo (frame schemas, close-code matrix, e2e recipes)
 - Public types — `WebhookHandler`, `WebhookRawRequest`, `WebhookRawResult`,
   `FusorEvent`

@@ -151,9 +151,7 @@ function runHandlerOnce<TPayload>(
       routeHandlerResult(result, handler as RegisteredFusorHandler, deliver);
       return { ok: true, reply };
     } catch (error) {
-      const errorReason =
-        error instanceof Error ? error.message : String(error);
-      return { ok: false, errorReason };
+      return { ok: false, errorReason: errorText(error) };
     }
   })();
 }
@@ -342,8 +340,7 @@ export class FusorCore {
     try {
       parsedRequest = parseHttpRequest(event.rawRequest);
     } catch (error) {
-      const errorReason =
-        error instanceof Error ? error.message : String(error);
+      const errorReason = errorText(error);
       log.warn("fusor: failed to parse raw_request", {
         platform: event.platform,
         error: errorReason,

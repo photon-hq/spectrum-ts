@@ -24,6 +24,8 @@ transport differs. Pick whichever fits your deployment: a long-running worker
 > the transition and has been retired; cursors and the reply path are
 > unchanged.)
 
+<!-- -->
+
 > Only **Fusor-backed providers** use this: a provider is in *fusor mode* when
 > its `definePlatform` `lifecycle.createClient` returns a `fusor(...)` client
 > (rather than a long-lived SDK client). There is no separate

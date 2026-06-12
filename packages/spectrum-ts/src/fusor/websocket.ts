@@ -62,11 +62,15 @@ function encodeBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== "undefined") {
     return Buffer.from(bytes).toString("base64");
   }
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+  // Chunked: one String.fromCharCode call per slice stays under the
+  // engine's argument-count limit and avoids quadratic string growth
+  // on large reply bodies.
+  const chunkSize = 0x80_00;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
   }
-  return btoa(binary);
+  return btoa(parts.join(""));
 }
 
 interface WsEventFrame {

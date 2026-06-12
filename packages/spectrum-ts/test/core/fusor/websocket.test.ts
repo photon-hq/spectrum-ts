@@ -2,12 +2,19 @@
 // against an in-process Bun.serve websocket server.
 
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { NO_MESSAGE_WAIT_MS } from "@test/support/timing";
 import { serve, sleep } from "bun";
 import { FusorCore, type RegisteredFusorHandler } from "@/fusor/core";
 import type { FusorMessagesReturn } from "@/fusor/types";
 import { cloud } from "@/utils/cloud";
 
 const PLATFORM = "tg";
+// waitFor polling: generous ceiling, tight poll.
+const WAIT_TIMEOUT_MS = 5000;
+const WAIT_POLL_MS = 10;
+// close() must return promptly: above the 2s never-opened-socket
+// failsafe, far below the 30s max reconnect backoff.
+const CLOSE_PROMPTLY_MS = 3000;
 
 const httpBytes = (json: string): string =>
   `POST /${PLATFORM} HTTP/1.1\r\ncontent-type: application/json\r\n\r\n${json}`;
@@ -110,13 +117,16 @@ const eventFrame = (
   },
 });
 
-async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitFor(
+  cond: () => boolean,
+  timeoutMs = WAIT_TIMEOUT_MS
+): Promise<void> {
   const start = Date.now();
   while (!cond()) {
     if (Date.now() - start > timeoutMs) {
       throw new Error("waitFor timed out");
     }
-    await sleep(10);
+    await sleep(WAIT_POLL_MS);
   }
 }
 
@@ -166,7 +176,7 @@ describe("fusor websocket streaming", () => {
 
     // Exactly one reply — evt-2 had no replyExpected, so replying would
     // earn a reply_unknown_event notice from the real server.
-    await sleep(50);
+    await sleep(NO_MESSAGE_WAIT_MS);
     expect(server.replies).toHaveLength(1);
     const reply = server.replies[0];
     expect(reply?.eventId).toBe("evt-1");
@@ -249,6 +259,6 @@ describe("fusor websocket streaming", () => {
 
     const start = Date.now();
     await core.close();
-    expect(Date.now() - start).toBeLessThan(3000);
+    expect(Date.now() - start).toBeLessThan(CLOSE_PROMPTLY_MS);
   });
 });

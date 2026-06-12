@@ -1,0 +1,14 @@
+{
+  "name": "@spectrum-ts/example-mastra-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.83",
+    "@mastra/core": "^1.41.0",
+    "spectrum-ts": "workspace:*",
+    "zod": "^4.2.1"
+  }
+}

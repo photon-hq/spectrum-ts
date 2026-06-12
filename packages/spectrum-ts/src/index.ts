@@ -101,6 +101,10 @@ export type {
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";
 export { UnsupportedError, type UnsupportedKind } from "./utils/errors";
+// `Store` appears in the public `Platform*`/`Fusor*` types (per-instance
+// state handed to lifecycle hooks); exporting it keeps provider packages'
+// declaration output portable (TS2742) without reaching into core internals.
+export type { Store } from "./utils/store";
 export {
   type Broadcaster,
   broadcast,

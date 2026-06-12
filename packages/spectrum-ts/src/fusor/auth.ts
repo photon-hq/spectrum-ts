@@ -12,8 +12,8 @@ export interface FusorTokenProvider {
 
 /**
  * Single-token provider for the fusor stream. Mirrors the renewal cadence
- * of `providers/slack/auth.ts` but without per-team bookkeeping — fusor issues
- * one bearer JWT per project.
+ * of the slack provider package's auth but without per-team bookkeeping —
+ * fusor issues one bearer JWT per project.
  */
 export function createFusorTokenProvider(
   projectId: string,

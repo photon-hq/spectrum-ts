@@ -1,3 +1,9 @@
+// The ambient declaration for the optional `ffmpeg-static` peer must travel
+// with this file: provider packages typecheck core from source (their `types`
+// condition points at src/), and their tsc program only loads declaration
+// files reachable from imported files — core's tsconfig `include` doesn't
+// apply there.
+/// <reference path="../types/ffmpeg-static.d.ts" />
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

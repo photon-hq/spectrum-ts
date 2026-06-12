@@ -3,8 +3,7 @@
 // Locally and during `bun run build` this file reads:
 //   SPECTRUM_SDK_VERSION = "local"
 //   SPECTRUM_BUILD_ENV   = "development"
-// The `prepack` script (run by `bun publish`) overwrites both with the real
-// package.json#version and "production" before tsup compiles, then resets
-// them back so the working tree stays clean.
+// The release workflow builds with SPECTRUM_PUBLISH=1, which stamps the real
+// package.json#version and "production" instead.
 export const SPECTRUM_SDK_VERSION = "local";
 export const SPECTRUM_BUILD_ENV: "development" | "production" = "development";

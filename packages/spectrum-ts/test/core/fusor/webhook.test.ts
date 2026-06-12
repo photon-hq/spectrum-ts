@@ -1,5 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
-import { stubCloud } from "@test/support/cloud";
+import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   CTX_PROBE_PLATFORM,
   type CtxProbeCapture,
@@ -8,9 +8,13 @@ import {
   makePresence,
   makeSlack,
   PRESENCE_PLATFORM,
-} from "@test/support/fusor";
-import { baseConfig } from "@test/support/platform";
-import { NO_MESSAGE_WAIT_MS, settleSoon, TICK_MS } from "@test/support/timing";
+} from "@spectrum-ts/test-support/fusor";
+import { baseConfig } from "@spectrum-ts/test-support/platform";
+import {
+  NO_MESSAGE_WAIT_MS,
+  settleSoon,
+  TICK_MS,
+} from "@spectrum-ts/test-support/timing";
 import { FusorCore } from "@/fusor/core";
 import { Spectrum } from "@/spectrum";
 import type { Message } from "@/types/message";

@@ -16,6 +16,7 @@ export { asAttachment } from "./content/attachment";
 export { asContact } from "./content/contact";
 export { asCustom } from "./content/custom";
 export { asGroup } from "./content/group";
+export { asMarkdown } from "./content/markdown";
 export { asPoll, asPollOption } from "./content/poll";
 export { asReaction } from "./content/reaction";
 export { asRichlink } from "./content/richlink";

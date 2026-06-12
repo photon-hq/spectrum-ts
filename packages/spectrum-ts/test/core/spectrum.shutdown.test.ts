@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { stubCloud } from "@test/support/cloud";
+import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   baseConfig,
   makeManagedProvider,
   makeNativeProvider,
-} from "@test/support/platform";
-import { withinMs } from "@test/support/timing";
+} from "@spectrum-ts/test-support/platform";
+import { withinMs } from "@spectrum-ts/test-support/timing";
 import { Spectrum } from "@/spectrum";
 
 stubCloud();

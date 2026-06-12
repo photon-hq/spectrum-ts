@@ -33,6 +33,10 @@ import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
 import { cloud, type ProjectData } from "./utils/cloud";
+import {
+  normalizePlatformKey,
+  officialProviderInstallHint,
+} from "./utils/provider-packages";
 import { createStore, type Store } from "./utils/store";
 import {
   type AsyncQueue,
@@ -598,6 +602,38 @@ export async function Spectrum<
     providers: providerNames,
     telemetry: telemetry === true,
   });
+
+  // Advisory, fire-and-forget: in cloud mode, compare the project's enabled
+  // platforms against the registered providers and hint at any missing
+  // optional provider package. Never blocks or fails startup — the platforms
+  // endpoint is best-effort diagnostics only.
+  if (projectConfig && projectId !== undefined) {
+    const registered = new Set(
+      Array.from(platformStates.keys(), normalizePlatformKey)
+    );
+    cloud
+      .getPlatforms(projectId)
+      .then((platforms) => {
+        for (const [platform, status] of Object.entries(platforms)) {
+          if (
+            !status.enabled ||
+            registered.has(normalizePlatformKey(platform))
+          ) {
+            continue;
+          }
+          const hint = officialProviderInstallHint(platform);
+          lifecycleLog.warn(
+            hint
+              ? `spectrum: project has "${platform}" enabled but no matching provider is registered — ${hint}`
+              : `spectrum: project has "${platform}" enabled but no matching provider is registered`,
+            { platform }
+          );
+        }
+      })
+      .catch(() => {
+        // Diagnostics only — ignore network failures.
+      });
+  }
 
   const createMessagesStream = (): ManagedStream<[Space, Message]> =>
     stream<[Space, Message]>((emit, end) => {

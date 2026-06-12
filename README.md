@@ -29,14 +29,14 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
 2. Install the SDK:
 
    ```bash
-   bun add spectrum-ts
+   bun add spectrum-ts @photon-ai/spectrum-provider-imessage
    ```
 
 3. Start your app:
 
    ```typescript
    import { Spectrum } from "spectrum-ts";
-   import { imessage } from "spectrum-ts/providers/imessage";
+   import { imessage } from "@photon-ai/spectrum-provider-imessage";
 
    const app = await Spectrum({
      projectId: process.env.PROJECT_ID,
@@ -61,11 +61,14 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 
 | Platform | Package |
 |----------|---------|
-| iMessage | `spectrum-ts/providers/imessage` |
-| WhatsApp | `spectrum-ts/providers/whatsapp` |
-| Telegram | `spectrum-ts/providers/telegram` |
-| Terminal | `spectrum-ts/providers/terminal` |
+| iMessage | [`@photon-ai/spectrum-provider-imessage`](https://npmjs.com/package/@photon-ai/spectrum-provider-imessage) |
+| WhatsApp Business | [`@photon-ai/spectrum-provider-whatsapp-business`](https://npmjs.com/package/@photon-ai/spectrum-provider-whatsapp-business) |
+| Telegram | [`@photon-ai/spectrum-provider-telegram`](https://npmjs.com/package/@photon-ai/spectrum-provider-telegram) |
+| Slack | [`@photon-ai/spectrum-provider-slack`](https://npmjs.com/package/@photon-ai/spectrum-provider-slack) |
+| Terminal | [`@photon-ai/spectrum-provider-terminal`](https://npmjs.com/package/@photon-ai/spectrum-provider-terminal) |
 | Custom   | `definePlatform` from `spectrum-ts` |
+
+Each provider lives in its own package, so you only install the platform SDKs you actually use. The v4 import paths (`spectrum-ts/providers/<platform>`) still work once the matching provider package is installed — if it isn't, the import fails at build/startup naming the exact package to add.
 
 ## Issues
 

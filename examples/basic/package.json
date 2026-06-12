@@ -6,6 +6,7 @@
     "start": "bun run index.ts"
   },
   "dependencies": {
+    "@photon-ai/spectrum-provider-terminal": "workspace:*",
     "spectrum-ts": "workspace:*"
   }
 }

@@ -4,6 +4,7 @@ import type {
   RawInboundEvent,
 } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import type { ProviderMessageRecord } from "../platform/types";
+import { officialProviderInstallHint } from "../utils/provider-packages";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
 import { FUSOR_MESSAGES_CHANNEL, isFusorEvent } from "./event";
 import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
@@ -326,7 +327,16 @@ export class FusorCore {
   ): Promise<InboundReply> {
     const handlers = this.handlers.get(event.platform) ?? [];
     if (handlers.length === 0) {
-      log.warn("fusor: no handler for platform", { platform: event.platform });
+      // Reply shape stays wire-compatible; only the local log gets the
+      // install hint (since v5 the official providers are separate packages,
+      // so "no handler" is usually a missing install, not a routing bug).
+      const hint = officialProviderInstallHint(event.platform);
+      log.warn(
+        hint
+          ? `fusor: no handler for platform — ${hint}`
+          : "fusor: no handler for platform",
+        { platform: event.platform }
+      );
       return {
         eventId: event.eventId,
         errorReason: `no handler for platform ${event.platform}`,

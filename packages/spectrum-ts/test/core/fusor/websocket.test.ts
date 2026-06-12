@@ -2,7 +2,7 @@
 // against an in-process Bun.serve websocket server.
 
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { NO_MESSAGE_WAIT_MS } from "@test/support/timing";
+import { NO_MESSAGE_WAIT_MS } from "@spectrum-ts/test-support/timing";
 import { serve, sleep } from "bun";
 import { FusorCore, type RegisteredFusorHandler } from "@/fusor/core";
 import type { FusorMessagesReturn } from "@/fusor/types";

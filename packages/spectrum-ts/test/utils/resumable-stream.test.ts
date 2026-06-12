@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { flush, withinMs } from "@test/support/timing";
+import { flush, withinMs } from "@spectrum-ts/test-support/timing";
 import {
   type CloseableAsyncIterable,
   PERSISTENT_FAILURE_ERROR_THRESHOLD,

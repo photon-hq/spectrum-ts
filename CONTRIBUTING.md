@@ -51,17 +51,15 @@ bun run examples/basic/index.ts
 bun run test            # whole suite (via Turbo)
 ```
 
-Or from inside `packages/spectrum-ts`:
+Or from inside a package directory:
 
 ```bash
-bun test                      # whole suite
-bun test test/core            # core only
-bun test test/providers/telegram   # one provider
-bun run test:watch            # watch mode
-bun run test:coverage         # with coverage
+cd packages/spectrum-ts && bun test     # core suite
+cd packages/telegram && bun test        # one provider
+bun run test:watch                      # watch mode (core)
 ```
 
-Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in `packages/spectrum-ts/test/`, split into `core/` and `providers/<platform>/` mirroring `src/`. The test for `src/<path>.ts` lives at `test/core/<path>.test.ts` (non-provider) or `test/providers/<platform>/<rest>.test.ts`. Import the code under test through the `@/*` alias (`@/spectrum`, `@/providers/telegram/verify`) and shared fixtures from `@test/support/*`.
+Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in each package's `test/` directory, mirroring its `src/`. Core tests (`packages/spectrum-ts/test/{core,content,utils}/`) cover the SDK; each provider package carries its own tests (`packages/<platform>/test/`). Import the code under test through the package-local `@/*` alias (`@/spectrum` in core, `@/verify` in a provider) and shared fixtures from `@spectrum-ts/test-support/*`.
 
 ### Lint and format
 
@@ -76,16 +74,17 @@ This project uses [Ultracite](https://ultracite.ai) (Biome) for formatting and l
 
 ```
 packages/
-  spectrum-ts/           # Core SDK
-    src/
-      providers/         # Platform providers (iMessage, WhatsApp, terminal)
-      ...
-    test/
-      core/              # Tests for the core SDK (mirrors src/)
-      providers/         # Tests per platform provider
-      support/           # Shared test fixtures/helpers
+  spectrum-ts/           # Core SDK (npm: spectrum-ts) - content, platform, fusor, utils
+  imessage/              # @photon-ai/spectrum-provider-imessage
+  telegram/              # @photon-ai/spectrum-provider-telegram
+  slack/                 # @photon-ai/spectrum-provider-slack
+  whatsapp-business/     # @photon-ai/spectrum-provider-whatsapp-business
+  terminal/              # @photon-ai/spectrum-provider-terminal
+  test-support/          # Shared test fixtures/helpers (private, never published)
 examples/                # Example apps
 ```
+
+Providers import the core through its public entries (`spectrum-ts`, `spectrum-ts/authoring`, `spectrum-ts/internal`) and declare it as a peer dependency — never through relative paths. `turbo boundaries` enforces that providers don't import each other.
 
 ## Pull Request Workflow
 

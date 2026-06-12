@@ -27,9 +27,7 @@ export const FUSOR_WS_SUBPROTOCOL = "fusor.v1.json";
 // let the core's reconnect loop take over. The pre-`ready` budget also
 // bounds how long we wait for the server to acknowledge the init.
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
-const STALENESS_GRACE_MS = 5_000;
-
-const WS_OPEN = 1;
+const STALENESS_GRACE_MS = 5000;
 
 export class FusorWsError extends Error {
   readonly closeCode?: number;
@@ -72,9 +70,6 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 interface WsEventFrame {
-  type: "event";
-  seq: number;
-  replyExpected?: boolean;
   event: {
     eventId: string;
     projectId: string;
@@ -84,6 +79,9 @@ interface WsEventFrame {
     prevSubjectSeq: number;
     rawRequest: string;
   };
+  replyExpected?: boolean;
+  seq: number;
+  type: "event";
 }
 
 function toRawInboundEvent(frame: WsEventFrame): RawInboundEvent {
@@ -100,8 +98,6 @@ function toRawInboundEvent(frame: WsEventFrame): RawInboundEvent {
 }
 
 export interface FusorWsSessionOptions {
-  url: string;
-  token: string;
   /**
    * Called for every event frame, in arrival order. `sendReply` is set
    * only when the server flagged `replyExpected` — replying to anything
@@ -113,12 +109,14 @@ export interface FusorWsSessionOptions {
     event: RawInboundEvent,
     sendReply: ((reply: InboundReply) => void) | undefined
   ) => Promise<void>;
+  token: string;
+  url: string;
 }
 
 export interface FusorWsSession {
+  close(): void;
   /** Resolves on `close()`; rejects when the session dies on its own. */
   done: Promise<void>;
-  close(): void;
 }
 
 export function runFusorWsSession(
@@ -130,6 +128,11 @@ export function runFusorWsSession(
       "global WebSocket is not available in this runtime — the fusor websocket transport needs Bun, Node >= 22, or a browser/worker environment"
     );
   }
+
+  // Off the constructor (not the global) — module-level `WebSocket.OPEN`
+  // would crash runtimes where the global is missing before the friendly
+  // error above can fire.
+  const wsOpen = WebSocketCtor.OPEN;
 
   const ws = new WebSocketCtor(options.url, [FUSOR_WS_SUBPROTOCOL]);
 
@@ -189,9 +192,10 @@ export function runFusorWsSession(
     watchdog.unref?.();
   };
 
-  const sendReplyFor = (eventId: string): ((reply: InboundReply) => void) => {
-    return (reply) => {
-      if (ws.readyState !== WS_OPEN) {
+  const sendReplyFor =
+    (eventId: string): ((reply: InboundReply) => void) =>
+    (reply) => {
+      if (ws.readyState !== wsOpen) {
         return;
       }
       ws.send(
@@ -205,6 +209,54 @@ export function runFusorWsSession(
         })
       );
     };
+
+  const handleReadyFrame = (frame: Record<string, unknown>): void => {
+    const interval = frame.heartbeatIntervalMs;
+    if (typeof interval === "number" && interval > 0) {
+      stalenessBudgetMs = 2 * interval + STALENESS_GRACE_MS;
+    }
+    log.info("fusor ws stream ready", {
+      projectId: typeof frame.projectId === "string" ? frame.projectId : "",
+      heartbeatIntervalMs: typeof interval === "number" ? interval : 0,
+    });
+  };
+
+  const handleEventFrame = (frame: Record<string, unknown>): void => {
+    const eventFrame = frame as unknown as WsEventFrame;
+    let event: RawInboundEvent;
+    try {
+      event = toRawInboundEvent(eventFrame);
+    } catch (error) {
+      log.warn("fusor ws: undecodable event frame; skipping", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    const sendReply = eventFrame.replyExpected
+      ? sendReplyFor(event.eventId)
+      : undefined;
+    tail = tail
+      .then(() => options.onEvent(event, sendReply))
+      .catch((error) => {
+        log.warn("fusor ws: event handler failed", {
+          eventId: event.eventId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  };
+
+  const handleErrorFrame = (frame: Record<string, unknown>): void => {
+    const code = typeof frame.code === "string" ? frame.code : "unknown";
+    const message =
+      typeof frame.message === "string" ? frame.message : "server error";
+    const reason = typeof frame.reason === "string" ? frame.reason : undefined;
+    if (frame.fatal === true) {
+      pendingError = { code, message, reason };
+    } else {
+      // Typed non-fatal notice (reply_unknown_event, frame_invalid, …)
+      // — the stream keeps running; surface it for debugging.
+      log.warn("fusor ws: server notice", { code, message, reason });
+    }
   };
 
   const handleFrame = (raw: unknown): void => {
@@ -220,63 +272,18 @@ export function runFusorWsSession(
       return;
     }
     switch (frame.type) {
-      case "ready": {
-        const interval = frame.heartbeatIntervalMs;
-        if (typeof interval === "number" && interval > 0) {
-          stalenessBudgetMs = 2 * interval + STALENESS_GRACE_MS;
-        }
-        log.info("fusor ws stream ready", {
-          projectId:
-            typeof frame.projectId === "string" ? frame.projectId : "",
-          heartbeatIntervalMs: typeof interval === "number" ? interval : 0,
-        });
+      case "ready":
+        handleReadyFrame(frame);
         return;
-      }
-      case "event": {
-        const eventFrame = frame as unknown as WsEventFrame;
-        let event: RawInboundEvent;
-        try {
-          event = toRawInboundEvent(eventFrame);
-        } catch (error) {
-          log.warn("fusor ws: undecodable event frame; skipping", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return;
-        }
-        const sendReply = eventFrame.replyExpected
-          ? sendReplyFor(event.eventId)
-          : undefined;
-        tail = tail
-          .then(() => options.onEvent(event, sendReply))
-          .catch((error) => {
-            log.warn("fusor ws: event handler failed", {
-              eventId: event.eventId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          });
+      case "event":
+        handleEventFrame(frame);
         return;
-      }
-      case "error": {
-        const code = typeof frame.code === "string" ? frame.code : "unknown";
-        const message =
-          typeof frame.message === "string" ? frame.message : "server error";
-        const reason =
-          typeof frame.reason === "string" ? frame.reason : undefined;
-        if (frame.fatal === true) {
-          pendingError = { code, message, reason };
-        } else {
-          // Typed non-fatal notice (reply_unknown_event, frame_invalid, …)
-          // — the stream keeps running; surface it for debugging.
-          log.warn("fusor ws: server notice", { code, message, reason });
-        }
-        return;
-      }
-      case "heartbeat":
-      case "pong":
-        // Receipt alone resets the watchdog (handled in onmessage).
+      case "error":
+        handleErrorFrame(frame);
         return;
       default:
-        // Unknown server frame types are forward-compat; ignore.
+        // heartbeat / pong / unknown forward-compat types: receipt alone
+        // resets the watchdog (handled in onmessage).
         return;
     }
   };

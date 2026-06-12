@@ -4,11 +4,14 @@
 // grpc-first → websocket-fallback policy.
 
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { serve, sleep } from "bun";
 import { FusorCore, type RegisteredFusorHandler } from "@/fusor/core";
+import type { FusorMessagesReturn } from "@/fusor/types";
 import { cloud } from "@/utils/cloud";
 
 const DEAD_GRPC_ENDPOINT = "127.0.0.1:1";
 const PLATFORM = "tg";
+const INVALID_TRANSPORT_RE = /invalid transport/;
 
 const httpBytes = (json: string): string =>
   `POST /${PLATFORM} HTTP/1.1\r\ncontent-type: application/json\r\n\r\n${json}`;
@@ -17,17 +20,19 @@ const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
 type Frame = Record<string, unknown> & { type: string };
 
 interface WsServerScript {
+  /** Close the connection right after onInit frames (code + reason). */
+  closeAfterInit?: (
+    connection: number
+  ) => { code: number; reason: string } | undefined;
   /** Called per connection with the parsed init frame; returns frames to send. */
   onInit: (init: Frame, connection: number) => Frame[];
-  /** Close the connection right after onInit frames (code + reason). */
-  closeAfterInit?: (connection: number) => { code: number; reason: string } | undefined;
 }
 
 function makeFusorWsServer(script: WsServerScript) {
   const inits: Frame[] = [];
   const replies: Frame[] = [];
   let connections = 0;
-  const server = Bun.serve<{ connection: number }, never>({
+  const server = serve<{ connection: number }, never>({
     port: 0,
     fetch(req, srv) {
       connections += 1;
@@ -66,8 +71,9 @@ function makeFusorWsServer(script: WsServerScript) {
     replies,
     connectionCount: () => connections,
     stop: () => {
-      // stop(true) can hang with in-process clients; don't await it.
-      void server.stop(true);
+      server.stop(true).catch(() => {
+        // stop(true) can hang/reject with in-process clients; ignored.
+      });
     },
   };
 }
@@ -78,10 +84,11 @@ function makeHandler(capture: {
   return {
     verify: (req) =>
       JSON.parse(new TextDecoder().decode(req.rawBody)) as { text: string },
-    messages: ({ payload, respond }) => {
+    messages: ({ payload, respond }): FusorMessagesReturn => {
       capture.payloads.push(payload);
       respond({ status: 200, headers: { "X-T": "1" }, body: "ok" });
-      return undefined;
+      // No derived records — the reply via respond() is the whole point.
+      return [];
     },
     pushMessage: () => undefined,
     pushEvent: () => undefined,
@@ -113,7 +120,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<void> {
     if (Date.now() - start > timeoutMs) {
       throw new Error("waitFor timed out");
     }
-    await Bun.sleep(10);
+    await sleep(10);
   }
 }
 
@@ -164,7 +171,7 @@ describe("fusor websocket fallback", () => {
 
     // Exactly one reply — evt-2 had no replyExpected, so replying would
     // earn a reply_unknown_event notice from the real server.
-    await Bun.sleep(50);
+    await sleep(50);
     expect(server.replies).toHaveLength(1);
     const reply = server.replies[0];
     expect(reply?.eventId).toBe("evt-1");
@@ -276,7 +283,7 @@ describe("fusor websocket fallback", () => {
 
     // Long enough for several grpc-fail/backoff cycles; the ws server
     // must stay untouched.
-    await Bun.sleep(1500);
+    await sleep(1500);
     expect(server.connectionCount()).toBe(0);
   });
 
@@ -288,7 +295,7 @@ describe("fusor websocket fallback", () => {
           projectSecret: "secret",
           transport: "carrier-pigeon" as never,
         })
-    ).toThrow(/invalid transport/);
+    ).toThrow(INVALID_TRANSPORT_RE);
   });
 
   it("close() tears down an active websocket session promptly", async () => {

@@ -61,6 +61,9 @@ function isAuthError(error: unknown): boolean {
   return error instanceof ClientError && error.code === Status.UNAUTHENTICATED;
 }
 
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 export interface RegisteredFusorHandler<TPayload = unknown> {
   messages: (ctx: {
     payload: TPayload;
@@ -268,16 +271,16 @@ export interface FusorCoreOptions {
   projectId?: string;
   projectSecret?: string;
   /**
+   * Force a streaming transport. Defaults to the `SPECTRUM_FUSOR_TRANSPORT`
+   * env var, then `auto` (gRPC first, WebSocket fallback).
+   */
+  transport?: FusorTransport;
+  /**
    * fusor-fanout-websocket endpoint (`wss://…/v1/subscribe`). Used as the
    * fallback transport when the gRPC stream can't be established — and as
    * the only transport once fanout-grpc is eventually turned off.
    */
   websocketEndpoint?: string;
-  /**
-   * Force a streaming transport. Defaults to the `SPECTRUM_FUSOR_TRANSPORT`
-   * env var, then `auto` (gRPC first, WebSocket fallback).
-   */
-  transport?: FusorTransport;
 }
 
 export class FusorCore {
@@ -366,60 +369,72 @@ export class FusorCore {
   private async runConnectionLoop(): Promise<void> {
     let attempt = 0;
     while (!this.stopped) {
-      if (this.transport !== "websocket") {
-        try {
-          await this.runGrpcOnce();
-          attempt = 0;
-          continue;
-        } catch (error) {
-          if (this.stopped) {
-            return;
-          }
-          // Drop a stale token on auth failure so the next attempt mints
-          // a fresh one instead of replaying the rejected token.
-          if (isAuthError(error)) {
-            this.tokenProvider?.invalidate();
-          }
-          if (this.transport === "grpc") {
-            attempt += 1;
-            const backoff = this.backoffMs(attempt);
-            log.warn("fusor grpc stream errored; reconnecting", {
-              error: error instanceof Error ? error.message : String(error),
-              backoff,
-            });
-            await this.backoffSleep(backoff);
-            continue;
-          }
-          log.warn("fusor grpc stream errored; trying websocket fallback", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+      const grpcRan =
+        this.transport !== "websocket" && (await this.tryGrpcOnce());
+      if (this.stopped) {
+        return;
       }
-
-      try {
-        await this.runWebsocketOnce();
+      if (grpcRan) {
         attempt = 0;
         continue;
-      } catch (error) {
-        if (this.stopped) {
-          return;
-        }
-        attempt += 1;
-        if (isWsAuthError(error)) {
-          this.tokenProvider?.invalidate();
-        }
-        const backoff = this.backoffMs(attempt);
+      }
+
+      const wsRan =
+        this.transport !== "grpc" && (await this.tryWebsocketOnce());
+      if (this.stopped) {
+        return;
+      }
+      if (wsRan) {
+        attempt = 0;
+        continue;
+      }
+
+      attempt += 1;
+      await this.backoffSleep(this.backoffMs(attempt));
+    }
+  }
+
+  // True when the stream ran to a clean end; false when it errored (the
+  // loop then falls through to the websocket fallback / backoff).
+  private async tryGrpcOnce(): Promise<boolean> {
+    try {
+      await this.runGrpcOnce();
+      return true;
+    } catch (error) {
+      // Drop a stale token on auth failure so the next attempt mints a
+      // fresh one instead of replaying the rejected token.
+      if (isAuthError(error)) {
+        this.tokenProvider?.invalidate();
+      }
+      if (!this.stopped) {
+        log.warn(
+          this.transport === "grpc"
+            ? "fusor grpc stream errored; reconnecting"
+            : "fusor grpc stream errored; trying websocket fallback",
+          { error: errorText(error) }
+        );
+      }
+      return false;
+    }
+  }
+
+  private async tryWebsocketOnce(): Promise<boolean> {
+    try {
+      await this.runWebsocketOnce();
+      return true;
+    } catch (error) {
+      if (isWsAuthError(error)) {
+        this.tokenProvider?.invalidate();
+      }
+      if (!this.stopped) {
         log.warn(
           this.transport === "websocket"
             ? "fusor websocket stream errored; reconnecting"
             : "fusor websocket fallback errored; reconnecting",
-          {
-            error: error instanceof Error ? error.message : String(error),
-            backoff,
-          }
+          { error: errorText(error) }
         );
-        await this.backoffSleep(backoff);
       }
+      return false;
     }
   }
 

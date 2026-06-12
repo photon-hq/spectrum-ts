@@ -11,7 +11,7 @@ export interface FusorTokenProvider {
 }
 
 /**
- * Single-token provider for the fusor gRPC stream. Mirrors the renewal cadence
+ * Single-token provider for the fusor stream. Mirrors the renewal cadence
  * of `providers/slack/auth.ts` but without per-team bookkeeping — fusor issues
  * one bearer JWT per project.
  */

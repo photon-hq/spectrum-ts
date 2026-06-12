@@ -4,13 +4,13 @@ import type {
   RawInboundEvent,
 } from "@photon-ai/proto/photon/fusor/v1/inbound";
 
-// fusor.v1.json WebSocket transport — the fallback for the gRPC stream.
+// fusor.v1.json WebSocket transport — the streaming transport.
 //
 // Speaks fusor-fanout-websocket's public protocol (fusor repo,
 // apps/fanout-websocket/BEHAVIOR.md): a standards WebSocket at
 // `wss://…/v1/subscribe`, subprotocol `fusor.v1.json`, JSON text frames.
 // The cursor (`startSeq` / `event.seq`) and the reply path carry the same
-// semantics as the gRPC plane — only the framing differs.
+// semantics the retired gRPC plane had — only the framing differed.
 //
 // Uses the global `WebSocket` (Bun, Node ≥ 22, browsers, workers) — no
 // client library. Auth rides inside the `init` frame rather than an
@@ -43,7 +43,7 @@ export class FusorWsError extends Error {
 
 // A stale/expired token surfaces as a typed `unauthenticated` error frame
 // + close 4401; detect it so the reconnect path can drop the cached token
-// before retrying (mirror of the gRPC `isAuthError`).
+// before retrying.
 export function isWsAuthError(error: unknown): boolean {
   return (
     error instanceof FusorWsError &&
@@ -102,8 +102,7 @@ export interface FusorWsSessionOptions {
    * Called for every event frame, in arrival order. `sendReply` is set
    * only when the server flagged `replyExpected` — replying to anything
    * else earns a (non-fatal) `reply_unknown_event` notice from the
-   * server, so the core must not fire blind replies the way the gRPC
-   * path can.
+   * server, so the core must not fire blind replies.
    */
   onEvent: (
     event: RawInboundEvent,

@@ -19,7 +19,7 @@ export default defineConfig({
   outDir: "dist",
   target: "esnext",
   external: ["ffmpeg-static"],
-  // esbuild bundles CommonJS dependencies (e.g. transitive `@grpc/grpc-js`) into
+  // esbuild bundles CommonJS dependencies (e.g. `vcf`, `mime-types`) into
   // this ESM output and rewrites their `require(...)` calls to a `__require` shim
   // whose fallback throws `Dynamic require of "x" is not supported` — because
   // `require` is undefined in a real ESM context. Injecting a `createRequire`

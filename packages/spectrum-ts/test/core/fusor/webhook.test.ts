@@ -338,7 +338,7 @@ describe("spectrum.webhook", () => {
     await spectrum.stop();
   });
 
-  it("never opens the gRPC stream for webhook, but does for spectrum.messages", async () => {
+  it("never opens the Fusor stream for webhook, but does for spectrum.messages", async () => {
     const startSpy = spyOn(FusorCore.prototype, "start").mockResolvedValue(
       undefined
     );
@@ -360,7 +360,7 @@ describe("spectrum.webhook", () => {
       );
       expect(startSpy).not.toHaveBeenCalled();
 
-      // First subscription to spectrum.messages triggers the lazy gRPC start.
+      // First subscription to spectrum.messages triggers the lazy stream start.
       const iterator = spectrum.messages[Symbol.asyncIterator]();
       const pending = iterator.next();
       await new Promise((resolve) => setTimeout(resolve, TICK_MS));

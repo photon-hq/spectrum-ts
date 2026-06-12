@@ -1,7 +1,5 @@
-// FusorCore websocket fallback: drives the real `fusor.v1.json` protocol
-// against an in-process Bun.serve websocket server. The gRPC endpoint
-// points at a dead port so every cycle exercises the
-// grpc-first → websocket-fallback policy.
+// FusorCore streaming: drives the real `fusor.v1.json` protocol
+// against an in-process Bun.serve websocket server.
 
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { serve, sleep } from "bun";
@@ -9,9 +7,7 @@ import { FusorCore, type RegisteredFusorHandler } from "@/fusor/core";
 import type { FusorMessagesReturn } from "@/fusor/types";
 import { cloud } from "@/utils/cloud";
 
-const DEAD_GRPC_ENDPOINT = "127.0.0.1:1";
 const PLATFORM = "tg";
-const INVALID_TRANSPORT_RE = /invalid transport/;
 
 const httpBytes = (json: string): string =>
   `POST /${PLATFORM} HTTP/1.1\r\ncontent-type: application/json\r\n\r\n${json}`;
@@ -131,8 +127,8 @@ afterEach(async () => {
   }
 });
 
-describe("fusor websocket fallback", () => {
-  it("falls back to websocket when grpc is unreachable, streams events, and replies only when asked", async () => {
+describe("fusor websocket streaming", () => {
+  it("streams events and replies only when asked", async () => {
     const tokenSpy = spyOn(cloud, "issueFusorToken").mockResolvedValue({
       token: "t1",
       expiresIn: 900,
@@ -152,7 +148,6 @@ describe("fusor websocket fallback", () => {
     const core = new FusorCore({
       projectId: "proj",
       projectSecret: "secret",
-      endpoint: DEAD_GRPC_ENDPOINT,
       websocketEndpoint: server.url,
     });
     cleanups.push(() => core.close());
@@ -216,7 +211,6 @@ describe("fusor websocket fallback", () => {
     const core = new FusorCore({
       projectId: "proj",
       projectSecret: "secret",
-      endpoint: DEAD_GRPC_ENDPOINT,
       websocketEndpoint: server.url,
     });
     cleanups.push(() => core.close());
@@ -228,74 +222,6 @@ describe("fusor websocket fallback", () => {
     await waitFor(() => server.inits.length === 2, 10_000);
     expect(server.inits[0]?.token).toBe("t1");
     expect(server.inits[1]?.token).toBe("t2");
-  });
-
-  it("transport: websocket never touches gRPC — even an unparseable grpc endpoint is ignored", async () => {
-    const tokenSpy = spyOn(cloud, "issueFusorToken").mockResolvedValue({
-      token: "t1",
-      expiresIn: 900,
-    });
-    cleanups.push(() => tokenSpy.mockRestore());
-
-    const server = makeFusorWsServer({
-      onInit: () => [
-        { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
-      ],
-    });
-    cleanups.push(server.stop);
-
-    const core = new FusorCore({
-      projectId: "proj",
-      projectSecret: "secret",
-      // Would crash channel creation if the grpc path were ever taken.
-      endpoint: "not a valid grpc target at all",
-      websocketEndpoint: server.url,
-      transport: "websocket",
-    });
-    cleanups.push(() => core.close());
-    core.register(PLATFORM, makeHandler({ payloads: [] }));
-    await core.start();
-
-    await waitFor(() => server.inits.length === 1);
-    expect(server.inits[0]?.token).toBe("t1");
-  });
-
-  it("transport: grpc never falls back to websocket", async () => {
-    const tokenSpy = spyOn(cloud, "issueFusorToken").mockResolvedValue({
-      token: "t1",
-      expiresIn: 900,
-    });
-    cleanups.push(() => tokenSpy.mockRestore());
-
-    const server = makeFusorWsServer({ onInit: () => [] });
-    cleanups.push(server.stop);
-
-    const core = new FusorCore({
-      projectId: "proj",
-      projectSecret: "secret",
-      endpoint: DEAD_GRPC_ENDPOINT,
-      websocketEndpoint: server.url,
-      transport: "grpc",
-    });
-    cleanups.push(() => core.close());
-    core.register(PLATFORM, makeHandler({ payloads: [] }));
-    await core.start();
-
-    // Long enough for several grpc-fail/backoff cycles; the ws server
-    // must stay untouched.
-    await sleep(1500);
-    expect(server.connectionCount()).toBe(0);
-  });
-
-  it("rejects an invalid transport value", () => {
-    expect(
-      () =>
-        new FusorCore({
-          projectId: "proj",
-          projectSecret: "secret",
-          transport: "carrier-pigeon" as never,
-        })
-    ).toThrow(INVALID_TRANSPORT_RE);
   });
 
   it("close() tears down an active websocket session promptly", async () => {
@@ -315,7 +241,6 @@ describe("fusor websocket fallback", () => {
     const core = new FusorCore({
       projectId: "proj",
       projectSecret: "secret",
-      endpoint: DEAD_GRPC_ENDPOINT,
       websocketEndpoint: server.url,
     });
     core.register(PLATFORM, makeHandler({ payloads: [] }));

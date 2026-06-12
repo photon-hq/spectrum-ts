@@ -7,7 +7,7 @@ on Fusor supports both:
 
 | Transport | You write | Fusor → you over | Connection |
 | --- | --- | --- | --- |
-| **Streaming** | `for await (… of app.messages)` | a long-lived stream (gRPC, with automatic WebSocket fallback) | Spectrum dials Fusor |
+| **Streaming** | `for await (… of app.messages)` | a long-lived WebSocket stream (`fusor.v1.json`) | Spectrum dials Fusor |
 | **Webhook** | `app.webhook(request, handler)` in an HTTP route | an HTTP POST to your endpoint | Fusor calls you |
 
 Both run the **same** per-platform pipeline — verify the platform's signature,
@@ -15,30 +15,22 @@ parse the raw request, produce messages, and (optionally) reply. Only the
 transport differs. Pick whichever fits your deployment: a long-running worker
 (streaming) or a serverless / request-scoped HTTP handler (webhook).
 
-> **Streaming transport selection.** Spectrum dials the Fusor gRPC plane
-> first; if that stream can't be established (or dies), it falls back to
-> the Fusor WebSocket plane (`fusor.v1.json` protocol) for that session
-> and tries gRPC again on the next reconnect. The fallback exists because
-> the gRPC plane is scheduled to be retired — once it's turned off, the
-> gRPC attempt fails fast each cycle and every Fusor platform (Telegram
-> included) rides WebSocket with **no code change**; cursors and the
-> reply path behave identically on both planes. Endpoints:
-> `SPECTRUM_FUSOR_GRPC_URL` (default `fusor.spectrum.photon.codes:443`)
-> and `SPECTRUM_FUSOR_WS_URL` (default
-> `wss://fusor-ws.spectrum.photon.codes/v1/subscribe`). Force a transport
-> with `SPECTRUM_FUSOR_TRANSPORT=auto|grpc|websocket` (default `auto`) —
-> `websocket` skips gRPC entirely (the channel is never created), `grpc`
-> never falls back. The WebSocket transport uses the global `WebSocket` —
-> Bun, Node ≥ 22, browsers, and edge workers all qualify; no client
-> library.
+> **Streaming transport.** Spectrum dials the Fusor WebSocket plane
+> (`fusor.v1.json` protocol) and reconnects with backoff for the life of
+> the app. Endpoint: `SPECTRUM_FUSOR_WS_URL` (default
+> `wss://fusor-ws.spectrum.photon.codes/v1/subscribe`). The transport
+> uses the global `WebSocket` — Bun, Node ≥ 22, browsers, and edge
+> workers all qualify; no client library. (A gRPC plane existed during
+> the transition and has been retired; cursors and the reply path are
+> unchanged.)
 
 > Only **Fusor-backed providers** use this: a provider is in *fusor mode* when
 > its `definePlatform` `lifecycle.createClient` returns a `fusor(...)` client
 > (rather than a long-lived SDK client). There is no separate
 > `defineFusorPlatform` — it's one overloaded `definePlatform`. Providers with
 > their own transport — e.g. iMessage via `@photon-ai/advanced-imessage` — do
-> **not** go through the Fusor gRPC stream; see [When the gRPC stream
-> opens](#when-the-grpc-stream-opens).
+> **not** go through the Fusor stream; see [When the stream
+> opens](#when-the-stream-opens).
 
 ---
 
@@ -80,15 +72,15 @@ parses the request. They are *not* something you call:
   > lazy media downloads — its `createTelegramClient(...)` makes no network call,
   > so there is nothing to cache or thread through the payload).
 
-Internally this is `FusorCore.processEvent()`, driven either by the gRPC stream
-or by `app.webhook()`. You never call it directly.
+Internally this is `FusorCore.processEvent()`, driven either by the WebSocket
+stream or by `app.webhook()`. You never call it directly.
 
 ---
 
 ## Streaming mode — `app.messages`
 
-The default. Spectrum opens one gRPC stream to Fusor and yields each event as a
-fully-built `[space, message]`:
+The default. Spectrum opens one WebSocket stream to Fusor and yields each event
+as a fully-built `[space, message]`:
 
 ```typescript
 import { Spectrum } from "spectrum-ts";
@@ -334,22 +326,22 @@ messages-only.
 
 ---
 
-## When the gRPC stream opens
+## When the stream opens
 
-The Fusor gRPC stream is opened **lazily** — only on the first time you consume
+The Fusor stream is opened **lazily** — only on the first time you consume
 `app.messages`:
 
 ```typescript
 const app = await Spectrum({ providers: [/* fusor provider */], /* … */ });
-// No gRPC connection yet.
+// No Fusor connection yet.
 
 for await (const [space, message] of app.messages) { /* … */ }
-// ↑ first iteration opens the gRPC stream.
+// ↑ first iteration opens the stream.
 ```
 
 Consequences:
 
-- **`app.webhook()` never opens the gRPC stream.** A webhook-only deployment
+- **`app.webhook()` never opens the stream.** A webhook-only deployment
   never connects to Fusor's stream (and doesn't even need `projectId` /
   `projectSecret` for the webhook path — those are only required to mint the
   streaming token).
@@ -364,21 +356,21 @@ Consequences:
 
 ## The WebSocket transport
 
-The streaming fallback (and, once the gRPC plane is retired, the only
-streaming transport) speaks **`fusor.v1.json`** — Fusor's public WebSocket
-protocol. This section documents what's on the wire, why it's shaped that
-way, and the liveness machinery around it. You don't need any of it to
-*use* the SDK — `app.messages` is identical on both transports — but it's
-the contract to implement if you're building a non-TypeScript client.
+The streaming transport speaks **`fusor.v1.json`** — Fusor's public
+WebSocket protocol. This section documents what's on the wire, why it's
+shaped that way, and the liveness machinery around it. You don't need
+any of it to *use* the SDK — `app.messages` hides the transport — but
+it's the contract to implement if you're building a non-TypeScript
+client.
 
 ### Why raw WebSocket (and not Socket.IO)
 
 `fusor.v1.json` is plain RFC 6455 WebSocket plus JSON text frames —
 deliberately **not** Socket.IO or any framework protocol:
 
-- **Reach is the whole point.** The gRPC plane needs a private proto
-  package and gRPC tooling; the WebSocket plane exists so browsers, edge
-  workers, and any language's stdlib can consume events. Socket.IO would
+- **Reach is the whole point.** The retired gRPC plane needed a private
+  proto package and gRPC tooling; the WebSocket plane exists so browsers,
+  edge workers, and any language's stdlib can consume events. Socket.IO would
   recreate the same lock-in one layer down: every consumer must embed a
   Socket.IO client of a compatible major version (the v2/v3/v4 protocol
   breaks are notorious), and those clients are weak outside JavaScript
@@ -393,8 +385,8 @@ deliberately **not** Socket.IO or any framework protocol:
 - **What Socket.IO would add, the protocol already covers** with
   Fusor-specific semantics a generic library can't provide: versioning
   via subprotocol negotiation, app-level heartbeats, resume via the
-  JetStream cursor (not session replay), and typed errors mapped to the
-  gRPC plane's status vocabulary. Its one unique feature — HTTP
+  JetStream cursor (not session replay), and typed errors with a
+  gRPC-style status vocabulary. Its one unique feature — HTTP
   long-polling fallback — would break streaming semantics for a network
   condition that's effectively extinct.
 
@@ -407,26 +399,24 @@ frames are JSON text; binary frames are a protocol violation. Receivers
 ignore unknown *fields*, and clients must ignore unknown *server frame
 types* (v1 can grow).
 
-**Field naming is the protobuf JSON mapping** of the same public messages
-the gRPC plane uses (`RawInboundEvent` / `InboundReply` from
-`@photon-ai/proto`): `eventId`, `startSeq`, base64 for `bytes`, RFC3339
-for timestamps. A future binary subprotocol is lossless by construction,
-and field names match the gRPC plane one-for-one.
+**Field naming is the protobuf JSON mapping** of the public messages
+(`RawInboundEvent` / `InboundReply` from `@photon-ai/proto`): `eventId`,
+`startSeq`, base64 for `bytes`, RFC3339 for timestamps. A future binary
+subprotocol is lossless by construction.
 
 | Direction | Frame | Purpose |
 | --- | --- | --- |
-| → server | `init` | First frame, required: `{ "type":"init", "startSeq":0, "token":"<jwt>" }`. `startSeq` is the JetStream cursor — `0` = live tail, `>0` = replay after that sequence (identical to gRPC `SubscribeInit.start_seq`). |
+| → server | `init` | First frame, required: `{ "type":"init", "startSeq":0, "token":"<jwt>" }`. `startSeq` is the JetStream cursor — `0` = live tail, `>0` = replay after that sequence. |
 | → server | `reply` | Synchronous reply for an event that carried `replyExpected: true`: `{ "type":"reply", "eventId", "status", "headers", "body":"<base64>", "errorReason" }`. |
 | → server | `ping` | Optional liveness escape hatch; echoed as `pong`. |
 | ← client | `ready` | Auth + subscription live. Carries `projectId`, the `startSeq` echo, `heartbeatIntervalMs`, and server limits. |
-| ← client | `event` | `{ "type":"event", "seq", "replyExpected"?, "event": { "eventId", "projectId", "platform", "receivedAt", "prevSubjectSeq", "rawRequest":"<base64>" } }` — `rawRequest` is the same HTTP/1.1 wire bytes the gRPC plane delivers; the SDK pipeline is shared. |
+| ← client | `event` | `{ "type":"event", "seq", "replyExpected"?, "event": { "eventId", "projectId", "platform", "receivedAt", "prevSubjectSeq", "rawRequest":"<base64>" } }` — `rawRequest` is the original HTTP/1.1 wire bytes; the SDK pipeline is shared with the webhook transport. |
 | ← client | `heartbeat` | App-level keepalive (see below). |
 | ← client | `error` | Typed notice. `fatal: true` is always followed by a close with a mapped code; `fatal: false` means the stream keeps running (e.g. `reply_unknown_event`). |
 
 **Replies.** `replyExpected` is a boolean — reply only when it's `true`.
-(The gRPC plane lets clients fire replies blind and drops unknown ones
-silently; the WebSocket server answers them with a non-fatal
-`reply_unknown_event` notice instead.) The SDK handles this for you.
+(The server answers blind replies with a non-fatal `reply_unknown_event`
+notice.) The SDK handles this for you.
 
 **Close codes.** Every server-initiated close is preceded by a fatal
 `error` frame: `4401` unauthenticated (re-mint the token — the SDK
@@ -438,9 +428,8 @@ the last three plus `1011` are plain reconnect-with-backoff cases.
 
 ### Auth
 
-The same LightAuth JWT as the gRPC plane — **one token works on both
-transports** (`aud: codes.photon.spectrum.fusor`, minted by
-spectrum-cloud from your project credentials). The SDK sends it inside
+A LightAuth JWT (`aud: codes.photon.spectrum.fusor`), minted by
+spectrum-cloud from your project credentials. The SDK sends it inside
 the `init` frame rather than an `Authorization` header so the transport
 works in runtimes that can't set upgrade headers (browsers, some
 workers); the server also accepts `Authorization: Bearer` at upgrade for
@@ -471,14 +460,12 @@ frame is accepted into the transport buffer) plus the `seq` cursor and
 
 ### Reconnect
 
-The SDK reconnects with exponential backoff (1s → 30s) under the
-transport policy described in the selection note near the top of this
-doc (`SPECTRUM_FUSOR_TRANSPORT`): `auto` retries gRPC first each cycle,
-`websocket` pins this transport. On `4401` it re-mints the token before
-retrying. Today reconnects resume as a live tail (`startSeq: 0`); cursor
-persistence — resuming from the last seen `seq` across restarts — is
-tracked in [photon-hq/fusor#9](https://github.com/photon-hq/fusor/issues/9)
-and will slot into the same `init` field on both transports.
+The SDK reconnects with exponential backoff (1s → 30s). On `4401` it
+re-mints the token before retrying. Today reconnects resume as a live
+tail (`startSeq: 0`); cursor persistence — resuming from the last seen
+`seq` across restarts — is tracked in
+[photon-hq/fusor#9](https://github.com/photon-hq/fusor/issues/9)
+and will slot into the same `init` field.
 
 **Runtime requirements:** the global `WebSocket` constructor — Bun,
 Node ≥ 22, browsers, and edge workers qualify; no client library is
@@ -496,7 +483,7 @@ involved.
 - Wire envelope — `RawInboundEvent` / `InboundReply` from
   `@photon-ai/proto/photon/fusor/v1/inbound`
 - WebSocket transport client — `runFusorWsSession` in
-  `src/fusor/websocket.ts`; transport policy in `FusorCore` (`src/fusor/core.ts`)
+  `src/fusor/websocket.ts`; reconnect loop in `FusorCore` (`src/fusor/core.ts`)
 - Server-side `fusor.v1.json` spec — `apps/fanout-websocket/BEHAVIOR.md`
   in the fusor repo (frame schemas, close-code matrix, e2e recipes)
 - Public types — `WebhookHandler`, `WebhookRawRequest`, `WebhookRawResult`,

@@ -1,20 +1,12 @@
-import { ChannelCredentials } from "@grpc/grpc-js";
 import { createLogger } from "@photon-ai/otel";
 import type {
   InboundReply,
   RawInboundEvent,
 } from "@photon-ai/proto/photon/fusor/v1/inbound";
-import { type Channel, createChannel, createClient } from "nice-grpc";
-import { ClientError, Metadata, Status } from "nice-grpc-common";
 import type { ProviderMessageRecord } from "../platform/types";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
 import { FUSOR_MESSAGES_CHANNEL, isFusorEvent } from "./event";
 import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
-import {
-  EventsServiceDefinition,
-  type SubscribeRequest,
-  type SubscribeResponse,
-} from "./service";
 import type { FusorMessagesReturn, FusorReply, FusorVerify } from "./types";
 import {
   type FusorWsSession,
@@ -22,44 +14,12 @@ import {
   runFusorWsSession,
 } from "./websocket";
 
-const DEFAULT_FUSOR_GRPC_URL = "fusor.spectrum.photon.codes:443";
 const DEFAULT_FUSOR_WS_URL =
   "wss://fusor-ws.spectrum.photon.codes/v1/subscribe";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 
-/**
- * Streaming transport policy:
- * - `auto` (default): gRPC first, WebSocket fallback, retried each cycle.
- * - `grpc`: gRPC only — never falls back.
- * - `websocket`: WebSocket only — the gRPC channel is never even created.
- *   This is what the fleet runs on once fanout-grpc is turned off.
- */
-export type FusorTransport = "auto" | "grpc" | "websocket";
-
-const FUSOR_TRANSPORTS: readonly FusorTransport[] = [
-  "auto",
-  "grpc",
-  "websocket",
-];
-
-function resolveTransport(option: string | undefined): FusorTransport {
-  const raw = option ?? process.env.SPECTRUM_FUSOR_TRANSPORT ?? "auto";
-  if (!FUSOR_TRANSPORTS.includes(raw as FusorTransport)) {
-    throw new Error(
-      `fusor: invalid transport "${raw}" — expected one of ${FUSOR_TRANSPORTS.join(" | ")}`
-    );
-  }
-  return raw as FusorTransport;
-}
-
 const log = createLogger("spectrum.fusor");
-
-// A stale/expired stream token surfaces as a gRPC UNAUTHENTICATED error; detect
-// it so the reconnect path can drop the cached token before retrying.
-function isAuthError(error: unknown): boolean {
-  return error instanceof ClientError && error.code === Status.UNAUTHENTICATED;
-}
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -74,70 +34,6 @@ export interface RegisteredFusorHandler<TPayload = unknown> {
   pushEvent: (channel: string, data: unknown) => void;
   pushMessage: (record: ProviderMessageRecord) => void;
   verify: FusorVerify<TPayload>;
-}
-
-interface RequestSink {
-  close(): void;
-  push(req: SubscribeRequest): void;
-}
-
-function createRequestSink(): {
-  iterable: AsyncIterable<SubscribeRequest>;
-  sink: RequestSink;
-} {
-  const buffer: SubscribeRequest[] = [];
-  const resolvers: ((
-    result: IteratorResult<SubscribeRequest, undefined>
-  ) => void)[] = [];
-  let closed = false;
-
-  const sink: RequestSink = {
-    push(req) {
-      if (closed) {
-        return;
-      }
-      const resolver = resolvers.shift();
-      if (resolver) {
-        resolver({ value: req, done: false });
-      } else {
-        buffer.push(req);
-      }
-    },
-    close() {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      while (resolvers.length > 0) {
-        resolvers.shift()?.({ value: undefined, done: true });
-      }
-    },
-  };
-
-  const iterable: AsyncIterable<SubscribeRequest> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<SubscribeRequest, undefined>> {
-          if (buffer.length > 0) {
-            const value = buffer.shift() as SubscribeRequest;
-            return Promise.resolve({ value, done: false });
-          }
-          if (closed) {
-            return Promise.resolve({ value: undefined, done: true });
-          }
-          return new Promise((resolve) => {
-            resolvers.push(resolve);
-          });
-        },
-        return(): Promise<IteratorResult<SubscribeRequest, undefined>> {
-          sink.close();
-          return Promise.resolve({ value: undefined, done: true });
-        },
-      };
-    },
-  };
-
-  return { iterable, sink };
 }
 
 function toReplyBytes(body: string | Uint8Array | undefined): Uint8Array {
@@ -263,35 +159,25 @@ function runHandlerOnce<TPayload>(
 }
 
 export interface FusorCoreOptions {
-  endpoint?: string;
-  // Optional: only the streaming transports (start) need cloud credentials to
+  // Optional: only the streaming transport (start) needs cloud credentials to
   // mint a token. The webhook path (processEvent) routes registered handlers
   // without them, so a webhook-only Spectrum can construct a core with
   // neither set.
   projectId?: string;
   projectSecret?: string;
   /**
-   * Force a streaming transport. Defaults to the `SPECTRUM_FUSOR_TRANSPORT`
-   * env var, then `auto` (gRPC first, WebSocket fallback).
-   */
-  transport?: FusorTransport;
-  /**
-   * fusor-fanout-websocket endpoint (`wss://…/v1/subscribe`). Used as the
-   * fallback transport when the gRPC stream can't be established — and as
-   * the only transport once fanout-grpc is eventually turned off.
+   * fusor-fanout-websocket endpoint (`wss://…/v1/subscribe`) — the
+   * streaming transport. Defaults to the `SPECTRUM_FUSOR_WS_URL` env
+   * var, then the production endpoint.
    */
   websocketEndpoint?: string;
 }
 
 export class FusorCore {
   private readonly options: FusorCoreOptions;
-  private readonly endpoint: string;
   private readonly websocketEndpoint: string;
-  private readonly transport: FusorTransport;
   private readonly handlers = new Map<string, RegisteredFusorHandler[]>();
-  private channel?: Channel;
   private tokenProvider?: FusorTokenProvider;
-  private requestSink?: RequestSink;
   private wsSession?: FusorWsSession;
   private connectionLoop?: Promise<void>;
   private started = false;
@@ -304,15 +190,10 @@ export class FusorCore {
 
   constructor(options: FusorCoreOptions) {
     this.options = options;
-    this.endpoint =
-      options.endpoint ??
-      process.env.SPECTRUM_FUSOR_GRPC_URL ??
-      DEFAULT_FUSOR_GRPC_URL;
     this.websocketEndpoint =
       options.websocketEndpoint ??
       process.env.SPECTRUM_FUSOR_WS_URL ??
       DEFAULT_FUSOR_WS_URL;
-    this.transport = resolveTransport(options.transport);
     this.stoppedPromise = new Promise<void>((resolve) => {
       this.stopResolve = resolve;
     });
@@ -344,43 +225,18 @@ export class FusorCore {
       this.options.projectId,
       this.options.projectSecret
     );
-    // A forced-websocket core never dials gRPC, so don't even build the
-    // channel.
-    if (this.transport !== "websocket") {
-      this.channel = createChannel(
-        this.endpoint,
-        ChannelCredentials.createSsl()
-      );
-    }
     this.connectionLoop = this.runConnectionLoop().catch((error) => {
       log.error("fusor connection loop crashed", { error });
     });
   }
 
-  // Transport policy (`auto`): gRPC first, websocket as the fallback.
-  // fanout-grpc is slated to be turned off eventually — when that happens
-  // the gRPC attempt fails fast every cycle and the websocket fallback
-  // carries the stream with no SDK change (telegram and every other fusor
-  // platform ride whichever transport is up; the cursor and reply
-  // semantics are identical on both planes). Each cycle retries gRPC
-  // first so an outage-then-recovery on either side self-heals; backoff
-  // applies only when every transport the policy allows failed in the
-  // same cycle. `grpc` / `websocket` pin a single transport.
+  // Streaming transport: the fusor.v1.json WebSocket plane. A session that
+  // runs to a clean end reconnects immediately; an errored session backs
+  // off exponentially (reset on the next clean run).
   private async runConnectionLoop(): Promise<void> {
     let attempt = 0;
     while (!this.stopped) {
-      const grpcRan =
-        this.transport !== "websocket" && (await this.tryGrpcOnce());
-      if (this.stopped) {
-        return;
-      }
-      if (grpcRan) {
-        attempt = 0;
-        continue;
-      }
-
-      const wsRan =
-        this.transport !== "grpc" && (await this.tryWebsocketOnce());
+      const wsRan = await this.tryWebsocketOnce();
       if (this.stopped) {
         return;
       }
@@ -395,44 +251,21 @@ export class FusorCore {
   }
 
   // True when the stream ran to a clean end; false when it errored (the
-  // loop then falls through to the websocket fallback / backoff).
-  private async tryGrpcOnce(): Promise<boolean> {
-    try {
-      await this.runGrpcOnce();
-      return true;
-    } catch (error) {
-      // Drop a stale token on auth failure so the next attempt mints a
-      // fresh one instead of replaying the rejected token.
-      if (isAuthError(error)) {
-        this.tokenProvider?.invalidate();
-      }
-      if (!this.stopped) {
-        log.warn(
-          this.transport === "grpc"
-            ? "fusor grpc stream errored; reconnecting"
-            : "fusor grpc stream errored; trying websocket fallback",
-          { error: errorText(error) }
-        );
-      }
-      return false;
-    }
-  }
-
+  // loop then backs off before reconnecting).
   private async tryWebsocketOnce(): Promise<boolean> {
     try {
       await this.runWebsocketOnce();
       return true;
     } catch (error) {
+      // Drop a stale token on auth failure so the next attempt mints a
+      // fresh one instead of replaying the rejected token.
       if (isWsAuthError(error)) {
         this.tokenProvider?.invalidate();
       }
       if (!this.stopped) {
-        log.warn(
-          this.transport === "websocket"
-            ? "fusor websocket stream errored; reconnecting"
-            : "fusor websocket fallback errored; reconnecting",
-          { error: errorText(error) }
-        );
+        log.warn("fusor websocket stream errored; reconnecting", {
+          error: errorText(error),
+        });
       }
       return false;
     }
@@ -455,37 +288,6 @@ export class FusorCore {
     this.reconnectResolve = undefined;
   }
 
-  private async runGrpcOnce(): Promise<void> {
-    if (!(this.channel && this.tokenProvider)) {
-      throw new Error("fusor: channel/token not initialized");
-    }
-    const token = await this.tokenProvider.getToken();
-
-    const client = createClient(EventsServiceDefinition, this.channel);
-
-    const { iterable: requestIterable, sink } = createRequestSink();
-    this.requestSink = sink;
-
-    sink.push({ init: { startSeq: 0 }, reply: undefined });
-
-    // Fusor's gRPC auth (fanout-grpc `authorize()`) reads the raw JWT from the
-    // `access_token` metadata key — not an `authorization: Bearer …` header.
-    const metadata = Metadata().set("access_token", token);
-    const stream = client.subscribe(requestIterable, { metadata });
-
-    try {
-      for await (const response of stream) {
-        if (this.stopped) {
-          break;
-        }
-        await this.handleEvent(response);
-      }
-    } finally {
-      sink.close();
-      this.requestSink = undefined;
-    }
-  }
-
   private async runWebsocketOnce(): Promise<void> {
     if (!this.tokenProvider) {
       throw new Error("fusor: token not initialized");
@@ -499,9 +301,8 @@ export class FusorCore {
           return;
         }
         const reply = await this.processEvent(event);
-        // Unlike the gRPC path (which fires replies blind and lets the
-        // server drop unknown eventIds), the websocket server answers
-        // unexpected replies with typed notices — only reply when asked.
+        // The server answers unexpected replies with typed notices —
+        // only reply when asked (sendReply is set iff replyExpected).
         sendReply?.(reply);
       },
     });
@@ -516,10 +317,11 @@ export class FusorCore {
   // Transport-independent event processing: route by platform, parse the wire
   // request, run every registered handler (verify → messages), and combine the
   // results into a single InboundReply. Returns the reply instead of writing it
-  // anywhere, so both the gRPC stream (sendReply) and the synchronous webhook
-  // path can drive it. `deliver` controls where produced records go: the gRPC
-  // path defaults to each handler's pushMessage (the per-platform queue feeding
-  // spectrum.messages); the webhook path collects them for the request instead.
+  // anywhere, so both the streaming session (sendReply) and the synchronous
+  // webhook path can drive it. `deliver` controls where produced records go:
+  // the streaming path defaults to each handler's pushMessage (the per-platform
+  // queue feeding spectrum.messages); the webhook path collects them for the
+  // request instead.
   async processEvent(
     event: RawInboundEvent,
     deliver?: (record: ProviderMessageRecord) => void
@@ -564,29 +366,11 @@ export class FusorCore {
     return combined;
   }
 
-  private async handleEvent(response: SubscribeResponse): Promise<void> {
-    const event = response.event;
-    if (!event) {
-      log.warn("fusor: received SubscribeResponse with no event");
-      return;
-    }
-    const reply = await this.processEvent(event);
-    this.sendReply(reply);
-  }
-
-  private sendReply(reply: InboundReply): void {
-    if (!this.requestSink) {
-      return;
-    }
-    this.requestSink.push({ init: undefined, reply });
-  }
-
   async close(): Promise<void> {
     if (this.stopped) {
       return;
     }
     this.stopped = true;
-    this.requestSink?.close();
     this.wsSession?.close();
     // Wake an in-progress reconnect backoff so the loop observes stopped and
     // exits immediately instead of waiting out the timer.
@@ -602,7 +386,6 @@ export class FusorCore {
     if (this.connectionLoop) {
       await this.connectionLoop;
     }
-    this.channel?.close();
     this.stopResolve?.();
   }
 

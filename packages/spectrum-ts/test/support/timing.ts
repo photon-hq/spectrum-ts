@@ -3,7 +3,7 @@
 
 // Upper bound on idle teardown waits (see settleSoon).
 export const SETTLE_CAP_MS = 150;
-// Yield one event-loop turn so a lazy gRPC start can fire.
+// Yield one event-loop turn so a lazy Fusor stream start can fire.
 export const TICK_MS = 0;
 // Long enough to confirm no message arrived.
 export const NO_MESSAGE_WAIT_MS = 50;

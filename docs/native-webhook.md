@@ -15,7 +15,7 @@ handler the same `(space, message)` pair either way.
 |---|---|---|
 | Body | signed, normalized JSON | protobuf envelope (raw provider request) |
 | Auth | HMAC over the body, verified with your `webhookSecret` | the platform's own signature, via the provider `verify()` |
-| Detection | has `X-Spectrum-Signature` | no signature header |
+| Detection | JSON body (`{…`) | protobuf body |
 | Works without a fusor provider | ✅ | ❌ (needs the fusor provider) |
 
 ## Configure the signing secret

@@ -219,6 +219,45 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     await spectrum.stop();
   });
 
+  it("routes a SIGNED protobuf body to the fusor path (header doesn't force native)", async () => {
+    // Spectrum signs fusor deliveries too, so an `x-spectrum-signature` header on
+    // a protobuf body must NOT be misrouted into the native JSON parser.
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+      webhookSecret: SPECTRUM_WEBHOOK_SECRET,
+    });
+    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
+    const received: Message[] = [];
+
+    const result = await spectrum.webhook(
+      {
+        headers: {
+          "content-type": "application/x-protobuf",
+          "x-spectrum-signature": "v0=deadbeef",
+          "x-spectrum-timestamp": String(Math.floor(Date.now() / 1000)),
+        },
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "message", text: "signed-protobuf" })
+        ),
+      },
+      (_space, message) => {
+        received.push(message);
+        done();
+      }
+    );
+    await finished;
+
+    expect(result.status).toBe(200);
+    expect(received[0]?.content).toEqual({
+      type: "text",
+      text: "signed-protobuf",
+    });
+
+    await spectrum.stop();
+  });
+
   it("throws on a fusor request when no fusor provider is configured", async () => {
     await withSpectrum(
       { webhookSecret: SPECTRUM_WEBHOOK_SECRET },

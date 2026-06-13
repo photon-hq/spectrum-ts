@@ -90,16 +90,19 @@ export type SpectrumInstance<
      * POST route — it auto-detects which of the two Spectrum webhook formats the
      * request carries and routes accordingly:
      *
-     * - **Native Spectrum webhook** (`X-Spectrum-Signature` header present):
-     *   Spectrum Cloud POSTs already-normalized, HMAC-signed JSON. The signature
-     *   is verified against `Spectrum({ webhookSecret })` (a bad signature →
-     *   401), the slim payload is deserialized into `[space, message]`, and a
-     *   `200` is returned. Works without any fusor provider configured.
-     * - **Fusor webhook** (no signature header): a protobuf envelope wrapping a
+     * - **Native Spectrum webhook** (the body is normalized JSON): Spectrum Cloud
+     *   POSTs already-normalized, HMAC-signed JSON. The signature is verified
+     *   against `Spectrum({ webhookSecret })` (a bad signature → 401), the slim
+     *   payload is deserialized into `[space, message]`, and a `200` is returned.
+     *   Works without any fusor provider configured.
+     * - **Fusor webhook** (the body is a protobuf envelope): a protobuf wrapping a
      *   raw provider request is decoded and routed to the matching provider's
      *   verify + message pipeline; the HTTP response is that platform's
      *   `respond()` reply (including protocol echoes like Slack
      *   `url_verification`), computed synchronously and returned immediately.
+     *
+     * Detection is by payload shape, not headers — Spectrum signs both kinds with
+     * `X-Spectrum-Signature`, so the header can't discriminate.
      *
      * `handler` is invoked once per resolved message **fire-and-forget** — it is
      * dispatched after the response is computed and is NOT awaited, so its
@@ -1028,9 +1031,20 @@ export async function Spectrum<
 
   // --- Native Spectrum webhook (signed, normalized JSON) -------------------
 
-  // The header that distinguishes a native (signed-JSON) webhook from a fusor
-  // (protobuf) one — fusor envelopes never carry it.
-  const SPECTRUM_SIGNATURE_HEADER = "x-spectrum-signature";
+  // Distinguish a native Spectrum webhook from a fusor one by the PAYLOAD, not a
+  // header: Spectrum signs both kinds with `x-spectrum-signature`, so the header
+  // can't tell them apart. A native body is a JSON object (`{…`); a fusor body is
+  // a binary protobuf `RawInboundEvent`, which never starts with `{`.
+  const looksLikeNativePayload = (bodyBytes: Uint8Array): boolean => {
+    for (const byte of bodyBytes) {
+      // Skip leading ASCII whitespace (space, tab, LF, CR).
+      if (byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d) {
+        continue;
+      }
+      return byte === 0x7b; // "{"
+    }
+    return false;
+  };
 
   const webhookText = (status: number, text: string): WebhookRawResult => ({
     status,
@@ -1183,9 +1197,9 @@ export async function Spectrum<
   ): Promise<Response | WebhookRawResult> => {
     const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
 
-    // Native Spectrum webhooks always carry a signature header; fusor (protobuf)
-    // envelopes never do — route on its presence.
-    if (headers[SPECTRUM_SIGNATURE_HEADER] !== undefined) {
+    // Route by payload shape: a native webhook is JSON, a fusor one is protobuf.
+    // Both may carry an `x-spectrum-signature` header, so it can't discriminate.
+    if (looksLikeNativePayload(bodyBytes)) {
       const spectrumResult = await handleSpectrumWebhook(
         bodyBytes,
         headers,

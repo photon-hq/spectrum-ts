@@ -118,9 +118,10 @@ it.
 > ℹ️ **Two webhook formats, one method.** `app.webhook()` also accepts the
 > **native Spectrum webhook** — Spectrum Cloud's own HMAC-signed, already-normalized
 > JSON deliveries (no raw provider request, no protobuf). It auto-detects the
-> format per request (the native one carries an `X-Spectrum-Signature` header) and
-> hands your handler the same `(space, message)` either way. The native format
-> needs a signing secret — see **[Native Spectrum webhooks](./native-webhook.md)**.
+> format per request by the payload shape — native is JSON, fusor is protobuf
+> (both are signed, so the signature header can't discriminate) — and hands your
+> handler the same `(space, message)` either way. The native format needs a
+> signing secret — see **[Native Spectrum webhooks](./native-webhook.md)**.
 
 ### Enable it
 

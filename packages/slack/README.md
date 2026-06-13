@@ -1,18 +1,18 @@
-# @photon-ai/spectrum-provider-slack
+# @spectrum-ts/slack
 
 Slack provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts).
 
 ## Install
 
 ```sh
-bun add spectrum-ts @photon-ai/spectrum-provider-slack
+bun add spectrum-ts @spectrum-ts/slack
 ```
 
 ## Use
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { slack } from "@photon-ai/spectrum-provider-slack";
+import { slack } from "@spectrum-ts/slack";
 
 const spectrum = Spectrum({
   providers: [slack.config({ tokens: { T012ABCDE: "xoxb-..." } })],

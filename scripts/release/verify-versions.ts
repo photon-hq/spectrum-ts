@@ -15,6 +15,8 @@
 
 import { CORE_NAME, META_NAME, publishablePackages } from "./packages";
 
+const INTERNAL_SCOPE = "@spectrum-ts/";
+
 const expected = process.argv[2];
 const errors: string[] = [];
 const pkgs = await publishablePackages();
@@ -40,7 +42,11 @@ for (const pkg of pkgs) {
   if (!expected) {
     continue;
   }
-  if (pkg.json.spectrum) {
+  // Detect providers by their `@spectrum-ts/*` name (every scoped package
+  // except the runtime), NOT the optional `spectrum` manifest key — a provider
+  // that forgets that key must still have its core peer range validated rather
+  // than silently skipping the check (fail closed, not open).
+  if (name.startsWith(INTERNAL_SCOPE) && name !== CORE_NAME) {
     // Provider → runtime is a peer dependency at the matching range.
     const peer = pkg.json.peerDependencies?.[CORE_NAME];
     const expectedPeer = expected.includes("-")
@@ -56,7 +62,7 @@ for (const pkg of pkgs) {
   } else if (name === META_NAME) {
     // Metapackage → siblings are exact-pinned regular dependencies.
     for (const [dep, range] of Object.entries(pkg.json.dependencies ?? {})) {
-      if (dep.startsWith("@spectrum-ts/") && range !== expected) {
+      if (dep.startsWith(INTERNAL_SCOPE) && range !== expected) {
         errors.push(
           `${name}: dependencies.${dep} = "${range}" is not pinned to ${expected}`
         );

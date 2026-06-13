@@ -1,18 +1,18 @@
-# @photon-ai/spectrum-provider-telegram
+# @spectrum-ts/telegram
 
 Telegram provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts). Inbound is delivered through Fusor webhooks; outbound goes through the Telegram Bot API.
 
 ## Install
 
 ```sh
-bun add spectrum-ts @photon-ai/spectrum-provider-telegram
+bun add spectrum-ts @spectrum-ts/telegram
 ```
 
 ## Use
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { telegram } from "@photon-ai/spectrum-provider-telegram";
+import { telegram } from "@spectrum-ts/telegram";
 
 const spectrum = Spectrum({
   providers: [telegram.config({ botToken: "..." })],

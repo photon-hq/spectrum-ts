@@ -1,18 +1,18 @@
-# @photon-ai/spectrum-provider-whatsapp-business
+# @spectrum-ts/whatsapp-business
 
 WhatsApp Business provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts).
 
 ## Install
 
 ```sh
-bun add spectrum-ts @photon-ai/spectrum-provider-whatsapp-business
+bun add spectrum-ts @spectrum-ts/whatsapp-business
 ```
 
 ## Use
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { whatsappBusiness } from "@photon-ai/spectrum-provider-whatsapp-business";
+import { whatsappBusiness } from "@spectrum-ts/whatsapp-business";
 
 const spectrum = Spectrum({
   providers: [whatsappBusiness.config({ /* ... */ })],

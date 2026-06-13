@@ -206,7 +206,10 @@ jobs:
         env:
           SPECTRUM_PUBLISH: "1"
       - name: Verify lockstep versions and ranges
-        if: inputs.publish-only != true
+        # Skip on dry-run too: bump-version is skipped there, so the checked-out
+        # tree still carries the committed version while `version` is the
+        # rehearsed (bumped) one — verify-versions would always fail the mismatch.
+        if: inputs.publish-only != true && inputs.dry-run != true
         run: bun scripts/release/verify-versions.ts "${{ needs.release-info.outputs.version }}"
       - name: Verify artifacts (publint + attw on cleaned output)
         run: bun scripts/release/check-artifacts.ts

@@ -58,10 +58,14 @@ async function registryHas(name: string, version: string): Promise<boolean> {
   }
 }
 
+// ~2min budget. The publish already succeeded, so a failure here only means
+// registry propagation is lagging — poll generously rather than abort an
+// otherwise-fine release. Core publishes first, so an early throw would leave
+// every provider and the metapackage unpublished.
 async function verifyOnRegistry(
   name: string,
   version: string,
-  attempts = 6,
+  attempts = 24,
   delayMs = 5000
 ): Promise<void> {
   for (let i = 0; i < attempts; i++) {

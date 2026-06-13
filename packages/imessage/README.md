@@ -1,18 +1,18 @@
-# @photon-ai/spectrum-provider-imessage
+# @spectrum-ts/imessage
 
 iMessage provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts), supporting local (imessage-kit) and remote (advanced-imessage) modes — including tapbacks, special effects, polls, and mini-apps.
 
 ## Install
 
 ```sh
-bun add spectrum-ts @photon-ai/spectrum-provider-imessage
+bun add spectrum-ts @spectrum-ts/imessage
 ```
 
 ## Use
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { imessage } from "@photon-ai/spectrum-provider-imessage";
+import { imessage } from "@spectrum-ts/imessage";
 
 const spectrum = Spectrum({
   providers: [imessage.config({ /* ... */ })],

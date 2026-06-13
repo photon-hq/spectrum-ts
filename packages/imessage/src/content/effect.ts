@@ -7,8 +7,8 @@ import {
   type ContentBuilder,
   type ContentInput,
   text,
-} from "spectrum-ts";
-import { messageEffectSchema } from "spectrum-ts/internal";
+} from "@spectrum-ts/core";
+import { messageEffectSchema } from "@spectrum-ts/core/authoring";
 
 export type IMessageMessageEffect = AdvancedIMessageMessageEffect;
 

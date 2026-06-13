@@ -8,13 +8,13 @@ import {
   type Message,
   markdown,
   UnsupportedError,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import {
   asAttachment,
   asGroup,
   asMarkdown,
   asText,
-} from "spectrum-ts/authoring";
+} from "@spectrum-ts/core/authoring";
 import { effect } from "@/content/effect";
 import { editMessage, replyToMessage, send } from "@/remote/send";
 

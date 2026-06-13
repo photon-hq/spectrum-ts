@@ -19,15 +19,15 @@ import {
   stream as managedStream,
   toVCard,
   UnsupportedError,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import {
   asAttachment,
   asContact,
   asCustom,
   asVoice,
   type ProviderMessageRecord,
-} from "spectrum-ts/authoring";
-import { reactionSchema } from "spectrum-ts/internal";
+  reactionSchema,
+} from "@spectrum-ts/core/authoring";
 import z from "zod";
 import {
   type ProtocolContent,

@@ -13,7 +13,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-export const CORE_NAME = "spectrum-ts";
+// The runtime publishes first (every provider peer-deps it); the `spectrum-ts`
+// metapackage publishes last (it depends on the runtime and all providers).
+export const CORE_NAME = "@spectrum-ts/core";
+export const META_NAME = "spectrum-ts";
 
 export interface PackageJson {
   dependencies?: Record<string, string>;
@@ -71,14 +74,18 @@ export async function publishablePackages(): Promise<PublishablePackage[]> {
   if (!pkgs.some((p) => p.json.name === CORE_NAME)) {
     throw new Error(`core package "${CORE_NAME}" not found under packages/`);
   }
+  const rank = (name: string): number => {
+    if (name === CORE_NAME) {
+      return 0; // runtime first
+    }
+    if (name === META_NAME) {
+      return 2; // metapackage last
+    }
+    return 1; // providers in the middle
+  };
   pkgs.sort((a, b) => {
-    if (a.json.name === CORE_NAME) {
-      return -1;
-    }
-    if (b.json.name === CORE_NAME) {
-      return 1;
-    }
-    return a.json.name.localeCompare(b.json.name);
+    const byRank = rank(a.json.name) - rank(b.json.name);
+    return byRank === 0 ? a.json.name.localeCompare(b.json.name) : byRank;
   });
   return pkgs;
 }

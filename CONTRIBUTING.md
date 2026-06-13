@@ -54,12 +54,12 @@ bun run test            # whole suite (via Turbo)
 Or from inside a package directory:
 
 ```bash
-cd packages/spectrum-ts && bun test     # core suite
+cd packages/core && bun test            # core suite
 cd packages/telegram && bun test        # one provider
 bun run test:watch                      # watch mode (core)
 ```
 
-Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in each package's `test/` directory, mirroring its `src/`. Core tests (`packages/spectrum-ts/test/{core,content,utils}/`) cover the SDK; each provider package carries its own tests (`packages/<platform>/test/`). Import the code under test through the package-local `@/*` alias (`@/spectrum` in core, `@/verify` in a provider) and shared fixtures from `@spectrum-ts/test-support/*`.
+Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in each package's `test/` directory, mirroring its `src/`. Core tests (`packages/core/test/{core,content,utils}/`) cover the SDK; each provider package carries its own tests (`packages/<platform>/test/`). Import the code under test through the package-local `@/*` alias (`@/spectrum` in core, `@/verify` in a provider) and shared fixtures from `@spectrum-ts/test-support/*`.
 
 ### Lint and format
 
@@ -74,17 +74,18 @@ This project uses [Ultracite](https://ultracite.ai) (Biome) for formatting and l
 
 ```
 packages/
-  spectrum-ts/           # Core SDK (npm: spectrum-ts) - content, platform, fusor, utils
-  imessage/              # @photon-ai/spectrum-provider-imessage
-  telegram/              # @photon-ai/spectrum-provider-telegram
-  slack/                 # @photon-ai/spectrum-provider-slack
-  whatsapp-business/     # @photon-ai/spectrum-provider-whatsapp-business
-  terminal/              # @photon-ai/spectrum-provider-terminal
+  core/                  # @spectrum-ts/core - the runtime: content, platform, fusor, utils
+  spectrum-ts/           # spectrum-ts metapackage (batteries: re-exports core + every provider)
+  imessage/              # @spectrum-ts/imessage
+  telegram/              # @spectrum-ts/telegram
+  slack/                 # @spectrum-ts/slack
+  whatsapp-business/     # @spectrum-ts/whatsapp-business
+  terminal/              # @spectrum-ts/terminal
   test-support/          # Shared test fixtures/helpers (private, never published)
 examples/                # Example apps
 ```
 
-Providers import the core through its public entries (`spectrum-ts`, `spectrum-ts/authoring`, `spectrum-ts/internal`) and declare it as a peer dependency — never through relative paths. `turbo boundaries` enforces that providers don't import each other.
+Providers import the core through its public entries (`@spectrum-ts/core`, `@spectrum-ts/core/authoring`) and declare it as a peer dependency — never through relative paths. `turbo boundaries` enforces that providers don't import each other.
 
 ## Pull Request Workflow
 

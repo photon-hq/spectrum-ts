@@ -9,10 +9,11 @@
  *    publishable package: clean-publish/npm do not rewrite them (only
  *    `bun publish` does, which we don't use), so they must never reach a
  *    published manifest. devDependencies are stripped by clean-publish.
- * 3. Providers' `spectrum-ts` peer range matches the release version.
+ * 3. Each provider peer-deps the runtime at the matching range; the
+ *    metapackage regular-deps the runtime (and providers) at the exact version.
  */
 
-import { CORE_NAME, publishablePackages } from "./packages";
+import { CORE_NAME, META_NAME, publishablePackages } from "./packages";
 
 const expected = process.argv[2];
 const errors: string[] = [];
@@ -36,22 +37,30 @@ for (const pkg of pkgs) {
       }
     }
   }
-  const peer = pkg.json.peerDependencies?.[CORE_NAME];
-  if (name !== CORE_NAME && expected) {
-    if (peer) {
-      // Mirror bump-version: a prerelease pins the exact version (a caret
-      // range would not satisfy `5.0.0-rc.1` under semver); a stable release
-      // uses `^<major>.0.0`.
-      const expectedPeer = expected.includes("-")
-        ? expected
-        : `^${expected.split(".")[0]}.0.0`;
-      if (peer !== expectedPeer) {
+  if (!expected) {
+    continue;
+  }
+  if (pkg.json.spectrum) {
+    // Provider → runtime is a peer dependency at the matching range.
+    const peer = pkg.json.peerDependencies?.[CORE_NAME];
+    const expectedPeer = expected.includes("-")
+      ? expected
+      : `^${expected.split(".")[0]}.0.0`;
+    if (!peer) {
+      errors.push(`${name}: missing peerDependencies.${CORE_NAME}`);
+    } else if (peer !== expectedPeer) {
+      errors.push(
+        `${name}: peerDependencies.${CORE_NAME} = "${peer}" does not match expected "${expectedPeer}"`
+      );
+    }
+  } else if (name === META_NAME) {
+    // Metapackage → siblings are exact-pinned regular dependencies.
+    for (const [dep, range] of Object.entries(pkg.json.dependencies ?? {})) {
+      if (dep.startsWith("@spectrum-ts/") && range !== expected) {
         errors.push(
-          `${name}: peerDependencies.${CORE_NAME} = "${peer}" does not match expected "${expectedPeer}"`
+          `${name}: dependencies.${dep} = "${range}" is not pinned to ${expected}`
         );
       }
-    } else {
-      errors.push(`${name}: missing peerDependencies.${CORE_NAME}`);
     }
   }
 }

@@ -11,9 +11,9 @@ tmp
 
 # copied from repo root at build/release time so they ship with the npm
 # package (clean-publish strips all scripts from the staged package.json, so
-# prepack/prepublish hooks never run). Provider READMEs are committed; only
-# the core README is a copy of the repo root's.
-packages/spectrum-ts/README.md
+# prepack/prepublish hooks never run). The runtime's README is a copy of the
+# repo root's; every other package commits its own.
+packages/core/README.md
 packages/*/LICENSE
 
 # clean-publish staging dirs (check-artifacts, preview workflow)

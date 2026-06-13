@@ -1,6 +1,6 @@
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
-import type { Content, FusorMessages, ProjectData } from "spectrum-ts";
-import { definePlatform, fusor, fusorEvent } from "spectrum-ts";
+import type { Content, FusorMessages, ProjectData } from "@spectrum-ts/core";
+import { definePlatform, fusor, fusorEvent } from "@spectrum-ts/core";
 import z from "zod";
 
 // A minimal fusor-mode provider standing in for a real platform (Slack-ish).

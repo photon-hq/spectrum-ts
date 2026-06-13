@@ -1,5 +1,5 @@
 import { createClient, staticTokens } from "@photon-ai/slack";
-import { definePlatform, UnsupportedError } from "spectrum-ts";
+import { definePlatform, UnsupportedError } from "@spectrum-ts/core";
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { messages, send } from "./messages";
 import {

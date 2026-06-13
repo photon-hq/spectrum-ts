@@ -8,8 +8,8 @@ import {
   type Edit,
   type Reaction,
   UnsupportedError,
-} from "spectrum-ts";
-import type { ProviderMessageRecord } from "spectrum-ts/authoring";
+} from "@spectrum-ts/core";
+import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import { executeSpec, type TelegramClient, telegramClient } from "../client";
 import { TELEGRAM_PLATFORM, type TelegramConfig } from "../config";
 import { isAllowedReactionEmoji, normalizeReactionEmoji } from "../reactions";

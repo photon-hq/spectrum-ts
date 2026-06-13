@@ -2,8 +2,8 @@ import {
   type AdvancedIMessage,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
-import type { Attachment } from "spectrum-ts";
-import { asAttachment } from "spectrum-ts/authoring";
+import type { Attachment } from "@spectrum-ts/core";
+import { asAttachment } from "@spectrum-ts/core/authoring";
 
 /**
  * Stream the primary file bytes of an attachment as a `ReadableStream`.

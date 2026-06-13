@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { Message } from "spectrum-ts";
-import { asRead } from "spectrum-ts/authoring";
+import type { Message } from "@spectrum-ts/core";
+import { asRead } from "@spectrum-ts/core/authoring";
 import { send } from "@/messages";
 import type { WhatsAppClients } from "@/types";
 

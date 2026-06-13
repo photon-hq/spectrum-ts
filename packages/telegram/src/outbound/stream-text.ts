@@ -1,10 +1,10 @@
 import { sendMessageDraft } from "@photon-ai/telegram-ts";
-import { type StreamText, UnsupportedError } from "spectrum-ts";
+import { type StreamText, UnsupportedError } from "@spectrum-ts/core";
 import {
   asMarkdown,
   asText,
   type ProviderMessageRecord,
-} from "spectrum-ts/authoring";
+} from "@spectrum-ts/core/authoring";
 import { executeSpec, type TelegramClient } from "../client";
 import { TELEGRAM_PLATFORM } from "../config";
 import type { TelegramSpace } from "../space";

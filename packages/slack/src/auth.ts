@@ -4,7 +4,7 @@ import {
   type TeamMetadata,
   type TokenProvider,
 } from "@photon-ai/slack";
-import { cloud, type SlackTokenData } from "spectrum-ts";
+import { cloud, type SlackTokenData } from "@spectrum-ts/core";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;

@@ -5,7 +5,7 @@ import type {
   Message as SDKMessage,
   SettableMessageReaction,
 } from "@photon-ai/advanced-imessage";
-import { text } from "spectrum-ts";
+import { text } from "@spectrum-ts/core";
 import { getMessageCache, MessageCache } from "@/cache";
 import { imessage } from "@/index";
 import { reactToMessage, toReactionMessages } from "@/remote/reactions";

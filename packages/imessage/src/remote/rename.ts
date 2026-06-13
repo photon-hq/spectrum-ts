@@ -1,5 +1,5 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import type { Rename } from "spectrum-ts";
+import type { Rename } from "@spectrum-ts/core";
 import { toChatGuid } from "./ids";
 
 /**

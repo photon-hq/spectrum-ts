@@ -3,7 +3,7 @@ import type {
   IMessageSDK,
   Message as LocalIMessage,
 } from "@photon-ai/imessage-kit";
-import { type ManagedStream, stream } from "spectrum-ts";
+import { type ManagedStream, stream } from "@spectrum-ts/core";
 import type { IMessageMessage } from "../types";
 import { localAttachmentContent } from "./attachments";
 

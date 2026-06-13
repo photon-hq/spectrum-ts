@@ -9,7 +9,7 @@ HTTP client of its own.
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { telegram } from "@photon-ai/spectrum-provider-telegram";
+import { telegram } from "@spectrum-ts/telegram";
 
 const app = Spectrum({
   providers: [telegram.config({ botToken: process.env.TELEGRAM_BOT_TOKEN! })],

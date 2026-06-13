@@ -1,9 +1,9 @@
-import type { Content, ContentBuilder } from "spectrum-ts";
+import type { Content, ContentBuilder } from "@spectrum-ts/core";
 import {
   buildPhotoAction,
   type PhotoInput,
   photoActionSchema,
-} from "spectrum-ts/internal";
+} from "@spectrum-ts/core/authoring";
 import z from "zod";
 
 /**

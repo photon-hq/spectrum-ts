@@ -1,4 +1,4 @@
-import { definePlatform, type FusorClient, fusor } from "spectrum-ts";
+import { definePlatform, type FusorClient, fusor } from "@spectrum-ts/core";
 import { configSchema, TELEGRAM_PLATFORM } from "./config";
 import { handleMessages } from "./inbound/messages";
 import { send } from "./outbound/send";

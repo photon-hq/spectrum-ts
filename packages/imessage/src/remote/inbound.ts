@@ -3,15 +3,15 @@ import {
   type MessageEvent,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
-import { type Content, fromVCard, type Group } from "spectrum-ts";
+import { type Content, fromVCard, type Group } from "@spectrum-ts/core";
 import {
   asAttachment,
   asContact,
   asCustom,
   asRichlink,
   asText,
-} from "spectrum-ts/authoring";
-import { groupSchema } from "spectrum-ts/internal";
+  groupSchema,
+} from "@spectrum-ts/core/authoring";
 import { getMessageCache, type MessageCache } from "../cache";
 import { isVCardAttachment } from "../shared/vcard";
 import type { IMessageMessage } from "../types";

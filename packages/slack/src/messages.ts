@@ -12,14 +12,14 @@ import {
   type Reaction,
   stream,
   UnsupportedError,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import {
   asAttachment,
   asCustom,
   asReaction,
   asText,
   type ProviderMessageRecord,
-} from "spectrum-ts/authoring";
+} from "@spectrum-ts/core/authoring";
 import type { SlackMessage } from "./types";
 
 interface SpaceRef {

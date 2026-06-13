@@ -5,8 +5,8 @@ import type {
   PollChangeDelta,
   PollEvent,
 } from "@photon-ai/advanced-imessage";
-import type { PollChoice } from "spectrum-ts";
-import { asPoll, asPollOption } from "spectrum-ts/authoring";
+import type { PollChoice } from "@spectrum-ts/core";
+import { asPoll, asPollOption } from "@spectrum-ts/core/authoring";
 import type { CachedPoll, PollCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid } from "./ids";

@@ -3,9 +3,11 @@ import type {
   MessageEvent,
   SettableMessageReaction,
 } from "@photon-ai/advanced-imessage";
-import type { Reaction as ReactionContent } from "spectrum-ts";
-import type { ProviderMessageRecord } from "spectrum-ts/authoring";
-import { reactionSchema } from "spectrum-ts/internal";
+import type { Reaction as ReactionContent } from "@spectrum-ts/core";
+import {
+  type ProviderMessageRecord,
+  reactionSchema,
+} from "@spectrum-ts/core/authoring";
 import type { MessageCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid, toChatGuid, toMessageGuid } from "./ids";

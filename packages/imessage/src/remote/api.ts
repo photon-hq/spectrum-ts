@@ -6,8 +6,8 @@ import type {
   ProjectData,
   Rename,
   StreamText,
-} from "spectrum-ts";
-import type { ProviderMessageRecord } from "spectrum-ts/authoring";
+} from "@spectrum-ts/core";
+import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { Background } from "../content/background";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";
 import type { IMessageMessage, RemoteClient } from "../types";

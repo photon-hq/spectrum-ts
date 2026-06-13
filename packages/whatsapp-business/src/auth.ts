@@ -5,7 +5,7 @@ import {
   type WhatsAppClient,
   type WhatsAppEvent,
 } from "@photon-ai/whatsapp-business";
-import { cloud, stream } from "spectrum-ts";
+import { cloud, stream } from "@spectrum-ts/core";
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;

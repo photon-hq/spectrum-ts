@@ -7,9 +7,12 @@ import type {
   SendOptions,
   TextFormatInput,
 } from "@photon-ai/advanced-imessage";
-import { type Content, type Message, toVCard } from "spectrum-ts";
-import { asGroup, type ProviderMessageRecord } from "spectrum-ts/authoring";
-import { ensureM4a } from "spectrum-ts/internal";
+import { type Content, type Message, toVCard } from "@spectrum-ts/core";
+import {
+  asGroup,
+  ensureM4a,
+  type ProviderMessageRecord,
+} from "@spectrum-ts/core/authoring";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { vcardFileName } from "../shared/vcard";
 import type { IMessageMessage } from "../types";

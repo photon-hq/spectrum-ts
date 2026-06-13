@@ -1,5 +1,5 @@
-import { terminal } from "@photon-ai/spectrum-provider-terminal";
 import { reaction, reply, Spectrum, text } from "spectrum-ts";
+import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({ providers: [terminal.config()] });
 

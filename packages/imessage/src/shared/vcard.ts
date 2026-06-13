@@ -1,4 +1,4 @@
-import type { Content } from "spectrum-ts";
+import type { Content } from "@spectrum-ts/core";
 
 const VCARD_MIME_TYPES: ReadonlySet<string> = new Set([
   "text/vcard",

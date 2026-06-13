@@ -20,7 +20,7 @@
 import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "bun";
-import { CORE_NAME, publishablePackages } from "./packages";
+import { CORE_NAME, META_NAME, publishablePackages } from "./packages";
 
 const TEMP = ".clean-publish-tmp";
 const errors: string[] = [];
@@ -112,11 +112,11 @@ for (const pkg of pkgs) {
     }
   }
 
-  // The compat shims (`spectrum-ts/providers/*`) can't be smoke-imported at
-  // core BUILD time — providers build after core in the task graph. Here the
-  // full build has run, so importing the aggregate barrel under Node proves
-  // every shim resolves its provider package's dist through the workspace.
-  if (name === CORE_NAME) {
+  // The metapackage's compat shims (`spectrum-ts/providers/*`) can't be
+  // smoke-imported at its BUILD time — the provider packages build after it in
+  // the task graph. Here the full build has run, so importing the aggregate
+  // barrel under Node proves every shim resolves its provider's dist.
+  if (name === META_NAME) {
     try {
       await run(
         ["node", "../../scripts/smoke-import.mjs", "dist/providers/index.js"],

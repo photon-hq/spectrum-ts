@@ -2,8 +2,11 @@ import type {
   AdvancedIMessage,
   Message as SDKMessage,
 } from "@photon-ai/advanced-imessage";
-import type { StreamText } from "spectrum-ts";
-import { asText, type ProviderMessageRecord } from "spectrum-ts/authoring";
+import type { StreamText } from "@spectrum-ts/core";
+import {
+  asText,
+  type ProviderMessageRecord,
+} from "@spectrum-ts/core/authoring";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { toChatGuid, toMessageGuid } from "./ids";
 

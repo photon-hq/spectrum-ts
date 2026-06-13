@@ -4,7 +4,6 @@ import type {
   InboundMessage,
   WhatsAppClient,
 } from "@photon-ai/whatsapp-business";
-import { extension as mimeExtension } from "mime-types";
 import {
   type Contact,
   type Content,
@@ -19,7 +18,7 @@ import {
   type ContactPhone as SpectrumContactPhone,
   stream,
   UnsupportedError,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import {
   asAttachment,
   asContact,
@@ -28,7 +27,8 @@ import {
   asReaction,
   asText,
   type ProviderMessageRecord,
-} from "spectrum-ts/authoring";
+} from "@spectrum-ts/core/authoring";
+import { extension as mimeExtension } from "mime-types";
 import { pollOptionId, pollToInteractive } from "./poll";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 

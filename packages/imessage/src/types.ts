@@ -1,6 +1,6 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
-import type { SchemaMessage } from "spectrum-ts";
+import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
 export interface RemoteClient {

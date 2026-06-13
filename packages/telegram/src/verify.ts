@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { FusorVerify, FusorVerifyRequest } from "spectrum-ts";
+import type { FusorVerify, FusorVerifyRequest } from "@spectrum-ts/core";
 import type { TelegramConfig } from "./config";
 import type { TelegramPayload, Update } from "./types";
 

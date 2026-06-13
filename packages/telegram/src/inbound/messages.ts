@@ -2,13 +2,13 @@ import type {
   Content,
   FusorMessagesCtx,
   Message as SpectrumMessage,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import {
   asCustom,
   asGroup,
   asReaction,
   type ProviderMessageRecord,
-} from "spectrum-ts/authoring";
+} from "@spectrum-ts/core/authoring";
 import { botIdFromToken, type TelegramConfig } from "../config";
 import type {
   Message,

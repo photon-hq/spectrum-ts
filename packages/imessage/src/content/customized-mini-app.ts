@@ -1,4 +1,4 @@
-import type { Content, ContentBuilder } from "spectrum-ts";
+import type { Content, ContentBuilder } from "@spectrum-ts/core";
 import z from "zod";
 
 /**

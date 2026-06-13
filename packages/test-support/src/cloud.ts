@@ -1,5 +1,5 @@
 import { spyOn } from "bun:test";
-import { cloud } from "spectrum-ts";
+import { cloud } from "@spectrum-ts/core";
 
 // Spectrum() fetches project metadata up-front when projectId/projectSecret are
 // supplied. Stub the cloud call so construction doesn't hit the network (and

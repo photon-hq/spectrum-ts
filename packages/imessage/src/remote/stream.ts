@@ -10,12 +10,12 @@ import {
   type ManagedStream,
   mergeStreams,
   type ProjectData,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import {
   type CloseableAsyncIterable,
   type ResumableStreamItem,
   resumableOrderedStream,
-} from "spectrum-ts/internal";
+} from "@spectrum-ts/core/authoring";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
 import {
   type IMessageMessage,

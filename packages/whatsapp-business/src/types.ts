@@ -1,5 +1,5 @@
 import type { WhatsAppClient } from "@photon-ai/whatsapp-business";
-import type { SchemaMessage } from "spectrum-ts";
+import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
 const directConfig = z.object({

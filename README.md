@@ -26,17 +26,18 @@ Learn more at **https://photon.codes**.
 The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for platforms like iMessage, with credentials ready in minutes.
 
 1. Sign up at **[app.photon.codes](https://app.photon.codes)** to get your project ID and secret.
-2. Install the SDK:
+2. Install the SDK (`spectrum-ts` is batteries-included — the runtime plus
+   every official provider):
 
    ```bash
-   bun add spectrum-ts @photon-ai/spectrum-provider-imessage
+   bun add spectrum-ts
    ```
 
 3. Start your app:
 
    ```typescript
    import { Spectrum } from "spectrum-ts";
-   import { imessage } from "@photon-ai/spectrum-provider-imessage";
+   import { imessage } from "spectrum-ts/providers/imessage";
 
    const app = await Spectrum({
      projectId: process.env.PROJECT_ID,
@@ -61,14 +62,14 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 
 | Platform | Package |
 |----------|---------|
-| iMessage | [`@photon-ai/spectrum-provider-imessage`](https://npmjs.com/package/@photon-ai/spectrum-provider-imessage) |
-| WhatsApp Business | [`@photon-ai/spectrum-provider-whatsapp-business`](https://npmjs.com/package/@photon-ai/spectrum-provider-whatsapp-business) |
-| Telegram | [`@photon-ai/spectrum-provider-telegram`](https://npmjs.com/package/@photon-ai/spectrum-provider-telegram) |
-| Slack | [`@photon-ai/spectrum-provider-slack`](https://npmjs.com/package/@photon-ai/spectrum-provider-slack) |
-| Terminal | [`@photon-ai/spectrum-provider-terminal`](https://npmjs.com/package/@photon-ai/spectrum-provider-terminal) |
+| iMessage | [`@spectrum-ts/imessage`](https://npmjs.com/package/@spectrum-ts/imessage) |
+| WhatsApp Business | [`@spectrum-ts/whatsapp-business`](https://npmjs.com/package/@spectrum-ts/whatsapp-business) |
+| Telegram | [`@spectrum-ts/telegram`](https://npmjs.com/package/@spectrum-ts/telegram) |
+| Slack | [`@spectrum-ts/slack`](https://npmjs.com/package/@spectrum-ts/slack) |
+| Terminal | [`@spectrum-ts/terminal`](https://npmjs.com/package/@spectrum-ts/terminal) |
 | Custom   | `definePlatform` from `spectrum-ts` |
 
-Each provider lives in its own package, so you only install the platform SDKs you actually use. The v4 import paths (`spectrum-ts/providers/<platform>`) still work once the matching provider package is installed — if it isn't, the import fails at build/startup naming the exact package to add.
+`bun add spectrum-ts` is batteries-included (all providers). For a smaller install, depend on the runtime plus only the providers you use — `bun add @spectrum-ts/core @spectrum-ts/telegram` — and import from the scoped packages directly. Either way the `spectrum-ts/providers/<platform>` import paths work as long as the matching provider package is installed; if it isn't, the import fails at build/startup naming the exact package to add.
 
 ## Issues
 

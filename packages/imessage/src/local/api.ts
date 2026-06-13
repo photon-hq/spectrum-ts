@@ -1,6 +1,6 @@
 import type { IMessageSDK } from "@photon-ai/imessage-kit";
-import type { Content, ManagedStream } from "spectrum-ts";
-import type { ProviderMessageRecord } from "spectrum-ts/authoring";
+import type { Content, ManagedStream } from "@spectrum-ts/core";
+import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { IMessageMessage } from "../types";
 import { messages as localMessages } from "./inbound";
 import {

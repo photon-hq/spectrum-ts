@@ -1,4 +1,4 @@
-import { UnsupportedError } from "spectrum-ts";
+import { UnsupportedError } from "@spectrum-ts/core";
 
 export const IMESSAGE_PLATFORM = "iMessage";
 export const LOCAL_IMESSAGE_PLATFORM = "iMessage (local mode)";

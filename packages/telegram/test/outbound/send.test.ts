@@ -18,8 +18,8 @@ import {
   reply,
   text,
   voice,
-} from "spectrum-ts";
-import { asRead } from "spectrum-ts/authoring";
+} from "@spectrum-ts/core";
+import { asRead } from "@spectrum-ts/core/authoring";
 import { configSchema } from "@/config";
 import { send } from "@/outbound/send";
 

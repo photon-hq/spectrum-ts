@@ -8,7 +8,7 @@ import {
   setSystemTime,
   spyOn,
 } from "bun:test";
-import { markdown, text, UnsupportedError } from "spectrum-ts";
+import { markdown, text, UnsupportedError } from "@spectrum-ts/core";
 import { configSchema } from "@/config";
 import { send } from "@/outbound/send";
 

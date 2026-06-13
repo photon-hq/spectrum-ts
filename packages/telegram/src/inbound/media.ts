@@ -1,5 +1,5 @@
-import type { Content } from "spectrum-ts";
-import { asAttachment, asText, asVoice } from "spectrum-ts/authoring";
+import type { Content } from "@spectrum-ts/core";
+import { asAttachment, asText, asVoice } from "@spectrum-ts/core/authoring";
 import { downloadFile } from "../client";
 import type { TelegramConfig } from "../config";
 import type { Message, PhotoSize } from "../types";

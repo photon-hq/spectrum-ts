@@ -15,14 +15,14 @@ import {
   type StreamText,
   type Unsend,
   UnsupportedError,
-} from "spectrum-ts";
-import type { ProviderMessageRecord } from "spectrum-ts/authoring";
+} from "@spectrum-ts/core";
+import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 
 // `read` is universal framework content now (it was iMessage-only before
 // 5.0.0). Re-exported here so existing imessage-scoped imports keep
 // compiling — prefer importing from `spectrum-ts`.
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
-export { read } from "spectrum-ts";
+export { read } from "@spectrum-ts/core";
 export { type BackgroundInput, background } from "./content/background";
 export {
   type CustomizedMiniApp,

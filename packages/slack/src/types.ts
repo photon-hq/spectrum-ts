@@ -1,5 +1,5 @@
 import type { SlackClient } from "@photon-ai/slack";
-import type { SchemaMessage } from "spectrum-ts";
+import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
 const teamMetadataSchema = z.object({

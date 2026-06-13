@@ -1,4 +1,4 @@
-import type { Poll, PollChoice } from "spectrum-ts";
+import type { Poll, PollChoice } from "@spectrum-ts/core";
 import type { IMessageMessage } from "./types";
 
 const DEFAULT_MAX = 1000;

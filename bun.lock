@@ -17,51 +17,11 @@
     "examples/basic": {
       "name": "@spectrum-ts/example-basic",
       "dependencies": {
-        "@photon-ai/spectrum-provider-terminal": "workspace:*",
         "spectrum-ts": "workspace:*",
       },
     },
-    "packages/imessage": {
-      "name": "@photon-ai/spectrum-provider-imessage",
-      "version": "5.0.0",
-      "dependencies": {
-        "@photon-ai/advanced-imessage": "^0.11.0",
-        "@photon-ai/imessage-kit": "^3.0.0",
-        "@photon-ai/otel": "^0.1.1",
-        "lru-cache": "^11.0.0",
-        "marked": "^18.0.5",
-        "zod": "^4.2.1",
-      },
-      "devDependencies": {
-        "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
-        "spectrum-ts": "workspace:*",
-        "tsdown": "^0.22.2",
-      },
-      "peerDependencies": {
-        "spectrum-ts": "^5.0.0",
-        "typescript": "^5 || ^6.0.0",
-      },
-    },
-    "packages/slack": {
-      "name": "@photon-ai/spectrum-provider-slack",
-      "version": "5.0.0",
-      "dependencies": {
-        "@photon-ai/slack": "^0.2.0",
-        "zod": "^4.2.1",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "spectrum-ts": "workspace:*",
-        "tsdown": "^0.22.2",
-      },
-      "peerDependencies": {
-        "spectrum-ts": "^5.0.0",
-        "typescript": "^5 || ^6.0.0",
-      },
-    },
-    "packages/spectrum-ts": {
-      "name": "spectrum-ts",
+    "packages/core": {
+      "name": "@spectrum-ts/core",
       "version": "5.0.0",
       "dependencies": {
         "@photon-ai/otel": "^0.1.1",
@@ -82,25 +42,70 @@
         "unicode-emoji-json": "^0.9.0",
       },
       "peerDependencies": {
-        "@photon-ai/spectrum-provider-imessage": "*",
-        "@photon-ai/spectrum-provider-slack": "*",
-        "@photon-ai/spectrum-provider-telegram": "*",
-        "@photon-ai/spectrum-provider-terminal": "*",
-        "@photon-ai/spectrum-provider-whatsapp-business": "*",
         "ffmpeg-static": "^5",
         "typescript": "^5 || ^6.0.0",
       },
       "optionalPeers": [
-        "@photon-ai/spectrum-provider-imessage",
-        "@photon-ai/spectrum-provider-slack",
-        "@photon-ai/spectrum-provider-telegram",
-        "@photon-ai/spectrum-provider-terminal",
-        "@photon-ai/spectrum-provider-whatsapp-business",
         "ffmpeg-static",
       ],
     },
+    "packages/imessage": {
+      "name": "@spectrum-ts/imessage",
+      "version": "5.0.0",
+      "dependencies": {
+        "@photon-ai/advanced-imessage": "^0.11.0",
+        "@photon-ai/imessage-kit": "^3.0.0",
+        "@photon-ai/otel": "^0.1.1",
+        "lru-cache": "^11.0.0",
+        "marked": "^18.0.5",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@spectrum-ts/test-support": "workspace:*",
+        "@types/bun": "latest",
+        "tsdown": "^0.22.2",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^5.0.0",
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
+    "packages/slack": {
+      "name": "@spectrum-ts/slack",
+      "version": "5.0.0",
+      "dependencies": {
+        "@photon-ai/slack": "^0.2.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@types/bun": "latest",
+        "tsdown": "^0.22.2",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^5.0.0",
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
+    "packages/spectrum-ts": {
+      "name": "spectrum-ts",
+      "version": "5.0.0",
+      "dependencies": {
+        "@spectrum-ts/core": "5.0.0",
+        "@spectrum-ts/imessage": "5.0.0",
+        "@spectrum-ts/slack": "5.0.0",
+        "@spectrum-ts/telegram": "5.0.0",
+        "@spectrum-ts/terminal": "5.0.0",
+        "@spectrum-ts/whatsapp-business": "5.0.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "tsdown": "^0.22.2",
+      },
+    },
     "packages/telegram": {
-      "name": "@photon-ai/spectrum-provider-telegram",
+      "name": "@spectrum-ts/telegram",
       "version": "5.0.0",
       "dependencies": {
         "@photon-ai/telegram-ts": "10.0.0",
@@ -108,28 +113,28 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
         "@types/bun": "latest",
-        "spectrum-ts": "workspace:*",
         "tsdown": "^0.22.2",
       },
       "peerDependencies": {
-        "spectrum-ts": "^5.0.0",
+        "@spectrum-ts/core": "^5.0.0",
         "typescript": "^5 || ^6.0.0",
       },
     },
     "packages/terminal": {
-      "name": "@photon-ai/spectrum-provider-terminal",
+      "name": "@spectrum-ts/terminal",
       "version": "5.0.0",
       "dependencies": {
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
         "@types/bun": "latest",
-        "spectrum-ts": "workspace:*",
         "tsdown": "^0.22.2",
       },
       "peerDependencies": {
-        "spectrum-ts": "^5.0.0",
+        "@spectrum-ts/core": "^5.0.0",
         "typescript": "^5 || ^6.0.0",
       },
     },
@@ -141,15 +146,15 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
         "@types/bun": "latest",
-        "spectrum-ts": "workspace:*",
       },
       "peerDependencies": {
-        "spectrum-ts": "*",
+        "@spectrum-ts/core": "*",
       },
     },
     "packages/whatsapp-business": {
-      "name": "@photon-ai/spectrum-provider-whatsapp-business",
+      "name": "@spectrum-ts/whatsapp-business",
       "version": "5.0.0",
       "dependencies": {
         "@photon-ai/whatsapp-business": "^0.1.1",
@@ -157,13 +162,13 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
         "@types/bun": "latest",
         "@types/mime-types": "^3.0.1",
-        "spectrum-ts": "workspace:*",
         "tsdown": "^0.22.2",
       },
       "peerDependencies": {
-        "spectrum-ts": "^5.0.0",
+        "@spectrum-ts/core": "^5.0.0",
         "typescript": "^5 || ^6.0.0",
       },
     },
@@ -331,16 +336,6 @@
 
     "@photon-ai/slack": ["@photon-ai/slack@0.2.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.12.0", "@grpc/grpc-js": "^1.14.3", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3" } }, "sha512-k3XzGKIVS1EsjrPz9pbWvrvScmiy/iqKdA2npS5xu1CtCoycBkdFsqJKyB6iIyDR02Q3/38kQh7MvKsCzUyo3Q=="],
 
-    "@photon-ai/spectrum-provider-imessage": ["@photon-ai/spectrum-provider-imessage@workspace:packages/imessage"],
-
-    "@photon-ai/spectrum-provider-slack": ["@photon-ai/spectrum-provider-slack@workspace:packages/slack"],
-
-    "@photon-ai/spectrum-provider-telegram": ["@photon-ai/spectrum-provider-telegram@workspace:packages/telegram"],
-
-    "@photon-ai/spectrum-provider-terminal": ["@photon-ai/spectrum-provider-terminal@workspace:packages/terminal"],
-
-    "@photon-ai/spectrum-provider-whatsapp-business": ["@photon-ai/spectrum-provider-whatsapp-business@workspace:packages/whatsapp-business"],
-
     "@photon-ai/telegram-ts": ["@photon-ai/telegram-ts@10.0.0", "", { "dependencies": { "zod": "^4.4.3" } }, "sha512-kYGj/ieKOCG+OxoD1R69xHoT7zHl9dboF52LMPUl4FnorbwA8b2pid0uFoDYF55WIfoeo+VSqwlmY84GgpSedg=="],
 
     "@photon-ai/whatsapp-business": ["@photon-ai/whatsapp-business@0.1.1", "", { "dependencies": { "@grpc/grpc-js": "^1.14.3", "long": "^5.3.2", "nice-grpc": "^2.1.15", "nice-grpc-common": "^2.0.3", "protobufjs": "^8.0.1" } }, "sha512-JAf/gHh92+H6h/7AMOQ6l+WFYBWdeRH5fZ+tvOUYJJnX1C4aJPDFa23VTH4ndhKPgA5bK/h++cxUZx2lMubvYQ=="],
@@ -405,9 +400,21 @@
 
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
+    "@spectrum-ts/core": ["@spectrum-ts/core@workspace:packages/core"],
+
     "@spectrum-ts/example-basic": ["@spectrum-ts/example-basic@workspace:examples/basic"],
 
+    "@spectrum-ts/imessage": ["@spectrum-ts/imessage@workspace:packages/imessage"],
+
+    "@spectrum-ts/slack": ["@spectrum-ts/slack@workspace:packages/slack"],
+
+    "@spectrum-ts/telegram": ["@spectrum-ts/telegram@workspace:packages/telegram"],
+
+    "@spectrum-ts/terminal": ["@spectrum-ts/terminal@workspace:packages/terminal"],
+
     "@spectrum-ts/test-support": ["@spectrum-ts/test-support@workspace:packages/test-support"],
+
+    "@spectrum-ts/whatsapp-business": ["@spectrum-ts/whatsapp-business@workspace:packages/whatsapp-business"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.9.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-P8foouaP+y/p+hhEGBoZpzMbpVvUMwPjDpcy6wN7EYfvvyISD1USuV27qWkczecihwuPJzQ1lDBuL8ERcavTyg=="],
 

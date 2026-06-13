@@ -7,11 +7,11 @@
 // namespaces is exactly what this parity test is for.
 
 import { describe, expect, it } from "bun:test";
-import * as imessagePkg from "@photon-ai/spectrum-provider-imessage";
-import * as slackPkg from "@photon-ai/spectrum-provider-slack";
-import * as telegramPkg from "@photon-ai/spectrum-provider-telegram";
-import * as terminalPkg from "@photon-ai/spectrum-provider-terminal";
-import * as whatsappPkg from "@photon-ai/spectrum-provider-whatsapp-business";
+import * as imessagePkg from "@spectrum-ts/imessage";
+import * as slackPkg from "@spectrum-ts/slack";
+import * as telegramPkg from "@spectrum-ts/telegram";
+import * as terminalPkg from "@spectrum-ts/terminal";
+import * as whatsappPkg from "@spectrum-ts/whatsapp-business";
 import * as imessageShim from "@/providers/imessage/index";
 import * as barrel from "@/providers/index";
 import * as slackShim from "@/providers/slack/index";

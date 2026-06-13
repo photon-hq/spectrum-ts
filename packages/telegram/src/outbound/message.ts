@@ -1,4 +1,4 @@
-import { type Content, toVCard, UnsupportedError } from "spectrum-ts";
+import { type Content, toVCard, UnsupportedError } from "@spectrum-ts/core";
 import { TELEGRAM_PLATFORM } from "../config";
 import type { TelegramSendSpec } from "../types";
 import { markdownToTelegramHtml } from "./markdown";

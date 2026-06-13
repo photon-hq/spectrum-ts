@@ -1,6 +1,6 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import type { Content } from "spectrum-ts";
-import type { ProviderMessageRecord } from "spectrum-ts/authoring";
+import type { Content } from "@spectrum-ts/core";
+import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";
 import { toChatGuid } from "./ids";
 

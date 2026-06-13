@@ -1,5 +1,5 @@
-import type { ProviderMessage } from "spectrum-ts";
-import { definePlatform, type ManagedStream, stream } from "spectrum-ts";
+import type { ProviderMessage } from "@spectrum-ts/core";
+import { definePlatform, type ManagedStream, stream } from "@spectrum-ts/core";
 import z from "zod";
 
 // The fakes resolve sender/space to `{ id: string }`, so the records they emit

@@ -10,7 +10,7 @@ import {
   richlink,
   text,
   voice,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import { buildSend } from "@/outbound/message";
 
 const target = {

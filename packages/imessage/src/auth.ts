@@ -3,7 +3,7 @@ import {
   cloud,
   type DedicatedTokenData,
   type SharedTokenData,
-} from "spectrum-ts";
+} from "@spectrum-ts/core";
 import { type RemoteClient, SHARED_PHONE } from "./types";
 
 const RENEWAL_RATIO = 0.8;

@@ -1,5 +1,5 @@
+import { renderInlineTokens as inlinePlainText } from "@spectrum-ts/core/authoring";
 import { Marked, type MarkedToken, type Token, type Tokens } from "marked";
-import { renderInlineTokens as inlinePlainText } from "spectrum-ts/internal";
 
 // Private instance: immune to host apps reconfiguring the global `marked`
 // singleton via `marked.use()` / `marked.setOptions()`.

@@ -4,7 +4,12 @@ import type {
   Message as SDKMessage,
 } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
-import { markdown, type StreamText, text, UnsupportedError } from "spectrum-ts";
+import {
+  markdown,
+  type StreamText,
+  text,
+  UnsupportedError,
+} from "@spectrum-ts/core";
 import { imessage } from "@/index";
 import { sendStreamText } from "@/remote/stream-text";
 

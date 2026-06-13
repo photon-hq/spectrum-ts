@@ -2,7 +2,7 @@
   "name": "@spectrum-ts/test-support",
   "version": "0.0.0",
   "private": true,
-  "description": "Shared test helpers for spectrum-ts packages. Never published — source-only workspace package.",
+  "description": "Shared test helpers for spectrum-ts packages. Never published \u2014 source-only workspace package.",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"
@@ -15,11 +15,11 @@
     "zod": "^4.2.1"
   },
   "peerDependencies": {
-    "spectrum-ts": "*"
+    "@spectrum-ts/core": "*"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "spectrum-ts": "workspace:*"
+    "@spectrum-ts/core": "workspace:*",
+    "@types/bun": "latest"
   },
   "license": "MIT"
 }

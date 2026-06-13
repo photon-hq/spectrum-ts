@@ -2,11 +2,11 @@
 //
 // Faithful to v4 semantics: importing the aggregate requires ALL official
 // provider packages to be installed (in v4 they were all bundled here).
-// Prefer importing from the individual `@photon-ai/spectrum-provider-*`
+// Prefer importing from the individual `@spectrum-ts/*`
 // packages — or the per-provider `spectrum-ts/providers/*` shims — so you
 // only install the platforms you use.
-export { imessage } from "@photon-ai/spectrum-provider-imessage";
-export { slack } from "@photon-ai/spectrum-provider-slack";
-export { telegram } from "@photon-ai/spectrum-provider-telegram";
-export { terminal } from "@photon-ai/spectrum-provider-terminal";
-export { whatsappBusiness } from "@photon-ai/spectrum-provider-whatsapp-business";
+export { imessage } from "@spectrum-ts/imessage";
+export { slack } from "@spectrum-ts/slack";
+export { telegram } from "@spectrum-ts/telegram";
+export { terminal } from "@spectrum-ts/terminal";
+export { whatsappBusiness } from "@spectrum-ts/whatsapp-business";

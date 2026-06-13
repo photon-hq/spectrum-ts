@@ -1,5 +1,5 @@
 {
-  "name": "@photon-ai/spectrum-provider-imessage",
+  "name": "@spectrum-ts/imessage",
   "version": "5.0.0",
   "description": "iMessage provider for spectrum-ts — local and remote (advanced) modes.",
   "repository": {
@@ -52,13 +52,13 @@
     "zod": "^4.2.1"
   },
   "peerDependencies": {
-    "spectrum-ts": "^5.0.0",
+    "@spectrum-ts/core": "^5.0.0",
     "typescript": "^5 || ^6.0.0"
   },
   "devDependencies": {
+    "@spectrum-ts/core": "workspace:*",
     "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
-    "spectrum-ts": "workspace:*",
     "tsdown": "^0.22.2"
   },
   "license": "MIT"

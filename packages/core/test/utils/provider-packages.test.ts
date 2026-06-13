@@ -23,15 +23,11 @@ describe("normalizePlatformKey", () => {
 
 describe("officialProviderPackage", () => {
   it("resolves all five official providers from any spelling", () => {
-    expect(officialProviderPackage("iMessage")).toBe(
-      "@photon-ai/spectrum-provider-imessage"
-    );
+    expect(officialProviderPackage("iMessage")).toBe("@spectrum-ts/imessage");
     expect(officialProviderPackage("whatsapp_business")).toBe(
-      "@photon-ai/spectrum-provider-whatsapp-business"
+      "@spectrum-ts/whatsapp-business"
     );
-    expect(officialProviderPackage("telegram")).toBe(
-      "@photon-ai/spectrum-provider-telegram"
-    );
+    expect(officialProviderPackage("telegram")).toBe("@spectrum-ts/telegram");
   });
 
   it("returns undefined for unknown/custom platforms", () => {
@@ -43,7 +39,7 @@ describe("officialProviderPackage", () => {
 describe("officialProviderInstallHint", () => {
   it("names the package and an install command", () => {
     const hint = officialProviderInstallHint("telegram");
-    expect(hint).toContain("@photon-ai/spectrum-provider-telegram");
+    expect(hint).toContain("@spectrum-ts/telegram");
     expect(hint).toMatch(INSTALL_COMMAND);
     expect(hint).toContain("Spectrum({ providers: [...] })");
   });

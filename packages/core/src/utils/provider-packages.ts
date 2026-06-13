@@ -11,11 +11,11 @@
 // key ("telegram"), and the cloud platform key ("whatsapp_business").
 
 const OFFICIAL_PROVIDER_PACKAGES: Readonly<Record<string, string>> = {
-  imessage: "@photon-ai/spectrum-provider-imessage",
-  slack: "@photon-ai/spectrum-provider-slack",
-  telegram: "@photon-ai/spectrum-provider-telegram",
-  terminal: "@photon-ai/spectrum-provider-terminal",
-  "whatsapp-business": "@photon-ai/spectrum-provider-whatsapp-business",
+  imessage: "@spectrum-ts/imessage",
+  slack: "@spectrum-ts/slack",
+  telegram: "@spectrum-ts/telegram",
+  terminal: "@spectrum-ts/terminal",
+  "whatsapp-business": "@spectrum-ts/whatsapp-business",
 };
 
 const SEPARATORS = /[\s_]+/g;

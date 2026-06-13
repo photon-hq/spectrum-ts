@@ -1,19 +1,17 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
-  "tags": ["core"],
-  "boundaries": {
-    "implicitDependencies": ["@spectrum-ts/test-support"]
-  },
+  "tags": ["meta"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/scripts/smoke-import.mjs",
-        "$TURBO_ROOT$/README.md",
-        "$TURBO_ROOT$/LICENSE"
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/*/src/index.ts",
+        "$TURBO_ROOT$/packages/*/src/config.ts",
+        "$TURBO_ROOT$/scripts/smoke-import.mjs"
       ]
     }
   }

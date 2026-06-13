@@ -1,0 +1,86 @@
+{
+  "name": "spectrum-ts",
+  "version": "5.0.0",
+  "description": "Bring agents to any interface \u2014 unified messaging SDK for TypeScript. Batteries-included: the runtime plus every official provider.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/photon-hq/spectrum-ts.git",
+    "directory": "packages/spectrum-ts"
+  },
+  "homepage": "https://photon.codes/spectrum",
+  "bugs": {
+    "url": "https://github.com/photon-hq/spectrum-ts/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./authoring": {
+      "bun": "./src/authoring.ts",
+      "types": "./src/authoring.ts",
+      "default": "./dist/authoring.js"
+    },
+    "./providers": {
+      "bun": "./src/providers/index.ts",
+      "types": "./src/providers/index.ts",
+      "default": "./dist/providers/index.js"
+    },
+    "./providers/*": {
+      "bun": "./src/providers/*/index.ts",
+      "types": "./src/providers/*/index.ts",
+      "default": "./dist/providers/*/index.js"
+    },
+    "./manifest.json": "./dist/manifest.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./authoring": {
+        "types": "./dist/authoring.d.ts",
+        "default": "./dist/authoring.js"
+      },
+      "./providers": {
+        "types": "./dist/providers/index.d.ts",
+        "default": "./dist/providers/index.js"
+      },
+      "./providers/*": {
+        "types": "./dist/providers/*/index.d.ts",
+        "default": "./dist/providers/*/index.js"
+      },
+      "./manifest.json": "./dist/manifest.json"
+    }
+  },
+  "scripts": {
+    "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js && bun scripts/generate-manifest.ts",
+    "dev": "tsdown --watch",
+    "generate:manifest": "bun scripts/generate-manifest.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@spectrum-ts/core": "5.0.0",
+    "@spectrum-ts/imessage": "5.0.0",
+    "@spectrum-ts/slack": "5.0.0",
+    "@spectrum-ts/telegram": "5.0.0",
+    "@spectrum-ts/terminal": "5.0.0",
+    "@spectrum-ts/whatsapp-business": "5.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "tsdown": "^0.22.2"
+  },
+  "license": "MIT"
+}

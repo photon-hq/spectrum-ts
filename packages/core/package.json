@@ -1,11 +1,11 @@
 {
-  "name": "spectrum-ts",
+  "name": "@spectrum-ts/core",
   "version": "5.0.0",
-  "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
+  "description": "The spectrum-ts runtime \u2014 Spectrum, content builders, fusor, and the provider authoring API.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
-    "directory": "packages/spectrum-ts"
+    "directory": "packages/core"
   },
   "homepage": "https://photon.codes/spectrum",
   "bugs": {
@@ -28,25 +28,10 @@
       "bun": "./src/authoring.ts",
       "types": "./src/authoring.ts",
       "default": "./dist/authoring.js"
-    },
-    "./internal": {
-      "bun": "./src/internal.ts",
-      "types": "./src/internal.ts",
-      "default": "./dist/internal.js"
-    },
-    "./providers": {
-      "bun": "./src/providers/index.ts",
-      "types": "./src/providers/index.ts",
-      "default": "./dist/providers/index.js"
-    },
-    "./providers/*": {
-      "bun": "./src/providers/*/index.ts",
-      "types": "./src/providers/*/index.ts",
-      "default": "./dist/providers/*/index.js"
-    },
-    "./manifest.json": "./dist/manifest.json"
+    }
   },
   "publishConfig": {
+    "access": "public",
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",
@@ -55,27 +40,13 @@
       "./authoring": {
         "types": "./dist/authoring.d.ts",
         "default": "./dist/authoring.js"
-      },
-      "./internal": {
-        "types": "./dist/internal.d.ts",
-        "default": "./dist/internal.js"
-      },
-      "./providers": {
-        "types": "./dist/providers/index.d.ts",
-        "default": "./dist/providers/index.js"
-      },
-      "./providers/*": {
-        "types": "./dist/providers/*/index.d.ts",
-        "default": "./dist/providers/*/index.js"
-      },
-      "./manifest.json": "./dist/manifest.json"
+      }
     }
   },
   "scripts": {
-    "build": "bun scripts/prepare-package.ts && tsdown && node ../../scripts/smoke-import.mjs dist/index.js && bun scripts/generate-manifest.ts",
+    "build": "bun scripts/prepare-package.ts && tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
     "generate:emoji": "bun scripts/generate-emoji.ts",
-    "generate:manifest": "bun scripts/generate-manifest.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
@@ -104,21 +75,6 @@
     "typescript": "^5 || ^6.0.0"
   },
   "peerDependenciesMeta": {
-    "@photon-ai/spectrum-provider-imessage": {
-      "optional": true
-    },
-    "@photon-ai/spectrum-provider-slack": {
-      "optional": true
-    },
-    "@photon-ai/spectrum-provider-telegram": {
-      "optional": true
-    },
-    "@photon-ai/spectrum-provider-terminal": {
-      "optional": true
-    },
-    "@photon-ai/spectrum-provider-whatsapp-business": {
-      "optional": true
-    },
     "ffmpeg-static": {
       "optional": true
     }

@@ -4,3 +4,4 @@ export { slack } from "./slack";
 export { telegram } from "./telegram";
 export { terminal } from "./terminal";
 export { whatsappBusiness } from "./whatsapp-business";
+export { x } from "./x";

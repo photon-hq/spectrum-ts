@@ -208,6 +208,22 @@ app.post(
 );
 ```
 
+**ElysiaJS** — use the first-party plugin (it handles the raw-body parsing for
+you); see **[ElysiaJS plugin](./elysia.md)**:
+
+```typescript
+import { spectrum } from "spectrum-ts/elysia";
+
+new Elysia().use(
+  spectrum({
+    app,
+    onMessage: async (space, message) => {
+      await space.send("got it");
+    },
+  })
+);
+```
+
 ### What's automatic vs. your job
 
 - **Automatic:** decode the envelope, route by platform, verify the platform

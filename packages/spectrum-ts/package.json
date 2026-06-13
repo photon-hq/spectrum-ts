@@ -1,6 +1,6 @@
 {
   "name": "spectrum-ts",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
   "repository": {
     "type": "git",
@@ -29,6 +29,11 @@
       "types": "./src/authoring.ts",
       "default": "./dist/authoring.js"
     },
+    "./elysia": {
+      "bun": "./src/elysia.ts",
+      "types": "./src/elysia.ts",
+      "default": "./dist/elysia.js"
+    },
     "./providers": {
       "bun": "./src/providers/index.ts",
       "types": "./src/providers/index.ts",
@@ -50,6 +55,10 @@
       "./authoring": {
         "types": "./dist/authoring.d.ts",
         "default": "./dist/authoring.js"
+      },
+      "./elysia": {
+        "types": "./dist/elysia.d.ts",
+        "default": "./dist/elysia.js"
       },
       "./providers": {
         "types": "./dist/providers/index.d.ts",
@@ -95,15 +104,20 @@
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
     "clean-publish": "^7.0.0",
+    "elysia": "^1",
     "hotscript": "^1.0.13",
     "tsup": "^8.4.0",
     "unicode-emoji-json": "^0.9.0"
   },
   "peerDependencies": {
+    "elysia": "^1",
     "ffmpeg-static": "^5",
     "typescript": "^5 || ^6.0.0"
   },
   "peerDependenciesMeta": {
+    "elysia": {
+      "optional": true
+    },
     "ffmpeg-static": {
       "optional": true
     }

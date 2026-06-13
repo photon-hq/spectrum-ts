@@ -78,6 +78,10 @@ app.post(
 > the SDK sees it, the bytes change and verification fails. Use `c.req.raw` /
 > `express.raw(...)` — never `req.json()`.
 
+> 🦊 **ElysiaJS** auto-parses JSON bodies, which would break this — use the
+> first-party **[`spectrum-ts/elysia`](./elysia.md)** plugin, which disables body
+> parsing on its route and forwards the raw request for you.
+
 ## What the SDK does for you
 
 - **Verifies the signature** — `HMAC-SHA256` over `v0:<timestamp>:<rawBody>`,

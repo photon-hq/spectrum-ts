@@ -17,7 +17,7 @@ import type { Message } from "@/types/message";
 
 stubCloud();
 
-const NO_FUSOR_PROVIDER_ERROR = /requires at least one fusor provider/;
+const NO_FUSOR_PROVIDER_ERROR = /no fusor provider is configured/;
 
 describe("spectrum.webhook", () => {
   it("routes by platform, resolves [space, message], and delivers to the handler", async () => {

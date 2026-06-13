@@ -115,6 +115,13 @@ the same pipeline, returns the HTTP response Fusor relays back to the platform
 message fire-and-forget — the handler runs after the response and never affects
 it.
 
+> ℹ️ **Two webhook formats, one method.** `app.webhook()` also accepts the
+> **native Spectrum webhook** — Spectrum Cloud's own HMAC-signed, already-normalized
+> JSON deliveries (no raw provider request, no protobuf). It auto-detects the
+> format per request (the native one carries an `X-Spectrum-Signature` header) and
+> hands your handler the same `(space, message)` either way. The native format
+> needs a signing secret — see **[Native Spectrum webhooks](./native-webhook.md)**.
+
 ### Enable it
 
 There's nothing extra to configure — just call `app.webhook()` from your POST
@@ -131,7 +138,8 @@ check.
 app.webhook(request: Request, handler: WebhookHandler): Promise<Response>;
 
 // Raw — for Express / raw Node. Returns a plain result you write back yourself.
-// `headers` are accepted (so passing `req.headers` is fine) but unused.
+// `headers` are accepted (passing `req.headers` is fine); they're unused for the
+// fusor format but ARE read for native Spectrum webhooks (signature verification).
 app.webhook(
   request: { body: Uint8Array | ArrayBuffer; headers?: Record<string, string> },
   handler: WebhookHandler

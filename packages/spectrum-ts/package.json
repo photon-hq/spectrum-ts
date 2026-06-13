@@ -1,6 +1,6 @@
 {
   "name": "spectrum-ts",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
   "repository": {
     "type": "git",

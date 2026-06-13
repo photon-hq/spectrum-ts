@@ -141,6 +141,8 @@ jobs:
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # Least privilege: this token only commits/pushes the bump.
+          permission-contents: write
       - name: Commit and push bump
         id: push
         env:
@@ -305,6 +307,9 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: photon-hq
           repositories: spectrum-webhook
+          # Least privilege: repository_dispatch needs contents:write + metadata:read.
+          permission-contents: write
+          permission-metadata: read
       - name: Dispatch Renovate run on spectrum-webhook
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

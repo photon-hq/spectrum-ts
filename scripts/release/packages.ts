@@ -74,6 +74,9 @@ export async function publishablePackages(): Promise<PublishablePackage[]> {
   if (!pkgs.some((p) => p.json.name === CORE_NAME)) {
     throw new Error(`core package "${CORE_NAME}" not found under packages/`);
   }
+  if (!pkgs.some((p) => p.json.name === META_NAME)) {
+    throw new Error(`metapackage "${META_NAME}" not found under packages/`);
+  }
   const rank = (name: string): number => {
     if (name === CORE_NAME) {
       return 0; // runtime first

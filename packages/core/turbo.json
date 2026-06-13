@@ -9,6 +9,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"],
+      "env": ["SPECTRUM_PUBLISH"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/smoke-import.mjs",

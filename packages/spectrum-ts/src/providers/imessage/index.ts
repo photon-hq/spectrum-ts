@@ -13,11 +13,14 @@ import type { StreamText } from "../../content/stream-text";
 import type { Unsend } from "../../content/unsend";
 import { definePlatform } from "../../platform/define";
 import type { ProviderMessageRecord } from "../../platform/types";
-import type { Message } from "../../types/message";
 import type { Space } from "../../types/space";
 import { UnsupportedError } from "../../utils/errors";
 
+// `read` is universal framework content now (it was iMessage-only before
+// 4.1.0). Re-exported here so existing imessage-scoped imports keep
+// compiling — prefer importing from the package root.
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
+export { read } from "../../content/read";
 export { type BackgroundInput, background } from "./content/background";
 export {
   type CustomizedMiniApp,
@@ -26,7 +29,6 @@ export {
   customizedMiniApp,
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
-export { read } from "./content/read";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { getMessageCache } from "./cache";
@@ -40,7 +42,6 @@ import {
   type CustomizedMiniApp,
   isCustomizedMiniApp,
 } from "./content/customized-mini-app";
-import { isRead, read as readContent } from "./content/read";
 import {
   getMessage as localGetMessage,
   messages as localMessages,
@@ -450,23 +451,11 @@ export const imessage = definePlatform("iMessage", {
       ) => {
         await space.send(backgroundContent(input as never, opts));
       },
-      // Sugar: `space.read(message)` → `space.send(read(message))`.
-      read: async (space: Space, message: Message) => {
-        await space.send(readContent(message));
-      },
     },
   },
 
   message: {
     schema: messageSchema,
-    actions: {
-      // Sugar: `message.read()` → `message.space.send(read(self))`.
-      // `buildMessage` injects the message as the first argument; callers
-      // pass nothing.
-      read: async (message: Message) => {
-        await message.space.send(readContent(message));
-      },
-    },
   },
 
   messages: ({ client, projectConfig }) =>
@@ -547,19 +536,22 @@ export const imessage = definePlatform("iMessage", {
       await handleAvatar(client, space, content);
       return;
     }
-    // `Background` and `Read` are iMessage-only and live outside the
-    // universal `Content` union — narrow via runtime guards rather than
-    // `content.type ===` checks (those literals aren't members of
+    if (content.type === "read") {
+      // Chat-level granularity: `chats.markRead(chatGuid)` marks every
+      // unread message in the chat — `content.target` only identifies the
+      // chat, never a per-message cutoff.
+      await handleRead(client, space);
+      return;
+    }
+    // `Background` is iMessage-only and lives outside the universal
+    // `Content` union — narrow via a runtime guard rather than a
+    // `content.type ===` check (the literal isn't a member of
     // `Content["type"]`).
     if (isBackground(content)) {
       await handleBackground(client, space, content);
       return;
     }
-    if (isRead(content)) {
-      await handleRead(client, space);
-      return;
-    }
-    // Also iMessage-only, but unlike `background`/`read` it produces a real
+    // Also iMessage-only, but unlike `background` it produces a real
     // message — return the record rather than treating it as fire-and-forget.
     if (isCustomizedMiniApp(content)) {
       return await handleCustomizedMiniApp(client, space, content);

@@ -6,6 +6,7 @@ import {
   type Reaction,
   reaction as reactionContent,
 } from "../content/reaction";
+import { read as readContent } from "../content/read";
 import { rename as renameContent } from "../content/rename";
 import { reply as replyContent } from "../content/reply";
 import { resolveContents } from "../content/resolve";
@@ -65,6 +66,7 @@ const FIRE_AND_FORGET_TYPES: ReadonlySet<string> = new Set([
   "rename",
   "avatar",
   "unsend",
+  "read",
 ]);
 
 const isFireAndForget = (item: Content): boolean =>
@@ -81,6 +83,7 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "send",
   "edit",
   "unsend",
+  "read",
   "getMessage",
   "rename",
   "avatar",
@@ -108,6 +111,7 @@ const RESERVED_MESSAGE_KEYS: ReadonlySet<string> = new Set([
   "id",
   "platform",
   "react",
+  "read",
   "reply",
   "sender",
   "space",
@@ -743,6 +747,13 @@ export function buildSpace(params: BuildSpaceParams): Space {
       // targets fail fast here too.
       await space.send(unsendContent(message));
     },
+    read: async (message: Message): Promise<void> => {
+      // Sugar for `space.send(read(message))`. Reads are fire-and-forget;
+      // the (always-undefined) result is discarded. The `read()` content
+      // builder enforces `direction === "inbound"` at the top, so invalid
+      // targets fail fast here too.
+      await space.send(readContent(message));
+    },
     getMessage: getMessageImpl,
     rename: async (displayName: string): Promise<void> => {
       // Sugar for `space.send(rename(displayName))`. Fire-and-forget; the
@@ -877,6 +888,19 @@ export function buildMessage(params: BuildMessageParams): Message {
     await space.send(unsendContent(target));
   };
 
+  const read = async (): Promise<void> => {
+    // Defense-in-depth: the `read()` content builder enforces the same
+    // guard, but checking here gives a clearer call-site stack for the most
+    // common misuse (calling `.read()` on an outbound message).
+    const target = requireBuiltMessage("read");
+    if (target.direction !== "inbound") {
+      throw new Error(
+        `cannot mark message ${target.id} as read: only inbound messages can be marked read (direction: "${target.direction}")`
+      );
+    }
+    await space.send(readContent(target));
+  };
+
   // Outbound senders are structurally tagged with `kind: "agent"` so the
   // runtime shape matches the `AgentSender` type advertised by `send()`
   // / `reply()` returns. Inbound senders are passed through untouched.
@@ -939,6 +963,7 @@ export function buildMessage(params: BuildMessageParams): Message {
     direction: params.direction,
     platform: definition.name,
     react,
+    read,
     reply,
     edit,
     unsend,

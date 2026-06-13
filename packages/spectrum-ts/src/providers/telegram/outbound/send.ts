@@ -164,6 +164,14 @@ export const send = async ({
       return await sendReaction(client, space, content);
     case "typing":
       return await sendTyping(client, space, content.state);
+    case "read":
+      // Telegram bot chats have no read receipts — messages are effectively
+      // auto-read and the Bot API exposes no way to signal read state, so
+      // the request is vacuously satisfied. Silent no-op (like a typing
+      // "stop") keeps `message.read()` portable across platforms. If this
+      // provider grows business-connection support, this becomes
+      // `readBusinessMessage` (Bot API 9.0).
+      return;
     case "edit":
       return await sendEdit(client, space, content);
     case "group":

@@ -11,6 +11,7 @@ import { attachment } from "@/content/attachment";
 import { markdown } from "@/content/markdown";
 import { poll } from "@/content/poll";
 import { reaction } from "@/content/reaction";
+import { asRead } from "@/content/read";
 import { reply } from "@/content/reply";
 import { text } from "@/content/text";
 import type { Content } from "@/content/types";
@@ -303,6 +304,18 @@ describe("send — fire-and-forget", () => {
         config,
       })
     ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("send — read", () => {
+  it("silently no-ops without calling the API (bot chats have no read receipts)", async () => {
+    const result = await send({
+      space,
+      content: asRead({ target }),
+      config,
+    });
+    expect(result).toBeUndefined();
     expect(calls).toHaveLength(0);
   });
 });

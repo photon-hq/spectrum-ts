@@ -31,6 +31,15 @@ export interface Message<
     | (Message<TPlatform, AgentSender, TSpace> & { content: Reaction })
     | undefined
   >;
+  /**
+   * Mark this message (and everything before it in the conversation) as
+   * read. Sugar for `space.send(read(this))`. Reads are fire-and-forget;
+   * per-platform granularity and support (e.g. iMessage marks the whole
+   * chat; Telegram/Slack silently no-op) surface from the provider's send
+   * action. Only inbound messages can be marked read; calling this on an
+   * outbound message throws.
+   */
+  read(): Promise<void>;
   reply(
     content: ContentInput
   ): Promise<Message<TPlatform, AgentSender, TSpace> | undefined>;

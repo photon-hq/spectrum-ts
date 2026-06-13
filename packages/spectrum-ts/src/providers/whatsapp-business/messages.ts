@@ -514,6 +514,12 @@ export const send = async (
     // platforms — typing is a hint, not a critical message.
     return;
   }
+  if (content.type === "read") {
+    // Cumulative receipt: the Cloud API marks `target` and every earlier
+    // message in the conversation as read (blue ticks for the sender).
+    await primary(clients).messages.markRead(content.target.id);
+    return;
+  }
   const client = primary(clients);
   switch (content.type) {
     case "text":

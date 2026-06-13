@@ -300,6 +300,13 @@ export const send = async (
     // platforms.
     return;
   }
+  if (content.type === "read") {
+    // Slack has no user-visible read receipts (`conversations.mark` only
+    // moves the caller's own read cursor). Silently ignore so
+    // `message.read()` works portably across platforms — same best-effort
+    // contract as typing.
+    return;
+  }
   return await sendContent(client, space, content);
 };
 

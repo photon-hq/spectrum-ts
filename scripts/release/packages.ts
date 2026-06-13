@@ -44,11 +44,24 @@ export async function publishablePackages(): Promise<PublishablePackage[]> {
       continue;
     }
     const path = join(packagesDir, entry.name, "package.json");
+    let raw: string;
+    try {
+      raw = await readFile(path, "utf8");
+    } catch (error) {
+      // A workspace directory without a package.json is legitimately skipped;
+      // any other read error (permissions, etc.) is not.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      throw new Error(`failed to read ${path}: ${(error as Error).message}`);
+    }
     let json: PackageJson;
     try {
-      json = JSON.parse(await readFile(path, "utf8")) as PackageJson;
-    } catch {
-      continue;
+      json = JSON.parse(raw) as PackageJson;
+    } catch (error) {
+      // A malformed manifest must fail loudly — silently skipping it would
+      // drop the package from a release.
+      throw new Error(`failed to parse ${path}: ${(error as Error).message}`);
     }
     if (json.private === true || !json.name) {
       continue;

@@ -37,13 +37,21 @@ for (const pkg of pkgs) {
     }
   }
   const peer = pkg.json.peerDependencies?.[CORE_NAME];
-  if (name !== CORE_NAME && peer && expected) {
-    const satisfied =
-      peer === expected || peer === `^${expected.split(".")[0]}.0.0`;
-    if (!satisfied) {
-      errors.push(
-        `${name}: peerDependencies.${CORE_NAME} = "${peer}" does not match release ${expected}`
-      );
+  if (name !== CORE_NAME && expected) {
+    if (peer) {
+      // Mirror bump-version: a prerelease pins the exact version (a caret
+      // range would not satisfy `5.0.0-rc.1` under semver); a stable release
+      // uses `^<major>.0.0`.
+      const expectedPeer = expected.includes("-")
+        ? expected
+        : `^${expected.split(".")[0]}.0.0`;
+      if (peer !== expectedPeer) {
+        errors.push(
+          `${name}: peerDependencies.${CORE_NAME} = "${peer}" does not match expected "${expectedPeer}"`
+        );
+      }
+    } else {
+      errors.push(`${name}: missing peerDependencies.${CORE_NAME}`);
     }
   }
 }

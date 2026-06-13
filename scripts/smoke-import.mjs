@@ -19,13 +19,16 @@
 
 import { resolve } from "node:path";
 import { cwd, exit } from "node:process";
+import { pathToFileURL } from "node:url";
 
 const entryArg = process.argv[2];
 if (!entryArg) {
   console.error("usage: smoke-import.mjs <entry> (path relative to cwd)");
   exit(1);
 }
-const ENTRY = resolve(cwd(), entryArg);
+// Dynamic import() needs a file:// URL for an absolute path — a bare absolute
+// path fails on Windows (the drive letter parses as a URL scheme).
+const ENTRY = pathToFileURL(resolve(cwd(), entryArg)).href;
 
 try {
   const mod = await import(ENTRY);

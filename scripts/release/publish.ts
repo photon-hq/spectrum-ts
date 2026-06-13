@@ -37,10 +37,25 @@ if (!tag || tag.startsWith("--")) {
 
 const NPM_ERROR_RE = /^npm (error|ERR!)/m;
 const REGISTRY = "https://registry.npmjs.org";
+const REGISTRY_TIMEOUT_MS = 15_000;
 
+// Bounded registry probe. A timeout or transient network error reads as
+// "not present", which is safe at both call sites: the pre-publish skip
+// check falls through to a publish attempt (idempotent — an
+// already-published version is rejected by npm and surfaced), and the
+// post-publish verifier just keeps retrying.
 async function registryHas(name: string, version: string): Promise<boolean> {
-  const res = await fetch(`${REGISTRY}/${name}/${version}`);
-  return res.status === 200;
+  try {
+    const res = await fetch(`${REGISTRY}/${name}/${version}`, {
+      signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+    });
+    return res.status === 200;
+  } catch (error) {
+    console.warn(
+      `  registry probe for ${name}@${version} failed: ${error instanceof Error ? error.message : error}`
+    );
+    return false;
+  }
 }
 
 async function verifyOnRegistry(

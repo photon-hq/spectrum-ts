@@ -336,9 +336,7 @@ export const imessage = definePlatform("iMessage", {
 
       if (!(projectId && projectSecret)) {
         throw new Error(
-          "iMessage requires projectId and projectSecret. " +
-            "Either pass credentials to Spectrum(), use local mode: imessage.config({ local: true }), " +
-            "or provide explicit client config: imessage.config({ clients: [...] })"
+          "iMessage requires projectId and projectSecret. Either pass credentials to Spectrum(), use local mode: imessage.config({ local: true }), or provide explicit client config: imessage.config({ clients: [...] })"
         );
       }
 
@@ -431,8 +429,7 @@ export const imessage = definePlatform("iMessage", {
           (client.length === 1 ? client[0]?.phone : undefined));
       if (!phone) {
         throw new Error(
-          "iMessage space.get requires params.phone when multiple clients " +
-            `are configured. Available: ${availablePhones(client).join(", ")}`
+          `iMessage space.get requires params.phone when multiple clients are configured. Available: ${availablePhones(client).join(", ")}`
         );
       }
       return {

@@ -40,8 +40,12 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
     },
 
     destroyClient: async ({ client }) => {
+      // `disposeCloudAuth` already closes cloud-backed clients, so this pass
+      // can double-close them. Teardown is best-effort (the auth helper's own
+      // closes use `.catch(() => undefined)` for the same reason) — settle all
+      // so one non-idempotent `close()` can't reject and abort cleanup.
       await disposeCloudAuth(client);
-      await Promise.all(client.map((c) => c.close()));
+      await Promise.allSettled(client.map((c) => c.close()));
     },
   },
 

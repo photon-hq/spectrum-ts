@@ -25,6 +25,23 @@ import { CORE_NAME, publishablePackages } from "./packages";
 const TEMP = ".clean-publish-tmp";
 const errors: string[] = [];
 
+// Recursively list every .js file under a directory. The core build emits
+// nested output (dist/providers/<key>/index.js, chunk files), so a top-level
+// readdir would miss exactly the artifacts the "local" build-env check must
+// scan.
+async function listJsFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const full = join(root, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...(await listJsFiles(full)));
+    } else if (entry.isFile() && entry.name.endsWith(".js")) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 async function run(cmd: string[], cwd: string): Promise<string> {
   const proc = spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr] = await Promise.all([
@@ -85,14 +102,11 @@ for (const pkg of pkgs) {
 
   if (name === CORE_NAME && process.env.SPECTRUM_PUBLISH === "1") {
     const dist = join(pkg.dir, "dist");
-    for (const file of await readdir(dist)) {
-      if (!file.endsWith(".js")) {
-        continue;
-      }
-      const content = await readFile(join(dist, file), "utf8");
+    for (const file of await listJsFiles(dist)) {
+      const content = await readFile(file, "utf8");
       if (content.includes('SPECTRUM_SDK_VERSION = "local"')) {
         errors.push(
-          `${name}: dist/${file} ships the development build-env ("local") in a publish build`
+          `${name}: ${file.replace(`${pkg.dir}/`, "")} ships the development build-env ("local") in a publish build`
         );
       }
     }

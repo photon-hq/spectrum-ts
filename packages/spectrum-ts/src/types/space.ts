@@ -38,6 +38,19 @@ export interface Space<_Def = unknown> {
   getMessage(id: string): Promise<Message | undefined>;
   readonly id: string;
   /**
+   * Mark the conversation as read up to `message`, surfacing a read receipt
+   * to the sender where the platform supports one. Sugar for
+   * `send(read(message))`. Fire-and-forget; only inbound messages can be
+   * marked read.
+   *
+   * Granularity is per-platform: WhatsApp Business issues a receipt for
+   * `message` and everything before it; iMessage (remote) marks the whole
+   * chat read. Platforms with no read-receipt concept for bot conversations
+   * (Telegram, Slack) silently no-op, so the signal is best-effort
+   * everywhere — same contract as `startTyping()`.
+   */
+  read(message: Message): Promise<void>;
+  /**
    * Rename the current chat. Sugar for `send(rename(displayName))`.
    *
    * Universal API; per-platform constraints (e.g. iMessage: remote + group

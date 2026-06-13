@@ -7,6 +7,7 @@ import {
   mock,
   spyOn,
 } from "bun:test";
+
 import {
   attachment,
   type Content,
@@ -18,6 +19,7 @@ import {
   text,
   voice,
 } from "spectrum-ts";
+import { asRead } from "spectrum-ts/authoring";
 import { configSchema } from "@/config";
 import { send } from "@/outbound/send";
 
@@ -305,6 +307,18 @@ describe("send — fire-and-forget", () => {
         config,
       })
     ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("send — read", () => {
+  it("silently no-ops without calling the API (bot chats have no read receipts)", async () => {
+    const result = await send({
+      space,
+      content: asRead({ target }),
+      config,
+    });
+    expect(result).toBeUndefined();
     expect(calls).toHaveLength(0);
   });
 });

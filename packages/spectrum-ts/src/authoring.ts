@@ -19,6 +19,7 @@ export { asGroup } from "./content/group";
 export { asMarkdown } from "./content/markdown";
 export { asPoll, asPollOption } from "./content/poll";
 export { asReaction } from "./content/reaction";
+export { asRead } from "./content/read";
 export { asRichlink } from "./content/richlink";
 export { asText } from "./content/text";
 export { asVoice } from "./content/voice";

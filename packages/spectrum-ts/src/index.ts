@@ -32,6 +32,7 @@ export {
   type ReactionBuilder,
   reaction,
 } from "./content/reaction";
+export { type Read, read } from "./content/read";
 export { type Rename, rename } from "./content/rename";
 export { type Reply, reply } from "./content/reply";
 export { resolveContents } from "./content/resolve";

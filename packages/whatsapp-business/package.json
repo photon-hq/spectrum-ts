@@ -40,7 +40,7 @@
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
-    "test": "bun test --pass-with-no-tests",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -5,6 +5,8 @@ export default defineConfig({
     index: "src/index.ts",
     authoring: "src/authoring.ts",
     elysia: "src/elysia.ts",
+    express: "src/express.ts",
+    hono: "src/hono.ts",
     "providers/index": "src/providers/index.ts",
     "providers/imessage/index": "src/providers/imessage/index.ts",
     "providers/slack/index": "src/providers/slack/index.ts",
@@ -19,7 +21,7 @@ export default defineConfig({
   clean: true,
   outDir: "dist",
   target: "esnext",
-  external: ["elysia", "ffmpeg-static"],
+  external: ["elysia", "express", "hono", "ffmpeg-static"],
   // esbuild bundles CommonJS dependencies (e.g. `vcf`, `mime-types`) into
   // this ESM output and rewrites their `require(...)` calls to a `__require` shim
   // whose fallback throws `Dynamic require of "x" is not supported` — because

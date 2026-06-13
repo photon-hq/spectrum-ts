@@ -1,6 +1,6 @@
 {
   "name": "spectrum-ts",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
   "repository": {
     "type": "git",
@@ -34,6 +34,16 @@
       "types": "./src/elysia.ts",
       "default": "./dist/elysia.js"
     },
+    "./express": {
+      "bun": "./src/express.ts",
+      "types": "./src/express.ts",
+      "default": "./dist/express.js"
+    },
+    "./hono": {
+      "bun": "./src/hono.ts",
+      "types": "./src/hono.ts",
+      "default": "./dist/hono.js"
+    },
     "./providers": {
       "bun": "./src/providers/index.ts",
       "types": "./src/providers/index.ts",
@@ -59,6 +69,14 @@
       "./elysia": {
         "types": "./dist/elysia.d.ts",
         "default": "./dist/elysia.js"
+      },
+      "./express": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "./hono": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
       },
       "./providers": {
         "types": "./dist/providers/index.d.ts",
@@ -101,24 +119,35 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/express": "^5",
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
     "clean-publish": "^7.0.0",
     "elysia": "^1",
+    "express": "^5",
+    "hono": "^4",
     "hotscript": "^1.0.13",
     "tsup": "^8.4.0",
     "unicode-emoji-json": "^0.9.0"
   },
   "peerDependencies": {
     "elysia": "^1",
+    "express": "^4 || ^5",
     "ffmpeg-static": "^5",
+    "hono": "^4",
     "typescript": "^5 || ^6.0.0"
   },
   "peerDependenciesMeta": {
     "elysia": {
       "optional": true
     },
+    "express": {
+      "optional": true
+    },
     "ffmpeg-static": {
+      "optional": true
+    },
+    "hono": {
       "optional": true
     }
   },

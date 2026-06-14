@@ -1,12 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { configSchema } from "@/providers/x/config";
+import type { XCloudAuth } from "@/providers/x/auth";
+import { directConfigSchema } from "@/providers/x/config";
 import { buildSignature } from "@/providers/x/signature";
 import type { XPayload } from "@/providers/x/types";
-import { verify } from "@/providers/x/verify";
+import { makeVerify, verify } from "@/providers/x/verify";
 
 const CONSUMER_SECRET = "consumer-secret";
 
-const config = configSchema.parse({
+const config = directConfigSchema.parse({
   consumerSecret: CONSUMER_SECRET,
   accessToken: "access-token",
   xUserId: "42",
@@ -87,5 +88,59 @@ describe("x verify", () => {
     expect(() => verify(config)(request("PUT", "/x", ""))).toThrow(
       "does not support method"
     );
+  });
+});
+
+describe("x makeVerify", () => {
+  const cloudAuth: XCloudAuth = {
+    dispose: () => {},
+    getAccessToken: async () => "cloud-access-token",
+    getConsumerSecret: async () => CONSUMER_SECRET,
+    getXUserId: () => "42",
+  };
+
+  it("parses GET crc challenge payloads using cloud consumerSecret", async () => {
+    const payload = (await makeVerify(cloudAuth)(
+      request("GET", "/x?crc_token=cloud-crc", "")
+    )) as XPayload;
+    expect(payload).toEqual({ type: "crc", crcToken: "cloud-crc" });
+  });
+
+  it("verifies POST signatures using cloud consumerSecret", async () => {
+    const body = JSON.stringify({ direct_message_events: [] });
+    const rawBody = new TextEncoder().encode(body);
+    const signature = buildSignature(rawBody, CONSUMER_SECRET);
+    const payload = (await makeVerify(cloudAuth)(
+      request("POST", "/x", body, {
+        "x-twitter-webhooks-signature": signature,
+      })
+    )) as XPayload;
+    expect(payload).toEqual({
+      type: "dm",
+      body: { direct_message_events: [] },
+    });
+  });
+
+  it("prefers consumerSecret override over cloud auth", async () => {
+    const overrideSecret = "override-consumer-secret";
+    const body = JSON.stringify({ direct_message_events: [] });
+    const rawBody = new TextEncoder().encode(body);
+    const signature = buildSignature(rawBody, overrideSecret);
+    const authWithDifferentSecret: XCloudAuth = {
+      ...cloudAuth,
+      getConsumerSecret: async () => "wrong-secret",
+    };
+    const payload = (await makeVerify(
+      authWithDifferentSecret,
+      overrideSecret
+    )(
+      request("POST", "/x", body, {
+        "x-twitter-webhooks-signature": signature,
+      })
+    )) as XPayload;
+    expect(payload).toEqual({
+      type: "dm",
+      body: { direct_message_events: [] },
+    });
   });
 });

@@ -1,5 +1,6 @@
 import type { FusorVerify, FusorVerifyRequest } from "../../fusor/types";
-import type { XConfig } from "./config";
+import type { XCloudAuth } from "./auth";
+import type { XDirectConfig } from "./config";
 import { verifySignature } from "./signature";
 import type { XPayload } from "./types";
 
@@ -26,14 +27,8 @@ const parseCrcToken = (path: string): string => {
   return token;
 };
 
-/**
- * Build the Fusor `verify` hook. `GET` extracts a CRC token for webhook
- * registration; `POST` verifies the HMAC signature over the raw body and parses
- * JSON into a DM payload. Closes over `config.consumerSecret` only — no client
- * is involved. Throwing rejects the event (Fusor returns 400 — no retry).
- */
-export const verify =
-  (config: XConfig): FusorVerify<XPayload> =>
+const verifyWithConsumerSecret =
+  (consumerSecret: string): FusorVerify<XPayload> =>
   (req: FusorVerifyRequest): XPayload => {
     if (req.method === "GET") {
       return { type: "crc", crcToken: parseCrcToken(req.path) };
@@ -47,9 +42,30 @@ export const verify =
     if (!signatureHeader) {
       throw new Error("X webhook is missing x-twitter-webhooks-signature");
     }
-    if (!verifySignature(req.rawBody, signatureHeader, config.consumerSecret)) {
+    if (!verifySignature(req.rawBody, signatureHeader, consumerSecret)) {
       throw new Error("X webhook signature mismatch");
     }
 
     return { type: "dm", body: parseBody(req.rawBody) };
+  };
+
+/**
+ * Build the Fusor `verify` hook for direct mode. Closes over
+ * `config.consumerSecret` only — no client is involved.
+ */
+export const verify =
+  (config: XDirectConfig): FusorVerify<XPayload> =>
+  (req: FusorVerifyRequest) =>
+    verifyWithConsumerSecret(config.consumerSecret)(req);
+
+/**
+ * Build the Fusor `verify` hook for cloud mode. Resolves `consumerSecret` from
+ * the cloud auth sidecar on each request.
+ */
+export const makeVerify =
+  (auth: XCloudAuth, consumerSecretOverride?: string): FusorVerify<XPayload> =>
+  async (req: FusorVerifyRequest): Promise<XPayload> => {
+    const consumerSecret =
+      consumerSecretOverride ?? (await auth.getConsumerSecret());
+    return verifyWithConsumerSecret(consumerSecret)(req);
   };

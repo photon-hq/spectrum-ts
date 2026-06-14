@@ -11,6 +11,13 @@ const secureCompare = (left: string, right: string): boolean => {
   return timingSafeEqual(leftBytes, rightBytes);
 };
 
+/**
+ * We need to build a signature for the webhook request. This is used to verify the request is coming from X. We use the consumer secret to sign the request.
+ * This is to ensure that X also does not block our request.
+ * @param rawBody - The raw body of the request.
+ * @param consumerSecret - The consumer secret to use for the signature. This is the consumer secret of the project.
+ * @returns The signature.
+ */
 export const buildSignature = (
   rawBody: Uint8Array,
   consumerSecret: string

@@ -7,10 +7,12 @@ import {
   mock,
   spyOn,
 } from "bun:test";
-import { markdown } from "@/content/markdown";
 import { text } from "@/content/text";
-import { configSchema } from "@/providers/x/config";
+import { createCloudAuth } from "@/providers/x/auth";
+import { configSchema, directConfigSchema } from "@/providers/x/config";
 import { send } from "@/providers/x/outbound/send";
+import { cloud } from "@/utils/cloud";
+import { createStore } from "@/utils/store";
 
 interface CapturedCall {
   authorization: string | null;
@@ -19,12 +21,14 @@ interface CapturedCall {
   url: string;
 }
 
-const config = configSchema.parse({
+const config = directConfigSchema.parse({
   consumerSecret: "consumer-secret",
   accessToken: "access-token",
   xUserId: "42",
   appBearerToken: "app-bearer-token",
 });
+
+const store = createStore();
 
 let calls: CapturedCall[];
 
@@ -70,6 +74,7 @@ describe("x outbound send", () => {
   it("sends text to a recipient user id and returns an outbound record", async () => {
     const result = await send({
       config,
+      store,
       space: { id: "99" },
       content: await text("hello").build(),
     });
@@ -94,6 +99,7 @@ describe("x outbound send", () => {
   it("resolves recipient id from an internal conversation id space", async () => {
     await send({
       config,
+      store,
       space: { id: "42:99" },
       content: await text("from conversation").build(),
     });
@@ -108,6 +114,7 @@ describe("x outbound send", () => {
     await expect(
       send({
         config,
+        store,
         space: { id: "1:2" },
         content: await text("nope").build(),
       })
@@ -116,13 +123,41 @@ describe("x outbound send", () => {
   });
 
   it("rejects unsupported content types in v1", async () => {
+    const { markdown } = await import("@/content/markdown");
     await expect(
       send({
         config,
+        store,
         space: { id: "99" },
         content: await markdown("**hello**").build(),
       })
     ).rejects.toThrow('does not support content type "markdown"');
     expect(calls).toHaveLength(0);
+  });
+
+  it("uses cloud credentials from the platform store", async () => {
+    spyOn(cloud, "issueXCredentials").mockResolvedValue({
+      auth: { "42": "cloud-access-token" },
+      accounts: { a: { xUserId: "42" } },
+      consumerSecret: "cloud-consumer-secret",
+      expiresIn: 900,
+    });
+
+    const cloudStore = createStore();
+    await createCloudAuth({
+      projectId: "proj",
+      projectSecret: "secret",
+      store: cloudStore,
+    });
+
+    await send({
+      config: configSchema.parse({}),
+      store: cloudStore,
+      space: { id: "99" },
+      content: await text("cloud hello").build(),
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.authorization).toBe("Bearer cloud-access-token");
   });
 });

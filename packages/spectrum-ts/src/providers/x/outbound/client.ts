@@ -1,4 +1,4 @@
-import type { XConfig } from "../config";
+import type { XEffectiveConfig } from "../config";
 
 interface XApiErrorPayload {
   detail?: string;
@@ -12,46 +12,34 @@ const authHeaders = (accessToken: string): Record<string, string> => ({
   "Content-Type": "application/json",
 });
 
-const pickFirstString = (
-  record: Record<string, unknown>,
-  keys: readonly string[]
-): string | undefined => {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.length > 0) {
-      return value;
-    }
-  }
-  return;
-};
-
 const extractXErrorMessage = (status: number, payload: unknown): string => {
   if (!(payload && typeof payload === "object")) {
     return `X API error: ${status}`;
   }
-  const body = payload as XApiErrorPayload & Record<string, unknown>;
+  const body = payload as XApiErrorPayload;
   if (Array.isArray(body.errors)) {
     for (const entry of body.errors) {
       if (!(entry && typeof entry === "object")) {
         continue;
       }
-      const fromEntry = pickFirstString(entry as Record<string, unknown>, [
-        "detail",
-        "message",
-        "title",
-      ]);
+      const e = entry as XApiErrorPayload;
+      const fromEntry = e.detail ?? e.message ?? e.title;
       if (fromEntry) {
         return fromEntry;
       }
     }
   }
-  const detail = pickFirstString(body, ["detail", "title", "message"]);
-  if (detail) {
-    return detail;
-  }
-  return `X API error: ${status}`;
+  const detail = body.detail ?? body.title ?? body.message;
+  return detail ?? `X API error: ${status}`;
 };
 
+/**
+ * Fetch from the X API using provided access token and headers.
+ * @param url - The URL to fetch from.
+ * @param accessToken - The access token to use for authentication. This is the user-context OAuth token used for outbound DM sends and account webhook subscription.
+ * @param init - The init object to use for the fetch. This is the init object to use for the fetch.
+ * @returns The body of the response. This is the body of the response from the X API.
+ */
 const xApiFetch = async (
   url: string,
   accessToken: string,
@@ -86,7 +74,7 @@ export interface SendDmByParticipantResult {
  * Returns the conversation and event ids from the X API response.
  */
 export const sendDmByParticipantId = async (
-  config: Pick<XConfig, "accessToken" | "baseUrl">,
+  config: Pick<XEffectiveConfig, "accessToken" | "baseUrl">,
   participantId: string,
   body: XCreateDmBody
 ): Promise<SendDmByParticipantResult> => {

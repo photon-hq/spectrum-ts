@@ -1,8 +1,10 @@
 import type { Content } from "../../../content/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import { UnsupportedError } from "../../../utils/errors";
+import type { Store } from "../../../utils/store";
 import { X_PLATFORM, type XConfig } from "../config";
 import { normalizeXConversationIdToInternal } from "../conversation-id";
+import { resolveEffectiveConfig } from "../resolve-config";
 import type { XSpace } from "../space";
 import { sendDmByParticipantId } from "./client";
 
@@ -10,6 +12,7 @@ interface SendArgs {
   config: XConfig;
   content: Content;
   space: XSpace;
+  store: Store;
 }
 
 const resolveRecipientUserId = (
@@ -41,15 +44,22 @@ export const send = async ({
   space,
   content,
   config,
+  store,
 }: SendArgs): Promise<ProviderMessageRecord | undefined> => {
   if (content.type !== "text") {
     throw UnsupportedError.content(content.type, X_PLATFORM);
   }
 
-  const recipientUserId = resolveRecipientUserId(space.id, config.xUserId);
-  const sent = await sendDmByParticipantId(config, recipientUserId, {
-    text: content.text,
-  });
+  const effective = await resolveEffectiveConfig(config, store);
+  const recipientUserId = resolveRecipientUserId(space.id, effective.xUserId);
+  const sent = await sendDmByParticipantId(
+    {
+      accessToken: effective.accessToken,
+      baseUrl: effective.baseUrl,
+    },
+    recipientUserId,
+    { text: content.text }
+  );
 
   const now = new Date();
   return {

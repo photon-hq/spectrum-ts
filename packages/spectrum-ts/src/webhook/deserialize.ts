@@ -13,7 +13,6 @@ import type {
   SlimContent,
   SlimEnvelope,
   SlimMessage,
-  SlimMessageRef,
 } from "./types";
 
 /** The single event type that carries a message today. */
@@ -181,14 +180,14 @@ const buildTargetRecord = (
   target: unknown,
   spaceRef: SpaceRef
 ): ProviderMessageRecord => {
-  const ref = (isRecord(target) ? target : {}) as Partial<SlimMessageRef>;
+  const ref = isRecord(target) ? target : {};
   return {
     id: asString(ref.id),
     // The target's full content is not delivered; the 80-char `contentPreview`
     // (text targets only) is the best available stand-in.
     content: { type: "text", text: asString(ref.contentPreview) },
     space: { ...spaceRef },
-    sender: ref.sender ? { ...ref.sender } : undefined,
+    sender: isRecord(ref.sender) ? { ...ref.sender, id: asString(ref.sender.id) } : undefined,
     timestamp: asOptionalDate(ref.timestamp),
   };
 };

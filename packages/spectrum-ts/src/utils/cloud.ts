@@ -27,7 +27,15 @@ export interface DedicatedTokenData {
 
 export type TokenData = SharedTokenData | DedicatedTokenData;
 
-export type CloudPlatform = "imessage" | "whatsapp_business" | "slack";
+export type CloudPlatform = "imessage" | "whatsapp_business" | "slack" | "x";
+
+/** Refreshed X API credentials from Spectrum Cloud (`POST /projects/:id/x/credentials`). */
+export interface XCredentialsData {
+  accounts: Record<string, { xUserId: string }>;
+  auth: Record<string, string>;
+  consumerSecret: string;
+  expiresIn: number;
+}
 
 export interface PlatformStatus {
   enabled: boolean;
@@ -204,6 +212,15 @@ export const cloud = {
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
+  issueXCredentials: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<XCredentialsData> =>
+    request(`/projects/${projectId}/x/credentials`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
   issueFusorToken: (
     projectId: string,
     projectSecret: string
@@ -213,8 +230,13 @@ export const cloud = {
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
-  getPlatforms: (projectId: string): Promise<PlatformsData> =>
-    request(`/projects/${projectId}/platforms/`),
+  getPlatforms: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<PlatformsData> =>
+    request(`/projects/${projectId}/platforms/`, {
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
 
   togglePlatform: (
     projectId: string,

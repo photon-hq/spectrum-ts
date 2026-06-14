@@ -61,7 +61,7 @@ This path is separate from the **spectrum-x / LightAuth** stack
 
 ## What v1 supports
 
-- Inbound DMs from X webhook payloads (legacy AAA + Activity API `dm.received`)
+- Inbound DMs from X webhook payloads (multiple envelope shapes — legacy Account Activity and `dm.received` event bodies)
 - CRC challenge handling (`GET ?crc_token=...`)
 - Signed webhook verification (`x-twitter-webhooks-signature`)
 - Outbound text DMs
@@ -69,6 +69,8 @@ This path is separate from the **spectrum-x / LightAuth** stack
 - Cloud mode via Spectrum Cloud credential exchange (direct mode unchanged)
 
 Out of scope in v1: media, group DMs, reactions.
+
+Webhook delivery is registered by spectrum-ts at startup (`ensureWebhook` — Account Activity webhook + `/subscriptions/all`). spectrum-cloud stores OAuth tokens only; it does not provision X webhook subscriptions.
 
 ---
 

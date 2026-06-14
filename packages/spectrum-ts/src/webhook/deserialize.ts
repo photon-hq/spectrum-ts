@@ -9,11 +9,7 @@ import { asRichlink } from "../content/richlink";
 import type { Content } from "../content/types";
 import type { ProviderMessageRecord } from "../platform/build";
 import { UnsupportedError } from "../utils/errors";
-import type {
-  SlimContent,
-  SlimEnvelope,
-  SlimMessage,
-} from "./types";
+import type { SlimContent, SlimEnvelope, SlimMessage } from "./types";
 
 /** The single event type that carries a message today. */
 const MESSAGES_EVENT = "messages";
@@ -187,7 +183,9 @@ const buildTargetRecord = (
     // (text targets only) is the best available stand-in.
     content: { type: "text", text: asString(ref.contentPreview) },
     space: { ...spaceRef },
-    sender: isRecord(ref.sender) ? { ...ref.sender, id: asString(ref.sender.id) } : undefined,
+    sender: isRecord(ref.sender)
+      ? { ...ref.sender, id: asString(ref.sender.id) }
+      : undefined,
     timestamp: asOptionalDate(ref.timestamp),
   };
 };

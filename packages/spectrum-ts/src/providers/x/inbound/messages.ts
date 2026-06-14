@@ -14,7 +14,9 @@ const toRecord = (event: ReturnType<typeof parseWebhookPayload>[number]) => {
     return;
   }
   const content =
-    text.length > 0 ? asText(text) : asCustom({ encodedEvent: event.encodedEvent });
+    text.length > 0
+      ? asText(text)
+      : asCustom({ encodedEvent: event.encodedEvent });
   const senderHandle = event.sender.username;
   return {
     id: event.eventId,

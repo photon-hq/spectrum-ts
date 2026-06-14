@@ -48,7 +48,9 @@ const toDirection = (
   forUserId: string | undefined,
   senderId: string
 ): ParsedDirection => {
-  if (!forUserId) return "unknown";
+  if (!forUserId) {
+    return "unknown";
+  }
   return senderId === forUserId ? "outbound" : "inbound";
 };
 
@@ -94,7 +96,9 @@ const DM_RECEIVED_EVENT_TYPE = "dm.received";
 const resolveUserEntry = (
   entry: XUser | XActivityUserEntry | undefined
 ): XUser | undefined => {
-  if (!(entry && typeof entry === "object")) return;
+  if (!(entry && typeof entry === "object")) {
+    return;
+  }
   if ("data" in entry && entry.data && typeof entry.data === "object") {
     return entry.data;
   }
@@ -104,19 +108,20 @@ const resolveUserEntry = (
 const normalizeUsers = (
   users: Record<string, XUser | XActivityUserEntry> | undefined
 ): Record<string, XUser> | undefined => {
-  if (!users) return;
+  if (!users) {
+    return;
+  }
   const normalized: Record<string, XUser> = {};
   for (const [userId, entry] of Object.entries(users)) {
     const resolved = resolveUserEntry(entry);
-    if (resolved) normalized[userId] = resolved;
+    if (resolved) {
+      normalized[userId] = resolved;
+    }
   }
   return normalized;
 };
 
-const toDmUser = (
-  payload: XWebhookPayload,
-  userId: string
-): ParsedUser => {
+const toDmUser = (payload: XWebhookPayload, userId: string): ParsedUser => {
   const known = resolveUserEntry(payload.users?.[userId]);
   return {
     id: known?.id ?? known?.id_str ?? userId,
@@ -128,9 +133,13 @@ const toDmUser = (
 };
 
 const toDate = (createdTimestamp: string | undefined): Date | undefined => {
-  if (!createdTimestamp) return;
+  if (!createdTimestamp) {
+    return;
+  }
   const asNumber = Number.parseInt(createdTimestamp, 10);
-  if (!Number.isFinite(asNumber)) return;
+  if (!Number.isFinite(asNumber)) {
+    return;
+  }
   return new Date(asNumber);
 };
 
@@ -139,9 +148,13 @@ const normalizeDmReceivedEnvelope = (
 ): XWebhookPayload | null => {
   const envelope = body as XDmReceivedEnvelope;
   const data = envelope.data;
-  if (!data || data.event_type !== DM_RECEIVED_EVENT_TYPE) return null;
+  if (!data || data.event_type !== DM_RECEIVED_EVENT_TYPE) {
+    return null;
+  }
   const payload = data.payload;
-  if (!(payload && Array.isArray(payload.direct_message_events))) return null;
+  if (!(payload && Array.isArray(payload.direct_message_events))) {
+    return null;
+  }
   return {
     for_user_id: data.filter?.user_id,
     users: normalizeUsers(payload.users),
@@ -153,7 +166,9 @@ const normalizeLegacyPayload = (
   body: Record<string, unknown>
 ): XWebhookPayload | null => {
   const payload = body as XWebhookPayload;
-  if (!Array.isArray(payload.direct_message_events)) return null;
+  if (!Array.isArray(payload.direct_message_events)) {
+    return null;
+  }
   return {
     for_user_id: payload.for_user_id,
     users: normalizeUsers(payload.users),
@@ -166,20 +181,28 @@ const normalizeLegacyPayload = (
  * into normalized DM events.
  */
 export const parseDmReceivedEvents = (body: unknown): ParsedWebhookEvent[] => {
-  if (!isRecord(body)) return [];
+  if (!isRecord(body)) {
+    return [];
+  }
 
   const payload =
     normalizeDmReceivedEnvelope(body) ?? normalizeLegacyPayload(body);
-  if (!payload?.direct_message_events) return [];
+  if (!payload?.direct_message_events) {
+    return [];
+  }
 
   const parsedEvents: ParsedWebhookEvent[] = [];
   for (const dm of payload.direct_message_events) {
-    if (dm.type && dm.type !== "message_create") continue;
+    if (dm.type && dm.type !== "message_create") {
+      continue;
+    }
 
     const senderId = dm.message_create?.sender_id;
     const recipientId =
       dm.message_create?.target?.recipient_id ?? payload.for_user_id;
-    if (!(senderId && recipientId)) continue;
+    if (!(senderId && recipientId)) {
+      continue;
+    }
 
     const eventId =
       dm.id ?? `${senderId}:${recipientId}:${dm.created_timestamp ?? "0"}`;
@@ -223,25 +246,36 @@ const CHAT_RECEIVED_EVENT_TYPE = "chat.received";
  * binary-encoded in `encoded_event` and cannot be decoded without the schema;
  * `text` is always empty and `encodedEvent` carries the raw base64 blob.
  */
-export const parseChatReceivedEvents = (body: unknown): ParsedWebhookEvent[] => {
-  if (!isRecord(body)) return [];
+export const parseChatReceivedEvents = (
+  body: unknown
+): ParsedWebhookEvent[] => {
+  if (!isRecord(body)) {
+    return [];
+  }
 
   const envelope = body as XChatReceivedEnvelope;
   const data = envelope.data;
-  if (!data || data.event_type !== CHAT_RECEIVED_EVENT_TYPE) return [];
+  if (!data || data.event_type !== CHAT_RECEIVED_EVENT_TYPE) {
+    return [];
+  }
 
   const payload = data.payload;
-  if (!payload) return [];
+  if (!payload) {
+    return [];
+  }
 
   const eventId = payload.id;
   const senderId = payload.sender_id;
   const rawConversationId = payload.conversation_id;
   const forUserId = data.filter?.user_id;
 
-  if (!(eventId && senderId && rawConversationId)) return [];
+  if (!(eventId && senderId && rawConversationId)) {
+    return [];
+  }
 
   const [partA, partB] = rawConversationId.split(":");
-  const recipientId = (partA === senderId ? partB : partA) ?? forUserId ?? senderId;
+  const recipientId =
+    (partA === senderId ? partB : partA) ?? forUserId ?? senderId;
 
   const createdAt = payload.created_at_msec
     ? new Date(Number(payload.created_at_msec))
@@ -272,6 +306,8 @@ export const parseChatReceivedEvents = (body: unknown): ParsedWebhookEvent[] => 
  */
 export const parseWebhookPayload = (body: unknown): ParsedWebhookEvent[] => {
   const dmEvents = parseDmReceivedEvents(body);
-  if (dmEvents.length > 0) return dmEvents;
+  if (dmEvents.length > 0) {
+    return dmEvents;
+  }
   return parseChatReceivedEvents(body);
 };

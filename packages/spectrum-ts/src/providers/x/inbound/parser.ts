@@ -34,6 +34,8 @@ export interface ParsedWebhookEvent {
   encodedEvent?: string;
   eventId: string;
   mediaId?: string;
+  mediaType?: string;
+  mediaUrl?: string;
   recipient: ParsedUser;
   sender: ParsedUser;
   text: string;
@@ -67,6 +69,9 @@ interface XDirectMessage {
       attachment?: {
         media?: {
           id?: string;
+          media_url?: string;
+          media_url_https?: string;
+          type?: string;
         };
       };
     };
@@ -206,13 +211,16 @@ export const parseDmReceivedEvents = (body: unknown): ParsedWebhookEvent[] => {
 
     const eventId =
       dm.id ?? `${senderId}:${recipientId}:${dm.created_timestamp ?? "0"}`;
+    const media = dm.message_create?.message_data?.attachment?.media;
     parsedEvents.push({
       eventId,
       conversationId: buildInternalConversationId(senderId, recipientId),
       sender: toDmUser(payload, senderId),
       recipient: toDmUser(payload, recipientId),
       text: dm.message_create?.message_data?.text ?? "",
-      mediaId: dm.message_create?.message_data?.attachment?.media?.id,
+      mediaId: media?.id,
+      mediaUrl: media?.media_url_https ?? media?.media_url,
+      mediaType: media?.type,
       createdAt: toDate(dm.created_timestamp),
       direction: toDirection(payload.for_user_id, senderId),
     });

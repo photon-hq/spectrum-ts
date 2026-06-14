@@ -12,7 +12,14 @@ const authHeaders = (accessToken: string): Record<string, string> => ({
   "Content-Type": "application/json",
 });
 
-const extractXErrorMessage = (status: number, payload: unknown): string => {
+/**
+ * Best-effort extraction of a human-readable message from an X API error body.
+ * Exported so other outbound modules (e.g. media upload) reuse the same logic.
+ */
+export const extractXErrorMessage = (
+  status: number,
+  payload: unknown
+): string => {
   if (!(payload && typeof payload === "object")) {
     return `X API error: ${status}`;
   }

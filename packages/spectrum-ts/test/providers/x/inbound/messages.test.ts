@@ -164,6 +164,82 @@ describe("x inbound handleMessages", () => {
     expect(result).toBeUndefined();
   });
 
+  const mediaMessage = (text: string) => ({
+    message_create: {
+      sender_id: "99",
+      target: { recipient_id: "42" },
+      message_data: {
+        text,
+        attachment: {
+          media: {
+            id: "m1",
+            media_url_https: "https://ton.example.com/dm/photo.jpg",
+            type: "photo",
+          },
+        },
+      },
+    },
+  });
+
+  it("maps a media-only DM to an attachment content", async () => {
+    const { result } = await run({
+      type: "dm",
+      body: legacyPayload(mediaMessage("")),
+    });
+    expect(result).toMatchObject({
+      id: "evt-1",
+      direction: "inbound",
+      content: {
+        type: "attachment",
+        name: "photo.jpg",
+        mimeType: "image/jpeg",
+      },
+    });
+  });
+
+  it("maps a DM with caption + media to a group of [text, attachment]", async () => {
+    const { result } = await run({
+      type: "dm",
+      body: legacyPayload(mediaMessage("look at this")),
+    });
+    const content = (
+      result as {
+        content: {
+          type: string;
+          items: { content: { type: string; text?: string } }[];
+        };
+      }
+    ).content;
+    expect(content.type).toBe("group");
+    expect(content.items).toHaveLength(2);
+    expect(content.items[0]?.content).toMatchObject({
+      type: "text",
+      text: "look at this",
+    });
+    expect(content.items[1]?.content.type).toBe("attachment");
+  });
+
+  it("downloads inbound media lazily with the bearer token", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(Buffer.from("photo-bytes"))
+    );
+    const { result } = await run({
+      type: "dm",
+      body: legacyPayload(mediaMessage("")),
+    });
+    const attachment = (result as { content: { read: () => Promise<Buffer> } })
+      .content;
+    const bytes = await attachment.read();
+
+    expect(bytes.toString()).toBe("photo-bytes");
+    const [url, init] = fetchSpy.mock.calls[0] as [URL, RequestInit];
+    expect(url.toString()).toBe("https://ton.example.com/dm/photo.jpg");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer access-token"
+    );
+    mock.restore();
+  });
+
   it("responds to CRC challenges using cloud credentials", async () => {
     spyOn(cloud, "issueXCredentials").mockResolvedValue({
       auth: { "42": "cloud-access-token" },

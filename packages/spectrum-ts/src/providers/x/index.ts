@@ -24,7 +24,8 @@ export { webhookUrl } from "./webhook";
  *
  * Inbound runs through Fusor (webhook + stream compatible): `verify` handles
  * CRC/signature parsing and `messages` maps DM webhooks to provider records.
- * Outbound sends text DMs through the X REST API.
+ * Outbound sends text and media DMs through the X REST API (chunked upload for
+ * attachments; one media item plus optional caption per DM).
  *
  * Cloud mode exchanges credentials via Spectrum Cloud (`POST /x/credentials`);
  * pass `appBearerToken` in cloud config to register the Fusor webhook at startup.

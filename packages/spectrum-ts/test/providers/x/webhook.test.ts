@@ -7,7 +7,6 @@ import {
   mock,
   spyOn,
 } from "bun:test";
-import { configSchema } from "@/providers/x/config";
 import { ensureWebhook, webhookUrl } from "@/providers/x/webhook";
 
 const SLUG = "project-x";
@@ -22,12 +21,10 @@ interface CapturedCall {
   path: string;
 }
 
-const config = configSchema.parse({
-  consumerSecret: "consumer-secret",
-  accessToken: ACCESS_TOKEN,
-  xUserId: "42",
+const webhookInput = {
   appBearerToken: APP_BEARER,
-});
+  accessToken: ACCESS_TOKEN,
+};
 
 let calls: CapturedCall[];
 let listStatus: number;
@@ -118,7 +115,7 @@ describe("x ensureWebhook", () => {
   it("reuses an existing webhook id and only subscribes", async () => {
     listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
 
-    await ensureWebhook(config, SLUG);
+    await ensureWebhook(webhookInput, SLUG);
 
     expect(calls.map((call) => [call.method, call.path])).toEqual([
       ["GET", "/2/webhooks"],
@@ -132,7 +129,7 @@ describe("x ensureWebhook", () => {
     listBody = { data: [] };
     createBody = { data: { id: "hook-new", url: EXPECTED_URL } };
 
-    await ensureWebhook(config, SLUG);
+    await ensureWebhook(webhookInput, SLUG);
 
     expect(calls.map((call) => [call.method, call.path])).toEqual([
       ["GET", "/2/webhooks"],
@@ -146,7 +143,42 @@ describe("x ensureWebhook", () => {
     listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
     subscribeStatus = 409;
 
-    await expect(ensureWebhook(config, SLUG)).resolves.toBeUndefined();
+    await expect(ensureWebhook(webhookInput, SLUG)).resolves.toBeUndefined();
+  });
+
+  it("treats DuplicateSubscriptionFailed as already subscribed", async () => {
+    listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
+    subscribeStatus = 403;
+    spyOn(globalThis, "fetch").mockImplementation((async (
+      input: Request | string | URL,
+      init?: RequestInit
+    ): Promise<Response> => {
+      const request =
+        input instanceof Request ? input : new Request(String(input), init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/2/webhooks") {
+        return Response.json(listBody, { status: 200 });
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname.startsWith("/2/account_activity/webhooks/")
+      ) {
+        return Response.json(
+          {
+            errors: [
+              {
+                detail:
+                  "DuplicateSubscriptionFailed: Subscription already exists",
+              },
+            ],
+          },
+          { status: 403 }
+        );
+      }
+      return Response.json({ message: "unexpected route" }, { status: 500 });
+    }) as unknown as typeof fetch);
+
+    await expect(ensureWebhook(webhookInput, SLUG)).resolves.toBeUndefined();
   });
 
   it("throws a token-free error when creation fails", async () => {
@@ -156,7 +188,7 @@ describe("x ensureWebhook", () => {
 
     let thrown: unknown;
     try {
-      await ensureWebhook(config, SLUG);
+      await ensureWebhook(webhookInput, SLUG);
     } catch (error) {
       thrown = error;
     }

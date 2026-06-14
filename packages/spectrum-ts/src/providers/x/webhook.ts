@@ -1,4 +1,8 @@
-import { X_PLATFORM, type XConfig } from "./config";
+import {
+  DEFAULT_BASE_URL,
+  X_PLATFORM,
+  type XEnsureWebhookInput,
+} from "./config";
 
 /**
  * Base domain of the Fusor "super webhook" edge. X delivers events to
@@ -21,18 +25,8 @@ const authHeader = (token: string): Record<string, string> => ({
   Authorization: `Bearer ${token}`,
 });
 
-const pickFirstString = (
-  record: Record<string, unknown>,
-  keys: readonly string[]
-): string | undefined => {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.length > 0) {
-      return value;
-    }
-  }
-  return;
-};
+const asStr = (v: unknown): string | undefined =>
+  typeof v === "string" && v.length > 0 ? v : undefined;
 
 const extractXErrorMessage = (status: number, payload: unknown): string => {
   if (!(payload && typeof payload === "object")) {
@@ -44,21 +38,15 @@ const extractXErrorMessage = (status: number, payload: unknown): string => {
       if (!(entry && typeof entry === "object")) {
         continue;
       }
-      const fromEntry = pickFirstString(entry as Record<string, unknown>, [
-        "detail",
-        "message",
-        "title",
-      ]);
+      const e = entry as Record<string, unknown>;
+      const fromEntry = asStr(e.detail) ?? asStr(e.message) ?? asStr(e.title);
       if (fromEntry) {
         return fromEntry;
       }
     }
   }
-  const detail = pickFirstString(body, ["detail", "title", "message"]);
-  if (detail) {
-    return detail;
-  }
-  return `X API error: ${status}`;
+  const detail = asStr(body.detail) ?? asStr(body.title) ?? asStr(body.message);
+  return detail ?? `X API error: ${status}`;
 };
 
 const requestX = async (
@@ -84,8 +72,8 @@ const asWebhookRecord = (value: unknown): XWebhookRecord | undefined => {
     return;
   }
   const record = value as Record<string, unknown>;
-  const id = pickFirstString(record, ["id", "webhook_id"]);
-  const url = pickFirstString(record, ["url"]);
+  const id = asStr(record.id) ?? asStr(record.webhook_id);
+  const url = asStr(record.url);
   if (!(id && url)) {
     return;
   }
@@ -117,31 +105,40 @@ const extractWebhookId = (payload: unknown): string | undefined => {
     return;
   }
   const body = payload as Record<string, unknown>;
-  const topLevel = pickFirstString(body, ["id", "webhook_id"]);
-  if (topLevel) {
-    return topLevel;
+  const id = asStr(body.id) ?? asStr(body.webhook_id);
+  if (id) {
+    return id;
   }
   if (body.data && typeof body.data === "object") {
-    return pickFirstString(body.data as Record<string, unknown>, [
-      "id",
-      "webhook_id",
-    ]);
+    const data = body.data as Record<string, unknown>;
+    return asStr(data.id) ?? asStr(data.webhook_id);
   }
-  return;
+};
+
+const isAlreadySubscribed = (result: XApiResult): boolean => {
+  if (result.status === 409) {
+    return true;
+  }
+  const message = extractXErrorMessage(result.status, result.body);
+  return (
+    message.includes("Subscription already exists") ||
+    message.includes("DuplicateSubscription")
+  );
 };
 
 const subscribeWebhook = async (
-  config: XConfig,
+  input: XEnsureWebhookInput,
   webhookId: string
 ): Promise<void> => {
+  const baseUrl = input.baseUrl ?? DEFAULT_BASE_URL;
   const result = await requestX(
-    `${config.baseUrl}/2/account_activity/webhooks/${encodeURIComponent(webhookId)}/subscriptions/all`,
+    `${baseUrl}/2/account_activity/webhooks/${encodeURIComponent(webhookId)}/subscriptions/all`,
     {
       method: "POST",
-      headers: authHeader(config.accessToken),
+      headers: authHeader(input.accessToken),
     }
   );
-  if (result.status === 409) {
+  if (isAlreadySubscribed(result)) {
     return;
   }
   expectOk(result, "X account subscription failed");
@@ -151,7 +148,13 @@ const subscribeWebhook = async (
  * The webhook URL X should deliver account-activity events to: the Fusor edge
  * keyed by the project `slug`, on the X platform path segment.
  */
-export const webhookUrl = (slug: string): string => {
+export const webhookUrl = (slug: string, webhookBaseUrl?: string): string => {
+  const override =
+    webhookBaseUrl?.trim() || process.env.X_FUSOR_WEBHOOK_URL_OVERRIDE?.trim();
+  if (override) {
+    return `${override.replace(/\/$/, "")}/${X_PLATFORM}`;
+  }
+
   const domain =
     process.env.SPECTRUM_SUPER_WEBHOOK ?? DEFAULT_SUPER_WEBHOOK_DOMAIN;
   return `https://${slug}.${domain}/${X_PLATFORM}`;
@@ -164,16 +167,23 @@ export const webhookUrl = (slug: string): string => {
  * creating a new one, then subscribes the connected account. Subscription
  * `409` is treated as already subscribed. Failures throw a token-free error,
  * failing `Spectrum()` startup fast.
+ *
+ * @param input - The input object containing the app bearer token, access token, and base URL.
+ * @param slug - The slug of the project.
+ * @param webhookBaseUrl - The base URL of the webhook. Typically this is the url of the webhook.
+ * @returns A promise that resolves when the webhook is created and subscribed.
  */
 export const ensureWebhook = async (
-  config: XConfig,
-  slug: string
+  input: XEnsureWebhookInput,
+  slug: string,
+  webhookBaseUrl?: string
 ): Promise<void> => {
-  const url = webhookUrl(slug);
+  const baseUrl = input.baseUrl ?? DEFAULT_BASE_URL;
+  const url = webhookUrl(slug, webhookBaseUrl);
   try {
-    const listed = await requestX(`${config.baseUrl}/2/webhooks`, {
+    const listed = await requestX(`${baseUrl}/2/webhooks`, {
       method: "GET",
-      headers: authHeader(config.appBearerToken),
+      headers: authHeader(input.appBearerToken),
     });
     expectOk(listed, "X webhook list failed");
 
@@ -181,12 +191,14 @@ export const ensureWebhook = async (
       (entry) => entry.url === url
     );
 
+    // Create Webhook on X API which is the https://{slug}.{domain}/{platform}
+
     let webhookId = existing?.id;
     if (!webhookId) {
-      const created = await requestX(`${config.baseUrl}/2/webhooks`, {
+      const created = await requestX(`${baseUrl}/2/webhooks`, {
         method: "POST",
         headers: {
-          ...authHeader(config.appBearerToken),
+          ...authHeader(input.appBearerToken),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ url }),
@@ -198,7 +210,7 @@ export const ensureWebhook = async (
       }
     }
 
-    await subscribeWebhook(config, webhookId);
+    await subscribeWebhook(input, webhookId);
   } catch (error) {
     throw new Error(`X webhook registration failed for ${url}`, {
       cause: error,

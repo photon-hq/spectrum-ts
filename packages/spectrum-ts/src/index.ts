@@ -99,8 +99,9 @@ export type {
   SubscriptionData,
   SubscriptionStatus,
   TokenData,
+  XCredentialsData,
 } from "./utils/cloud";
-export { cloud, SpectrumCloudError } from "./utils/cloud";
+export { cloud, SPECTRUM_CLOUD_URL, SpectrumCloudError } from "./utils/cloud";
 export { UnsupportedError, type UnsupportedKind } from "./utils/errors";
 export {
   type Broadcaster,

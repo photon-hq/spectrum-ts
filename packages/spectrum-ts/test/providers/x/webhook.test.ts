@@ -21,9 +21,12 @@ interface CapturedCall {
   path: string;
 }
 
+const X_USER_ID = "2055450932557811713";
+
 const webhookInput = {
   appBearerToken: APP_BEARER,
   accessToken: ACCESS_TOKEN,
+  xUserId: X_USER_ID,
 };
 
 let calls: CapturedCall[];
@@ -40,7 +43,7 @@ beforeEach(() => {
   listBody = { data: [] };
   createStatus = 201;
   createBody = { data: { id: "hook-created", url: EXPECTED_URL } };
-  subscribeStatus = 204;
+  subscribeStatus = 200;
   originalSuperWebhook = process.env.SPECTRUM_SUPER_WEBHOOK;
   delete process.env.SPECTRUM_SUPER_WEBHOOK;
 
@@ -75,11 +78,13 @@ beforeEach(() => {
       }
       if (
         request.method === "POST" &&
-        url.pathname.startsWith("/2/account_activity/webhooks/") &&
-        url.pathname.endsWith("/subscriptions/all")
+        url.pathname === "/2/activity/subscriptions"
       ) {
-        if (subscribeStatus === 204) {
-          return new Response(null, { status: 204 });
+        if (subscribeStatus >= 200 && subscribeStatus < 300) {
+          return Response.json(
+            { data: { subscription: { event_type: body?.event_type } } },
+            { status: subscribeStatus }
+          );
         }
         return Response.json({}, { status: subscribeStatus });
       }
@@ -112,31 +117,82 @@ describe("x webhookUrl", () => {
 });
 
 describe("x ensureWebhook", () => {
-  it("reuses an existing webhook id and only subscribes", async () => {
+  it("reuses an existing webhook id and subscribes to the DM event types", async () => {
     listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
 
     await ensureWebhook(webhookInput, SLUG);
 
-    expect(calls.map((call) => [call.method, call.path])).toEqual([
-      ["GET", "/2/webhooks"],
-      ["POST", "/2/account_activity/webhooks/hook-existing/subscriptions/all"],
-    ]);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.path).toBe("/2/webhooks");
     expect(calls[0]?.authorization).toBe(`Bearer ${APP_BEARER}`);
-    expect(calls[1]?.authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+
+    const subscribeCalls = calls.filter(
+      (call) => call.path === "/2/activity/subscriptions"
+    );
+    expect(subscribeCalls.map((call) => call.body?.event_type)).toEqual([
+      "dm.received",
+      "dm.sent",
+      "chat.received",
+      "chat.sent",
+    ]);
+    expect(subscribeCalls[0]?.body?.webhook_id).toBe("hook-existing");
+    expect(subscribeCalls[0]?.authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+  });
+
+  it("subscribes to a custom event-type list when provided", async () => {
+    listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
+
+    await ensureWebhook({ ...webhookInput, eventTypes: ["dm.received"] }, SLUG);
+
+    const subscribeCalls = calls.filter(
+      (call) => call.path === "/2/activity/subscriptions"
+    );
+    expect(subscribeCalls.map((call) => call.body?.event_type)).toEqual([
+      "dm.received",
+    ]);
+  });
+
+  it("signs the subscribe call with OAuth 1.0a when those creds are present", async () => {
+    listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
+
+    await ensureWebhook(
+      {
+        ...webhookInput,
+        consumerKey: "consumer-key",
+        consumerSecret: "consumer-secret",
+        accessTokenSecret: "access-token-secret",
+      },
+      SLUG
+    );
+
+    const subscribeCall = calls.find(
+      (call) => call.path === "/2/activity/subscriptions"
+    );
+    expect(subscribeCall?.authorization?.startsWith("OAuth ")).toBe(true);
+    expect(subscribeCall?.authorization).toContain(
+      'oauth_consumer_key="consumer-key"'
+    );
+    // list/create still use the app-only bearer.
+    expect(calls[0]?.authorization).toBe(`Bearer ${APP_BEARER}`);
   });
 
   it("creates the webhook when none exists, then subscribes", async () => {
     listBody = { data: [] };
     createBody = { data: { id: "hook-new", url: EXPECTED_URL } };
 
-    await ensureWebhook(webhookInput, SLUG);
+    await ensureWebhook({ ...webhookInput, eventTypes: ["dm.received"] }, SLUG);
 
     expect(calls.map((call) => [call.method, call.path])).toEqual([
       ["GET", "/2/webhooks"],
       ["POST", "/2/webhooks"],
-      ["POST", "/2/account_activity/webhooks/hook-new/subscriptions/all"],
+      ["POST", "/2/activity/subscriptions"],
     ]);
     expect(calls[1]?.body).toEqual({ url: EXPECTED_URL });
+    expect(calls[2]?.body).toEqual({
+      event_type: "dm.received",
+      webhook_id: "hook-new",
+      filter: { user_id: X_USER_ID },
+    });
   });
 
   it("treats a 409 subscription response as already subscribed", async () => {
@@ -148,7 +204,6 @@ describe("x ensureWebhook", () => {
 
   it("treats DuplicateSubscriptionFailed as already subscribed", async () => {
     listBody = { data: [{ id: "hook-existing", url: EXPECTED_URL }] };
-    subscribeStatus = 403;
     spyOn(globalThis, "fetch").mockImplementation((async (
       input: Request | string | URL,
       init?: RequestInit
@@ -159,10 +214,7 @@ describe("x ensureWebhook", () => {
       if (request.method === "GET" && url.pathname === "/2/webhooks") {
         return Response.json(listBody, { status: 200 });
       }
-      if (
-        request.method === "POST" &&
-        url.pathname.startsWith("/2/account_activity/webhooks/")
-      ) {
+      if (url.pathname === "/2/activity/subscriptions") {
         return Response.json(
           {
             errors: [

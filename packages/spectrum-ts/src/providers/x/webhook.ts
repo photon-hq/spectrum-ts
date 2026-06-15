@@ -1,8 +1,10 @@
 import {
   DEFAULT_BASE_URL,
+  DEFAULT_X_EVENT_TYPES,
   X_PLATFORM,
   type XEnsureWebhookInput,
 } from "./config";
+import { oauth1Header } from "./oauth1";
 
 /**
  * Base domain of the Fusor "super webhook" edge. X delivers events to
@@ -128,22 +130,58 @@ const isAlreadySubscribed = (result: XApiResult): boolean => {
   );
 };
 
-const subscribeWebhook = async (
+// The subscribe call hits an Account Activity endpoint that requires
+// user-context auth: OAuth 1.0a (when the full key set is configured) or, as a
+// fallback, the access token as an OAuth 2.0 user-context Bearer. The app-only
+// bearer used for list/create is rejected here.
+const userAuthHeader = (
   input: XEnsureWebhookInput,
-  webhookId: string
+  method: string,
+  url: string
+): Record<string, string> => {
+  if (input.consumerKey && input.consumerSecret && input.accessTokenSecret) {
+    return {
+      Authorization: oauth1Header(method, url, {
+        accessToken: input.accessToken,
+        accessTokenSecret: input.accessTokenSecret,
+        consumerKey: input.consumerKey,
+        consumerSecret: input.consumerSecret,
+      }),
+    };
+  }
+  return authHeader(input.accessToken);
+};
+
+// Create one activity subscription (`POST /2/activity/subscriptions`) for the
+// connected account + webhook. The body carries the `event_type` (e.g.
+// `dm.received`); `filter: {}` subscribes the authenticating user with no extra
+// scoping. User-context auth is required (OAuth 1.0a or OAuth 2.0 with
+// dm.read/dm.write); the JSON body is excluded from the OAuth 1.0a signature.
+const createActivitySubscription = async (
+  input: XEnsureWebhookInput,
+  webhookId: string,
+  eventType: string
 ): Promise<void> => {
   const baseUrl = input.baseUrl ?? DEFAULT_BASE_URL;
-  const result = await requestX(
-    `${baseUrl}/2/account_activity/webhooks/${encodeURIComponent(webhookId)}/subscriptions/all`,
-    {
-      method: "POST",
-      headers: authHeader(input.accessToken),
-    }
-  );
+  const url = `${baseUrl}/2/activity/subscriptions`;
+  const result = await requestX(url, {
+    method: "POST",
+    headers: {
+      ...userAuthHeader(input, "POST", url),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      event_type: eventType,
+      webhook_id: webhookId,
+      filter: {
+        user_id: input.xUserId,
+      },
+    }),
+  });
   if (isAlreadySubscribed(result)) {
     return;
   }
-  expectOk(result, "X account subscription failed");
+  expectOk(result, `X activity subscription failed for "${eventType}"`);
 };
 
 /**
@@ -195,7 +233,6 @@ export const ensureWebhook = async (
 
     // Create Webhook on X API which is the https://{slug}.{domain}/{platform}
 
-    
     let webhookId = existing?.id;
     if (!webhookId) {
       const created = await requestX(`${baseUrl}/2/webhooks`, {
@@ -213,7 +250,10 @@ export const ensureWebhook = async (
       }
     }
 
-    await subscribeWebhook(input, webhookId);
+    const eventTypes = input.eventTypes ?? DEFAULT_X_EVENT_TYPES;
+    for (const eventType of eventTypes) {
+      await createActivitySubscription(input, webhookId, eventType);
+    }
   } catch (error) {
     throw new Error(`X webhook registration failed for ${url}`, {
       cause: error,

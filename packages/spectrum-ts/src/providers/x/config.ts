@@ -36,6 +36,10 @@ export const directConfigSchema = z
     xUserId: xUserIdField,
     /** App-only bearer used for webhook registration/list operations. */
     appBearerToken: z.string().min(1),
+    /** App API key (consumer key); pairs with accessTokenSecret for OAuth 1.0a. */
+    consumerKey: z.string().min(1).optional(),
+    /** OAuth 1.0a access token secret; pairs with accessToken for user-context calls. */
+    accessTokenSecret: z.string().min(1).optional(),
     /** Override the X API base URL for tests/local stubs. */
     baseUrl: z.url().default(DEFAULT_BASE_URL),
     /** Override the Fusor edge URL base (e.g. local ngrok) instead of {slug}.spctrm.dev. */
@@ -107,6 +111,27 @@ export interface XEffectiveConfig {
 /** Credentials required for X Account Activity webhook registration. */
 export interface XEnsureWebhookInput {
   accessToken: string;
+  accessTokenSecret?: string;
   appBearerToken: string;
   baseUrl?: string;
+  // OAuth 1.0a User Context creds for the subscribe call. When all three are
+  // present the subscription is OAuth 1.0a-signed; otherwise `accessToken` is
+  // sent as an OAuth 2.0 user-context Bearer.
+  consumerKey?: string;
+  consumerSecret?: string;
+  /**
+   * Activity event types to subscribe to via `POST /2/activity/subscriptions`
+   * (e.g. `dm.received`, `dm.sent`). Defaults to the DM message events.
+   */
+  eventTypes?: string[];
+  /** Connected account id — required as the `filter.user_id` of each subscription. */
+  xUserId: string;
 }
+
+/** Default X activity event types subscribed for the connected account. */
+export const DEFAULT_X_EVENT_TYPES = [
+  "dm.received",
+  "dm.sent",
+  "chat.received",
+  "chat.sent",
+];

@@ -1,3 +1,14 @@
+/**
+ * OAuth 2.0 token lifecycle for X (BYO-app direct mode).
+ *
+ * Exchanges a refresh token for a new access token via POST /2/oauth2/token.
+ * Used by `direct-auth.ts` to keep short-lived Bearer tokens fresh without
+ * Spectrum Cloud. Credentials: client ID, client secret, refresh token.
+ *
+ * For per-request OAuth 1.0a signing (consumer + access token secrets), see
+ * `oauth1.ts` instead — that module does not refresh tokens; it signs each
+ * HTTP request with HMAC-SHA1.
+ */
 import type { XRefreshedTokens } from "./config";
 
 interface RefreshInput {

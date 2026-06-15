@@ -1,5 +1,6 @@
 import { type FusorClient, fusor } from "../../fusor";
 import { definePlatform } from "../../platform/define";
+import type { Store } from "../../utils/store";
 import { configSchema, hasRefreshCreds, X_PLATFORM } from "./config";
 import { createDirectAuth, getDirectAuth } from "./direct-auth";
 import { handleMessages } from "./inbound/messages";
@@ -9,8 +10,31 @@ import type { XPayload } from "./types";
 import { verify } from "./verify";
 
 export type { XConfig, XDirectConfig } from "./config";
-// biome-ignore lint/performance/noBarrelFile: provider entrypoint re-exports webhook helpers
+// biome-ignore lint/performance/noBarrelFile: provider entrypoint re-exports helpers
+export { lookupXUserId } from "./users";
 export { ensureWebhook, webhookUrl } from "./webhook";
+
+/**
+ * Resolve the current X user access token: the live token from the SDK refresh
+ * sidecar when running in OAuth2 refresh mode, else `fallback`.
+ *
+ * Use this when registering the webhook from your app (after your server is
+ * listening). The sidecar refreshes — and X rotates/invalidates — the token at
+ * startup, so a configured token captured before that is stale; this returns
+ * the one the SDK is actually using.
+ */
+export const resolveAccessToken = (
+  app: {
+    __internal: {
+      platforms: { get(name: string): { store: Store } | undefined };
+    };
+  },
+  fallback: string
+): Promise<string> => {
+  const store = app.__internal.platforms.get(X_PLATFORM)?.store;
+  const directAuth = store ? getDirectAuth(store) : undefined;
+  return directAuth ? directAuth.getAccessToken() : Promise.resolve(fallback);
+};
 
 /**
  * X provider for Spectrum (BYO-app).

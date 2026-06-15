@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { XCloudAuth } from "@/providers/x/auth";
+import { X_CLOUD_AUTH_BRAND, type XCloudAuth } from "@/providers/x/auth";
 import { directConfigSchema } from "@/providers/x/config";
 import { buildSignature } from "@/providers/x/signature";
 import type { XPayload } from "@/providers/x/types";
@@ -93,6 +93,7 @@ describe("x verify", () => {
 
 describe("x makeVerify", () => {
   const cloudAuth: XCloudAuth = {
+    [X_CLOUD_AUTH_BRAND]: true,
     dispose: () => {},
     getAccessToken: async () => "cloud-access-token",
     getConsumerSecret: async () => CONSUMER_SECRET,

@@ -8,11 +8,16 @@ const RETRY_DELAY_MS = 30_000;
 /** Platform store key for the cloud auth sidecar. */
 export const X_AUTH_STORE_KEY = "xAuth";
 
+export const X_CLOUD_AUTH_BRAND: unique symbol = Symbol.for(
+  "spectrum.x.cloudAuth"
+);
+
 export interface XCloudAuth {
   dispose(): void;
   getAccessToken(xUserId?: string): Promise<string>;
   getConsumerSecret(): Promise<string>;
   getXUserId(): string;
+  readonly [X_CLOUD_AUTH_BRAND]: true;
 }
 
 interface CreateCloudAuthInput {
@@ -87,6 +92,7 @@ export async function createCloudAuth({
   let expiresAt = tokenExpiresAt(credentials);
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  let inFlightRefresh: Promise<XCredentialsData> | undefined;
 
   const clearRenewalTimer = (): void => {
     if (renewalTimer !== undefined) {
@@ -95,13 +101,30 @@ export async function createCloudAuth({
     }
   };
 
-  const refreshCredentials = async (): Promise<XCredentialsData> => {
+  const fetchCredentials = async (): Promise<XCredentialsData> => {
     const data = await cloud.issueXCredentials(projectId, projectSecret);
     assertHasAccounts(data);
     assertPinnedUserExists(data, pinnedXUserId);
     credentials = data;
     expiresAt = tokenExpiresAt(data);
     return data;
+  };
+
+  /**
+   * Single-flight refresh: concurrent callers (getAccessToken/getConsumerSecret
+   * racing the renewal timer) share one in-flight `issueXCredentials` call
+   * instead of each firing their own. Without this, overlapping refreshes hit
+   * the cloud — and therefore X's single-use rotating refresh token — in
+   * parallel. The shared promise is cleared once settled so the next refresh
+   * (or a retry after rejection) starts fresh.
+   */
+  const refreshCredentials = (): Promise<XCredentialsData> => {
+    if (!inFlightRefresh) {
+      inFlightRefresh = fetchCredentials().finally(() => {
+        inFlightRefresh = undefined;
+      });
+    }
+    return inFlightRefresh;
   };
 
   const scheduleRetry = (): void => {
@@ -159,6 +182,7 @@ export async function createCloudAuth({
   };
 
   const auth: XCloudAuth = {
+    [X_CLOUD_AUTH_BRAND]: true,
     dispose(): void {
       disposed = true;
       clearRenewalTimer();
@@ -197,9 +221,7 @@ export async function createCloudAuth({
 const isXCloudAuth = (value: unknown): value is XCloudAuth =>
   typeof value === "object" &&
   value !== null &&
-  typeof (value as Record<string, unknown>).getAccessToken === "function" &&
-  typeof (value as Record<string, unknown>).getConsumerSecret === "function" &&
-  typeof (value as Record<string, unknown>).getXUserId === "function";
+  (value as { [X_CLOUD_AUTH_BRAND]?: unknown })[X_CLOUD_AUTH_BRAND] === true;
 
 export const getCloudAuth = (store: Store): XCloudAuth | undefined => {
   const value = store.get(X_AUTH_STORE_KEY);

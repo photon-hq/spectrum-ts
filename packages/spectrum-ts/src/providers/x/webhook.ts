@@ -11,6 +11,8 @@ import {
  */
 const DEFAULT_SUPER_WEBHOOK_DOMAIN = "spctrm.dev";
 
+const TRAILING_SLASH = /\/$/;
+
 interface XWebhookRecord {
   id: string;
   url: string;
@@ -152,7 +154,7 @@ export const webhookUrl = (slug: string, webhookBaseUrl?: string): string => {
   const override =
     webhookBaseUrl?.trim() || process.env.X_FUSOR_WEBHOOK_URL_OVERRIDE?.trim();
   if (override) {
-    return `${override.replace(/\/$/, "")}/${X_PLATFORM}`;
+    return `${override.replace(TRAILING_SLASH, "")}/${X_PLATFORM}`;
   }
 
   const domain =
@@ -193,6 +195,7 @@ export const ensureWebhook = async (
 
     // Create Webhook on X API which is the https://{slug}.{domain}/{platform}
 
+    
     let webhookId = existing?.id;
     if (!webhookId) {
       const created = await requestX(`${baseUrl}/2/webhooks`, {

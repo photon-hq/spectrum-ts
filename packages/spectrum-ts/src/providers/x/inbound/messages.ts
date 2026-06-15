@@ -125,6 +125,14 @@ export const handleMessages = async ({
 > => {
   const effective = await resolveEffectiveConfig(config, store);
 
+  console.log("payload", JSON.stringify(payload, null, 2));
+  /**
+   * We must handle CRC challenges to register the webhook with X API. Furthermore
+   * X will repeatedly send CRC challenges every 30 minutes to ensure the webhook
+   *  is still active and secured.
+   */
+
+
   if (payload.type === "crc") {
     const crcResponse = createCrcResponse(
       payload.crcToken,

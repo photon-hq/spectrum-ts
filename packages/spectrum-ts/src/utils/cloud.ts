@@ -37,6 +37,18 @@ export interface XCredentialsData {
   expiresIn: number;
 }
 
+/**
+ * Result of provisioning a project's X webhook
+ * (`POST /projects/:id/x/provision`): the Fusor edge URL X delivers to and the
+ * x_user_ids subscribed. Registration runs server-side, so no app bearer is
+ * exposed to the SDK.
+ */
+export interface XProvisionData {
+  slug: string;
+  subscribed: string[];
+  webhookUrl: string;
+}
+
 export interface PlatformStatus {
   enabled: boolean;
 }
@@ -217,6 +229,15 @@ export const cloud = {
     projectSecret: string
   ): Promise<XCredentialsData> =>
     request(`/projects/${projectId}/x/credentials`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
+  provisionX: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<XProvisionData> =>
+    request(`/projects/${projectId}/x/provision`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

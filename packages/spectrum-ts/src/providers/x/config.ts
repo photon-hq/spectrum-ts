@@ -21,24 +21,11 @@ export interface XRefreshedTokens {
   refreshToken: string;
 }
 
-/** Cloud mode: OAuth + credentials from Spectrum Cloud. */
-export const cloudConfigSchema = z
-  .object({
-    /** Pin one bot when multiple x_accounts are linked to the project. */
-    xUserId: xUserIdField.optional(),
-    /** App-only bearer for webhook list/create when registering at startup. */
-    appBearerToken: z.string().min(1).optional(),
-    /** Override Fusor edge URL base (e.g. local ngrok) instead of {slug}.spctrm.dev. */
-    webhookBaseUrl: z.string().url().optional(),
-    /**
-     * Optional override for CRC HMAC + webhook signature verification.
-     * Defaults to the app consumer secret from Spectrum Cloud credentials.
-     */
-    consumerSecret: z.string().min(1).optional(),
-  })
-  .strict();
-
-/** Direct mode: BYO-app credentials (self-host). */
+/**
+ * BYO-app config: the customer brings their own X app. The SDK handles webhook
+ * registration, CRC + signature verification, token refresh, and sends — all
+ * with the customer's own credentials. No Spectrum-managed X credentials.
+ */
 export const directConfigSchema = z
   .object({
     /** App consumer secret used for webhook CRC + signature verification. */
@@ -51,6 +38,8 @@ export const directConfigSchema = z
     appBearerToken: z.string().min(1),
     /** Override the X API base URL for tests/local stubs. */
     baseUrl: z.url().default(DEFAULT_BASE_URL),
+    /** Override the Fusor edge URL base (e.g. local ngrok) instead of {slug}.spctrm.dev. */
+    webhookBaseUrl: z.string().url().optional(),
     // BYO-app OAuth2 credentials. When all three are present the SDK refreshes
     // the access token itself (timer + single-flight), calling X directly with
     // no Spectrum Cloud. Absent → `accessToken` is used as-is (caller-managed).
@@ -88,14 +77,11 @@ export const directConfigSchema = z
     }
   );
 
-export const configSchema = z.union([directConfigSchema, cloudConfigSchema]);
+export const configSchema = directConfigSchema;
 
-export type XCloudConfig = z.infer<typeof cloudConfigSchema>;
 export type XDirectConfig = z.infer<typeof directConfigSchema>;
-export type XConfig = XCloudConfig | XDirectConfig;
-
-export const isCloudConfig = (config: XConfig): config is XCloudConfig =>
-  !("accessToken" in config);
+/** Sole X config shape (BYO-app). Alias kept for call sites that import it. */
+export type XConfig = XDirectConfig;
 
 /** Direct config that carries a full BYO-app OAuth2 refresh credential set. */
 export type XRefreshConfig = XDirectConfig & {

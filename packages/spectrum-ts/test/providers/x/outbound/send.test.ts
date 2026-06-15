@@ -10,10 +10,8 @@ import {
 import { asAttachment } from "@/content/attachment";
 import { asGroup } from "@/content/group";
 import { asText, text } from "@/content/text";
-import { createCloudAuth } from "@/providers/x/auth";
-import { configSchema, directConfigSchema } from "@/providers/x/config";
+import { directConfigSchema } from "@/providers/x/config";
 import { send } from "@/providers/x/outbound/send";
-import { cloud } from "@/utils/cloud";
 import { createStore } from "@/utils/store";
 
 interface CapturedCall {
@@ -140,32 +138,6 @@ describe("x outbound send", () => {
       })
     ).rejects.toThrow('does not support content type "markdown"');
     expect(calls).toHaveLength(0);
-  });
-
-  it("uses cloud credentials from the platform store", async () => {
-    spyOn(cloud, "issueXCredentials").mockResolvedValue({
-      auth: { "42": "cloud-access-token" },
-      accounts: { a: { xUserId: "42" } },
-      consumerSecret: "cloud-consumer-secret",
-      expiresIn: 900,
-    });
-
-    const cloudStore = createStore();
-    await createCloudAuth({
-      projectId: "proj",
-      projectSecret: "secret",
-      store: cloudStore,
-    });
-
-    await send({
-      config: configSchema.parse({}),
-      store: cloudStore,
-      space: { id: "99" },
-      content: await text("cloud hello").build(),
-    });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.authorization).toBe("Bearer cloud-access-token");
   });
 
   const imageAttachment = () =>

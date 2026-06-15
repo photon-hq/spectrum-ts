@@ -1,106 +1,49 @@
 import { type FusorClient, fusor } from "../../fusor";
 import { definePlatform } from "../../platform/define";
-import { createCloudAuth, getCloudAuth } from "./auth";
-import {
-  configSchema,
-  DEFAULT_BASE_URL,
-  hasRefreshCreds,
-  isCloudConfig,
-  X_PLATFORM,
-} from "./config";
+import { configSchema, hasRefreshCreds, X_PLATFORM } from "./config";
 import { createDirectAuth, getDirectAuth } from "./direct-auth";
 import { handleMessages } from "./inbound/messages";
 import { send } from "./outbound/send";
 import { createSpace, resolveUser } from "./space";
 import type { XPayload } from "./types";
-import { makeVerify, verify } from "./verify";
-import { ensureWebhook } from "./webhook";
+import { verify } from "./verify";
 
-export type { XCloudConfig, XConfig, XDirectConfig } from "./config";
-// biome-ignore lint/performance/noBarrelFile: provider entrypoint re-exports config helpers
-export { isCloudConfig } from "./config";
-export { webhookUrl } from "./webhook";
+export type { XConfig, XDirectConfig } from "./config";
+// biome-ignore lint/performance/noBarrelFile: provider entrypoint re-exports webhook helpers
+export { ensureWebhook, webhookUrl } from "./webhook";
 
 /**
- * X provider for Spectrum.
+ * X provider for Spectrum (BYO-app).
  *
- * Inbound runs through Fusor (webhook + stream compatible): `verify` handles
- * CRC/signature parsing and `messages` maps DM webhooks to provider records.
- * Outbound sends text and media DMs through the X REST API (chunked upload for
- * attachments; one media item plus optional caption per DM).
+ * The customer brings their own X app. Inbound rides the Fusor edge
+ * (`{slug}.spctrm.dev/x`): `verify` answers CRC + checks the X signature with
+ * the customer's consumer secret, and `messages` maps DM webhooks to provider
+ * records. Outbound sends text and media DMs through the X REST API (chunked
+ * upload for attachments; one media item plus optional caption per DM).
  *
- * Cloud mode exchanges credentials via Spectrum Cloud (`POST /x/credentials`);
- * pass `appBearerToken` in cloud config to register the Fusor webhook at startup.
- * Direct mode uses static config and registers the Fusor webhook the same way.
+ * At launch the SDK registers the Fusor webhook with the customer's app bearer
+ * and, when OAuth refresh creds are supplied, keeps the access token fresh via
+ * a local refresh sidecar — no Spectrum-managed X credentials are involved.
  */
 export const x = definePlatform(X_PLATFORM, {
   config: configSchema,
   lifecycle: {
-    createClient: async ({
-      config,
-      projectId,
-      projectSecret,
-      projectConfig,
-      store,
-    }): Promise<FusorClient<XPayload>> => {
-      if (isCloudConfig(config)) {
-        if (!(projectId && projectSecret)) {
-          throw new Error(
-            "X cloud mode requires projectId and projectSecret on Spectrum(). " +
-              "Either pass credentials to Spectrum(), or use direct credentials: " +
-              "x.config({ consumerSecret, accessToken, xUserId, appBearerToken })"
-          );
-        }
-        const auth = await createCloudAuth({
-          projectId,
-          projectSecret,
-          pinnedXUserId: config.xUserId,
-          store,
-        });
-        const slug = projectConfig?.slug;
-        if (slug && config.appBearerToken) {
-          const accessToken = await auth.getAccessToken();
-          await ensureWebhook(
-            {
-              appBearerToken: config.appBearerToken,
-              accessToken,
-              baseUrl: DEFAULT_BASE_URL,
-            },
-            slug,
-            config.webhookBaseUrl
-          );
-        }
-        return fusor<XPayload>(
-          X_PLATFORM,
-          makeVerify(auth, config.consumerSecret)
-        );
+    createClient: async ({ config, store }): Promise<FusorClient<XPayload>> => {
+      // SDK-side refresh: stand up the local token sidecar so the access token
+      // stays fresh (and rotates) using the customer's own OAuth app.
+      if (hasRefreshCreds(config)) {
+        await createDirectAuth({ config, store });
       }
-
-      const directConfig = config;
-      // BYO-app SDK-side refresh: stand up the local token sidecar so the
-      // access token stays fresh (and rotates) without Spectrum Cloud.
-      const directAuth = hasRefreshCreds(directConfig)
-        ? await createDirectAuth({ config: directConfig, store })
-        : undefined;
-      const accessToken = directAuth
-        ? await directAuth.getAccessToken()
-        : directConfig.accessToken;
-      const slug = projectConfig?.slug;
-      if (slug) {
-        await ensureWebhook(
-          {
-            appBearerToken: directConfig.appBearerToken,
-            accessToken,
-            baseUrl: directConfig.baseUrl,
-          },
-          slug
-        );
-      }
-      return fusor<XPayload>(X_PLATFORM, verify(directConfig));
+      // Webhook registration is intentionally NOT done here. Creating the X
+      // webhook triggers X's synchronous CRC, which is answered by
+      // `app.webhook()` — so registration must happen only AFTER the webhook
+      // server is listening. The app calls the exported `ensureWebhook` once its
+      // server is up.
+      return fusor<XPayload>(X_PLATFORM, verify(config));
     },
-    destroyClient: async ({ store }) => {
-      getCloudAuth(store)?.dispose();
+    destroyClient: ({ store }) => {
       getDirectAuth(store)?.dispose();
+      return Promise.resolve();
     },
   },
   user: { resolve: resolveUser },

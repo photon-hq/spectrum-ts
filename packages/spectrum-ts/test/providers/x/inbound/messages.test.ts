@@ -1,9 +1,7 @@
 import { describe, expect, it, mock, spyOn } from "bun:test";
-import { createCloudAuth } from "@/providers/x/auth";
 import { directConfigSchema } from "@/providers/x/config";
 import { handleMessages } from "@/providers/x/inbound/messages";
 import type { XPayload } from "@/providers/x/types";
-import { cloud } from "@/utils/cloud";
 import { createStore } from "@/utils/store";
 
 const config = directConfigSchema.parse({
@@ -237,47 +235,6 @@ describe("x inbound handleMessages", () => {
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer access-token"
     );
-    mock.restore();
-  });
-
-  it("responds to CRC challenges using cloud credentials", async () => {
-    spyOn(cloud, "issueXCredentials").mockResolvedValue({
-      auth: { "42": "cloud-access-token" },
-      accounts: { a: { xUserId: "42" } },
-      consumerSecret: "cloud-consumer-secret",
-      expiresIn: 900,
-    });
-
-    const cloudStore = createStore();
-    await createCloudAuth({
-      projectId: "proj",
-      projectSecret: "secret",
-      store: cloudStore,
-    });
-
-    let reply: {
-      body?: string | Uint8Array;
-      status?: number;
-      headers?: Record<string, string>;
-    } = {};
-    const result = await handleMessages({
-      payload: { type: "crc", crcToken: "cloud-crc-token" },
-      config: {},
-      store: cloudStore,
-      respond: (next) => {
-        reply = next;
-      },
-    } as Parameters<typeof handleMessages>[0]);
-
-    expect(result).toBeUndefined();
-    expect(reply.status).toBe(200);
-    const bodyText =
-      typeof reply.body === "string"
-        ? reply.body
-        : new TextDecoder().decode(reply.body ?? new Uint8Array());
-    const json = JSON.parse(bodyText || "{}") as { response_token?: string };
-    expect(json.response_token?.startsWith("sha256=")).toBe(true);
-
     mock.restore();
   });
 });

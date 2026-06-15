@@ -1,5 +1,4 @@
 import type { FusorVerify, FusorVerifyRequest } from "../../fusor/types";
-import type { XCloudAuth } from "./auth";
 import type { XDirectConfig } from "./config";
 import { verifySignature } from "./signature";
 import type { XPayload } from "./types";
@@ -50,22 +49,11 @@ const verifyWithConsumerSecret =
   };
 
 /**
- * Build the Fusor `verify` hook for direct mode. Closes over
- * `config.consumerSecret` only — no client is involved.
+ * Build the Fusor `verify` hook (BYO-app). Closes over `config.consumerSecret`
+ * only — answers CRC and verifies the X signature locally with the customer's
+ * own app secret.
  */
 export const verify =
   (config: XDirectConfig): FusorVerify<XPayload> =>
   (req: FusorVerifyRequest) =>
     verifyWithConsumerSecret(config.consumerSecret)(req);
-
-/**
- * Build the Fusor `verify` hook for cloud mode. Resolves `consumerSecret` from
- * the cloud auth sidecar on each request.
- */
-export const makeVerify =
-  (auth: XCloudAuth, consumerSecretOverride?: string): FusorVerify<XPayload> =>
-  async (req: FusorVerifyRequest): Promise<XPayload> => {
-    const consumerSecret =
-      consumerSecretOverride ?? (await auth.getConsumerSecret());
-    return verifyWithConsumerSecret(consumerSecret)(req);
-  };

@@ -7,6 +7,7 @@ import {
   type XDirectConfig,
   type XEffectiveConfig,
 } from "./config";
+import { getDirectAuth } from "./direct-auth";
 
 export const resolveEffectiveConfig = async (
   config: XConfig,
@@ -14,8 +15,13 @@ export const resolveEffectiveConfig = async (
 ): Promise<XEffectiveConfig> => {
   if (!isCloudConfig(config)) {
     const direct = config as XDirectConfig;
+    // SDK-side refresh (BYO-app): the sidecar holds the current rotated token.
+    const directAuth = getDirectAuth(store);
+    const accessToken = directAuth
+      ? await directAuth.getAccessToken()
+      : direct.accessToken;
     return {
-      accessToken: direct.accessToken,
+      accessToken,
       baseUrl: direct.baseUrl,
       consumerSecret: direct.consumerSecret,
       xUserId: direct.xUserId,

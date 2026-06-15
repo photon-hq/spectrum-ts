@@ -4,9 +4,11 @@ import { createCloudAuth, getCloudAuth } from "./auth";
 import {
   configSchema,
   DEFAULT_BASE_URL,
+  hasRefreshCreds,
   isCloudConfig,
   X_PLATFORM,
 } from "./config";
+import { createDirectAuth, getDirectAuth } from "./direct-auth";
 import { handleMessages } from "./inbound/messages";
 import { send } from "./outbound/send";
 import { createSpace, resolveUser } from "./space";
@@ -75,12 +77,20 @@ export const x = definePlatform(X_PLATFORM, {
       }
 
       const directConfig = config;
+      // BYO-app SDK-side refresh: stand up the local token sidecar so the
+      // access token stays fresh (and rotates) without Spectrum Cloud.
+      const directAuth = hasRefreshCreds(directConfig)
+        ? await createDirectAuth({ config: directConfig, store })
+        : undefined;
+      const accessToken = directAuth
+        ? await directAuth.getAccessToken()
+        : directConfig.accessToken;
       const slug = projectConfig?.slug;
       if (slug) {
         await ensureWebhook(
           {
             appBearerToken: directConfig.appBearerToken,
-            accessToken: directConfig.accessToken,
+            accessToken,
             baseUrl: directConfig.baseUrl,
           },
           slug
@@ -90,6 +100,7 @@ export const x = definePlatform(X_PLATFORM, {
     },
     destroyClient: async ({ store }) => {
       getCloudAuth(store)?.dispose();
+      getDirectAuth(store)?.dispose();
     },
   },
   user: { resolve: resolveUser },

@@ -1,7 +1,7 @@
 import { asAttachment } from "../../../content/attachment";
 import type { Content } from "../../../content/types";
-import { downloadAttachment } from "../client";
 import type { DiscordAttachment } from "../types";
+import { downloadAttachment } from "../util";
 
 const DEFAULT_ATTACHMENT_MIME = "application/octet-stream";
 

@@ -48,6 +48,12 @@ import {
   stream,
 } from "./utils/stream";
 import { contentAttrs, senderAttrs } from "./utils/telemetry";
+import {
+  type DeserializeContext,
+  deserializeSpectrumMessage,
+} from "./webhook/deserialize";
+import { type SlimEnvelope, slimEnvelopeSchema } from "./webhook/types";
+import { verifySpectrumSignature } from "./webhook/verify";
 
 // Default OTLP endpoint used when `telemetry: true` opts into Photon. Standard
 // OTEL_EXPORTER_OTLP_* env vars always override this.
@@ -84,12 +90,23 @@ export type SpectrumInstance<
     edit(message: Message, newContent: ContentInput): Promise<void>;
     responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
     /**
-     * Handle one inbound fusor webhook delivery. Call this from your HTTP
-     * server's POST route — it verifies, decodes, routes to the matching
-     * provider's verify + message pipeline, and returns the HTTP response fusor
-     * relays back to the platform: the platform's `respond()` reply (including
-     * protocol echoes like Slack `url_verification`), computed synchronously and
-     * returned immediately.
+     * Handle one inbound webhook delivery. Call this from your HTTP server's
+     * POST route — it auto-detects which of the two Spectrum webhook formats the
+     * request carries and routes accordingly:
+     *
+     * - **Native Spectrum webhook** (the body is normalized JSON): Spectrum Cloud
+     *   POSTs already-normalized, HMAC-signed JSON. The signature is verified
+     *   against `Spectrum({ webhookSecret })` (a bad signature → 401), the slim
+     *   payload is deserialized into `[space, message]`, and a `200` is returned.
+     *   Works without any fusor provider configured.
+     * - **Fusor webhook** (the body is a protobuf envelope): a protobuf wrapping a
+     *   raw provider request is decoded and routed to the matching provider's
+     *   verify + message pipeline; the HTTP response is that platform's
+     *   `respond()` reply (including protocol echoes like Slack
+     *   `url_verification`), computed synchronously and returned immediately.
+     *
+     * Detection is by payload shape, not headers — Spectrum signs both kinds with
+     * `X-Spectrum-Signature`, so the header can't discriminate.
      *
      * `handler` is invoked once per resolved message **fire-and-forget** — it is
      * dispatched after the response is computed and is NOT awaited, so its
@@ -99,8 +116,9 @@ export type SpectrumInstance<
      * and process in a separate worker).
      *
      * Stateless and request-scoped: it does NOT feed `spectrum.messages`, and it
-     * never opens the gRPC stream. fusor delivers at-least-once, so `handler`
-     * should dedupe on `message`/the event id for exactly-once side effects.
+     * never opens the streaming connection. Both formats deliver at-least-once,
+     * so `handler` should dedupe on `message`/the event id for exactly-once side
+     * effects.
      */
     webhook(request: Request, handler: WebhookHandler): Promise<Response>;
     webhook(
@@ -147,6 +165,7 @@ const spectrumConfigSchema = z.union([
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
+    webhookSecret: z.string().min(1).optional(),
   }),
   z.object({
     projectId: z.undefined().optional(),
@@ -154,6 +173,7 @@ const spectrumConfigSchema = z.union([
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
+    webhookSecret: z.string().min(1).optional(),
   }),
 ]);
 
@@ -197,6 +217,7 @@ export async function Spectrum<
   providers: [...Providers];
   options?: SpectrumOptions;
   telemetry?: boolean;
+  webhookSecret?: string;
 }): Promise<SpectrumInstance<Providers> & { readonly config: ProjectData }>;
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
@@ -206,6 +227,7 @@ export async function Spectrum<
   providers: [...Providers];
   options?: SpectrumOptions;
   telemetry?: boolean;
+  webhookSecret?: string;
 }): Promise<SpectrumInstance<Providers>>;
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
@@ -217,6 +239,7 @@ export async function Spectrum<
         providers: [...Providers];
         options?: SpectrumOptions;
         telemetry?: boolean;
+        webhookSecret?: string;
       }
     | {
         projectId?: never;
@@ -224,6 +247,7 @@ export async function Spectrum<
         providers: [...Providers];
         options?: SpectrumOptions;
         telemetry?: boolean;
+        webhookSecret?: string;
       }
 ): Promise<SpectrumInstance<Providers>> {
   spectrumConfigSchema.parse(options);
@@ -234,8 +258,13 @@ export async function Spectrum<
     providers,
     options: runtimeOptions,
     telemetry,
+    webhookSecret,
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
+  // The per-webhook signing secret for native Spectrum webhooks. Explicit option
+  // wins; otherwise fall back to the env var so deployments can inject it.
+  const resolvedWebhookSecret =
+    webhookSecret ?? process.env.SPECTRUM_WEBHOOK_SECRET;
 
   const otelHandle = telemetry
     ? bootstrapTelemetry({ projectId, projectSecret })
@@ -901,26 +930,37 @@ export async function Spectrum<
     return result;
   };
 
-  // Read the RAW request bytes without re-encoding — the protobuf decode needs
-  // the exact bytes fusor sent. `asWeb` records whether to reply with a Web
-  // `Response` or the raw result shape.
+  // Read the RAW request bytes without re-encoding — both the protobuf decode
+  // (fusor) and the HMAC verification (native) need the exact bytes received.
+  // `asWeb` records whether to reply with a Web `Response` or the raw result
+  // shape; `headers` (keys lowercased) carry the native webhook's signature.
   const readWebhookInput = async (
     request: Request | WebhookRawRequest
   ): Promise<{
     asWeb: boolean;
     bodyBytes: Uint8Array;
+    headers: Record<string, string>;
   }> => {
     if (typeof Request !== "undefined" && request instanceof Request) {
+      const headers: Record<string, string> = {};
+      for (const [key, value] of request.headers) {
+        headers[key.toLowerCase()] = value;
+      }
       return {
         asWeb: true,
         bodyBytes: new Uint8Array(await request.arrayBuffer()),
+        headers,
       };
     }
     // The compound `typeof Request` guard above doesn't narrow the union here.
     const raw = request as WebhookRawRequest;
     const bodyBytes =
       raw.body instanceof ArrayBuffer ? new Uint8Array(raw.body) : raw.body;
-    return { asWeb: false, bodyBytes };
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw.headers ?? {})) {
+      headers[key.toLowerCase()] = String(value);
+    }
+    return { asWeb: false, bodyBytes, headers };
   };
 
   // Resolve each collected record and hand it to the request-scoped handler.
@@ -930,7 +970,7 @@ export async function Spectrum<
     collected: ProviderMessageRecord[],
     runtime: PlatformRuntime,
     handler: WebhookHandler,
-    event: RawInboundEvent
+    context: { eventId?: string; platform: string }
   ): Promise<void> => {
     for (const record of collected) {
       const tuples = await resolveRecordToMessages(record, runtime);
@@ -941,8 +981,8 @@ export async function Spectrum<
           lifecycleLog.error(
             `spectrum.webhook: handler threw (async), ${error}`,
             {
-              eventId: event.eventId,
-              platform: event.platform,
+              eventId: context.eventId,
+              platform: context.platform,
               messageId: message.id,
               error: error instanceof Error ? error.message : String(error),
             }
@@ -1025,17 +1065,190 @@ export async function Spectrum<
     return result;
   };
 
+  // --- Native Spectrum webhook (signed, normalized JSON) -------------------
+
+  // Distinguish a native Spectrum webhook from a fusor one by the PAYLOAD, not a
+  // header: Spectrum signs both kinds with `x-spectrum-signature`, so the header
+  // can't tell them apart. A native body is a JSON object (`{…`); a fusor body is
+  // a binary protobuf `RawInboundEvent`, which never starts with `{`.
+  const looksLikeNativePayload = (bodyBytes: Uint8Array): boolean => {
+    for (const byte of bodyBytes) {
+      // Skip leading ASCII whitespace (space, tab, LF, CR).
+      if (byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d) {
+        continue;
+      }
+      return byte === 0x7b; // "{"
+    }
+    return false;
+  };
+
+  const webhookText = (status: number, text: string): WebhookRawResult => ({
+    status,
+    headers: {},
+    body: encodeText(text),
+  });
+
+  // A platform's optional attachment-fetch capability (e.g. iMessage's
+  // `getAttachment`). Used to lazily back a native webhook attachment's
+  // read()/stream(), since the webhook delivers metadata only.
+  type GetAttachmentAction = (
+    ctx: { client: unknown; config: unknown; store: Store },
+    attachmentId: string,
+    phone?: string
+  ) => Promise<
+    | {
+        read: () => Promise<Buffer>;
+        stream?: () => Promise<ReadableStream<Uint8Array>>;
+      }
+    | undefined
+  >;
+
+  const resolveWebhookAttachment: DeserializeContext["resolveAttachment"] = (
+    platform,
+    spaceRef,
+    attachmentId
+  ) => {
+    const runtime = platformStates.get(platform);
+    const action = (
+      runtime?.definition as { actions?: Record<string, unknown> } | undefined
+    )?.actions?.getAttachment;
+    if (!runtime || typeof action !== "function") {
+      return;
+    }
+    const getAttachment = action as GetAttachmentAction;
+    const phone =
+      typeof spaceRef.phone === "string" ? spaceRef.phone : undefined;
+    let cached: ReturnType<GetAttachmentAction> | undefined;
+    const fetchOnce = (): ReturnType<GetAttachmentAction> => {
+      cached ??= getAttachment(
+        {
+          client: runtime.client,
+          config: runtime.config,
+          store: runtime.store,
+        },
+        attachmentId,
+        phone
+      );
+      return cached;
+    };
+    return {
+      read: async () => {
+        const found = await fetchOnce();
+        if (!found) {
+          throw new Error(
+            `Spectrum webhook attachment "${attachmentId}" not found on "${platform}"`
+          );
+        }
+        return found.read();
+      },
+      stream: async () => {
+        const found = await fetchOnce();
+        if (!found?.stream) {
+          throw new Error(
+            `Spectrum webhook attachment "${attachmentId}" has no stream on "${platform}"`
+          );
+        }
+        return found.stream();
+      },
+    };
+  };
+
+  // Verify the HMAC signature, deserialize the slim JSON into a [space, message],
+  // and deliver fire-and-forget (mirroring the fusor path). Verification runs
+  // BEFORE any parse/dispatch, so a forged body is rejected (401) without ever
+  // reaching the handler.
+  const handleSpectrumWebhook = async (
+    bodyBytes: Uint8Array,
+    headers: Record<string, string>,
+    handler: WebhookHandler
+  ): Promise<WebhookRawResult> => {
+    if (!resolvedWebhookSecret) {
+      lifecycleLog.error(
+        "spectrum.webhook: received a signed Spectrum webhook but no webhookSecret is configured (set Spectrum({ webhookSecret }) or SPECTRUM_WEBHOOK_SECRET)"
+      );
+      return webhookText(500, "webhook secret not configured");
+    }
+
+    const verification = verifySpectrumSignature({
+      rawBody: bodyBytes,
+      headers,
+      secret: resolvedWebhookSecret,
+    });
+    if (!verification.ok) {
+      // Bad signature / expired timestamp → unauthenticated (401); a missing
+      // signature header → malformed (400). Neither is retryable.
+      const status = verification.reason === "missing-headers" ? 400 : 401;
+      return webhookText(status, verification.reason);
+    }
+
+    let envelope: SlimEnvelope;
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(bodyBytes));
+      envelope = slimEnvelopeSchema.parse(parsed);
+    } catch (error) {
+      lifecycleLog.warn(
+        `spectrum.webhook: malformed Spectrum webhook payload, ${error}`
+      );
+      return webhookText(400, "malformed payload");
+    }
+
+    const deserialized = deserializeSpectrumMessage(envelope, {
+      resolveAttachment: resolveWebhookAttachment,
+    });
+    if (!deserialized) {
+      // Unknown event type or unroutable message — acknowledge so Spectrum does
+      // not retry (neither is fixed by retrying).
+      return webhookText(200, "ok");
+    }
+
+    const { platform, record } = deserialized;
+    const runtime = platformStates.get(platform);
+    if (!runtime) {
+      lifecycleLog.warn(
+        `spectrum.webhook: no provider configured for platform "${platform}"; acknowledging without delivery`,
+        { platform }
+      );
+      return webhookText(200, "ok");
+    }
+
+    // Fire-and-forget, mirroring the fusor path: acknowledge now, deliver after.
+    deliverWebhookMessages([record], runtime, handler, { platform }).catch(
+      (error) => {
+        lifecycleLog.error(
+          `spectrum.webhook: Spectrum delivery failed (async), ${error}`,
+          {
+            platform,
+            messageId: record.id,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+    );
+    return webhookText(200, "ok");
+  };
+
   const handleWebhook = async (
     request: Request | WebhookRawRequest,
     handler: WebhookHandler
   ): Promise<Response | WebhookRawResult> => {
-    if (!fusorCore) {
-      throw new Error(
-        "spectrum.webhook() requires at least one fusor provider; none are configured"
+    const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
+
+    // Route by payload shape: a native webhook is JSON, a fusor one is protobuf.
+    // Both may carry an `x-spectrum-signature` header, so it can't discriminate.
+    if (looksLikeNativePayload(bodyBytes)) {
+      const spectrumResult = await handleSpectrumWebhook(
+        bodyBytes,
+        headers,
+        handler
       );
+      return buildWebhookResult(asWeb, spectrumResult);
     }
 
-    const { asWeb, bodyBytes } = await readWebhookInput(request);
+    if (!fusorCore) {
+      throw new Error(
+        "spectrum.webhook() received a non-Spectrum (fusor) request but no fusor provider is configured"
+      );
+    }
 
     const event = decodeWebhookEvent(bodyBytes);
     if (!event) {

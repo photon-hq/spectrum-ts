@@ -29,6 +29,21 @@
       "types": "./src/authoring.ts",
       "default": "./dist/authoring.js"
     },
+    "./elysia": {
+      "bun": "./src/elysia.ts",
+      "types": "./src/elysia.ts",
+      "default": "./dist/elysia.js"
+    },
+    "./express": {
+      "bun": "./src/express.ts",
+      "types": "./src/express.ts",
+      "default": "./dist/express.js"
+    },
+    "./hono": {
+      "bun": "./src/hono.ts",
+      "types": "./src/hono.ts",
+      "default": "./dist/hono.js"
+    },
     "./providers": {
       "bun": "./src/providers/index.ts",
       "types": "./src/providers/index.ts",
@@ -51,6 +66,18 @@
       "./authoring": {
         "types": "./dist/authoring.d.ts",
         "default": "./dist/authoring.js"
+      },
+      "./elysia": {
+        "types": "./dist/elysia.d.ts",
+        "default": "./dist/elysia.js"
+      },
+      "./express": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "./hono": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
       },
       "./providers": {
         "types": "./dist/providers/index.d.ts",

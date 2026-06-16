@@ -115,6 +115,14 @@ the same pipeline, returns the HTTP response Fusor relays back to the platform
 message fire-and-forget — the handler runs after the response and never affects
 it.
 
+> ℹ️ **Two webhook formats, one method.** `app.webhook()` also accepts the
+> **native Spectrum webhook** — Spectrum Cloud's own HMAC-signed, already-normalized
+> JSON deliveries (no raw provider request, no protobuf). It auto-detects the
+> format per request by the payload shape — native is JSON, fusor is protobuf
+> (both are signed, so the signature header can't discriminate) — and hands your
+> handler the same `(space, message)` either way. The native format needs a
+> signing secret — see **[Native Spectrum webhooks](./native-webhook.md)**.
+
 ### Enable it
 
 There's nothing extra to configure — just call `app.webhook()` from your POST
@@ -131,7 +139,8 @@ check.
 app.webhook(request: Request, handler: WebhookHandler): Promise<Response>;
 
 // Raw — for Express / raw Node. Returns a plain result you write back yourself.
-// `headers` are accepted (so passing `req.headers` is fine) but unused.
+// `headers` are accepted (passing `req.headers` is fine); they're unused for the
+// fusor format but ARE read for native Spectrum webhooks (signature verification).
 app.webhook(
   request: { body: Uint8Array | ArrayBuffer; headers?: Record<string, string> },
   handler: WebhookHandler
@@ -169,6 +178,9 @@ The reply Hono sends is the platform ack, produced by the pipeline — not
 whatever your handler does. `space.send(...)` posts a *new* message back to the
 platform out-of-band; it is not the HTTP response.
 
+> 🔌 Prefer the first-party **[`spectrum-ts/hono`](./hono.md)** plugin to mount
+> this endpoint in one `app.route(...)`.
+
 **Bun.serve / Next.js App Router / Cloudflare Workers** — native `Request` →
 `Response`:
 
@@ -196,6 +208,25 @@ app.post(
     );
     res.status(result.status).set(result.headers).send(Buffer.from(result.body));
   }
+);
+```
+
+> 🔌 Prefer the first-party **[`spectrum-ts/express`](./express.md)** plugin — it
+> bundles `express.raw` and the response writing behind one `app.use(...)`.
+
+**ElysiaJS** — use the first-party plugin (it handles the raw-body parsing for
+you); see **[ElysiaJS plugin](./elysia.md)**:
+
+```typescript
+import { spectrum } from "spectrum-ts/elysia";
+
+new Elysia().use(
+  spectrum({
+    app,
+    onMessage: async (space, message) => {
+      await space.send("got it");
+    },
+  })
 );
 ```
 

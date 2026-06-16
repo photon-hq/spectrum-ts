@@ -1,9 +1,14 @@
 import {
   addMyMessageReaction,
   type Client,
+  type CreatedThreadResponse,
+  type CreateTextThreadWithMessageRequest,
+  type CreateTextThreadWithoutMessageRequest,
   createDiscordClient,
   createDm,
   createMessage,
+  createThread,
+  createThreadFromMessage,
   getMessage,
   type MessageResponse,
   triggerTypingIndicator,
@@ -118,6 +123,42 @@ export const triggerTyping = async (
 ): Promise<void> => {
   await triggerTypingIndicator({ client, path: { channel_id: channelId } });
 };
+
+/**
+ * Start a thread off an existing message
+ * (`POST /channels/{channel_id}/messages/{message_id}/threads`). The thread
+ * hangs under that message in its parent channel; Discord returns the created
+ * thread, whose `id` is a snowflake addressable as a space.
+ */
+export const startThreadFromMessage = async (
+  client: DiscordClient,
+  channelId: string,
+  messageId: string,
+  body: CreateTextThreadWithMessageRequest
+): Promise<CreatedThreadResponse> =>
+  await createThreadFromMessage({
+    client,
+    path: { channel_id: channelId, message_id: messageId },
+    body,
+  });
+
+/**
+ * Open a standalone thread in a channel (`POST /channels/{channel_id}/threads`).
+ * Used for text-channel threads with no starter message (public or private,
+ * per `body.type`); forum channels need a starter message and are not covered
+ * here. Returns the created thread, whose `id` is a snowflake addressable as a
+ * space.
+ */
+export const startChannelThread = async (
+  client: DiscordClient,
+  channelId: string,
+  body: CreateTextThreadWithoutMessageRequest
+): Promise<CreatedThreadResponse> =>
+  await createThread({
+    client,
+    path: { channel_id: channelId },
+    body,
+  });
 
 /**
  * Open (or fetch the existing) DM channel with a user. A bot cannot DM a user it

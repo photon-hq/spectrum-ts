@@ -3,6 +3,7 @@ import type { Content } from "../../../content/types";
 import { UnsupportedError } from "../../../utils/errors";
 import { toVCard } from "../../../utils/vcard";
 import { DISCORD_PLATFORM } from "../config";
+import { type Embed, isEmbed } from "../content/embed";
 import type { DiscordSendSpec } from "../types";
 
 const VCARD_FILENAME = "contact.vcf";
@@ -50,6 +51,30 @@ const pollToSpec = (content: Poll): DiscordSendSpec => ({
   },
 });
 
+// Map a Discord-scoped embed to a message-create body. One Discord message
+// carries up to 10 `embeds` plus optional leading `content` (text) — so an embed
+// and its accompanying text go out together, unlike a `group` (N separate sends).
+// Any `attachment://` files referenced by the embeds are uploaded as multipart
+// parts of the same request (bytes read lazily here).
+export const embedToSpec = async (content: Embed): Promise<DiscordSendSpec> => {
+  const files = content.files
+    ? await Promise.all(
+        content.files.map(async (file) => ({
+          bytes: await file.read(),
+          filename: file.name,
+          contentType: file.mimeType,
+        }))
+      )
+    : undefined;
+  return {
+    ...(files === undefined ? {} : { files }),
+    payload: {
+      ...(content.content === undefined ? {} : { content: content.content }),
+      embeds: content.embeds,
+    },
+  };
+};
+
 const customToSpec = (raw: unknown): DiscordSendSpec => {
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     return { payload: raw as DiscordSendSpec["payload"] };
@@ -69,6 +94,13 @@ const customToSpec = (raw: unknown): DiscordSendSpec => {
  * unsupported types never reach this function.
  */
 export const buildSend = async (content: Content): Promise<DiscordSendSpec> => {
+  // `embed` is Discord-scoped content (tagged `__platform: "Discord"`) and not a
+  // member of the `Content` union, so narrow it back before the switch. Handling
+  // it here — rather than only in `send` — lets an embed also be the inner content
+  // of a `reply` (which recurses through `buildSend`) or an item of a `group`.
+  if (isEmbed(content)) {
+    return await embedToSpec(content);
+  }
   switch (content.type) {
     case "text":
       return { payload: { content: content.text } };

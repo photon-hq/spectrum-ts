@@ -99,9 +99,12 @@ const sendEdit = async (
  * `undefined`; message-producing content returns a record with the Discord
  * message id. Reactions return a record with a synthetic id (Discord assigns
  * none). A `group` fans out to one message per item. A `poll` is sent as a
- * native Discord poll. `streamText`, `poll_option`, `effect`, `rename` and
- * `avatar` are unsupported in v1 (`poll_option` because bots cannot cast poll
- * votes; use `custom` to reach any other message-create body directly).
+ * native Discord poll. A Discord-scoped `embed` (one message with up to 10
+ * embeds + optional text/files) falls through to `sendContent`, where `buildSend`
+ * maps it (and also handles it as the inner content of a `reply`/`group`).
+ * `streamText`, `poll_option`, `effect`, `rename` and `avatar` are unsupported in
+ * v1 (`poll_option` because bots cannot cast poll votes; use `custom` to reach any
+ * other message-create body directly).
  */
 export const send = async ({
   space,

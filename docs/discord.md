@@ -25,7 +25,7 @@ const app = Spectrum({
 ## Design
 
 Discord runs in **fusor mode**: `lifecycle.createClient` returns a `fusor(...)`
-client (platform + `verify`), not a long-lived SDK client. Two principles shape
+client (platform + `verify`). Two principles shape
 the implementation:
 
 1. **Receiving is parsing.** `verify` does not need a REST client — a
@@ -111,6 +111,7 @@ client's helpers directly.
 | `richlink` | message create (Discord auto-embeds the URL) |
 | `attachment` / `voice` / `contact` | multipart message create (contact → vCard) |
 | `poll` | native Discord poll (question + up to 10 answers) |
+| `embed` | Discord-only `embed(...)`: one message with up to 10 `RichEmbed`s + optional `content` text |
 | `reply` | message create with `message_reference` |
 | `reaction` | `PUT …/reactions/{emoji}` → synthetic record id (Discord assigns none) |
 | `edit` | `PATCH …/messages/{mid}` (text/markdown only) → `undefined` |
@@ -119,6 +120,9 @@ client's helpers directly.
 | `group` | one message per item (returns the last as the reply target) |
 | `custom` | raw JSON body passed verbatim to message-create |
 
+`embed` is **Discord-scoped content** (not part of the universal `Content` model);
+see [Discord-specific content](#discord-specific-content) below.
+
 Unsupported (throws `UnsupportedError`): `streamText`, `poll_option` (bots cannot
 cast poll votes), `effect`, `rename`, `avatar`. Reach any other message-create
 body through `custom`.
@@ -126,6 +130,77 @@ body through `custom`.
 Message-id targets (for `reaction`/`edit`) go through `parseMessageId`, which
 accepts a bare snowflake and unwraps flattened group-item ids (`"<id>:0"` →
 `"<id>"`), validating at parse time to fail fast.
+
+---
+
+## Discord-specific content
+
+Some Discord features have no equivalent in Spectrum's cross-platform `Content`
+model, so the provider exposes them as **Discord-scoped content** — helpers
+imported from `@photon-ai/spectrum-ts/providers/discord` that never enter the
+universal `Content` union. Each is tagged `__platform: "Discord"`, so the
+framework warns-and-skips it if it is sent through a different platform (the same
+mechanism as iMessage's `background`), and `buildSend` narrows it back via a type
+guard. For any message-create field not modelled here, reach the raw body through
+`custom`.
+
+### Embeds
+
+`embed(...)` sends a single Discord message carrying up to 10
+[`RichEmbed`s](https://discord.com/developers/docs/resources/message#embed-object)
+plus optional leading text — together in one message (unlike `group`, which fans
+out to one message per item).
+
+```ts
+import { attachment } from "@photon-ai/spectrum-ts";
+import { discord, embed } from "@photon-ai/spectrum-ts/providers/discord";
+
+// one embed
+await discord(app).space.get(channelId).send(
+  embed({
+    title: "Release v2",
+    description: "Changelog…",
+    color: 0x5865f2,
+    fields: [{ name: "Status", value: "Shipped" }],
+    footer: { text: "photon" },
+  })
+);
+
+// up to 10 embeds + leading text, in a single message
+await discord(app).space.get(channelId).send(
+  embed([cardA, cardB], { content: "see below 👇" })
+);
+
+// an embed rendering a locally uploaded image (file ships in the same request)
+await discord(app).space.get(channelId).send(
+  embed(
+    { title: "Chart", image: { url: "attachment://chart.png" } },
+    { files: [attachment("./chart.png")] }
+  )
+);
+
+// an embed as a reply
+await message.reply(embed({ title: "re: your message" }));
+```
+
+| Argument | Notes |
+| --- | --- |
+| `embeds` | A single `RichEmbed` or an array (1–10). Validated up front against [Discord's embed limits](https://discord.com/developers/docs/resources/message#embed-object-embed-limits) (title ≤256, description ≤4096, ≤25 fields, field value ≤1024, footer ≤2048, author ≤256, ≤6000 combined, 24-bit integer `color`) — an overflow throws with a precise message rather than 400ing at send. |
+| `options.content` | Optional leading text rendered above the embeds in the same message. |
+| `options.files` | `attachment(...)` builders uploaded with the message; reference one from an embed via `image`/`thumbnail`/`author.icon_url`/`footer.icon_url` as `attachment://<filename>`. A reference with no matching file throws at build. |
+
+- **Outbound only.** Inbound messages do not surface embeds — auto-generated link
+  previews and other bots' embeds are dropped.
+- **Composable.** An embed may be sent on its own, combined with text via
+  `options.content`, wrapped as `reply(embed(...))`, or included as an item of a
+  `group(...)` — `buildSend` maps it in each case.
+- **Maps to** `POST /channels/{id}/messages` with `{ content?, embeds }` (+ any
+  `attachment://` files as multipart parts) via `embedToSpec` (`outbound/message.ts`);
+  `buildSend` narrows it with the `isEmbed` guard and returns a record with the
+  real message id.
+
+> **Bot permission.** Sending embeds requires the bot to have the **Embed Links**
+> permission in the target channel; without it Discord silently strips them.
 
 ---
 
@@ -194,11 +269,12 @@ await discord(app).space.get(threadId).send(asText("posted into the thread"));
 | `client.ts` | `discordClient` + REST helpers (`createChannelMessage`, `editChannelMessage`, `getChannelMessage`, `addReaction`, `triggerTyping`, `createDmChannel`, thread starts) |
 | `types.ts` | Gateway dispatch types, DTO shapes, `DiscordPayload` |
 | `space.ts` | user resolution + `space.create` (DM open; existing channels via `space.get(id)`) |
+| `content/embed.ts` | Discord-scoped `embed(...)` content (`embed`/`asEmbed`/`isEmbed`, `__platform: "Discord"`) |
 | `util.ts` | `FormData` serialization for multipart uploads, attachment download |
 | `inbound/messages.ts` | `handleMessages` — dispatch → record |
 | `inbound/poll.ts` | poll reconstruction + answer-id → option lookup |
 | `inbound/media.ts` | attachment → content mapping |
-| `outbound/message.ts` | `buildSend` — content → `DiscordSendSpec` (pure); `parseMessageId` |
+| `outbound/message.ts` | `buildSend` — content → `DiscordSendSpec` (pure); `embedToSpec`; `parseMessageId` |
 | `outbound/send.ts` | dispatcher; builds the client inline |
 | `outbound/thread.ts` | `startThread` / `createThread` + options |
 
@@ -216,5 +292,7 @@ because `send` and the poll-vote path build the REST client inline from `config`
   poll votes), including self-echo drop and the poll-vote fetch/cache path.
 - `outbound/message.test.ts` — pure `buildSend` content→spec mapping (polls,
   files, replies) and `parseMessageId` cases.
+- `outbound/embed.test.ts` — Discord-scoped `embed`: builder/`asEmbed`/`isEmbed`,
+  the 1–10 bounds, and `embedToSpec` (content + embeds → one message body).
 - `outbound/thread.test.ts` — `startThread`/`createThread` request bodies and
   options (auto-archive, slow-mode, private/invitable).

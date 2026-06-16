@@ -15,6 +15,8 @@ import type { DiscordPayload } from "./types";
 import { verify } from "./verify";
 
 export type { DiscordConfig } from "./config";
+// biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
+export { type Embed, embed } from "./content/embed";
 
 /**
  * Discord provider for Spectrum.

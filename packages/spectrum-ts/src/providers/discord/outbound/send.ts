@@ -1,3 +1,4 @@
+import type { MessageCreateRequest } from "@photon-ai/discord-ts";
 import type { Edit } from "../../../content/edit";
 import type { Reaction } from "../../../content/reaction";
 import type { Content } from "../../../content/types";
@@ -21,13 +22,48 @@ interface SendArgs {
   space: DiscordSpace;
 }
 
+// Every mention type, parsed — the implicit Discord default when no
+// `allowed_mentions` is sent.
+const ALL_MENTION_TYPES = ["users", "roles", "everyone"] as const;
+
+/**
+ * Resolve the `allowed_mentions` to attach to an outbound message. Precedence:
+ * (1) a value the content already set (only `custom` can) wins verbatim; (2) the
+ * provider config's `allowedMentions`, with `replied_user` defaulted to `false`
+ * unless pinned; (3) otherwise the safe default — parse every mention type, so
+ * in-content `@mentions` ping exactly as before, but never ping the replied-to
+ * author. Sending `allowed_mentions` on a non-reply is harmless (Discord ignores
+ * `replied_user` without a `message_reference`), so this applies uniformly and
+ * lets `config.allowedMentions` govern mentions globally.
+ */
+export const resolveAllowedMentions = (
+  config: DiscordConfig,
+  existing: MessageCreateRequest["allowed_mentions"]
+): MessageCreateRequest["allowed_mentions"] => {
+  if (existing != null) {
+    return existing;
+  }
+  const configured = config.allowedMentions;
+  if (configured) {
+    return configured.replied_user === undefined
+      ? { ...configured, replied_user: false }
+      : configured;
+  }
+  return { parse: [...ALL_MENTION_TYPES], replied_user: false };
+};
+
 /** Build one content's spec, send it to the channel, return the record. */
 const sendContent = async (
   client: DiscordClient,
   space: DiscordSpace,
-  content: Content
+  content: Content,
+  config: DiscordConfig
 ): Promise<ProviderMessageRecord> => {
   const spec = await buildSend(content);
+  spec.payload.allowed_mentions = resolveAllowedMentions(
+    config,
+    spec.payload.allowed_mentions
+  );
   const sent = await createChannelMessage(client, space.id, spec);
   return {
     id: sent.id,
@@ -43,11 +79,12 @@ const sendContent = async (
 const sendGroup = async (
   client: DiscordClient,
   space: DiscordSpace,
-  items: { content: Content }[]
+  items: { content: Content }[],
+  config: DiscordConfig
 ): Promise<ProviderMessageRecord | undefined> => {
   let last: ProviderMessageRecord | undefined;
   for (const item of items) {
-    last = await sendContent(client, space, item.content);
+    last = await sendContent(client, space, item.content, config);
   }
   return last;
 };
@@ -129,7 +166,7 @@ export const send = async ({
     case "edit":
       return await sendEdit(client, space, content);
     case "group":
-      return await sendGroup(client, space, content.items);
+      return await sendGroup(client, space, content.items, config);
     case "streamText":
     case "poll_option":
     case "effect":
@@ -137,6 +174,6 @@ export const send = async ({
     case "avatar":
       throw UnsupportedError.content(content.type, DISCORD_PLATFORM);
     default:
-      return await sendContent(client, space, content);
+      return await sendContent(client, space, content, config);
   }
 };

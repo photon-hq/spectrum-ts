@@ -98,9 +98,10 @@ const sendEdit = async (
  * Outbound dispatcher. Fire-and-forget signals (typing, edit) return
  * `undefined`; message-producing content returns a record with the Discord
  * message id. Reactions return a record with a synthetic id (Discord assigns
- * none). A `group` fans out to one message per item. `streamText`, `poll`,
- * `effect`, `rename` and `avatar` are unsupported in v1 (use `custom` to reach
- * any other message-create body directly).
+ * none). A `group` fans out to one message per item. A `poll` is sent as a
+ * native Discord poll. `streamText`, `poll_option`, `effect`, `rename` and
+ * `avatar` are unsupported in v1 (`poll_option` because bots cannot cast poll
+ * votes; use `custom` to reach any other message-create body directly).
  */
 export const send = async ({
   space,
@@ -127,7 +128,6 @@ export const send = async ({
     case "group":
       return await sendGroup(client, space, content.items);
     case "streamText":
-    case "poll":
     case "poll_option":
     case "effect":
     case "rename":

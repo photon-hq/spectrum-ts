@@ -1,3 +1,4 @@
+import type { Poll } from "../../../content/poll";
 import type { Content } from "../../../content/types";
 import { UnsupportedError } from "../../../utils/errors";
 import { toVCard } from "../../../utils/vcard";
@@ -32,6 +33,22 @@ export const parseMessageId = (id: string): string => {
   }
   return snowflake;
 };
+
+// Map a Spectrum poll to a Discord poll-create body. Discord polls take a
+// `question` (text only) and up to 10 `answers`, each carrying `poll_media`
+// (text + optional emoji). Spectrum polls model only titles, so we omit
+// `duration` (Discord defaults to 24h) and `allow_multiselect` (defaults to
+// single-select).
+const pollToSpec = (content: Poll): DiscordSendSpec => ({
+  payload: {
+    poll: {
+      question: { text: content.title },
+      answers: content.options.map((choice) => ({
+        poll_media: { text: choice.title },
+      })),
+    },
+  },
+});
 
 const customToSpec = (raw: unknown): DiscordSendSpec => {
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
@@ -106,6 +123,8 @@ export const buildSend = async (content: Content): Promise<DiscordSendSpec> => {
         },
       };
     }
+    case "poll":
+      return pollToSpec(content);
     case "custom":
       return customToSpec(content.raw);
     default:

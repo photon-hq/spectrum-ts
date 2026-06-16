@@ -4,6 +4,7 @@ import {
   createDiscordClient,
   createDm,
   createMessage,
+  getMessage,
   type MessageResponse,
   triggerTypingIndicator,
   updateMessage,
@@ -74,6 +75,21 @@ export const editChannelMessage = async (
     client,
     path: { channel_id: channelId, message_id: messageId },
     body,
+  });
+
+/**
+ * Fetch a single message; returns the full message object. Used by the inbound
+ * poll-vote path to reconstruct a poll's structure (poll-vote dispatches carry
+ * only the chosen `answer_id`, not the poll itself).
+ */
+export const getChannelMessage = async (
+  client: DiscordClient,
+  channelId: string,
+  messageId: string
+): Promise<MessageResponse> =>
+  await getMessage({
+    client,
+    path: { channel_id: channelId, message_id: messageId },
   });
 
 /**

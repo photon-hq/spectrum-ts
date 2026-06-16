@@ -1,6 +1,7 @@
 import { asCustom } from "../../../content/custom";
 import { asEdit } from "../../../content/edit";
 import { asGroup } from "../../../content/group";
+import { asPollOption } from "../../../content/poll";
 import { asReaction } from "../../../content/reaction";
 import { asText } from "../../../content/text";
 import type { BaseContent, Content } from "../../../content/types";
@@ -8,6 +9,8 @@ import { asUnsend } from "../../../content/unsend";
 import type { FusorMessagesCtx } from "../../../fusor/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { Message as SpectrumMessage } from "../../../types/message";
+import type { Store } from "../../../utils/store";
+import { discordClient, getChannelMessage } from "../client";
 import type { DiscordConfig } from "../config";
 import {
   type DiscordPayload,
@@ -15,11 +18,23 @@ import {
   DispatchEvent,
   type MessageCreate,
   type MessageDelete,
+  type MessagePollVoteAdd,
+  type MessagePollVoteRemove,
   type MessageReactionAdd,
   type MessageReactionRemove,
   type MessageUpdate,
 } from "../types";
 import { attachmentToContent } from "./media";
+import {
+  optionForAnswerId,
+  type ReconstructedPoll,
+  reconstructPoll,
+} from "./poll";
+
+// A poll's reconstructed shape is cached in the platform store under this key,
+// keyed by the poll message's id, so the first vote fetches the message once and
+// later votes resolve their option without another REST round-trip.
+const pollCacheKey = (messageId: string): string => `poll:${messageId}`;
 
 // Inbound items are not full Messages yet — core's wrapProviderMessage inflates
 // them. A minimal `{ id, content }` shape satisfies the `isMessage` guard used
@@ -71,14 +86,25 @@ const messageToContents = (
 
 const fromMessage = (
   msg: MessageCreate,
-  config: DiscordConfig
+  config: DiscordConfig,
+  store?: Store
 ): ProviderMessageRecord | undefined => {
   // Drop the bot's own messages so it never echoes itself. A bot's user id
   // equals its application id.
   if (msg.author.id === config.applicationId) {
     return;
   }
-  const content = toRecordContent(messageToContents(msg), msg.id);
+  const contents = messageToContents(msg);
+  // A poll message surfaces as `poll` content. Cache the reconstruction so a
+  // later vote on this poll resolves its option without re-fetching the message.
+  if (msg.poll) {
+    const reconstructed = reconstructPoll(msg.poll);
+    if (reconstructed) {
+      contents.push(reconstructed.poll);
+      store?.set(pollCacheKey(msg.id), reconstructed);
+    }
+  }
+  const content = toRecordContent(contents, msg.id);
   if (!content) {
     return;
   }
@@ -213,24 +239,100 @@ const fromMessageDelete = (msg: MessageDelete): ProviderMessageRecord => {
   };
 };
 
+// Resolve a poll's reconstructed shape for a vote: the platform store first,
+// then a one-off message fetch on a miss (Discord poll-vote dispatches carry no
+// poll structure). A successful fetch is cached so sibling votes skip the round
+// trip. Returns `undefined` when the message has no usable poll.
+const resolveReconstructedPoll = async (
+  config: DiscordConfig,
+  channelId: string,
+  messageId: string,
+  store?: Store
+): Promise<ReconstructedPoll | undefined> => {
+  const cached = store?.object<ReconstructedPoll>(pollCacheKey(messageId));
+  if (cached) {
+    return cached;
+  }
+  const message = await getChannelMessage(
+    discordClient(config),
+    channelId,
+    messageId
+  );
+  if (!message.poll) {
+    return;
+  }
+  const reconstructed = reconstructPoll(message.poll);
+  if (reconstructed) {
+    store?.set(pollCacheKey(messageId), reconstructed);
+  }
+  return reconstructed;
+};
+
+// Map a poll-vote dispatch to a `poll_option`. `selected` is true for an added
+// vote and false for a removed one — Discord poll votes have a natural
+// "unselected" state, so a removal stays a `poll_option` (preserving which
+// option was unvoted) rather than collapsing to an `unsend`. Add and remove use
+// distinct event ids since each is an independent record.
+const fromPollVote = async (
+  vote: MessagePollVoteAdd | MessagePollVoteRemove,
+  config: DiscordConfig,
+  selected: boolean,
+  store?: Store
+): Promise<ProviderMessageRecord | undefined> => {
+  // Ignore the bot's own votes (mirrors dropping its own messages/reactions).
+  if (vote.user_id === config.applicationId) {
+    return;
+  }
+  const reconstructed = await resolveReconstructedPoll(
+    config,
+    vote.channel_id,
+    vote.message_id,
+    store
+  );
+  if (!reconstructed) {
+    return;
+  }
+  const choice = optionForAnswerId(reconstructed, vote.answer_id);
+  if (!choice) {
+    return;
+  }
+  const action = selected ? "add" : "remove";
+  return {
+    id: `poll-vote-${action}:${vote.channel_id}:${vote.message_id}:${vote.user_id}:${vote.answer_id}`,
+    content: asPollOption({
+      option: choice,
+      poll: reconstructed.poll,
+      selected,
+    }),
+    sender: { id: vote.user_id, isMe: false },
+    space: { id: vote.channel_id },
+    timestamp: new Date(),
+  };
+};
+
 /**
  * Map a relayed Discord Gateway dispatch to the Spectrum message it represents.
- * v1 surfaces new messages (text + attachments, fanned out as a group), edits
- * (`MESSAGE_UPDATE`, mapped to an `edit` rewriting the original message), and
- * emoji reactions (`MESSAGE_REACTION_ADD`). Deletes (`MESSAGE_DELETE`) and
- * reaction removals (`MESSAGE_REACTION_REMOVE`) map to `unsend`s retracting the
- * message or reaction. Typing, presence and every other dispatch type are
- * ignored (return `undefined`).
+ * v1 surfaces new messages (text + attachments, fanned out as a group; a `poll`
+ * message surfaces as `poll` content), edits (`MESSAGE_UPDATE`, mapped to an
+ * `edit` rewriting the original message), and emoji reactions
+ * (`MESSAGE_REACTION_ADD`). Deletes (`MESSAGE_DELETE`) and reaction removals
+ * (`MESSAGE_REACTION_REMOVE`) map to `unsend`s retracting the message or
+ * reaction. Poll votes (`MESSAGE_POLL_VOTE_ADD`/`MESSAGE_POLL_VOTE_REMOVE`) map
+ * to `poll_option` (`selected` true/false) and resolve asynchronously, fetching
+ * the poll message when it is not already cached. Typing, presence and every
+ * other dispatch type are ignored (return `undefined`).
  */
 export const handleMessages = ({
   payload,
   config,
+  store,
 }: FusorMessagesCtx<DiscordPayload, DiscordConfig>):
   | ProviderMessageRecord
+  | Promise<ProviderMessageRecord | undefined>
   | undefined => {
   switch (payload.t) {
     case DispatchEvent.MESSAGE_CREATE:
-      return fromMessage(payload.d as MessageCreate, config);
+      return fromMessage(payload.d as MessageCreate, config, store);
     case DispatchEvent.MESSAGE_UPDATE:
       return fromMessageUpdate(payload.d as MessageUpdate, config);
     case DispatchEvent.MESSAGE_DELETE:
@@ -239,6 +341,15 @@ export const handleMessages = ({
       return fromReaction(payload.d as MessageReactionAdd, config);
     case DispatchEvent.MESSAGE_REACTION_REMOVE:
       return fromReactionRemove(payload.d as MessageReactionRemove, config);
+    case DispatchEvent.MESSAGE_POLL_VOTE_ADD:
+      return fromPollVote(payload.d as MessagePollVoteAdd, config, true, store);
+    case DispatchEvent.MESSAGE_POLL_VOTE_REMOVE:
+      return fromPollVote(
+        payload.d as MessagePollVoteRemove,
+        config,
+        false,
+        store
+      );
     default:
       return;
   }

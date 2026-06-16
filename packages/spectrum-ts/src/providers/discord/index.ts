@@ -16,11 +16,13 @@ export type { DiscordConfig } from "./config";
  * and relays each dispatch frame to Spectrum, so `createClient` returns a
  * `fusor(...)` client whose `verify` parses the relayed event (`{ t, d }`) —
  * pure parsing, no client, and no per-event signature (the authenticated Fusor
- * plane is the trust boundary). The `messages` handler maps `MESSAGE_CREATE`,
- * `MESSAGE_UPDATE`, `MESSAGE_DELETE`, `MESSAGE_REACTION_ADD` and
- * `MESSAGE_REACTION_REMOVE` to Spectrum messages, reading `config` from its ctx and
- * building a REST client inline only to fetch attachment bytes. Outbound
- * (`send`) calls the Discord REST API directly with `fetch`. Drop
+ * plane is the trust boundary). The `messages` handler maps `MESSAGE_CREATE`
+ * (including `poll` messages), `MESSAGE_UPDATE`, `MESSAGE_DELETE`,
+ * `MESSAGE_REACTION_ADD`/`MESSAGE_REACTION_REMOVE` and
+ * `MESSAGE_POLL_VOTE_ADD`/`MESSAGE_POLL_VOTE_REMOVE` to Spectrum messages,
+ * reading `config` from its ctx and building a REST client inline to fetch
+ * attachment bytes or resolve a poll a vote refers to. Outbound (`send`) calls
+ * the Discord REST API directly with `fetch` (including native polls). Drop
  * `discord.config({...})` into `Spectrum({ providers: [...] })`.
  *
  * Unlike Telegram, there is no webhook to self-register: Fusor owns the Gateway

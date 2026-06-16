@@ -17,6 +17,8 @@ export const DispatchEvent = {
   MESSAGE_DELETE: "MESSAGE_DELETE",
   MESSAGE_REACTION_ADD: "MESSAGE_REACTION_ADD",
   MESSAGE_REACTION_REMOVE: "MESSAGE_REACTION_REMOVE",
+  MESSAGE_POLL_VOTE_ADD: "MESSAGE_POLL_VOTE_ADD",
+  MESSAGE_POLL_VOTE_REMOVE: "MESSAGE_POLL_VOTE_REMOVE",
 } as const;
 
 export interface DiscordUser {
@@ -36,6 +38,27 @@ export interface DiscordAttachment {
   url: string;
 }
 
+/** One field of a poll question/answer: text plus an optional emoji. */
+export interface DiscordPollMedia {
+  text?: string | null;
+}
+
+/**
+ * One poll answer. `answer_id` is Discord's stable id for the answer (assigned
+ * in answer order); poll-vote dispatches reference it to identify the choice.
+ */
+export interface DiscordPollAnswer {
+  answer_id: number;
+  poll_media: DiscordPollMedia;
+}
+
+/** A poll as it appears on a message object (subset the adapter reads). */
+export interface DiscordPoll {
+  allow_multiselect?: boolean;
+  answers: DiscordPollAnswer[];
+  question: DiscordPollMedia;
+}
+
 /** The `d` of a MESSAGE_CREATE dispatch (subset the adapter reads). */
 export interface MessageCreate {
   attachments: DiscordAttachment[];
@@ -44,6 +67,8 @@ export interface MessageCreate {
   content: string;
   guild_id?: string;
   id: string;
+  /** Present when the message is a poll. */
+  poll?: DiscordPoll;
   /** ISO-8601 timestamp of when the message was sent. */
   timestamp: string;
 }
@@ -97,6 +122,26 @@ export interface MessageReactionAdd {
  * the removal to an `unsend` retracting the reaction.
  */
 export type MessageReactionRemove = MessageReactionAdd;
+
+/**
+ * The `d` of a MESSAGE_POLL_VOTE_ADD dispatch (subset the adapter reads).
+ * Carries only the voter, the poll message and the chosen `answer_id` — not the
+ * poll's structure — so the adapter fetches the message to reconstruct it.
+ */
+export interface MessagePollVoteAdd {
+  answer_id: number;
+  channel_id: string;
+  guild_id?: string;
+  message_id: string;
+  user_id: string;
+}
+
+/**
+ * The `d` of a MESSAGE_POLL_VOTE_REMOVE dispatch. Discord sends the same fields
+ * as MESSAGE_POLL_VOTE_ADD; the adapter maps the removal to a `poll_option`
+ * with `selected: false`.
+ */
+export type MessagePollVoteRemove = MessagePollVoteAdd;
 
 /**
  * One Gateway dispatch frame as Fusor relays it. `op` (0 for dispatch) and `s`

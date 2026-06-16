@@ -3,6 +3,7 @@ import type { Content } from "../../../content/types";
 import { UnsupportedError } from "../../../utils/errors";
 import { toVCard } from "../../../utils/vcard";
 import { DISCORD_PLATFORM } from "../config";
+import { type Components, isComponents } from "../content/components";
 import { type Embed, isEmbed } from "../content/embed";
 import type { DiscordSendSpec } from "../types";
 
@@ -75,6 +76,17 @@ export const embedToSpec = async (content: Embed): Promise<DiscordSendSpec> => {
   };
 };
 
+// Map Discord-scoped interactive components to a message-create body. One Discord
+// message carries up to five action rows of buttons/select menus in `components`,
+// plus optional leading `content` (text). No files are involved (components
+// reference nothing external), so this is a pure object map.
+export const componentsToSpec = (content: Components): DiscordSendSpec => ({
+  payload: {
+    ...(content.content === undefined ? {} : { content: content.content }),
+    components: content.components,
+  },
+});
+
 const customToSpec = (raw: unknown): DiscordSendSpec => {
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     return { payload: raw as DiscordSendSpec["payload"] };
@@ -100,6 +112,13 @@ export const buildSend = async (content: Content): Promise<DiscordSendSpec> => {
   // of a `reply` (which recurses through `buildSend`) or an item of a `group`.
   if (isEmbed(content)) {
     return await embedToSpec(content);
+  }
+  // Like `embed`, interactive components are Discord-scoped content tagged
+  // `__platform: "Discord"` and not a member of the `Content` union, so narrow
+  // it back before the switch. Handling it here also lets components be the
+  // inner content of a `reply` or an item of a `group`.
+  if (isComponents(content)) {
+    return componentsToSpec(content);
   }
   switch (content.type) {
     case "text":

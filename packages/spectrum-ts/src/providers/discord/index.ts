@@ -16,6 +16,16 @@ import { verify } from "./verify";
 
 export type { DiscordConfig } from "./config";
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
+export {
+  type ActionRow,
+  ButtonStyle,
+  button,
+  type Components,
+  components,
+  linkButton,
+  row,
+  select,
+} from "./content/components";
 export { type Embed, embed } from "./content/embed";
 
 /**

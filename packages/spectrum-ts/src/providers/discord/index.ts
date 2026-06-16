@@ -1,8 +1,15 @@
 import { type FusorClient, fusor } from "../../fusor";
 import { definePlatform } from "../../platform/define";
-import { configSchema, DISCORD_PLATFORM } from "./config";
+import type { Message } from "../../types/message";
+import { configSchema, DISCORD_PLATFORM, type DiscordConfig } from "./config";
 import { handleMessages } from "./inbound/messages";
 import { send } from "./outbound/send";
+import {
+  type CreateThreadOptions,
+  createThread,
+  type StartThreadOptions,
+  startThread,
+} from "./outbound/thread";
 import { createSpace, resolveUser } from "./space";
 import type { DiscordPayload } from "./types";
 import { verify } from "./verify";
@@ -25,6 +32,12 @@ export type { DiscordConfig } from "./config";
  * the Discord REST API directly with `fetch` (including native polls). Drop
  * `discord.config({...})` into `Spectrum({ providers: [...] })`.
  *
+ * Threads: a Discord thread id is a channel snowflake, so sending and receiving
+ * in an existing thread already works through the normal space path
+ * (`space.get(threadId).send(...)`). The instance actions `startThread` (from an
+ * existing message) and `createThread` (a standalone text thread) open a new
+ * thread and return its id for exactly that.
+ *
  * Unlike Telegram, there is no webhook to self-register: Fusor owns the Gateway
  * connection (using the bot token), so the provider only wires up verify/map.
  */
@@ -40,4 +53,24 @@ export const discord = definePlatform(DISCORD_PLATFORM, {
   space: { create: createSpace },
   messages: handleMessages,
   send,
+  // Instance actions surface on the platform instance and return data (unlike
+  // space/message actions, which dispatch through `send` and return void). Both
+  // start a Discord thread and resolve to its id — a snowflake the caller passes
+  // to `discord(spectrum).space.get(id)` to post into the thread. The Discord
+  // client here is Fusor (inbound only), so the REST client is built from
+  // `config`, matching `send`.
+  actions: {
+    startThread: (
+      { config }: { config: DiscordConfig },
+      message: Message,
+      name: string,
+      options?: StartThreadOptions
+    ): Promise<string> => startThread({ config, message, name, options }),
+    createThread: (
+      { config }: { config: DiscordConfig },
+      channelId: string,
+      name: string,
+      options?: CreateThreadOptions
+    ): Promise<string> => createThread({ config, channelId, name, options }),
+  },
 });

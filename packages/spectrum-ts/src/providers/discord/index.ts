@@ -3,6 +3,7 @@ import { definePlatform } from "../../platform/define";
 import type { Message } from "../../types/message";
 import { configSchema, DISCORD_PLATFORM, type DiscordConfig } from "./config";
 import { handleMessages } from "./inbound/messages";
+import { pin, unpin } from "./outbound/pin";
 import { send } from "./outbound/send";
 import {
   type CreateThreadOptions,
@@ -65,12 +66,11 @@ export const discord = definePlatform(DISCORD_PLATFORM, {
   space: { create: createSpace },
   messages: handleMessages,
   send,
-  // Instance actions surface on the platform instance and return data (unlike
-  // space/message actions, which dispatch through `send` and return void). Both
-  // start a Discord thread and resolve to its id — a snowflake the caller passes
-  // to `discord(spectrum).space.get(id)` to post into the thread. The Discord
-  // client here is Fusor (inbound only), so the REST client is built from
-  // `config`, matching `send`.
+  // Instance actions surface on the platform instance. `startThread`/`createThread`
+  // return data (a thread snowflake the caller passes to
+  // `discord(spectrum).space.get(id)`); `pin`/`unpin` toggle a message's pinned
+  // state and resolve to void. The Discord client here is Fusor (inbound only), so
+  // the REST client is built from `config`, matching `send`.
   actions: {
     startThread: (
       { config }: { config: DiscordConfig },
@@ -84,5 +84,13 @@ export const discord = definePlatform(DISCORD_PLATFORM, {
       name: string,
       options?: CreateThreadOptions
     ): Promise<string> => createThread({ config, channelId, name, options }),
+    pin: (
+      { config }: { config: DiscordConfig },
+      message: Message
+    ): Promise<void> => pin({ config, message }),
+    unpin: (
+      { config }: { config: DiscordConfig },
+      message: Message
+    ): Promise<void> => unpin({ config, message }),
   },
 });

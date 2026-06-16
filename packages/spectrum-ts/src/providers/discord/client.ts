@@ -7,8 +7,10 @@ import {
   createDiscordClient,
   createDm,
   createMessage,
+  createPin,
   createThread,
   createThreadFromMessage,
+  deletePin,
   getMessage,
   type MessageResponse,
   triggerTypingIndicator,
@@ -159,6 +161,39 @@ export const startChannelThread = async (
     path: { channel_id: channelId },
     body,
   });
+
+/**
+ * Pin a message in its channel
+ * (`PUT /channels/{channel_id}/messages/pins/{message_id}`). A channel holds at
+ * most 50 pins; pinning beyond that fails with a 400. Returns nothing.
+ */
+export const pinMessage = async (
+  client: DiscordClient,
+  channelId: string,
+  messageId: string
+): Promise<void> => {
+  await createPin({
+    client,
+    path: { channel_id: channelId, message_id: messageId },
+  });
+};
+
+/**
+ * Unpin a previously pinned message
+ * (`DELETE /channels/{channel_id}/messages/pins/{message_id}`). Idempotent from
+ * the caller's view — Discord 404s if the message was never pinned. Returns
+ * nothing.
+ */
+export const unpinMessage = async (
+  client: DiscordClient,
+  channelId: string,
+  messageId: string
+): Promise<void> => {
+  await deletePin({
+    client,
+    path: { channel_id: channelId, message_id: messageId },
+  });
+};
 
 /**
  * Open (or fetch the existing) DM channel with a user. A bot cannot DM a user it

@@ -13,6 +13,7 @@ import type { MessageCreateRequest } from "@photon-ai/discord-ts";
 /** Gateway dispatch event names the adapter handles (Discord `t`). */
 export const DispatchEvent = {
   MESSAGE_CREATE: "MESSAGE_CREATE",
+  MESSAGE_UPDATE: "MESSAGE_UPDATE",
   MESSAGE_REACTION_ADD: "MESSAGE_REACTION_ADD",
 } as const;
 
@@ -43,6 +44,23 @@ export interface MessageCreate {
   id: string;
   /** ISO-8601 timestamp of when the message was sent. */
   timestamp: string;
+}
+
+/**
+ * The `d` of a MESSAGE_UPDATE dispatch (subset the adapter reads). Discord
+ * sends the full message on a user edit, but also fires partial updates (e.g.
+ * when it auto-attaches a link embed) where `author`/`content` may be absent —
+ * hence the looser optionality. `edited_timestamp` is set on real content
+ * edits and null otherwise.
+ */
+export interface MessageUpdate {
+  attachments: DiscordAttachment[];
+  author?: DiscordUser;
+  channel_id: string;
+  content: string;
+  edited_timestamp?: string | null;
+  guild_id?: string;
+  id: string;
 }
 
 /** A reaction's emoji: `id` is null for unicode emoji, set for custom emoji. */

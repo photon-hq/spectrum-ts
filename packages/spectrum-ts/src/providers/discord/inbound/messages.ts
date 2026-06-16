@@ -1,8 +1,9 @@
 import { asCustom } from "../../../content/custom";
+import { asEdit } from "../../../content/edit";
 import { asGroup } from "../../../content/group";
 import { asReaction } from "../../../content/reaction";
 import { asText } from "../../../content/text";
-import type { Content } from "../../../content/types";
+import type { BaseContent, Content } from "../../../content/types";
 import type { FusorMessagesCtx } from "../../../fusor/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { Message as SpectrumMessage } from "../../../types/message";
@@ -13,6 +14,7 @@ import {
   DispatchEvent,
   type MessageCreate,
   type MessageReactionAdd,
+  type MessageUpdate,
 } from "../types";
 import { attachmentToContent } from "./media";
 
@@ -50,7 +52,9 @@ const toRecordContent = (
 
 // Map a message's text + attachments to Spectrum content parts: the trimmed
 // `content` as a leading text part (if any) followed by one part per attachment.
-const messageToContents = (msg: MessageCreate): Content[] => {
+const messageToContents = (
+  msg: Pick<MessageCreate, "attachments" | "content">
+): Content[] => {
   const contents: Content[] = [];
   const text = msg.content.trim();
   if (text.length > 0) {
@@ -84,6 +88,41 @@ const fromMessage = (
   };
 };
 
+const fromMessageUpdate = (
+  msg: MessageUpdate,
+  config: DiscordConfig
+): ProviderMessageRecord | undefined => {
+  // Discord also fires MESSAGE_UPDATE for partial changes it makes itself (e.g.
+  // auto-attaching a link embed), where no author is present. Without an author
+  // there's nothing to attribute the edit to, so ignore it. Then drop the bot's
+  // own edits so it never re-ingests messages it sent.
+  if (!msg.author || msg.author.id === config.applicationId) {
+    return;
+  }
+  const content = toRecordContent(messageToContents(msg), msg.id);
+  if (!content) {
+    return;
+  }
+  // The edited message is the sender's own message, so tag the target stub
+  // `inbound` — otherwise wrapProviderMessage defaults an edit target to
+  // outbound (the usual case, where we're rewriting one of our own messages).
+  const target = {
+    id: msg.id,
+    content: asCustom({ discord: "edit-target" }),
+    direction: "inbound",
+  } as unknown as SpectrumMessage;
+  // MESSAGE_UPDATE reuses the original message id, so synthesize a distinct
+  // event id (mirroring reactions) to keep the edit from colliding with the
+  // MESSAGE_CREATE it amends.
+  return {
+    id: `edit:${msg.channel_id}:${msg.id}`,
+    content: asEdit({ content: content as BaseContent, target }),
+    sender: senderRef(msg.author),
+    space: { id: msg.channel_id },
+    timestamp: new Date(msg.edited_timestamp ?? Date.now()),
+  };
+};
+
 const fromReaction = (
   reaction: MessageReactionAdd,
   config: DiscordConfig
@@ -114,10 +153,10 @@ const fromReaction = (
 
 /**
  * Map a relayed Discord Gateway dispatch to the Spectrum message it represents.
- * v1 surfaces new messages (text + attachments, fanned out as a group) and
- * emoji reactions (`MESSAGE_REACTION_ADD`). Edits, deletes, reaction removals,
- * typing, presence and every other dispatch type are ignored (return
- * `undefined`).
+ * v1 surfaces new messages (text + attachments, fanned out as a group), edits
+ * (`MESSAGE_UPDATE`, mapped to an `edit` rewriting the original message), and
+ * emoji reactions (`MESSAGE_REACTION_ADD`). Deletes, reaction removals, typing,
+ * presence and every other dispatch type are ignored (return `undefined`).
  */
 export const handleMessages = ({
   payload,
@@ -128,6 +167,8 @@ export const handleMessages = ({
   switch (payload.t) {
     case DispatchEvent.MESSAGE_CREATE:
       return fromMessage(payload.d as MessageCreate, config);
+    case DispatchEvent.MESSAGE_UPDATE:
+      return fromMessageUpdate(payload.d as MessageUpdate, config);
     case DispatchEvent.MESSAGE_REACTION_ADD:
       return fromReaction(payload.d as MessageReactionAdd, config);
     default:

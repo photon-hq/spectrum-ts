@@ -14,7 +14,9 @@ import type { MessageCreateRequest } from "@photon-ai/discord-ts";
 export const DispatchEvent = {
   MESSAGE_CREATE: "MESSAGE_CREATE",
   MESSAGE_UPDATE: "MESSAGE_UPDATE",
+  MESSAGE_DELETE: "MESSAGE_DELETE",
   MESSAGE_REACTION_ADD: "MESSAGE_REACTION_ADD",
+  MESSAGE_REACTION_REMOVE: "MESSAGE_REACTION_REMOVE",
 } as const;
 
 export interface DiscordUser {
@@ -63,6 +65,17 @@ export interface MessageUpdate {
   id: string;
 }
 
+/**
+ * The `d` of a MESSAGE_DELETE dispatch (subset the adapter reads). Discord
+ * sends only the id of the removed message — no author or content — so this is
+ * mapped to an `unsend` retracting that message.
+ */
+export interface MessageDelete {
+  channel_id: string;
+  guild_id?: string;
+  id: string;
+}
+
 /** A reaction's emoji: `id` is null for unicode emoji, set for custom emoji. */
 export interface ReactionEmoji {
   id: string | null;
@@ -77,6 +90,13 @@ export interface MessageReactionAdd {
   message_id: string;
   user_id: string;
 }
+
+/**
+ * The `d` of a MESSAGE_REACTION_REMOVE dispatch. Discord sends the same fields
+ * as MESSAGE_REACTION_ADD, so the adapter reads the identical subset and maps
+ * the removal to an `unsend` retracting the reaction.
+ */
+export type MessageReactionRemove = MessageReactionAdd;
 
 /**
  * One Gateway dispatch frame as Fusor relays it. `op` (0 for dispatch) and `s`

@@ -7,21 +7,30 @@ import type { DiscordSendSpec } from "../types";
 const VCARD_FILENAME = "contact.vcf";
 const VCARD_MIME = "text/vcard";
 const DEFAULT_VOICE_FILENAME = "voice.ogg";
-const SNOWFLAKE_PATTERN = /^\d+$/;
+// A bare snowflake, or a flattened group-item id of the form
+// `<snowflake>:<index>`. Inbound messages carrying text + attachments are
+// surfaced as a `group` whose items get synthesized ids `${messageId}:${index}`
+// (see inbound/messages.ts). Every part still maps to the same underlying
+// Discord message, so a reply/edit/reaction targeting any part resolves to that
+// message's real snowflake — the leading capture group.
+const MESSAGE_ID_PATTERN = /^(\d+)(?::\d+)?$/;
 
 /**
- * Discord message ids are snowflakes (numeric strings). Reject anything else up
- * front so a malformed `target.id` surfaces a clear error here instead of being
- * sent on to the REST API as a confusing 400. Returned as a string — snowflakes
+ * Resolve a Spectrum message id to the Discord message snowflake the REST API
+ * expects. Accepts a bare snowflake or a flattened group-item id
+ * (`<snowflake>:<index>`), returning the underlying snowflake. Anything else is
+ * rejected up front so a malformed `target.id` surfaces a clear error here
+ * instead of a confusing 400 from Discord. Returned as a string — snowflakes
  * exceed `Number.MAX_SAFE_INTEGER`, so they are never coerced to a number.
  */
 export const parseMessageId = (id: string): string => {
-  if (!SNOWFLAKE_PATTERN.test(id)) {
+  const snowflake = MESSAGE_ID_PATTERN.exec(id)?.[1];
+  if (!snowflake) {
     throw new Error(
       `Discord message id must be a numeric snowflake (got "${id}").`
     );
   }
-  return id;
+  return snowflake;
 };
 
 const customToSpec = (raw: unknown): DiscordSendSpec => {

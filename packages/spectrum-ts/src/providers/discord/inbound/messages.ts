@@ -125,9 +125,6 @@ export const handleMessages = ({
 }: FusorMessagesCtx<DiscordPayload, DiscordConfig>):
   | ProviderMessageRecord
   | undefined => {
-
-  console.log(`Payload Type: ${payload.t}`)
-
   switch (payload.t) {
     case DispatchEvent.MESSAGE_CREATE:
       return fromMessage(payload.d as MessageCreate, config);

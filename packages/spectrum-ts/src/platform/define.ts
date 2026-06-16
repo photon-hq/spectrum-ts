@@ -432,6 +432,7 @@ export function definePlatform<
     never,
     never
   >,
+  _Actions extends Record<string, InstanceActionFn> = Record<never, never>,
 >(
   name: _Name,
   def: Omit<
@@ -454,7 +455,8 @@ export function definePlatform<
       >,
       _FusorEvents,
       _SpaceActions,
-      _MessageActions
+      _MessageActions,
+      _Actions
     >,
     "lifecycle" | "name" | "messages"
   > & {
@@ -490,7 +492,8 @@ export function definePlatform<
     >,
     _FusorEvents,
     _SpaceActions,
-    _MessageActions
+    _MessageActions,
+    _Actions
   >
 > &
   Readonly<_Static>;

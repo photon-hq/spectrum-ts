@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { registerInbound } from "@/providers/chat-sdk/inbound";
+import { registerInbound } from "@/providers/chat-sdk/inbound/register";
 import { makeEventQueue } from "@/providers/chat-sdk/queue";
 import type {
   ChatBot,
@@ -199,6 +199,96 @@ describe("chat-sdk inbound — attachments", () => {
   });
 });
 
+describe("chat-sdk inbound — links", () => {
+  it("fans a link into a richlink record built from the unfurled metadata", async () => {
+    const queue = makeEventQueue<ChatInboundMessage>();
+    const { bot, handlers } = makeBot();
+    registerInbound(bot, queue, new Map());
+
+    await handlers.dm?.(
+      makeThread(),
+      baseMessage({
+        links: [
+          {
+            url: "https://x.test/post",
+            title: "Title",
+            description: "Summary",
+            imageUrl: "https://x.test/cover.png",
+          },
+        ],
+      })
+    );
+
+    const [textRec, linkRec] = await take(queue, 2);
+    expect(textRec?.id).toBe("M1:text");
+    expect((textRec?.content as { type: string }).type).toBe("text");
+    // Enrichment links are retained for back-compat alongside the record.
+    expect(textRec?.links).toHaveLength(1);
+
+    expect(linkRec?.id).toBe("M1:link:0");
+    const content = linkRec?.content as {
+      type: string;
+      url: string;
+      title: () => Promise<string | undefined>;
+      summary: () => Promise<string | undefined>;
+    };
+    expect(content.type).toBe("richlink");
+    expect(content.url).toBe("https://x.test/post");
+    // Accessors resolve the supplied metadata without any network fetch.
+    expect(await content.title()).toBe("Title");
+    expect(await content.summary()).toBe("Summary");
+  });
+
+  it("skips a malformed link url without dropping the message", async () => {
+    const queue = makeEventQueue<ChatInboundMessage>();
+    const { bot, handlers } = makeBot();
+    registerInbound(bot, queue, new Map());
+
+    await handlers.dm?.(
+      makeThread(),
+      baseMessage({ links: [{ url: "not a url" }] })
+    );
+
+    // Only the text record survives — the bad link is skipped, not thrown.
+    const [textRec] = await take(queue, 1);
+    expect((textRec?.content as { type: string }).type).toBe("text");
+  });
+});
+
+describe("chat-sdk inbound — empty messages", () => {
+  it("surfaces a message with no text/attachments/links as a custom record", async () => {
+    const queue = makeEventQueue<ChatInboundMessage>();
+    const { bot, handlers } = makeBot();
+    registerInbound(bot, queue, new Map());
+
+    const raw = { kind: "sticker", id: "sticker-1" };
+    await handlers.dm?.(makeThread(), baseMessage({ text: "", raw }));
+
+    const [record] = await take(queue, 1);
+    expect(record?.id).toBe("M1");
+    expect(record?.content).toEqual({
+      type: "custom",
+      raw: { chatsdk_type: "empty", raw },
+    });
+    expect(record?.sender).toEqual({ id: "U1" });
+  });
+
+  it("carries enrichment onto the empty fallback record", async () => {
+    const queue = makeEventQueue<ChatInboundMessage>();
+    const { bot, handlers } = makeBot();
+    registerInbound(bot, queue, new Map());
+
+    await handlers.mention?.(
+      makeThread(),
+      baseMessage({ text: "", isMention: true })
+    );
+
+    const [record] = await take(queue, 1);
+    expect((record?.content as { type: string }).type).toBe("custom");
+    expect(record?.isMention).toBe(true);
+  });
+});
+
 describe("chat-sdk inbound — reactions", () => {
   it("pushes an added reaction as a reaction record and registers the thread", async () => {
     const queue = makeEventQueue<ChatInboundMessage>();
@@ -218,30 +308,37 @@ describe("chat-sdk inbound — reactions", () => {
 
     const [record] = await take(queue, 1);
     expect(record?.id).toBe("reaction:M9:👍");
-    expect((record?.content as { type: string }).type).toBe("reaction");
+    expect(record?.content as { type: string }).toMatchObject({
+      type: "reaction",
+      action: "add",
+    });
     expect(record?.sender).toEqual({ id: "U2" });
     expect(threads.get("T1")).toBe(thread);
   });
 
-  it("ignores removed reactions", async () => {
+  it("forwards a removed reaction with action: remove and a distinct id", async () => {
     const queue = makeEventQueue<ChatInboundMessage>();
     const threads = new Map<string, ChatThread>();
     const { bot, handlers } = makeBot();
     registerInbound(bot, queue, threads);
 
-    handlers.reaction?.({
+    const thread = makeThread();
+    await handlers.reaction?.({
       added: false,
       messageId: "M9",
       rawEmoji: "👍",
-      thread: makeThread(),
+      thread,
       threadId: "T1",
       user: { userId: "U2" },
     });
 
-    expect(threads.size).toBe(0);
-    // Nothing was queued: a close() lets a pull resolve as done rather than hang.
-    queue.close();
-    const it = queue.iter[Symbol.asyncIterator]();
-    expect(await it.next()).toEqual({ value: undefined, done: true });
+    const [record] = await take(queue, 1);
+    expect(record?.id).toBe("reaction:removed:M9:👍");
+    expect(record?.content as { type: string }).toMatchObject({
+      type: "reaction",
+      action: "remove",
+    });
+    // The thread is still registered so outbound can reply to the un-reaction.
+    expect(threads.get("T1")).toBe(thread);
   });
 });

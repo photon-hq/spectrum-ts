@@ -21,6 +21,10 @@ export const reactionSchema = z.object({
   target: z.custom<Message>(isMessage, {
     message: "reaction target must be a Message",
   }),
+  // Whether the reaction was added or removed. Absent means added: most
+  // providers surface only additions and existing callers omit it, so the
+  // absence is treated as an add for backward compatibility.
+  action: z.enum(["add", "remove"]).optional(),
 });
 
 export type Reaction = z.infer<typeof reactionSchema>;
@@ -28,6 +32,7 @@ export type Reaction = z.infer<typeof reactionSchema>;
 export const asReaction = (input: {
   emoji: string;
   target: Message;
+  action?: "add" | "remove";
 }): Reaction => reactionSchema.parse({ type: "reaction", ...input });
 
 /**

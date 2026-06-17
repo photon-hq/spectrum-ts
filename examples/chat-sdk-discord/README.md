@@ -35,6 +35,8 @@ All scripts live in `scripts/`; the shared headless-bot factory is
 | Script | What it shows | Run |
 | --- | --- | --- |
 | `scripts/index.ts` | Baseline text echo | `bun echo` |
+| `scripts/inspect.ts` | Dump every inbound event — text, files, voice, richlinks, reactions (add/remove), and the `custom` fallback for stickers/polls/embeds | `bun inspect` |
+| `scripts/inspect-chatsdk.ts` | Same dump but on the **raw chat SDK** (no Spectrum) — shows the SDK's own `Message` (`text`/`attachments`/`formatted`/`raw`) and reaction events, so you can see where data is/isn't | `bun inspect-chatsdk` |
 | `scripts/reply-and-react.ts` | Threaded reply + reaction + typing | `bun reply-and-react` |
 | `scripts/embed.ts` | Discord embed via `custom({ card })` passthrough | `bun embed` |
 | `scripts/ephemeral.ts` | Only-you-see-it message via `chatThread(space)` | `bun ephemeral` |

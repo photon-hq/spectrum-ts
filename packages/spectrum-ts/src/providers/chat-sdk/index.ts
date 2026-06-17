@@ -40,7 +40,7 @@ import type { Message } from "../../types/message";
 import type { Space } from "../../types/space";
 import { type ManagedStream, stream } from "../../utils/stream";
 import { startGatewayPump } from "./gateway";
-import { registerInbound } from "./inbound";
+import { registerInbound } from "./inbound/register";
 import { sendContent } from "./outbound";
 import { type EventQueue, makeEventQueue } from "./queue";
 import type {

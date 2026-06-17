@@ -60,10 +60,19 @@ export interface ChatAttachment {
 export interface ChatMessage {
   attachments?: ChatAttachment[];
   author: ChatAuthor;
+  // The SDK's structured formatting (an mdast `Root`). Kept opaque — the
+  // wrapper does not depend on the `chat` package. Preserved so unmodeled
+  // content can be reconstructed downstream instead of being lost at the
+  // type boundary.
+  formatted?: unknown;
   id: string;
   isMention?: boolean;
   links?: ChatLinkPreview[];
   metadata?: { dateSent?: Date; edited?: boolean; editedAt?: Date };
+  // Platform-specific raw payload (escape hatch). Carried so messages with no
+  // text and no attachments (stickers, embeds, polls) can still surface their
+  // native data via `custom` content.
+  raw?: unknown;
   text: string;
   threadId: string;
 }

@@ -5,6 +5,8 @@
   "scripts": {
     "start": "bun run scripts/index.ts",
     "echo": "bun run scripts/index.ts",
+    "inspect": "bun run scripts/inspect.ts",
+    "inspect-chatsdk": "bun run scripts/inspect-chatsdk.ts",
     "reply-and-react": "bun run scripts/reply-and-react.ts",
     "embed": "bun run scripts/embed.ts",
     "ephemeral": "bun run scripts/ephemeral.ts",

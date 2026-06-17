@@ -84,12 +84,13 @@ export interface ChatAdapter {
   readonly name: string;
 }
 
-/** Anything `thread.post()` accepts that we produce. */
-export type ChatPostable =
-  | string
+/** The object (non-streaming) postable forms — what an ephemeral post takes. */
+export type ChatObjectPostable =
   | { markdown: string; files?: ChatFileUpload[] }
-  | { raw: string; files?: ChatFileUpload[] }
-  | AsyncIterable<string>;
+  | { raw: string; files?: ChatFileUpload[] };
+
+/** Anything `thread.post()` accepts that we produce. */
+export type ChatPostable = string | ChatObjectPostable | AsyncIterable<string>;
 
 export interface ChatFileUpload {
   data: Buffer | Blob | ArrayBuffer;
@@ -110,6 +111,14 @@ export interface ChatThread {
   readonly id: string;
   readonly isDM?: boolean;
   post(message: ChatPostable): Promise<ChatSentMessage>;
+  // Post a message only `user` can see — falling back to a DM where the
+  // platform has no native ephemeral (Discord/Teams). One of the native
+  // escape-hatch calls reached via `chatThread(space)`.
+  postEphemeral(
+    user: string,
+    message: ChatObjectPostable,
+    options: { fallbackToDM?: boolean }
+  ): Promise<unknown>;
   startTyping?(status?: string): Promise<void>;
   subscribe?(): Promise<void>;
 }

@@ -26,6 +26,13 @@
           }
         }
       }
+    },
+    {
+      // Examples run on Bun and serve their own webhooks via Bun.serve.
+      "includes": ["examples/**"],
+      "javascript": {
+        "globals": ["Bun"]
+      }
     }
   ]
 }

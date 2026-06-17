@@ -1,0 +1,24 @@
+{
+  "name": "@spectrum-ts/example-chat-sdk-discord",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run scripts/index.ts",
+    "echo": "bun run scripts/index.ts",
+    "reply-and-react": "bun run scripts/reply-and-react.ts",
+    "embed": "bun run scripts/embed.ts",
+    "ephemeral": "bun run scripts/ephemeral.ts",
+    "enrichment": "bun run scripts/enrichment.ts",
+    "attachments": "bun run scripts/attachments.ts",
+    "streaming": "bun run scripts/streaming.ts",
+    "slash-commands": "bun run scripts/slash-commands.ts",
+    "native-roles": "bun run scripts/native-discord-roles.ts"
+  },
+  "dependencies": {
+    "@chat-adapter/discord": "^4.31.0",
+    "@chat-adapter/state-memory": "^4.31.0",
+    "chat": "^4.31.0",
+    "discord.js": "^14",
+    "spectrum-ts": "workspace:*"
+  }
+}

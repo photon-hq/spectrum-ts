@@ -32,6 +32,11 @@ const attachmentReader =
     }
     if (att.url) {
       const res = await fetch(att.url);
+      if (!res.ok) {
+        throw new Error(
+          `chat-sdk: fetching attachment "${att.name ?? "?"}" failed (${res.status} ${res.statusText})`
+        );
+      }
       return Buffer.from(await res.arrayBuffer());
     }
     const { data } = att;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { asReply } from "@/content/reply";
 import type { Content } from "@/content/types";
+import { DISCORD_PLATFORM } from "@/providers/discord/config";
 import {
   asComponents,
   ButtonStyle,
@@ -11,7 +12,6 @@ import {
   row,
   select,
 } from "@/providers/discord/content/components";
-import { DISCORD_PLATFORM } from "@/providers/discord/config";
 import {
   buildSend,
   componentsToSpec,

@@ -4,7 +4,7 @@ The Discord provider connects a Discord **bot** to Spectrum. Inbound events
 arrive over [Fusor](./fusor.md) — Fusor holds the Discord **Gateway** connection
 (using the bot token) and relays each dispatch frame (`{ t, d }`) to Spectrum.
 Outbound sends call the Discord **REST API** (v10) directly. The REST client is
-the generated [`@photon-ai/discord-ts`](https://github.com/photon-hq/discord-api).
+generated [`@photon-ai/discord-ts`](https://github.com/photon-hq/discord-api).
 
 ```ts
 import { Spectrum } from "@photon-ai/spectrum-ts";
@@ -73,6 +73,7 @@ relayed Gateway frame
 | `MESSAGE_REACTION_REMOVE` | `unsend` (retracts the reaction) |
 | `MESSAGE_POLL_VOTE_ADD` | `poll_option` with `selected: true` |
 | `MESSAGE_POLL_VOTE_REMOVE` | `poll_option` with `selected: false` |
+| `INTERACTION_CREATE` (`MESSAGE_COMPONENT`) | `custom` content (`raw.discord.type === "interaction"`) — a button click or select-menu submit |
 
 Typing, presence and every other dispatch type are ignored (return `undefined`).
 
@@ -94,6 +95,17 @@ Notes:
   once (`getChannelMessage`) and caches it, so sibling votes skip the round trip.
 - **Lazy media.** Attachment bytes download from Discord's pre-signed CDN URLs
   (unauthenticated) only when a consumer reads the content, not on the ack path.
+- **Component interactions.** An `INTERACTION_CREATE` of type `MESSAGE_COMPONENT`
+  (a click on a button or a select-menu submit from an outbound `components()`
+  message) is **acknowledged first** — within Discord's 3-second window, via a
+  silent `DEFERRED_UPDATE_MESSAGE` ack that shows no spinner and leaves the source
+  message untouched — then surfaced as `custom` content. A handler narrows on
+  `raw.discord.type === "interaction"` and reads `custom_id` (the id set when the
+  component was sent), `values` (select choices), `component_type`, `message_id`,
+  plus `interaction_id`/`token`. The id/token ride along so a future
+  explicit-response API (edit the source message, ephemeral reply, open a modal)
+  can use them; v1 has already acked, so any reply the handler sends is an ordinary
+  channel message. Slash commands, autocomplete and modal submits are ignored.
 
 ---
 
@@ -112,6 +124,7 @@ client's helpers directly.
 | `attachment` / `voice` / `contact` | multipart message create (contact → vCard) |
 | `poll` | native Discord poll (question + up to 10 answers) |
 | `embed` | Discord-only `embed(...)`: one message with up to 10 `RichEmbed`s + optional `content` text |
+| `components` | Discord-only `components(...)`: one message with up to 5 action rows of buttons/select menus + optional `content` text |
 | `reply` | message create with `message_reference` |
 | `reaction` | `PUT …/reactions/{emoji}` → synthetic record id (Discord assigns none) |
 | `edit` | `PATCH …/messages/{mid}` (text/markdown only) → `undefined` |
@@ -120,8 +133,11 @@ client's helpers directly.
 | `group` | one message per item (returns the last as the reply target) |
 | `custom` | raw JSON body passed verbatim to message-create |
 
-`embed` is **Discord-scoped content** (not part of the universal `Content` model);
-see [Discord-specific content](#discord-specific-content) below.
+`embed` and `components` are **Discord-scoped content** (not part of the universal
+`Content` model); see [Discord-specific content](#discord-specific-content) below.
+
+Every outbound message also carries an `allowed_mentions` object resolved by
+`resolveAllowedMentions` — see [Mentions](#mentions) below.
 
 Unsupported (throws `UnsupportedError`): `streamText`, `poll_option` (bots cannot
 cast poll votes), `effect`, `rename`, `avatar`. Reach any other message-create
@@ -138,11 +154,7 @@ accepts a bare snowflake and unwraps flattened group-item ids (`"<id>:0"` →
 Some Discord features have no equivalent in Spectrum's cross-platform `Content`
 model, so the provider exposes them as **Discord-scoped content** — helpers
 imported from `@photon-ai/spectrum-ts/providers/discord` that never enter the
-universal `Content` union. Each is tagged `__platform: "Discord"`, so the
-framework warns-and-skips it if it is sent through a different platform (the same
-mechanism as iMessage's `background`), and `buildSend` narrows it back via a type
-guard. For any message-create field not modelled here, reach the raw body through
-`custom`.
+universal `Content` union.
 
 ### Embeds
 
@@ -202,9 +214,115 @@ await message.reply(embed({ title: "re: your message" }));
 > **Bot permission.** Sending embeds requires the bot to have the **Embed Links**
 > permission in the target channel; without it Discord silently strips them.
 
+### Interactive components
+
+`components(...)` (`content/components.ts`) sends a single Discord message
+carrying up to **5 action rows** of buttons and select menus, plus optional
+leading text. A user clicking a button or submitting a select fires an inbound
+[component interaction](#what-inbound-surfaces-v1).
+
+```ts
+import { discord, components, row, button, linkButton, select, ButtonStyle }
+  from "@photon-ai/spectrum-ts/providers/discord";
+
+// a row of buttons (each click emits an interaction carrying its customId)
+await discord(app).space.get(channelId).send(
+  components(
+    row(
+      button({ customId: "approve", label: "Approve", style: ButtonStyle.success }),
+      button({ customId: "reject", label: "Reject", style: ButtonStyle.danger }),
+      linkButton({ url: "https://example.com/docs", label: "Docs" })
+    ),
+    { content: "Review this change:" }
+  )
+);
+
+// a select menu (must be the only component in its row)
+await discord(app).space.get(channelId).send(
+  components(
+    row(select({
+      customId: "pick",
+      placeholder: "Choose one",
+      options: [
+        { label: "Alpha", value: "a" },
+        { label: "Bravo", value: "b" },
+      ],
+    }))
+  )
+);
+```
+
+Ergonomic constructors build the SDK's wire shapes for you (the wire format uses
+numeric `type`/`style` discriminators):
+
+| Constructor | Builds |
+| --- | --- |
+| `button({ customId, label?, style?, emoji?, disabled? })` | a clickable button that emits an interaction carrying `customId` (default style `secondary`) |
+| `linkButton({ url, label?, emoji?, disabled? })` | a link button (style 5) that opens `url` — emits **no** interaction and carries no `customId` |
+| `select({ customId, options, placeholder?, minValues?, maxValues?, disabled? })` | a string select menu |
+| `row(...children)` | wrap up to 5 buttons **or** a single select into one action row |
+| `ButtonStyle` | `primary` / `secondary` / `success` / `danger` / `link` / `premium` |
+
+Each returned value is exactly the `@photon-ai/discord-ts` request type, so an
+advanced caller can hand-write the objects and pass them to `components()`
+directly. The entity selects (user/role/mentionable/channel, types 5–8) have no
+constructor yet — hand-write them.
+
+- **Layout rules.** ≤5 rows; each row holds up to 5 buttons **or** exactly one
+  select menu (the two never share a row). Discord's limits (`custom_id` ≤100,
+  button label ≤80, select placeholder ≤150, 1–25 select options, option
+  label/value/description ≤100) are validated **up front** by the schema — an
+  overflow throws a precise message at construction rather than 400ing at send.
+  Link buttons require a `url` and no `custom_id`; premium buttons require a
+  `sku_id`; every other button needs a `custom_id`.
+- **Composable.** May be sent on its own, with leading text via `options.content`,
+  wrapped as `reply(components(...))`, or included as an item of `group(...)` —
+  `buildSend` narrows it with the `isComponents` guard in each case.
+- **Maps to** `POST /channels/{id}/messages` with `{ content?, components }` via
+  `componentsToSpec` (`outbound/message.ts`).
+
 ---
 
-## Threads (instance actions)
+## Mentions
+
+Every outbound message carries an `allowed_mentions` object resolved by
+`resolveAllowedMentions` (`outbound/send.ts`). Precedence:
+
+1. An `allowed_mentions` the content already set (only `custom` can) wins verbatim.
+2. Otherwise `config.allowedMentions`, with `replied_user` defaulted to `false`
+   unless the config sets it explicitly.
+3. Otherwise the safe default — `{ parse: ["users", "roles", "everyone"], replied_user: false }`: in-content `@mentions` ping exactly as Discord's
+   implicit default, but a reply **never** pings the message it replies to.
+
+So the provider's standing behavior is *replies don't ping the author* unless you
+opt back in with `replied_user: true`. `config.allowedMentions` lets a bot govern
+mentions globally — e.g. `{ parse: [] }` to mute every mention, or
+`{ parse: ["users"] }` to allow only user mentions and suppress
+`@everyone`/role pings.
+
+`allowedMentions` mirrors [Discord's `allowed_mentions` object](https://discord.com/developers/docs/resources/message#allowed-mentions-object)
+and is validated up front:
+
+| Field | Notes |
+| --- | --- |
+| `parse` | Whitelist mention **types**: any of `"users"` / `"roles"` / `"everyone"`. |
+| `users` | Whitelist specific user ids (numeric snowflakes, ≤100). Mutually exclusive with `parse: "users"` — setting both throws (Discord 400s). |
+| `roles` | Whitelist specific role ids (numeric snowflakes, ≤100). Mutually exclusive with `parse: "roles"`. |
+| `replied_user` | Whether a reply pings the author of the replied-to message. Provider default `false`. |
+
+For a one-off override, send `custom` content carrying its own `allowed_mentions`
+— it wins over both the config and the default.
+
+---
+
+## Threads, pins (instance actions)
+
+Instance actions surface on the platform instance (`discord(app).<action>(…)`),
+unlike space/message actions which dispatch through `send`. The provider exposes
+four: two thread starts that return a thread id, and `pin`/`unpin` that resolve to
+void.
+
+### Threads
 
 A Discord thread id is itself a channel snowflake, so sending and receiving in an
 **existing** thread already works through the normal space path —
@@ -234,6 +352,23 @@ const threadId = await discord(app).startThread(message, "follow-up", {
 await discord(app).space.get(threadId).send(asText("posted into the thread"));
 ```
 
+### Pins
+
+`pin`/`unpin` (`outbound/pin.ts`) toggle a message's pinned state in its channel.
+Both take a `Message` — the channel and message snowflakes come from it (the id
+resolved through `parseMessageId`, so flattened group-item ids unwrap to the
+underlying snowflake) — and resolve to void.
+
+```ts
+await discord(app).pin(message);
+await discord(app).unpin(message);
+```
+
+- **`pin(message)`** → `PUT /channels/{channel}/messages/pins/{message}`. A
+  channel holds at most **50** pins; pinning beyond that fails with a 400.
+- **`unpin(message)`** → `DELETE /channels/{channel}/messages/pins/{message}`.
+  Discord 404s if the message was never pinned.
+
 ---
 
 ## Spaces
@@ -256,6 +391,7 @@ await discord(app).space.get(threadId).send(asText("posted into the thread"));
 | `botToken` | yes | Bot token from the Discord Developer Portal, shape `<id>.<ts>.<hmac>`. Used for outbound API calls and media downloads. |
 | `applicationId` | yes | The application's own numeric snowflake. For a bot this equals the bot user's id, so it is used to drop self-authored events (self-echo). Modern tokens no longer encode it, so it is supplied explicitly. |
 | `baseUrl` | no | Discord API origin; defaults to `https://discord.com/api/v10`. Override for a local test server. |
+| `allowedMentions` | no | Default `allowed_mentions` applied to every outbound message — restrict which mentions ping. See [Mentions](#mentions). Regardless of this, the provider defaults `replied_user` to `false`. |
 
 ---
 
@@ -263,20 +399,22 @@ await discord(app).space.get(threadId).send(asText("posted into the thread"));
 
 | File | Responsibility |
 | --- | --- |
-| `index.ts` | `definePlatform` wiring (fusor mode) + `startThread`/`createThread` actions |
-| `config.ts` | config schema, `DISCORD_PLATFORM`, `DEFAULT_BASE_URL` |
+| `index.ts` | `definePlatform` wiring (fusor mode) + `startThread`/`createThread`/`pin`/`unpin` actions; re-exports `embed`/`components` content |
+| `config.ts` | config schema (incl. `allowedMentions`), `DISCORD_PLATFORM`, `DEFAULT_BASE_URL` |
 | `verify.ts` | `verify(config)` — parse the relayed `{ t, d }` dispatch |
-| `client.ts` | `discordClient` + REST helpers (`createChannelMessage`, `editChannelMessage`, `getChannelMessage`, `addReaction`, `triggerTyping`, `createDmChannel`, thread starts) |
-| `types.ts` | Gateway dispatch types, DTO shapes, `DiscordPayload` |
+| `client.ts` | `discordClient` + REST helpers (`createChannelMessage`, `editChannelMessage`, `getChannelMessage`, `addReaction`, `triggerTyping`, `createDmChannel`, thread starts, `pinMessage`/`unpinMessage`, `acknowledgeComponentInteraction`) |
+| `types.ts` | Gateway dispatch types (incl. `Interaction`/`InteractionType`), DTO shapes, `DiscordPayload` |
 | `space.ts` | user resolution + `space.create` (DM open; existing channels via `space.get(id)`) |
-| `content/embed.ts` | Discord-scoped `embed(...)` content (`embed`/`asEmbed`/`isEmbed`, `__platform: "Discord"`) |
+| `content/embed.ts` | Discord-scoped `embed(...)` content (`embed`/`asEmbed`/`isEmbed`, `__platform: "discord"`) |
+| `content/components.ts` | Discord-scoped `components(...)` content + `row`/`button`/`linkButton`/`select`/`ButtonStyle` constructors and limit validation |
 | `util.ts` | `FormData` serialization for multipart uploads, attachment download |
-| `inbound/messages.ts` | `handleMessages` — dispatch → record |
+| `inbound/messages.ts` | `handleMessages` — dispatch → record (incl. component interactions) |
 | `inbound/poll.ts` | poll reconstruction + answer-id → option lookup |
 | `inbound/media.ts` | attachment → content mapping |
-| `outbound/message.ts` | `buildSend` — content → `DiscordSendSpec` (pure); `embedToSpec`; `parseMessageId` |
-| `outbound/send.ts` | dispatcher; builds the client inline |
+| `outbound/message.ts` | `buildSend` — content → `DiscordSendSpec` (pure); `embedToSpec`/`componentsToSpec`; `parseMessageId` |
+| `outbound/send.ts` | dispatcher; builds the client inline; `resolveAllowedMentions` |
 | `outbound/thread.ts` | `startThread` / `createThread` + options |
+| `outbound/pin.ts` | `pin` / `unpin` instance actions |
 
 ---
 
@@ -289,10 +427,17 @@ because `send` and the poll-vote path build the REST client inline from `config`
 
 - `inbound/messages.test.ts` — dispatch → record mapping for all event kinds
   (messages, attachments/groups, polls, edits, deletes, reactions and removals,
-  poll votes), including self-echo drop and the poll-vote fetch/cache path.
+  poll votes, component interactions), including self-echo drop, the poll-vote
+  fetch/cache path, and the interaction ack-before-surface path.
 - `outbound/message.test.ts` — pure `buildSend` content→spec mapping (polls,
   files, replies) and `parseMessageId` cases.
 - `outbound/embed.test.ts` — Discord-scoped `embed`: builder/`asEmbed`/`isEmbed`,
   the 1–10 bounds, and `embedToSpec` (content + embeds → one message body).
+- `outbound/components.test.ts` — Discord-scoped `components`: the
+  `row`/`button`/`linkButton`/`select` constructors, layout/limit validation, and
+  `componentsToSpec` (content + components → one message body).
+- `outbound/allowed-mentions.test.ts` — `resolveAllowedMentions` precedence
+  (content override > config > safe default) and the `replied_user: false` default.
 - `outbound/thread.test.ts` — `startThread`/`createThread` request bodies and
   options (auto-archive, slow-mode, private/invitable).
+- `outbound/pin.test.ts` — `pin`/`unpin` request paths and message-id unwrapping.

@@ -174,6 +174,11 @@ const deserializeReaction = (
   ({
     type: "reaction",
     emoji: asString(raw.emoji),
+    // Preserve the add/remove discriminator when the producer sent one;
+    // absent means added.
+    ...(raw.action === "add" || raw.action === "remove"
+      ? { action: raw.action }
+      : {}),
     target: buildTargetRecord(raw.target, spaceRef),
   }) as unknown as Content;
 

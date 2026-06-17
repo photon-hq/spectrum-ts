@@ -51,7 +51,7 @@ const stubMessage = (id: string, content: Content): SpectrumMessage =>
 const senderRef = (user: DiscordUser) => ({
   id: user.id,
   handle: user.username,
-  isMe: Boolean(user.bot),
+  isMe: false,
 });
 
 // A Discord message can carry text and several attachments at once. Surface a

@@ -8,6 +8,7 @@ export default defineConfig({
     express: "src/express.ts",
     hono: "src/hono.ts",
     "providers/index": "src/providers/index.ts",
+    "providers/chat-sdk/index": "src/providers/chat-sdk/index.ts",
     "providers/imessage/index": "src/providers/imessage/index.ts",
     "providers/slack/index": "src/providers/slack/index.ts",
     "providers/telegram/index": "src/providers/telegram/index.ts",

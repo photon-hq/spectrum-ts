@@ -59,7 +59,7 @@ const attachmentToContent = (att: ChatAttachment) => {
 const spaceRef = (thread: ChatThread) => ({
   id: thread.id,
   adapter: thread.adapter.name,
-  // The live thread — exposed to callers via `chatThread(space)` for native
+  // The live thread — reach it via `chatThread(space)` for native
   // per-conversation calls (postEphemeral, openModal, history, …).
   thread,
   ...(thread.channelId ? { channelId: thread.channelId } : {}),

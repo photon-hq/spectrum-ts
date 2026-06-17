@@ -33,8 +33,8 @@ export interface ChatLinkPreview {
 // Structural typing for Vercel's `chat` SDK (chat-sdk.dev). We deliberately do
 // NOT depend on the `chat` package — the wrapper only touches a small, stable
 // subset of its surface, so a structural interface keeps this provider
-// dependency-free (same philosophy as the optional express/hono peers). A
-// caller's real `Chat` instance structurally satisfies `ChatBot`.
+// dependency-free (same philosophy as the optional express/hono peers). Your
+// real `Chat` instance structurally satisfies `ChatBot`.
 
 /** A normalized author on an inbound chat-SDK message. */
 export interface ChatAuthor {

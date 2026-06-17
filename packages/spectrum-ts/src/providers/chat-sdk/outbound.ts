@@ -30,7 +30,7 @@ const toPostable = async (content: BaseContent): Promise<ChatPostable> => {
       return content.stream();
     case "custom":
       // Universal escape hatch: forward the raw payload straight to the
-      // adapter's `post()`. Lets callers send anything the chat SDK accepts
+      // adapter's `post()`. Lets you send anything the chat SDK accepts
       // (cards, PostableObjects like Plan/Poll, markdown+files) without the
       // wrapper modeling each — `space.send(custom({ card: … }))`.
       return content.raw as ChatPostable;

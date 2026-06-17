@@ -1,8 +1,8 @@
 // The `chat-sdk` Spectrum provider. Wraps a configured Vercel `chat` SDK bot
 // (chat-sdk.dev) so its entire adapter ecosystem — Slack, Discord, Teams,
 // Google Chat, and any future adapters — becomes usable through Spectrum's
-// messaging API. The caller owns all chat-SDK setup (adapters, state,
-// credentials); Spectrum drives the conversation.
+// messaging API. You own all chat-SDK setup (adapters, state, credentials);
+// Spectrum drives the conversation.
 //
 //   import { Spectrum } from "spectrum-ts";
 //   import { chatSDK } from "spectrum-ts/providers/chat-sdk";
@@ -217,7 +217,7 @@ export const chatSdkPlatform = definePlatform("ChatSDK", {
  * the handler (your logic lives in the `app.messages` loop). Pass it
  * un-initialized; the provider owns `initialize()`/`shutdown()`.
  *
- * Serving webhooks is the caller's job: mount each `bot.webhooks.<slug>`
+ * Serving webhooks is your job: mount each `bot.webhooks.<slug>`
  * handler on your own HTTP route (Bun.serve, Hono, Express, …), as the chat
  * SDK documents. The provider never binds a port.
  */

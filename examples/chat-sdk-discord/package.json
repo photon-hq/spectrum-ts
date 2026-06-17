@@ -5,6 +5,7 @@
   "scripts": {
     "start": "bun run scripts/index.ts",
     "echo": "bun run scripts/index.ts",
+    "ai": "bun run scripts/ai.ts",
     "inspect": "bun run scripts/inspect.ts",
     "inspect-chatsdk": "bun run scripts/inspect-chatsdk.ts",
     "reply-and-react": "bun run scripts/reply-and-react.ts",
@@ -17,7 +18,9 @@
     "native-roles": "bun run scripts/native-discord-roles.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^2",
     "@chat-adapter/discord": "^4.31.0",
+    "ai": "^5",
     "@chat-adapter/state-memory": "^4.31.0",
     "chat": "^4.31.0",
     "discord.js": "^14",

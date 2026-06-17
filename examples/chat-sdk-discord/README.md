@@ -16,6 +16,7 @@ file is standalone — pick one and run it.
    DISCORD_APPLICATION_ID=...
    DISCORD_PUBLIC_KEY=...
    ```
+   The `ai.ts` Gemini chatbot also needs `GOOGLE_GENERATIVE_AI_API_KEY=...`.
 3. **Invite the bot** to a server: OAuth2 → URL Generator → scopes `bot` +
    `applications.commands`.
 4. **Install:** `bun install` (from the repo root).
@@ -43,6 +44,7 @@ All scripts live in `scripts/`; the shared headless-bot factory is
 | `scripts/enrichment.ts` | `messageMeta` — mention / edited / link previews | `bun enrichment` |
 | `scripts/attachments.ts` | Receive a file + send one back | `bun attachments` |
 | `scripts/streaming.ts` | Token-by-token streamed reply | `bun streaming` |
+| `scripts/ai.ts` | Live Gemini chatbot (with memory) streamed token-by-token via the Vercel AI SDK — needs `GOOGLE_GENERATIVE_AI_API_KEY` | `bun ai` |
 | `scripts/slash-commands.ts` | `/`-command handled on the bot + `getBot(app)` | `bun slash-commands` |
 | `scripts/native-discord-roles.ts` | Own `discord.js` client + role grant (tier 4) | `bun native-roles` |
 

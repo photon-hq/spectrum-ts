@@ -420,10 +420,8 @@ await discord(app).unpin(message);
 
 ## Testing
 
-Tests live under `test/providers/discord/`. The seam is `globalThis.fetch`:
-because `send` and the poll-vote path build the REST client inline from `config`
-(which has no `fetch` field), there is no client to inject — a per-test
-`spyOn(globalThis, "fetch")` intercepts the real request path.
+Tests live under `test/providers/discord/`. Most tests stub the Discord REST helper module (`@/providers/discord/client`) via `mock.module(...)` so calls are observable and no network is made.
+If you want to exercise the generated REST client end-to-end, mock/spy on `globalThis.fetch` to intercept requests.
 
 - `inbound/messages.test.ts` — dispatch → record mapping for all event kinds
   (messages, attachments/groups, polls, edits, deletes, reactions and removals,

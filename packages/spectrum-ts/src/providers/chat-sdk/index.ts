@@ -39,19 +39,17 @@ import type { SpectrumLike } from "../../platform/types";
 import type { Message } from "../../types/message";
 import type { Space } from "../../types/space";
 import { type ManagedStream, stream } from "../../utils/stream";
+import { startGatewayPump } from "./gateway";
 import { registerInbound } from "./inbound";
 import { sendContent } from "./outbound";
 import { type EventQueue, makeEventQueue } from "./queue";
 import type {
   ChatBot,
-  ChatGatewayAdapter,
   ChatInboundMessage,
   ChatLinkPreview,
   ChatThread,
 } from "./types";
 
-const GATEWAY_WINDOW_MS = 180_000;
-const GATEWAY_BACKOFF_MS = 1000;
 const THREAD_CACHE_MAX = 1000;
 
 // The live bot is an opaque runtime object, carried through `config` the same
@@ -90,47 +88,6 @@ interface ChatSdkClient {
   queue: EventQueue<ChatInboundMessage>;
   threads: LRUCache<string, ChatThread>;
 }
-
-const hasGateway = (adapter: unknown): adapter is ChatGatewayAdapter =>
-  typeof (adapter as ChatGatewayAdapter | undefined)?.startGatewayListener ===
-  "function";
-
-// Platforms like Discord deliver regular messages over a Gateway WebSocket, not
-// the interactions/HTTP webhook. Keep `startGatewayListener` running in a loop
-// so a long-running worker maintains a live socket; in direct-processing mode
-// (no webhookUrl) the adapter dispatches gateway messages/reactions straight to
-// the bot's handlers, which `registerInbound` has wired to the queue.
-const startGatewayPump = (bot: ChatBot, signal: AbortSignal): Promise<void> => {
-  const adapters = Object.keys(bot.webhooks)
-    .map((slug) => bot.getAdapter?.(slug))
-    .filter(hasGateway);
-
-  const pumpOne = async (adapter: ChatGatewayAdapter) => {
-    while (!signal.aborted) {
-      const inflight: Promise<unknown>[] = [];
-      try {
-        await adapter.startGatewayListener(
-          { waitUntil: (promise) => inflight.push(Promise.resolve(promise)) },
-          GATEWAY_WINDOW_MS,
-          signal
-        );
-        // The listen window runs in the promise(s) handed to `waitUntil`; await
-        // it, then reopen to keep the gateway continuously alive. If nothing was
-        // scheduled, back off so we don't hot-loop reconnecting.
-        await Promise.allSettled(inflight);
-        if (inflight.length === 0) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, GATEWAY_BACKOFF_MS)
-          );
-        }
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, GATEWAY_BACKOFF_MS));
-      }
-    }
-  };
-
-  return Promise.all(adapters.map(pumpOne)).then(() => undefined);
-};
 
 export const chatSdkPlatform = definePlatform("ChatSDK", {
   config: configSchema,
@@ -214,12 +171,11 @@ export const chatSdkPlatform = definePlatform("ChatSDK", {
  *
  * The bot must be **wired but headless** — adapters/state/credentials
  * configured, but with no message handlers registered, since Spectrum becomes
- * the handler (your logic lives in the `app.messages` loop). Pass it
- * un-initialized; the provider owns `initialize()`/`shutdown()`.
+ * the handler (your logic lives in the `app.messages` loop).
  *
- * Serving webhooks is your job: mount each `bot.webhooks.<slug>`
+ * Serving webhooks is through your own server: mount each `bot.webhooks.<slug>`
  * handler on your own HTTP route (Bun.serve, Hono, Express, …), as the chat
- * SDK documents. The provider never binds a port.
+ * SDK documents.
  */
 export const chatSDK = (bot: ChatBot) => chatSdkPlatform.config({ bot });
 

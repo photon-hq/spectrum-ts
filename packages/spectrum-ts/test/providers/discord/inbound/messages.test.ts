@@ -6,9 +6,17 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 const getChannelMessageMock = mock(
   async (): Promise<{ poll?: unknown }> => ({ poll: undefined })
 );
+// Component interactions are acked via the client before being surfaced; stub it
+// so the ack is observable and makes no network call.
+const ackInteractionMock = mock(
+  async (_client: unknown, _id: string, _token: string): Promise<void> => {
+    // no-op
+  }
+);
 mock.module("@/providers/discord/client", () => ({
   discordClient: () => ({}),
   getChannelMessage: getChannelMessageMock,
+  acknowledgeComponentInteraction: ackInteractionMock,
 }));
 
 import type { ProviderMessageRecord } from "@/platform/types";
@@ -236,5 +244,92 @@ describe("handleMessages — poll votes", () => {
     // The fetch result is cached, so a sibling vote does not fetch again.
     await handleVote(DispatchEvent.MESSAGE_POLL_VOTE_ADD, votePayload(), store);
     expect(getChannelMessageMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A component INTERACTION_CREATE `d` for a button click; `member.user` is the
+// actor in a guild. `type: 3` is MESSAGE_COMPONENT, `component_type: 2` a button.
+const interactionPayload = (over: Record<string, unknown> = {}) => ({
+  id: "int-1",
+  application_id: "999",
+  token: "tok-abc",
+  type: 3,
+  channel_id: "100",
+  message: { id: "5" },
+  member: { user: { id: "7", username: "ann" } },
+  data: { component_type: 2, custom_id: "approve" },
+  ...over,
+});
+
+const handleInteraction = (d: Record<string, unknown>) =>
+  dispatch(DispatchEvent.INTERACTION_CREATE, d) as Promise<
+    ProviderMessageRecord | undefined
+  >;
+
+describe("handleMessages — INTERACTION_CREATE", () => {
+  beforeEach(() => {
+    ackInteractionMock.mockClear();
+  });
+
+  it("acks a button click and surfaces it as custom interaction content", async () => {
+    const record = await handleInteraction(interactionPayload());
+    // Acked with the interaction's id and token (the client is arg 0).
+    expect(ackInteractionMock).toHaveBeenCalledTimes(1);
+    expect(ackInteractionMock.mock.calls[0]?.slice(1)).toEqual([
+      "int-1",
+      "tok-abc",
+    ]);
+    expect(record?.id).toBe("interaction:int-1");
+    expect(record?.sender).toEqual({ id: "7", handle: "ann", isMe: false });
+    expect(record?.space.id).toBe("100");
+    expect(record?.content).toMatchObject({
+      type: "custom",
+      raw: {
+        discord: {
+          type: "interaction",
+          custom_id: "approve",
+          component_type: 2,
+          message_id: "5",
+          interaction_id: "int-1",
+          token: "tok-abc",
+        },
+      },
+    });
+  });
+
+  it("carries the selected values for a select-menu submit", async () => {
+    const record = await handleInteraction(
+      interactionPayload({
+        data: { component_type: 3, custom_id: "pick", values: ["a", "b"] },
+      })
+    );
+    expect(record?.content).toMatchObject({
+      raw: { discord: { custom_id: "pick", values: ["a", "b"] } },
+    });
+  });
+
+  it("resolves the actor from `user` in a DM (no member)", async () => {
+    const record = await handleInteraction(
+      interactionPayload({
+        member: undefined,
+        user: { id: "7", username: "ann" },
+      })
+    );
+    expect(record?.sender).toEqual({ id: "7", handle: "ann", isMe: false });
+  });
+
+  it("ignores non-component interactions without acking", async () => {
+    // type 2 = APPLICATION_COMMAND (a slash command), out of scope for v1.
+    const record = await handleInteraction(interactionPayload({ type: 2 }));
+    expect(ackInteractionMock).not.toHaveBeenCalled();
+    expect(record).toBeUndefined();
+  });
+
+  it("acks but drops the bot's own interaction", async () => {
+    const record = await handleInteraction(
+      interactionPayload({ member: { user: { id: "999", username: "bot" } } })
+    );
+    expect(ackInteractionMock).toHaveBeenCalledTimes(1);
+    expect(record).toBeUndefined();
   });
 });

@@ -6,6 +6,7 @@ import {
   type CreateTextThreadWithoutMessageRequest,
   createDiscordClient,
   createDm,
+  createInteractionResponse,
   createMessage,
   createPin,
   createThread,
@@ -192,6 +193,33 @@ export const unpinMessage = async (
   await deletePin({
     client,
     path: { channel_id: channelId, message_id: messageId },
+  });
+};
+
+// DEFERRED_UPDATE_MESSAGE — a silent component-interaction ack: no loading
+// state shown, source message left unchanged. (4 = reply with a new message,
+// 7 = edit the source message — neither is what v1 wants.)
+const DEFERRED_UPDATE_MESSAGE = 6;
+
+/**
+ * Acknowledge a component interaction (button click / select submit) within
+ * Discord's 3-second window via
+ * `POST /interactions/{interaction_id}/{interaction_token}/callback`. Uses
+ * DEFERRED_UPDATE_MESSAGE (type 6): a silent ack that shows no loading spinner
+ * and leaves the source message untouched, so any reply the handler sends
+ * afterwards is an ordinary channel message. The interaction token in the path
+ * authenticates the call — the bot token is not required (but is sent and
+ * harmless). Returns nothing.
+ */
+export const acknowledgeComponentInteraction = async (
+  client: DiscordClient,
+  interactionId: string,
+  token: string
+): Promise<void> => {
+  await createInteractionResponse({
+    client,
+    path: { interaction_id: interactionId, interaction_token: token },
+    body: { type: DEFERRED_UPDATE_MESSAGE },
   });
 };
 

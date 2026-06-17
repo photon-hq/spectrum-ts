@@ -10,12 +10,18 @@ import type { FusorMessagesCtx } from "../../../fusor/types";
 import type { ProviderMessageRecord } from "../../../platform/types";
 import type { Message as SpectrumMessage } from "../../../types/message";
 import type { Store } from "../../../utils/store";
-import { discordClient, getChannelMessage } from "../client";
+import {
+  acknowledgeComponentInteraction,
+  discordClient,
+  getChannelMessage,
+} from "../client";
 import type { DiscordConfig } from "../config";
 import {
   type DiscordPayload,
   type DiscordUser,
   DispatchEvent,
+  type Interaction,
+  InteractionType,
   type MessageCreate,
   type MessageDelete,
   type MessagePollVoteAdd,
@@ -310,6 +316,62 @@ const fromPollVote = async (
   };
 };
 
+// Map an INTERACTION_CREATE (a button click or select-menu submit) to a Spectrum
+// message. v1 handles only component interactions; slash commands, autocomplete
+// and modal submits are separate features. The interaction is acknowledged within
+// Discord's 3-second window before anything else — DEFERRED_UPDATE_MESSAGE acks
+// silently (no spinner, source message unchanged), so a reply the handler sends
+// is an ordinary channel message. The click itself has no universal analog, so it
+// is surfaced as `custom` content (like the outbound `embed`/`components`) that a
+// handler narrows on: `raw.discord.type === "interaction"`. `interaction_id`/
+// `token` ride along so a future explicit-response API (edit the source message,
+// ephemeral reply, open a modal) can use them; v1 has already acked.
+const fromInteraction = async (
+  interaction: Interaction,
+  config: DiscordConfig
+): Promise<ProviderMessageRecord | undefined> => {
+  if (interaction.type !== InteractionType.MESSAGE_COMPONENT) {
+    return;
+  }
+  // Ack first — even if we end up not surfacing the click below, the user must
+  // never see "interaction failed" in the UI.
+  await acknowledgeComponentInteraction(
+    discordClient(config),
+    interaction.id,
+    interaction.token
+  );
+  // The actor is the guild member's user in a server, or the bare user in a DM.
+  const actor = interaction.member?.user ?? interaction.user;
+  // Drop the bot's own interactions (mirrors the message/reaction self-filters),
+  // though a bot never triggers a component interaction in practice.
+  if (!actor || actor.id === config.applicationId) {
+    return;
+  }
+  const customId = interaction.data?.custom_id;
+  // A component interaction always carries both a custom_id and the channel it
+  // fired in; bail if either is somehow absent (nothing to route or attribute to).
+  if (!(customId && interaction.channel_id)) {
+    return;
+  }
+  return {
+    id: `interaction:${interaction.id}`,
+    content: asCustom({
+      discord: {
+        type: "interaction",
+        component_type: interaction.data?.component_type,
+        custom_id: customId,
+        values: interaction.data?.values,
+        message_id: interaction.message?.id,
+        interaction_id: interaction.id,
+        token: interaction.token,
+      },
+    }),
+    sender: senderRef(actor),
+    space: { id: interaction.channel_id },
+    timestamp: new Date(),
+  };
+};
+
 /**
  * Map a relayed Discord Gateway dispatch to the Spectrum message it represents.
  * v1 surfaces new messages (text + attachments, fanned out as a group; a `poll`
@@ -319,8 +381,11 @@ const fromPollVote = async (
  * (`MESSAGE_REACTION_REMOVE`) map to `unsend`s retracting the message or
  * reaction. Poll votes (`MESSAGE_POLL_VOTE_ADD`/`MESSAGE_POLL_VOTE_REMOVE`) map
  * to `poll_option` (`selected` true/false) and resolve asynchronously, fetching
- * the poll message when it is not already cached. Typing, presence and every
- * other dispatch type are ignored (return `undefined`).
+ * the poll message when it is not already cached. Component interactions
+ * (`INTERACTION_CREATE` of type `MESSAGE_COMPONENT` — a button click or
+ * select-menu submit) are acknowledged within Discord's 3-second window and
+ * surfaced as `custom` content. Typing, presence and every other dispatch type
+ * are ignored (return `undefined`).
  */
 export const handleMessages = ({
   payload,
@@ -350,6 +415,8 @@ export const handleMessages = ({
         false,
         store
       );
+    case DispatchEvent.INTERACTION_CREATE:
+      return fromInteraction(payload.d as Interaction, config);
     default:
       return;
   }

@@ -19,6 +19,17 @@ export const DispatchEvent = {
   MESSAGE_REACTION_REMOVE: "MESSAGE_REACTION_REMOVE",
   MESSAGE_POLL_VOTE_ADD: "MESSAGE_POLL_VOTE_ADD",
   MESSAGE_POLL_VOTE_REMOVE: "MESSAGE_POLL_VOTE_REMOVE",
+  INTERACTION_CREATE: "INTERACTION_CREATE",
+} as const;
+
+/**
+ * Discord interaction types (the `type` on an INTERACTION_CREATE `d`). v1 handles
+ * only `MESSAGE_COMPONENT` — a button click or select-menu submit. `PING` (1),
+ * `APPLICATION_COMMAND` (2, slash commands), `APPLICATION_COMMAND_AUTOCOMPLETE`
+ * (4) and `MODAL_SUBMIT` (5) are separate features and are ignored.
+ */
+export const InteractionType = {
+  MESSAGE_COMPONENT: 3,
 } as const;
 
 export interface DiscordUser {
@@ -142,6 +153,50 @@ export interface MessagePollVoteAdd {
  * with `selected: false`.
  */
 export type MessagePollVoteRemove = MessagePollVoteAdd;
+
+/**
+ * The `data` of a component INTERACTION_CREATE: which component fired and, for a
+ * select menu, the chosen values. `custom_id` is the id set on the button/select
+ * when it was sent (see the outbound `components()` content).
+ */
+export interface InteractionData {
+  /** 2 = button, 3 = string select, 5–8 = entity (user/role/mentionable/channel) selects. */
+  component_type?: number;
+  custom_id?: string;
+  /** Selected values for a select menu; absent for a button. */
+  values?: string[];
+}
+
+/** The message a component sits on (subset the adapter reads — just its id). */
+export interface InteractionMessage {
+  id: string;
+}
+
+/** A guild member as it appears on an interaction; carries the acting user. */
+export interface InteractionMember {
+  user: DiscordUser;
+}
+
+/**
+ * The `d` of an INTERACTION_CREATE dispatch (subset the adapter reads). A
+ * component interaction carries the component that fired (`data`), the message it
+ * sits on (`message`), the actor (`member.user` in a guild, `user` in a DM) and
+ * an `id`/`token` pair the adapter uses to acknowledge it within Discord's
+ * 3-second window. `@photon-ai/discord-ts` models the HTTP API, not Gateway
+ * events, so this is a hand-written subset like the message shapes above.
+ */
+export interface Interaction {
+  application_id: string;
+  channel_id?: string;
+  data?: InteractionData;
+  guild_id?: string;
+  id: string;
+  member?: InteractionMember;
+  message?: InteractionMessage;
+  token: string;
+  type: number;
+  user?: DiscordUser;
+}
 
 /**
  * One Gateway dispatch frame as Fusor relays it. `op` (0 for dispatch) and `s`

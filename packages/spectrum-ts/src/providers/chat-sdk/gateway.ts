@@ -12,23 +12,33 @@ import type { ChatBot, ChatGatewayAdapter } from "./types";
 
 // How long each `startGatewayListener` window stays open before we reopen it.
 const GATEWAY_WINDOW_MS = 180_000;
-// Pause before reopening when a window did no work (or errored), so a flapping
-// or idle gateway doesn't turn into a hot reconnect loop.
-const GATEWAY_BACKOFF_MS = 1000;
+// A window that winds down faster than this didn't really hold the socket — the
+// gateway flapped or resolved instantly — so we back off before reopening.
+const GATEWAY_MIN_WINDOW_MS = 1000;
+// Backoff grows from min to max across consecutive flaps so a persistently
+// disconnected gateway settles into slow polling instead of a hot loop; a
+// healthy full-length window resets it.
+const GATEWAY_BACKOFF_MIN_MS = 1000;
+const GATEWAY_BACKOFF_MAX_MS = 30_000;
 
 const hasGateway = (adapter: unknown): adapter is ChatGatewayAdapter =>
   typeof (adapter as ChatGatewayAdapter | undefined)?.startGatewayListener ===
   "function";
 
-const backoff = () =>
-  new Promise((resolve) => setTimeout(resolve, GATEWAY_BACKOFF_MS));
+const backoff = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 // Keep one adapter's gateway continuously alive until `signal` aborts. The
 // listen window runs in the promise(s) handed to `waitUntil`; we await those,
-// then reopen. If a window scheduled nothing (or threw), back off first so a
-// disconnected gateway doesn't spin.
+// then reopen. We gate the reopen on how long the window actually held the
+// socket, not on whether it scheduled anything — a flapping adapter can resolve
+// `waitUntil` instantly, so counting inflight promises wouldn't catch it. Any
+// window shorter than the floor backs off (escalating); a healthy one reopens
+// at once and resets the backoff.
 const pumpOne = async (adapter: ChatGatewayAdapter, signal: AbortSignal) => {
+  let backoffMs = GATEWAY_BACKOFF_MIN_MS;
   while (!signal.aborted) {
+    const startedAt = Date.now();
     const inflight: Promise<unknown>[] = [];
     try {
       await adapter.startGatewayListener(
@@ -37,11 +47,17 @@ const pumpOne = async (adapter: ChatGatewayAdapter, signal: AbortSignal) => {
         signal
       );
       await Promise.allSettled(inflight);
-      if (inflight.length === 0) {
-        await backoff();
-      }
     } catch {
-      await backoff();
+      // Treated like any short window below — measured, then backed off.
+    }
+    if (signal.aborted) {
+      break;
+    }
+    if (Date.now() - startedAt < GATEWAY_MIN_WINDOW_MS) {
+      await backoff(backoffMs);
+      backoffMs = Math.min(backoffMs * 2, GATEWAY_BACKOFF_MAX_MS);
+    } else {
+      backoffMs = GATEWAY_BACKOFF_MIN_MS;
     }
   }
 };

@@ -11,6 +11,7 @@ import {
   row,
   select,
 } from "@/providers/discord/content/components";
+import { DISCORD_PLATFORM } from "@/providers/discord/config";
 import {
   buildSend,
   componentsToSpec,
@@ -67,10 +68,18 @@ describe("asComponents", () => {
   it("wraps a single row and optional text, tagged for Discord", () => {
     expect(asComponents(row(okButton), { content: "hi" })).toEqual({
       type: "components",
-      __platform: "Discord",
+      __platform: "discord",
       components: [{ type: 1, components: [okButton] }],
       content: "hi",
     });
+  });
+
+  it("tags __platform with the provider's registered name so dispatch does not skip it", () => {
+    // The dispatch guard (platform/build.ts) compares this tag against the
+    // provider's definePlatform name with a strict, case-sensitive `!==`. If the
+    // two ever drift (e.g. "Discord" vs "discord"), every components() send is
+    // silently dropped as "unsupported", so pin them equal here.
+    expect(asComponents(row(okButton)).__platform).toBe(DISCORD_PLATFORM);
   });
 
   it("accepts an array of rows without text", () => {
@@ -178,7 +187,7 @@ describe("components builder", () => {
     }).build();
     expect(built).toEqual({
       type: "components",
-      __platform: "Discord",
+      __platform: "discord",
       components: [{ type: 1, components: [okButton] }],
       content: "hi",
     });

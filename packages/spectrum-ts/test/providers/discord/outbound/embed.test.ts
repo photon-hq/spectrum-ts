@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { attachment } from "@/content/attachment";
 import { asReply } from "@/content/reply";
 import type { Content } from "@/content/types";
+import { DISCORD_PLATFORM } from "@/providers/discord/config";
 import { asEmbed, embed, isEmbed } from "@/providers/discord/content/embed";
 import { buildSend, embedToSpec } from "@/providers/discord/outbound/message";
 
@@ -9,10 +10,17 @@ describe("asEmbed", () => {
   it("wraps a single embed and optional text, tagged for Discord", () => {
     expect(asEmbed({ title: "x" }, { content: "hi" })).toEqual({
       type: "embed",
-      __platform: "Discord",
+      __platform: "discord",
       embeds: [{ title: "x" }],
       content: "hi",
     });
+  });
+
+  it("tags __platform with the provider's registered name so dispatch does not skip it", () => {
+    // The dispatch guard (platform/build.ts) compares this tag against the
+    // provider's definePlatform name with a strict, case-sensitive `!==`; if they
+    // drift (e.g. "Discord" vs "discord") every embed() send is silently dropped.
+    expect(asEmbed({ title: "x" }).__platform).toBe(DISCORD_PLATFORM);
   });
 
   it("accepts an array of embeds without text", () => {
@@ -96,7 +104,7 @@ describe("embed builder", () => {
     ).build();
     expect(built).toEqual({
       type: "embed",
-      __platform: "Discord",
+      __platform: "discord",
       embeds: [{ title: "x" }],
       content: "hi",
     });

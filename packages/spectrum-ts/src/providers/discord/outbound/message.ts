@@ -106,7 +106,7 @@ const customToSpec = (raw: unknown): DiscordSendSpec => {
  * unsupported types never reach this function.
  */
 export const buildSend = async (content: Content): Promise<DiscordSendSpec> => {
-  // `embed` is Discord-scoped content (tagged `__platform: "Discord"`) and not a
+  // `embed` is Discord-scoped content (tagged `__platform: "discord"`) and not a
   // member of the `Content` union, so narrow it back before the switch. Handling
   // it here — rather than only in `send` — lets an embed also be the inner content
   // of a `reply` (which recurses through `buildSend`) or an item of a `group`.
@@ -114,7 +114,7 @@ export const buildSend = async (content: Content): Promise<DiscordSendSpec> => {
     return await embedToSpec(content);
   }
   // Like `embed`, interactive components are Discord-scoped content tagged
-  // `__platform: "Discord"` and not a member of the `Content` union, so narrow
+  // `__platform: "discord"` and not a member of the `Content` union, so narrow
   // it back before the switch. Handling it here also lets components be the
   // inner content of a `reply` or an item of a `group`.
   if (isComponents(content)) {

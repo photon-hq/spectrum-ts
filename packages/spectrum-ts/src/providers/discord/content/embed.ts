@@ -2,6 +2,7 @@ import type { RichEmbed } from "@photon-ai/discord-ts";
 import z from "zod";
 import { type Attachment, attachmentSchema } from "../../../content/attachment";
 import type { Content, ContentBuilder } from "../../../content/types";
+import { DISCORD_PLATFORM } from "../config";
 
 const MAX_EMBEDS = 10;
 const COLOR_MAX = 0xff_ff_ff; // 16_777_215 — Discord colors are 24-bit integers.
@@ -122,7 +123,10 @@ const validateEmbedLimits = (
 export const embedSchema = z
   .object({
     type: z.literal("embed"),
-    __platform: z.literal("Discord"),
+    // Must equal the provider's definePlatform name (DISCORD_PLATFORM); the
+    // dispatch guard in platform/build.ts compares this with a strict,
+    // case-sensitive `!==`, so a capitalized "Discord" would be silently skipped.
+    __platform: z.literal(DISCORD_PLATFORM),
     embeds: z
       .array(richEmbedLike)
       .min(1, "embed() requires at least one embed.")
@@ -151,7 +155,7 @@ export const asEmbed = (
 ): Embed =>
   embedSchema.parse({
     type: "embed",
-    __platform: "Discord",
+    __platform: DISCORD_PLATFORM,
     embeds: Array.isArray(embeds) ? embeds : [embeds],
     ...(options?.content === undefined ? {} : { content: options.content }),
     ...(options?.files === undefined ? {} : { files: options.files }),

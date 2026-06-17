@@ -11,6 +11,7 @@ import type {
 } from "@photon-ai/discord-ts";
 import z from "zod";
 import type { Content, ContentBuilder } from "../../../content/types";
+import { DISCORD_PLATFORM } from "../config";
 
 // One Discord message can carry at most five action rows; each row holds up to
 // five buttons OR a single select menu (the two never share a row).
@@ -244,7 +245,11 @@ const validateRow = (row: ActionRow, i: number, ctx: z.RefinementCtx): void => {
 export const componentsSchema = z
   .object({
     type: z.literal("components"),
-    __platform: z.literal("Discord"),
+    // Must equal the provider's definePlatform name (DISCORD_PLATFORM) so the
+    // dispatch guard in platform/build.ts narrows this as Discord-supported
+    // content rather than skipping it (the comparison is a strict, case-sensitive
+    // `!==`, so a capitalized "Discord" here would be silently dropped).
+    __platform: z.literal(DISCORD_PLATFORM),
     components: z
       .array(actionRowLike)
       .min(1, "components() requires at least one action row.")
@@ -271,7 +276,7 @@ export const asComponents = (
 ): Components =>
   componentsSchema.parse({
     type: "components",
-    __platform: "Discord",
+    __platform: DISCORD_PLATFORM,
     components: Array.isArray(rows) ? rows : [rows],
     ...(options?.content === undefined ? {} : { content: options.content }),
   });

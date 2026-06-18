@@ -4,11 +4,11 @@
 // then resolves. The provider feature-detects this and keeps reopening it in a
 // loop so a long-running worker maintains a continuously live socket. In
 // direct-processing mode (no webhookUrl) the adapter dispatches gateway
-// messages/reactions straight to the bot's handlers, which `registerInbound`
-// has wired to the queue. Generic by capability, not by platform — any adapter
+// messages/reactions straight to the host (`SpectrumChatHost`), which forwards
+// them to the queue. Generic by capability, not by platform — any adapter
 // exposing `startGatewayListener` gets pumped.
 
-import type { ChatBot, ChatGatewayAdapter } from "./types";
+import type { ChatGatewayAdapter } from "./types";
 
 // How long each `startGatewayListener` window stays open before we reopen it.
 const GATEWAY_WINDOW_MS = 180_000;
@@ -63,17 +63,16 @@ const pumpOne = async (adapter: ChatGatewayAdapter, signal: AbortSignal) => {
 };
 
 /**
- * Start pumping every gateway-capable adapter on the bot. Resolves once `signal`
- * aborts and all pumps wind down. Safe to call un-awaited — failures stay on the
+ * Pump the platform's single adapter if it's gateway-capable (e.g. Discord);
+ * a no-op for webhook-only adapters (e.g. Linear). Resolves once `signal`
+ * aborts and the pump winds down. Safe to call un-awaited — failures stay on the
  * returned promise rather than throwing into the caller.
  */
 export const startGatewayPump = async (
-  bot: ChatBot,
+  adapter: unknown,
   signal: AbortSignal
 ): Promise<void> => {
-  const adapters = Object.keys(bot.webhooks)
-    .map((slug) => bot.getAdapter?.(slug))
-    .filter(hasGateway);
-
-  await Promise.all(adapters.map((adapter) => pumpOne(adapter, signal)));
+  if (hasGateway(adapter)) {
+    await pumpOne(adapter, signal);
+  }
 };

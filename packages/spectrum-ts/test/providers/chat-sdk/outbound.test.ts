@@ -7,26 +7,26 @@ import { asReply } from "@/content/reply";
 import { asText } from "@/content/text";
 import type { Content } from "@/content/types";
 import { voice } from "@/content/voice";
-import { sendContent } from "@/providers/chat-sdk/outbound";
-import type {
-  ChatBot,
-  ChatPostable,
-  ChatSentMessage,
-  ChatThread,
-} from "@/providers/chat-sdk/types";
+import {
+  type OutboundClient,
+  sendContent,
+} from "@/providers/chat-sdk/outbound";
+import type { MakeThread } from "@/providers/chat-sdk/thread";
+import type { ChatSentMessage, ChatThread } from "@/providers/chat-sdk/types";
 import type { Message } from "@/types/message";
 
 interface ThreadCalls {
   deletes: Array<{ threadId: string; messageId: string }>;
   edits: Array<{ threadId: string; messageId: string; message: unknown }>;
-  posts: ChatPostable[];
+  posts: unknown[];
   reactions: Array<{ threadId: string; messageId: string; emoji: string }>;
   typing: number;
 }
 
-const SENT: ChatSentMessage = { id: "S1", threadId: "T1" };
+// Real `SentMessage` is rich; the tests only read `.id`/`.threadId`.
+const SENT = { id: "S1", threadId: "T1" } as unknown as ChatSentMessage;
 
-const makeThread = (
+const makeThreadStub = (
   overrides: Partial<ChatThread> = {}
 ): { thread: ChatThread; calls: ThreadCalls } => {
   const calls: ThreadCalls = {
@@ -36,24 +36,24 @@ const makeThread = (
     edits: [],
     typing: 0,
   };
-  const thread: ChatThread = {
+  const thread = {
     id: "T1",
     adapter: {
       name: "slack",
-      addReaction: (threadId, messageId, emoji) => {
+      addReaction: (threadId: string, messageId: string, emoji: string) => {
         calls.reactions.push({ threadId, messageId, emoji });
         return Promise.resolve();
       },
-      deleteMessage: (threadId, messageId) => {
+      deleteMessage: (threadId: string, messageId: string) => {
         calls.deletes.push({ threadId, messageId });
         return Promise.resolve();
       },
-      editMessage: (threadId, messageId, message) => {
+      editMessage: (threadId: string, messageId: string, message: unknown) => {
         calls.edits.push({ threadId, messageId, message });
         return Promise.resolve({ id: messageId });
       },
-    },
-    post: (message) => {
+    } as unknown as ChatThread["adapter"],
+    post: (message: unknown) => {
       calls.posts.push(message);
       return Promise.resolve(SENT);
     },
@@ -63,18 +63,23 @@ const makeThread = (
       return Promise.resolve();
     },
     ...overrides,
-  };
+  } as unknown as ChatThread;
   return { thread, calls };
 };
 
-// A bot whose thread(id) fallback is deliberately a poisoned thread — proves
-// outbound prefers the registered live thread when one is present.
-const poisonBot = (): ChatBot =>
-  ({
-    thread: () => {
-      throw new Error("bot.thread() should not be reached");
-    },
-  }) as unknown as ChatBot;
+// A poisoned factory — proves outbound prefers the registered live thread when
+// one is present (the factory must never run).
+const poisonMakeThread: MakeThread = () => {
+  throw new Error("makeThread() should not be reached");
+};
+
+const clientWith = (
+  registry: Map<string, ChatThread>,
+  makeThread: MakeThread
+): OutboundClient => ({ label: "slack", threads: registry, makeThread });
+
+const registered = (thread: ChatThread): OutboundClient =>
+  clientWith(new Map([["T1", thread]]), poisonMakeThread);
 
 const space = { id: "T1" };
 const target = {
@@ -84,14 +89,8 @@ const target = {
 
 describe("chat-sdk send — body content", () => {
   it("posts text and returns a record carrying the sent id", async () => {
-    const { thread, calls } = makeThread();
-    const registry = new Map([["T1", thread]]);
-    const result = await sendContent(
-      poisonBot(),
-      registry,
-      space,
-      asText("hi")
-    );
+    const { thread, calls } = makeThreadStub();
+    const result = await sendContent(registered(thread), space, asText("hi"));
     expect(calls.posts).toEqual(["hi"]);
     expect(result?.id).toBe("S1");
     expect(result?.space.id).toBe("T1");
@@ -99,8 +98,8 @@ describe("chat-sdk send — body content", () => {
   });
 
   it("posts markdown as a markdown postable", async () => {
-    const { thread, calls } = makeThread();
-    await sendContent(poisonBot(), new Map([["T1", thread]]), space, {
+    const { thread, calls } = makeThreadStub();
+    await sendContent(registered(thread), space, {
       type: "markdown",
       markdown: "**hi**",
     } as unknown as Content);
@@ -108,13 +107,13 @@ describe("chat-sdk send — body content", () => {
   });
 
   it("posts a stream-text content as the live async iterable", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     async function* chunks() {
       yield "a";
       yield "b";
     }
     const stream = chunks();
-    await sendContent(poisonBot(), new Map([["T1", thread]]), space, {
+    await sendContent(registered(thread), space, {
       type: "streamText",
       stream: () => stream,
     } as unknown as Content);
@@ -122,23 +121,19 @@ describe("chat-sdk send — body content", () => {
   });
 
   it("forwards custom content's raw payload straight to post()", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
+      registered(thread),
       space,
       asCustom({ card: { title: "hi" } })
     );
-    expect(calls.posts[0]).toEqual({
-      card: { title: "hi" },
-    } as unknown as ChatPostable);
+    expect(calls.posts[0]).toEqual({ card: { title: "hi" } });
   });
 
   it("posts an attachment as a file upload with its name and mime", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
+      registered(thread),
       space,
       await attachment(Buffer.from("img"), {
         mimeType: "image/png",
@@ -156,10 +151,9 @@ describe("chat-sdk send — body content", () => {
   });
 
   it("posts voice as a file upload", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
+      registered(thread),
       space,
       await voice(Buffer.from("a"), {
         mimeType: "audio/ogg",
@@ -174,21 +168,23 @@ describe("chat-sdk send — body content", () => {
 });
 
 describe("chat-sdk send — thread resolution", () => {
-  it("falls back to bot.thread(id) for a never-seen space", async () => {
-    const { thread, calls } = makeThread();
-    const bot = { thread: () => thread } as unknown as ChatBot;
-    // Empty registry forces the fallback path.
-    await sendContent(bot, new Map(), space, asText("hi"));
+  it("reconstructs a thread via makeThread for a never-seen space", async () => {
+    const { thread, calls } = makeThreadStub();
+    // Empty registry forces the factory path.
+    await sendContent(
+      clientWith(new Map(), () => thread),
+      space,
+      asText("hi")
+    );
     expect(calls.posts).toEqual(["hi"]);
   });
 });
 
 describe("chat-sdk send — reply / edit / reaction / unsend", () => {
   it("posts the inner content of a reply into the thread", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     const result = await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
+      registered(thread),
       space,
       asReply({ content: asText("hey"), target })
     );
@@ -197,10 +193,9 @@ describe("chat-sdk send — reply / edit / reaction / unsend", () => {
   });
 
   it("adds a reaction via the adapter and returns a synthetic record", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     const result = await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
+      registered(thread),
       space,
       asReaction({ emoji: "👍", target })
     );
@@ -212,17 +207,12 @@ describe("chat-sdk send — reply / edit / reaction / unsend", () => {
   });
 
   it("edits via the adapter, passing the rendered postable", async () => {
-    const { thread, calls } = makeThread();
-    const result = await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
-      space,
-      {
-        type: "edit",
-        content: asText("new"),
-        target,
-      } as unknown as Content
-    );
+    const { thread, calls } = makeThreadStub();
+    const result = await sendContent(registered(thread), space, {
+      type: "edit",
+      content: asText("new"),
+      target,
+    } as unknown as Content);
     expect(calls.edits).toEqual([
       { threadId: "T1", messageId: "42", message: "new" },
     ]);
@@ -231,26 +221,24 @@ describe("chat-sdk send — reply / edit / reaction / unsend", () => {
   });
 
   it("unsends via the adapter delete", async () => {
-    const { thread, calls } = makeThread();
-    const result = await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
-      space,
-      {
-        type: "unsend",
-        target,
-      } as unknown as Content
-    );
+    const { thread, calls } = makeThreadStub();
+    const result = await sendContent(registered(thread), space, {
+      type: "unsend",
+      target,
+    } as unknown as Content);
     expect(calls.deletes).toEqual([{ threadId: "T1", messageId: "42" }]);
     expect(result).toBeUndefined();
   });
 
   it("throws UnsupportedError when the adapter cannot delete", async () => {
-    const { thread } = makeThread({
-      adapter: { name: "discord", addReaction: () => Promise.resolve() },
+    const { thread } = makeThreadStub({
+      adapter: {
+        name: "discord",
+        addReaction: () => Promise.resolve(),
+      } as unknown as ChatThread["adapter"],
     });
     await expect(
-      sendContent(poisonBot(), new Map([["T1", thread]]), space, {
+      sendContent(registered(thread), space, {
         type: "unsend",
         target,
       } as unknown as Content)
@@ -258,11 +246,14 @@ describe("chat-sdk send — reply / edit / reaction / unsend", () => {
   });
 
   it("throws UnsupportedError when the adapter cannot edit", async () => {
-    const { thread } = makeThread({
-      adapter: { name: "discord", addReaction: () => Promise.resolve() },
+    const { thread } = makeThreadStub({
+      adapter: {
+        name: "discord",
+        addReaction: () => Promise.resolve(),
+      } as unknown as ChatThread["adapter"],
     });
     await expect(
-      sendContent(poisonBot(), new Map([["T1", thread]]), space, {
+      sendContent(registered(thread), space, {
         type: "edit",
         content: asText("new"),
         target,
@@ -273,25 +264,19 @@ describe("chat-sdk send — reply / edit / reaction / unsend", () => {
 
 describe("chat-sdk send — fire-and-forget / no-ops", () => {
   it("starts typing and returns nothing", async () => {
-    const { thread, calls } = makeThread();
-    const result = await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
-      space,
-      {
-        type: "typing",
-        state: "start",
-      } as unknown as Content
-    );
+    const { thread, calls } = makeThreadStub();
+    const result = await sendContent(registered(thread), space, {
+      type: "typing",
+      state: "start",
+    } as unknown as Content);
     expect(calls.typing).toBe(1);
     expect(result).toBeUndefined();
   });
 
   it("treats read as a silent no-op (no generic read-receipt API)", async () => {
-    const { thread, calls } = makeThread();
+    const { thread, calls } = makeThreadStub();
     const result = await sendContent(
-      poisonBot(),
-      new Map([["T1", thread]]),
+      registered(thread),
       space,
       asRead({ target })
     );
@@ -302,9 +287,9 @@ describe("chat-sdk send — fire-and-forget / no-ops", () => {
 
 describe("chat-sdk send — unsupported", () => {
   it("throws UnsupportedError for content the SDK cannot express", async () => {
-    const { thread } = makeThread();
+    const { thread } = makeThreadStub();
     await expect(
-      sendContent(poisonBot(), new Map([["T1", thread]]), space, {
+      sendContent(registered(thread), space, {
         type: "richlink",
         url: "https://x.test",
       } as unknown as Content)

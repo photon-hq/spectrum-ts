@@ -4,7 +4,12 @@
 
 import { asCustom } from "../../../content/custom";
 import { asText } from "../../../content/text";
-import type { ChatInboundMessage, ChatMessage, ChatThread } from "../types";
+import type {
+  ChatAdapter,
+  ChatInboundMessage,
+  ChatMessage,
+  ChatThread,
+} from "../types";
 import { attachmentToContent } from "./attachment";
 import { buildEnrichment, type Enrichment } from "./enrichment";
 import { linkToContent } from "./link";
@@ -54,9 +59,10 @@ const linkRecords = (
   });
 
 // A message with no text, attachments, or links (sticker-only, embed-only,
-// poll, system, …) still arrived — the SDK only filters self / duplicate
-// messages. Surface it as custom content carrying the platform payload rather
-// than dropping it, mirroring Slack's `slack_type: "empty"`.
+// poll, system, …) still arrived — the host already filtered self / duplicate
+// messages upstream (see `SpectrumChatHost.ingest`), so reaching here means it
+// is genuinely empty. Surface it as custom content carrying the platform
+// payload rather than dropping it, mirroring Slack's `slack_type: "empty"`.
 const emptyRecord = (
   message: ChatMessage,
   base: RecordBase,
@@ -72,12 +78,14 @@ const emptyRecord = (
 // (mirrors the Slack provider's text/file split), and one richlink record per
 // unfurled link — falling back to a single custom record when none apply.
 export const messageToRecords = (
-  thread: ChatThread,
-  message: ChatMessage
+  adapter: ChatAdapter,
+  threadId: string,
+  message: ChatMessage,
+  thread?: ChatThread
 ): ChatInboundMessage[] => {
   const base: RecordBase = {
     sender: { id: message.author.userId },
-    space: spaceRef(thread),
+    space: spaceRef(adapter, threadId, thread),
     timestamp: message.metadata?.dateSent ?? new Date(),
   };
   const enrichment = buildEnrichment(message);

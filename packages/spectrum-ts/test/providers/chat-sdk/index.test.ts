@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { SpectrumLike } from "@/platform/types";
-import { chatThread, getBot, messageMeta } from "@/providers/chat-sdk";
-import type { ChatBot, ChatThread } from "@/providers/chat-sdk/types";
+import { chatThread, messageMeta } from "@/providers/chat-sdk";
+import type { ChatThread } from "@/providers/chat-sdk/types";
 import type { Message } from "@/types/message";
 import type { Space } from "@/types/space";
 
@@ -41,24 +40,5 @@ describe("chatThread", () => {
 
   it("returns undefined for an id-only space", () => {
     expect(chatThread({ id: "T1" } as unknown as Space)).toBeUndefined();
-  });
-});
-
-describe("getBot", () => {
-  it("returns the bot off the ChatSDK runtime client", () => {
-    const bot = { initialize: () => Promise.resolve() } as unknown as ChatBot;
-    const app = {
-      __internal: {
-        platforms: new Map([["ChatSDK", { client: { bot } }]]),
-      },
-    } as unknown as SpectrumLike;
-    expect(getBot(app)).toBe(bot);
-  });
-
-  it("returns undefined when ChatSDK is not registered", () => {
-    const app = {
-      __internal: { platforms: new Map() },
-    } as unknown as SpectrumLike;
-    expect(getBot(app)).toBeUndefined();
   });
 });

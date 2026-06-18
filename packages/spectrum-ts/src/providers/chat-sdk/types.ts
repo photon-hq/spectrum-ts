@@ -1,4 +1,77 @@
+// Types for the `chat` SDK (chat-sdk.dev). Rather than mirror chat's surface with
+// hand-written structural interfaces, we alias the REAL types from the package —
+// so a signature change upstream is a compile error here, not a silent runtime
+// surprise, and `SpectrumChatHost` can `implements ChatInstance` directly. The
+// `Chat*` alias names are kept (instead of importing the real names bare) for two
+// reasons: they avoid colliding with Spectrum's own `Message`/`Space`/`Content`
+// types, and they leave the provider's ~13 internal import sites untouched.
+//
+// These are `import type` only — erased at compile time — so `chat` stays out of
+// the static runtime import graph. The single runtime touch is the lazy
+// `await import("chat")` in `createClient` (for `ConsoleLogger` + `ThreadImpl`).
+
+import type {
+  ActionEvent,
+  Adapter,
+  AppHomeOpenedEvent,
+  AssistantThreadStartedEvent,
+  Attachment,
+  Author,
+  FileUpload,
+  LinkPreview,
+  MemberJoinedChannelEvent,
+  Message,
+  ModalCloseEvent,
+  ModalSubmitEvent,
+  OptionsLoadEvent,
+  ReactionEvent,
+  SentMessage,
+  SlashCommandEvent,
+  Thread,
+} from "chat";
 import type { Content } from "../../content/types";
+
+// --- aliases onto the real chat types --------------------------------------
+// The adapter the provider drives, the inbound message it parses, and the
+// thread/author/attachment/link shapes — all the real thing now.
+export type ChatAdapter = Adapter;
+export type ChatMessage = Message;
+export type ChatThread = Thread;
+export type ChatAuthor = Author;
+export type ChatAttachment = Attachment;
+export type ChatLinkPreview = LinkPreview;
+export type ChatSentMessage = SentMessage;
+export type ChatFileUpload = FileUpload;
+
+// Host-event params, aliased to EXACTLY the shapes `ChatInstance` declares (its
+// methods receive these `Omit`-narrowed events), so implementing the interface
+// type-checks and the converters in `inbound/` read real fields.
+export type ChatReactionEvent = Omit<ReactionEvent, "adapter" | "thread"> & {
+  adapter?: Adapter;
+};
+export type ChatActionEvent = Omit<ActionEvent, "thread" | "openModal"> & {
+  adapter: Adapter;
+};
+export type ChatSlashCommandEvent = Omit<
+  SlashCommandEvent,
+  "channel" | "openModal"
+> & { adapter: Adapter; channelId: string };
+export type ChatModalSubmitEvent = Omit<
+  ModalSubmitEvent,
+  "relatedThread" | "relatedMessage" | "relatedChannel"
+>;
+export type ChatModalCloseEvent = Omit<
+  ModalCloseEvent,
+  "relatedThread" | "relatedMessage" | "relatedChannel"
+>;
+export type ChatOptionsLoadEvent = OptionsLoadEvent;
+export type ChatAppHomeOpenedEvent = AppHomeOpenedEvent;
+export type ChatMemberJoinedChannelEvent = MemberJoinedChannelEvent;
+// `AssistantThreadStartedEvent` and `AssistantContextChangedEvent` are
+// structurally identical; one alias covers both converters.
+export type ChatAssistantEvent = AssistantThreadStartedEvent;
+
+// --- types Spectrum genuinely owns (NOT part of chat's surface) ------------
 
 // The exact inbound record the `messages` stream yields. Mirrors the resolved
 // message type (required sender/space/timestamp + declared extras) so the
@@ -21,117 +94,6 @@ export interface ChatInboundMessage {
   timestamp: Date;
 }
 
-/** A normalized link preview surfaced on an inbound chat-SDK message. */
-export interface ChatLinkPreview {
-  description?: string;
-  imageUrl?: string;
-  siteName?: string;
-  title?: string;
-  url: string;
-}
-
-// Structural typing for Vercel's `chat` SDK (chat-sdk.dev). We deliberately do
-// NOT depend on the `chat` package — the wrapper only touches a small, stable
-// subset of its surface, so a structural interface keeps this provider
-// dependency-free (same philosophy as the optional express/hono peers). Your
-// real `Chat` instance structurally satisfies `ChatBot`.
-
-/** A normalized author on an inbound chat-SDK message. */
-export interface ChatAuthor {
-  fullName?: string;
-  isBot?: boolean | "unknown";
-  isMe?: boolean;
-  userId: string;
-  userName?: string;
-}
-
-/** A normalized attachment on an inbound chat-SDK message. */
-export interface ChatAttachment {
-  data?: Buffer | Blob;
-  fetchData?: () => Promise<Buffer>;
-  mimeType?: string;
-  name?: string;
-  size?: number;
-  type: "image" | "file" | "video" | "audio";
-  url?: string;
-}
-
-/** A normalized inbound message (the shape handlers receive). */
-export interface ChatMessage {
-  attachments?: ChatAttachment[];
-  author: ChatAuthor;
-  // The SDK's structured formatting (an mdast `Root`). Kept opaque — the
-  // wrapper does not depend on the `chat` package. Preserved so unmodeled
-  // content can be reconstructed downstream instead of being lost at the
-  // type boundary.
-  formatted?: unknown;
-  id: string;
-  isMention?: boolean;
-  links?: ChatLinkPreview[];
-  metadata?: { dateSent?: Date; edited?: boolean; editedAt?: Date };
-  // Platform-specific raw payload (escape hatch). Carried so messages with no
-  // text and no attachments (stickers, embeds, polls) can still surface their
-  // native data via `custom` content.
-  raw?: unknown;
-  text: string;
-  threadId: string;
-}
-
-/** Minimal adapter surface used for reactions / edits / deletes. */
-export interface ChatAdapter {
-  addReaction(
-    threadId: string,
-    messageId: string,
-    emoji: string
-  ): Promise<void>;
-  deleteMessage?(threadId: string, messageId: string): Promise<void>;
-  editMessage?(
-    threadId: string,
-    messageId: string,
-    message: unknown
-  ): Promise<unknown>;
-  readonly name: string;
-}
-
-/** The object (non-streaming) postable forms — what an ephemeral post takes. */
-export type ChatObjectPostable =
-  | { markdown: string; files?: ChatFileUpload[] }
-  | { raw: string; files?: ChatFileUpload[] };
-
-/** Anything `thread.post()` accepts that we produce. */
-export type ChatPostable = string | ChatObjectPostable | AsyncIterable<string>;
-
-export interface ChatFileUpload {
-  data: Buffer | Blob | ArrayBuffer;
-  filename: string;
-  mimeType?: string;
-}
-
-/** A sent message returned from `thread.post()`. */
-export interface ChatSentMessage {
-  id: string;
-  threadId: string;
-}
-
-/** A thread/channel handle — the unit Spectrum maps to a `space`. */
-export interface ChatThread {
-  readonly adapter: ChatAdapter;
-  readonly channelId?: string;
-  readonly id: string;
-  readonly isDM?: boolean;
-  post(message: ChatPostable): Promise<ChatSentMessage>;
-  // Post a message only `user` can see — falling back to a DM where the
-  // platform has no native ephemeral (Discord/Teams). One of the native
-  // escape-hatch calls reached via `chatThread(space)`.
-  postEphemeral(
-    user: string,
-    message: ChatObjectPostable,
-    options: { fallbackToDM?: boolean }
-  ): Promise<unknown>;
-  startTyping?(status?: string): Promise<void>;
-  subscribe?(): Promise<void>;
-}
-
 /**
  * Maps a `space.id` (the inbound thread id) to the live `thread` handle from
  * the event that created it. Outbound prefers this over `bot.thread(id)`: a
@@ -144,47 +106,15 @@ export interface ThreadRegistry {
   set(threadId: string, thread: ChatThread): unknown;
 }
 
-/** A reaction event delivered to `onReaction`. */
-export interface ChatReactionEvent {
-  added: boolean;
-  messageId: string;
-  rawEmoji: string;
-  thread: ChatThread;
-  threadId: string;
-  user: ChatAuthor;
-}
-
-type MessageHandler = (
-  thread: ChatThread,
-  message: ChatMessage
-) => void | Promise<void>;
-
-/**
- * The subset of the chat-SDK `Chat` instance the wrapper drives. A real
- * `Chat` from `new Chat({ adapters, state, userName })` satisfies this.
- */
-export interface ChatBot {
-  getAdapter?(slug: string): unknown;
-  initialize(): Promise<void>;
-  onDirectMessage(handler: MessageHandler): void;
-  onNewMention(handler: MessageHandler): void;
-  onReaction(handler: (event: ChatReactionEvent) => void | Promise<void>): void;
-  onSubscribedMessage(handler: MessageHandler): void;
-  openDM(user: string): Promise<ChatThread>;
-  shutdown(): Promise<void>;
-  thread(threadId: string): ChatThread;
-  /** Per-adapter webhook handlers, keyed by adapter slug. */
-  readonly webhooks: Record<string, (request: Request) => Promise<Response>>;
-}
-
 /**
  * Some platforms (Discord) deliver regular messages over a Gateway WebSocket,
  * not the interactions/HTTP webhook. Such adapters expose `startGatewayListener`
  * — it opens the socket, keeps it alive for `durationMs` (and dispatches
  * messages/reactions to the bot's handlers when no `webhookUrl` is given), then
  * resolves. The wrapper feature-detects this and keeps it pumping so a
- * long-running worker maintains a live gateway. Generic by capability, not by
- * platform — any adapter with this method gets pumped.
+ * long-running worker maintains a live gateway. This capability is NOT on chat's
+ * `Adapter` interface (it's adapter-implementation-specific), so it stays a
+ * local structural type — generic by capability, not by platform.
  */
 export interface ChatGatewayAdapter {
   startGatewayListener(

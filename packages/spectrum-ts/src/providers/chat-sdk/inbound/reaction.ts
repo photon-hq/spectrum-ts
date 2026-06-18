@@ -3,7 +3,11 @@
 
 import { asCustom } from "../../../content/custom";
 import { reactionSchema } from "../../../content/reaction";
-import type { ChatInboundMessage, ChatReactionEvent } from "../types";
+import type {
+  ChatAdapter,
+  ChatInboundMessage,
+  ChatReactionEvent,
+} from "../types";
 import { spaceRef } from "./space";
 
 // The SDK gives only the target's id; core wraps this stub into a full Message
@@ -20,9 +24,10 @@ const reactionTargetStub = (
 });
 
 export const reactionToRecord = (
+  adapter: ChatAdapter,
   event: ChatReactionEvent
 ): ChatInboundMessage => {
-  const space = spaceRef(event.thread);
+  const space = spaceRef(adapter, event.threadId);
   // Add and remove of the same emoji are distinct events — keep their ids
   // distinct so neither dedupes the other.
   const id = event.added

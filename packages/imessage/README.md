@@ -19,6 +19,16 @@ const spectrum = Spectrum({
 });
 ```
 
-This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, and `customizedMiniApp`.
+This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
+
+`nativeContactCard()` shares the bot account's own contact card (Apple's "Share Name and Photo") with a chat — remote mode only:
+
+```ts
+import { nativeContactCard } from "@spectrum-ts/imessage";
+
+await space.send(nativeContactCard());
+// or the sugar form, typed on the iMessage space:
+await space.shareContactCard();
+```
 
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.

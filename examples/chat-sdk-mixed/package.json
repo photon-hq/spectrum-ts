@@ -1,0 +1,19 @@
+{
+  "name": "@spectrum-ts/example-chat-sdk-mixed",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run scripts/index.ts",
+    "echo": "bun run scripts/index.ts",
+    "ai": "bun run scripts/ai.ts",
+    "narrowed": "bun run scripts/narrowed.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/google": "^2",
+    "@chat-adapter/discord": "^4.31.0",
+    "@chat-adapter/linear": "^4.31.0",
+    "ai": "^5",
+    "@chat-adapter/state-memory": "^4.31.0",
+    "spectrum-ts": "workspace:*"
+  }
+}

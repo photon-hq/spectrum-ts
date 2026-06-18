@@ -1,26 +1,17 @@
-// Inbound inspector — PURE chat SDK, no Spectrum.
+// Inbound inspector — PURE chat SDK, no Spectrum. Wired onto the SDK's own
+// handlers so you see exactly what it delivers (text, attachments, links, the
+// `formatted` AST, the platform `raw`, reaction add/remove). Useful to confirm
+// where data lives: send a sticker and the SDK's Message arrives with text:""
+// and no attachments — proof the loss is upstream, not in Spectrum's wrapper.
 //
-// Same idea as `inspect.ts`, but wired straight onto the chat SDK's own
-// handlers (onNewMention / onDirectMessage / onSubscribedMessage / onReaction)
-// so you see exactly what the SDK itself delivers — text, attachments, links,
-// the `formatted` AST, the platform `raw`, and reaction add/remove events.
-//
-// Use this to confirm where data lives (or doesn't): send a sticker and you'll
-// see the SDK's own Message arrives with text:"" and no attachments — proof the
-// loss is upstream in the adapter, not in Spectrum's wrapper.
-//
-// Run: bun run inspect-chatsdk.ts
-//
-// Regular messages/reactions arrive over the Discord Gateway, which is NOT
-// serverless here — this script keeps the socket alive in a loop (the same
-// thing Spectrum's provider does for you). Ctrl-C to stop.
+// The Gateway isn't serverless here, so we keep the socket alive in a loop
+// (what Spectrum's provider does for you). Run: bun inspect-chatsdk  (Ctrl-C to stop)
 
 import { createDiscordAdapter } from "@chat-adapter/discord";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { Chat, type Message, type ReactionEvent, type Thread } from "chat";
 
-// Minimal shape of a Gateway-capable adapter (Discord). `getAdapter` returns
-// `unknown`, so we narrow to just the method we call.
+// Minimal shape of a Gateway-capable adapter (`getAdapter` returns `unknown`).
 interface GatewayAdapter {
   startGatewayListener(
     options: { waitUntil?: (promise: Promise<unknown>) => void },
@@ -43,7 +34,7 @@ const describeMessage = (kind: string, message: Message): string => {
   const a = message.author;
   const attachments = message.attachments ?? [];
   const links = message.links ?? [];
-  const lines = [
+  return [
     `── chatsdk inbound [${kind}] ──`,
     `id:         ${message.id}`,
     `author:     ${a.userId} (${a.userName} / ${a.fullName}) bot=${a.isBot} me=${a.isMe}`,
@@ -56,13 +47,10 @@ const describeMessage = (kind: string, message: Message): string => {
           `\n  • ${att.type} ${att.name ?? "?"} ${att.mimeType ?? ""} ${att.url ?? ""}`
       )
       .join("")}`,
-    `links(${links.length}):${links
-      .map((l) => `\n  • ${l.title ?? l.url}`)
-      .join("")}`,
+    `links(${links.length}):${links.map((l) => `\n  • ${l.title ?? l.url}`).join("")}`,
     `formatted:  ${JSON.stringify(message.formatted)}`,
     `raw:\n${JSON.stringify(message.raw, null, 2)}`,
-  ];
-  return lines.join("\n");
+  ].join("\n");
 };
 
 const describeReaction = (event: ReactionEvent): string =>
@@ -75,15 +63,13 @@ const describeReaction = (event: ReactionEvent): string =>
     `hasTarget:  ${event.message !== undefined}`,
   ].join("\n");
 
-// The only thread capability `report` needs — keeps it assignable from both
-// `Thread<Record<string, unknown>>` (message handlers) and `Thread<unknown>`
-// (reaction events).
+// Only the capability `report` needs — assignable from both message-handler and
+// reaction-event thread types.
 interface Replyable {
   post(message: string): Promise<unknown>;
 }
 
-// Print to the terminal AND post the dump back into the thread. In chat-SDK
-// land the thread is the reply unit, so `thread.post` is the reply.
+// Print to the terminal AND post the dump back (the thread is the reply unit).
 const report = async (thread: Replyable, detail: string) => {
   process.stdout.write(`${detail}\n\n`);
   try {
@@ -95,8 +81,7 @@ const report = async (thread: Replyable, detail: string) => {
 
 const onMessage =
   (kind: string) => async (thread: Thread, message: Message) => {
-    // Auto-subscribe so follow-ups keep arriving (same as Spectrum's wrapper).
-    await thread.subscribe?.().catch(() => undefined);
+    await thread.subscribe?.().catch(() => undefined); // keep follow-ups arriving
     await report(thread, describeMessage(kind, message));
   };
 
@@ -107,7 +92,7 @@ bot.onReaction((event) => report(event.thread, describeReaction(event)));
 
 await bot.initialize();
 
-// Keep the Discord Gateway socket alive in a loop until Ctrl-C.
+// Keep the Gateway socket alive until Ctrl-C.
 const controller = new AbortController();
 process.on("SIGINT", () => controller.abort());
 

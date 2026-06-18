@@ -30,8 +30,9 @@ file is standalone — pick one and run it.
 
 ## The scripts
 
-All scripts live in `scripts/`; the shared headless-bot factory is
-`scripts/bot.ts`.
+All scripts live in `scripts/`. Each one turns the Discord adapter into its own
+Spectrum platform with `chatSDK(createDiscordAdapter()).config({ … })` — no
+shared bot object; Spectrum is the handler.
 
 | Script | What it shows | Run |
 | --- | --- | --- |
@@ -45,7 +46,7 @@ All scripts live in `scripts/`; the shared headless-bot factory is
 | `scripts/attachments.ts` | Receive a file + send one back | `bun attachments` |
 | `scripts/streaming.ts` | Token-by-token streamed reply | `bun streaming` |
 | `scripts/ai.ts` | Live Gemini chatbot (with memory) streamed token-by-token via the Vercel AI SDK — needs `GOOGLE_GENERATIVE_AI_API_KEY` | `bun ai` |
-| `scripts/slash-commands.ts` | `/`-command handled on the bot + `getBot(app)` | `bun slash-commands` |
+| `scripts/slash-commands.ts` | `/`-command handled on a standalone interactions `Chat`, served alongside Spectrum | `bun slash-commands` |
 | `scripts/native-discord-roles.ts` | Own `discord.js` client + role grant (tier 4) | `bun native-roles` |
 
 (`bun <name>` runs the matching `package.json` script, from the example root so
@@ -60,9 +61,10 @@ All scripts live in `scripts/`; the shared headless-bot factory is
   doesn't model it and hides its client, so run your **own** `discord.js` client
   with the same token (`native-discord-roles.ts`) and use the `space.id` decode
   (`discord:{guildId}:{channelId}:{threadId}`) to target the right place.
-- The bot must stay **headless** (no message handlers) — Spectrum is the
-  handler. Interaction handlers (`onSlashCommand`/`onAction`) are the exception:
-  they're fine on the bot and coexist with the Spectrum loop.
+- The provider is **headless** (no message handlers) — Spectrum is the handler,
+  and it doesn't surface slash commands. Interactions (`onSlashCommand`/
+  `onAction`) are the exception: register them on your **own** `Chat` instance
+  and serve its webhook alongside the Spectrum loop (`slash-commands.ts`).
 
 ## Discord gotchas
 

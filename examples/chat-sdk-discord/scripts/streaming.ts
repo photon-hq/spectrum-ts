@@ -1,15 +1,12 @@
-// Streaming a reply token-by-token.
+// Streamed reply, token-by-token. `text()`/`markdown()` accept any
+// `AsyncIterable<string>` (an AI SDK `streamText().textStream`, an LLM stream, or
+// a plain generator); the Discord adapter edits the message as deltas arrive.
 //
-// Spectrum's `text()`/`markdown()` accept any `AsyncIterable<string>` (an AI
-// SDK `streamText()` result, an OpenAI/Anthropic stream, or a plain generator).
-// The Discord adapter streams it natively (editing the message as deltas
-// arrive) or falls back to post-then-edit.
-//
-// Run: bun run streaming.ts  (then @-mention or DM the bot)
+// Run: bun streaming  (then @-mention or DM the bot)
 
+import { createDiscordAdapter } from "@chat-adapter/discord";
 import { markdown, Spectrum } from "spectrum-ts";
 import { chatSDK } from "spectrum-ts/providers/chat-sdk";
-import { createBot } from "./bot";
 
 // Stand-in for an LLM token stream — swap for `streamText({...}).textStream`.
 async function* fakeTokens(prompt: string): AsyncGenerator<string> {
@@ -21,12 +18,13 @@ async function* fakeTokens(prompt: string): AsyncGenerator<string> {
 }
 
 const app = await Spectrum({
-  providers: [chatSDK(createBot())],
+  providers: [
+    chatSDK(createDiscordAdapter()).config({ userName: "spectrum-bot" }),
+  ],
 });
 
 for await (const [space, message] of app.messages) {
-  if (message.content.type !== "text") {
-    continue;
+  if (message.content.type === "text") {
+    await space.send(markdown(fakeTokens(message.content.text)));
   }
-  await space.send(markdown(fakeTokens(message.content.text)));
 }

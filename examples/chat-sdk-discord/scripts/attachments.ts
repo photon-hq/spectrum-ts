@@ -1,21 +1,20 @@
-// Attachments — inbound and outbound.
+// Attachments, in and out. Inbound files arrive as `attachment` content with a
+// lazy `read()`; `attachment(...)` uploads one back.
 //
-// Inbound: file/image messages arrive as `attachment` (or `voice`) content with
-// a lazy `read()`. Outbound: `attachment(...)` uploads a file (the wrapper maps
-// it to the adapter's file upload).
-//
-// Run: bun run attachments.ts  (then send the bot a file, or any text)
+// Run: bun attachments  (then send the bot a file, or any text)
 
+import { createDiscordAdapter } from "@chat-adapter/discord";
 import { attachment, Spectrum } from "spectrum-ts";
 import { chatSDK } from "spectrum-ts/providers/chat-sdk";
-import { createBot } from "./bot";
 
 const app = await Spectrum({
-  providers: [chatSDK(createBot())],
+  providers: [
+    chatSDK(createDiscordAdapter()).config({ userName: "spectrum-bot" }),
+  ],
 });
 
 for await (const [space, message] of app.messages) {
-  // Inbound file → report what we received (and pull the bytes).
+  // Inbound file → report it and pull the bytes.
   if (message.content.type === "attachment") {
     const bytes = await message.content.read();
     await space.send(
@@ -24,7 +23,7 @@ for await (const [space, message] of app.messages) {
     continue;
   }
 
-  // Outbound file → upload a generated text file.
+  // Text → upload a generated file back.
   if (message.content.type === "text") {
     await space.send(
       attachment(Buffer.from(`You said: ${message.content.text}\n`), {

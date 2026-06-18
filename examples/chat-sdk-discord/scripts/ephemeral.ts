@@ -1,17 +1,17 @@
-// Ephemeral (only-you-can-see-it) message via the live thread escape hatch.
+// Ephemeral (only-you-see-it) message via the live-thread escape hatch.
+// `chatThread(space)` returns the chat-SDK Thread behind the conversation — your
+// door to native calls Spectrum doesn't model (postEphemeral, openModal, …).
 //
-// `chatThread(space)` returns the live chat-SDK Thread backing the inbound
-// conversation — your door to native, per-conversation calls Spectrum doesn't
-// model: postEphemeral, openModal, subscribe, history, etc.
-//
-// Run: bun run ephemeral.ts  (then @-mention or DM the bot)
+// Run: bun ephemeral  (then @-mention or DM the bot)
 
+import { createDiscordAdapter } from "@chat-adapter/discord";
 import { Spectrum } from "spectrum-ts";
 import { chatSDK, chatThread } from "spectrum-ts/providers/chat-sdk";
-import { createBot } from "./bot";
 
 const app = await Spectrum({
-  providers: [chatSDK(createBot())],
+  providers: [
+    chatSDK(createDiscordAdapter()).config({ userName: "spectrum-bot" }),
+  ],
 });
 
 for await (const [space, message] of app.messages) {
@@ -24,8 +24,7 @@ for await (const [space, message] of app.messages) {
     continue;
   }
 
-  // Visible only to the sender; falls back to a DM if the platform/context
-  // doesn't support native ephemerals.
+  // Visible only to the sender; falls back to a DM where native ephemerals aren't supported.
   await thread.postEphemeral(
     message.sender.id,
     { markdown: `🤫 psst — you said: ${message.content.text}` },

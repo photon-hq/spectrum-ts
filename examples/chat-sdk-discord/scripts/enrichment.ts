@@ -1,16 +1,16 @@
-// Inbound enrichment via `messageMeta(message)`.
+// Inbound enrichment via `messageMeta(message)` — mention state, edited state,
+// and link previews, typed and without casting.
 //
-// Beyond text/attachments, the chat SDK normalizes mention state, edited state,
-// and link previews. `messageMeta` exposes them typed, with no casting.
-//
-// Run: bun run enrichment.ts  (then @-mention the bot, edit a message, or paste a link)
+// Run: bun enrichment  (then @-mention the bot, edit a message, or paste a link)
 
+import { createDiscordAdapter } from "@chat-adapter/discord";
 import { Spectrum } from "spectrum-ts";
 import { chatSDK, messageMeta } from "spectrum-ts/providers/chat-sdk";
-import { createBot } from "./bot";
 
 const app = await Spectrum({
-  providers: [chatSDK(createBot())],
+  providers: [
+    chatSDK(createDiscordAdapter()).config({ userName: "spectrum-bot" }),
+  ],
 });
 
 for await (const [space, message] of app.messages) {
@@ -19,7 +19,6 @@ for await (const [space, message] of app.messages) {
   }
 
   const { isMention, edited, editedAt, links } = messageMeta(message);
-
   const parts = [
     `text: ${message.content.text}`,
     `mention: ${isMention}`,

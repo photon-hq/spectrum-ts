@@ -1,57 +1,52 @@
-// Slash commands (a Discord interaction) handled on the bot directly.
+// Slash commands (a Discord interaction) — now surfaced through Spectrum itself.
+// Interactions aren't messages and arrive over the interactions HTTP webhook
+// (not the Gateway), so serve the platform's `webhook` next to the message loop.
+// Both land on the SAME `app.messages` stream: a slash command shows up as a
+// custom host-event record you read with `chatHostEvent(message)`.
 //
-// Interactions aren't messages, so they don't flow through `app.messages` —
-// you register them on the chat-SDK bot itself (cross-platform, normalized),
-// and they run alongside Spectrum with no conflict.
-//
-// Unlike regular messages (which arrive over the Gateway), Discord delivers
-// interactions to your Interactions Endpoint URL over HTTP — so YOU serve the
-// webhook. We mount `bot.webhooks.discord` on a Bun route below; expose it with
-// a tunnel (`ngrok http 3000`) and register the public URL at General
-// Information → Interactions Endpoint URL → `https://<tunnel>/webhooks/discord`.
-//
-// NOTE: you must REGISTER the command with Discord once (it isn't done here) —
-// e.g. PUT https://discord.com/api/v10/applications/{appId}/commands
+// Register the command once (not done here), e.g.
+//   PUT https://discord.com/api/v10/applications/{appId}/commands
 //   { "name": "ping", "description": "Ping the bot", "type": 1 }
-// with header `Authorization: Bot <DISCORD_BOT_TOKEN>`.
+// Expose :3000 with a tunnel and set it as the Interactions Endpoint URL
+// (`https://<tunnel>/webhooks/discord`).
 //
-// Run: bun run slash-commands.ts  (then run /ping in your server, or DM the bot)
+// Run: bun slash-commands  (then run /ping, or DM the bot)
 
+import { createDiscordAdapter } from "@chat-adapter/discord";
 import { Spectrum } from "spectrum-ts";
-import { chatSDK, getBot } from "spectrum-ts/providers/chat-sdk";
-import { createBot } from "./bot";
+import { chatHostEvent, chatSDK } from "spectrum-ts/providers/chat-sdk";
 
-const bot = createBot();
+const discord = chatSDK(createDiscordAdapter());
 
-// Interaction handler — fine to register on the bot (it's not a message handler).
-bot.onSlashCommand(async (event) => {
-  await event.channel.post(
-    `🏓 pong — you ran ${event.command} ${event.text}`.trim()
-  );
+const app = await Spectrum({
+  providers: [discord.config({ userName: "spectrum-bot" })],
 });
 
-const app = await Spectrum({ providers: [chatSDK(bot)] });
-
-// Serve the interaction webhook yourself — the provider no longer binds a port.
-// Only interactions (slash commands / buttons) need this; plain messages arrive
-// over the Gateway.
+// Messages flow over the Gateway (auto); interactions over this webhook. Both
+// feed `app.messages`.
 Bun.serve({
   port: 3000,
-  // Wrap so Bun's (req, server) call doesn't collide with the handler's
-  // optional WebhookOptions second argument.
-  routes: { "/webhooks/discord": { POST: (req) => bot.webhooks.discord(req) } },
+  routes: {
+    "/webhooks/discord": { POST: discord(app).webhook },
+  },
 });
 console.log("listening for interactions on :3000/webhooks/discord");
 
-// Messages still flow through Spectrum as usual.
-let logged = false;
 for await (const [space, message] of app.messages) {
-  // `getBot(app)` resolves the underlying Chat instance once the app is
-  // running — here it's the same instance we constructed above.
-  if (!logged) {
-    console.log("getBot wired:", getBot(app) === bot);
-    logged = true;
+  const event = chatHostEvent(message);
+
+  // A slash command — `event` is narrowed to the slash-command payload.
+  if (event?.chatsdk_type === "slash-command") {
+    await space.send(`🏓 pong — you ran ${event.command} ${event.text}`.trim());
+    continue;
   }
+
+  // A button click from a card the bot posted.
+  if (event?.chatsdk_type === "action") {
+    await space.send(`you clicked ${event.actionId}`);
+    continue;
+  }
+
   if (message.content.type === "text") {
     await space.send(`Echo: ${message.content.text}`);
   }

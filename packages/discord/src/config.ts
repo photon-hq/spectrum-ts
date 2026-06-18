@@ -115,7 +115,10 @@ export const configSchema = z.object({
    */
   applicationId: z
     .string()
-    .regex(APPLICATION_ID_PATTERN, "applicationId must be a numeric snowflake. Get this ID from Discord's Developer Portal."),
+    .regex(
+      APPLICATION_ID_PATTERN,
+      "applicationId must be a numeric snowflake. Get this ID from Discord's Developer Portal."
+    ),
   /** Override the Discord API base URL. Defaults to `https://discord.com/api/v10`. */
   baseUrl: z.url().default(DEFAULT_BASE_URL),
   /**

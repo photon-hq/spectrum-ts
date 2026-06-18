@@ -1,0 +1,48 @@
+# Per-PR preview packages via pkg.pr.new — lets downstream consumers
+# (@photon-ai/linq, create-spectrum-app) install and validate this PR's
+# packages from a URL before anything is released to npm.
+#
+# Publishes the clean-publish output (NOT the workspace dirs): the workspace
+# package.json points `types`/`bun` at src/ for buildless in-repo DX, which
+# would break for external consumers.
+#
+# Requires the pkg.pr.new GitHub App to be installed on the repo.
+
+name: Preview
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Clean packages for external consumption
+        run: |
+          set -euo pipefail
+          dirs=()
+          for pkg in packages/*/; do
+            name=$(jq -r '.name' "$pkg/package.json")
+            private=$(jq -r '.private // false' "$pkg/package.json")
+            [ "$private" = "true" ] && continue
+            (cd "$pkg" && bunx clean-publish --without-publish --temp-dir .preview --package-manager npm)
+            dirs+=("./$pkg.preview")
+          done
+          printf '%s\n' "${dirs[@]}" > /tmp/preview-dirs
+      - name: Publish previews
+        run: bunx pkg-pr-new publish $(tr '\n' ' ' < /tmp/preview-dirs)

@@ -26,7 +26,8 @@ Learn more at **https://photon.codes**.
 The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for platforms like iMessage, with credentials ready in minutes.
 
 1. Sign up at **[app.photon.codes](https://app.photon.codes)** to get your project ID and secret.
-2. Install the SDK:
+2. Install the SDK (`spectrum-ts` is batteries-included — the runtime plus
+   every official provider):
 
    ```bash
    bun add spectrum-ts
@@ -61,11 +62,14 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 
 | Platform | Package |
 |----------|---------|
-| iMessage | `spectrum-ts/providers/imessage` |
-| WhatsApp | `spectrum-ts/providers/whatsapp` |
-| Telegram | `spectrum-ts/providers/telegram` |
-| Terminal | `spectrum-ts/providers/terminal` |
+| iMessage | [`@spectrum-ts/imessage`](https://npmjs.com/package/@spectrum-ts/imessage) |
+| WhatsApp Business | [`@spectrum-ts/whatsapp-business`](https://npmjs.com/package/@spectrum-ts/whatsapp-business) |
+| Telegram | [`@spectrum-ts/telegram`](https://npmjs.com/package/@spectrum-ts/telegram) |
+| Slack | [`@spectrum-ts/slack`](https://npmjs.com/package/@spectrum-ts/slack) |
+| Terminal | [`@spectrum-ts/terminal`](https://npmjs.com/package/@spectrum-ts/terminal) |
 | Custom   | `definePlatform` from `spectrum-ts` |
+
+`bun add spectrum-ts` is batteries-included (all providers). For a smaller install, depend on the runtime plus only the providers you use — `bun add @spectrum-ts/core @spectrum-ts/telegram` — and import from the scoped packages directly. Either way the `spectrum-ts/providers/<platform>` import paths work as long as the matching provider package is installed; if it isn't, the import fails at build/startup naming the exact package to add.
 
 ## Issues
 

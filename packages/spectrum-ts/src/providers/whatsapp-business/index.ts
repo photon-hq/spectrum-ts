@@ -1,78 +1,10 @@
-import { createClient } from "@photon-ai/whatsapp-business";
-import { definePlatform } from "../../platform/define";
-import { UnsupportedError } from "../../utils/errors";
-import { createCloudClients, disposeCloudAuth } from "./auth";
-import { messages, send } from "./messages";
-import {
-  configSchema,
-  isCloudConfig,
-  spaceSchema,
-  type WhatsAppClients,
-} from "./types";
-
-export const whatsappBusiness = definePlatform("WhatsApp Business", {
-  config: configSchema,
-
-  lifecycle: {
-    createClient: async ({
-      config,
-      projectId,
-      projectSecret,
-    }): Promise<WhatsAppClients> => {
-      if (!isCloudConfig(config)) {
-        return [
-          createClient({
-            accessToken: config.accessToken,
-            appSecret: config.appSecret ?? "",
-            phoneNumberId: config.phoneNumberId,
-          }),
-        ];
-      }
-
-      if (!(projectId && projectSecret)) {
-        throw new Error(
-          "WhatsApp Business cloud mode requires projectId and projectSecret. " +
-            "Either pass credentials to Spectrum(), or provide direct credentials: " +
-            "whatsappBusiness.config({ accessToken, phoneNumberId })"
-        );
-      }
-
-      return await createCloudClients(projectId, projectSecret);
-    },
-
-    destroyClient: async ({ client }) => {
-      await disposeCloudAuth(client);
-      await Promise.all(client.map((c) => c.close()));
-    },
-  },
-
-  user: {
-    resolve: async ({ input }) => ({ id: input.userID }),
-  },
-
-  space: {
-    schema: spaceSchema,
-    create: async ({ input }) => {
-      if (input.users.length === 0) {
-        throw new Error("WhatsApp space creation requires at least one user");
-      }
-      if (input.users.length > 1) {
-        throw UnsupportedError.action(
-          "space.create",
-          "WhatsApp Business",
-          "only 1:1 conversations are supported"
-        );
-      }
-      const user = input.users[0];
-      if (!user) {
-        throw new Error("WhatsApp space creation requires a user");
-      }
-      return { id: user.id };
-    },
-  },
-
-  messages: ({ client }) => messages(client),
-
-  send: async ({ space, content, client }) =>
-    await send(client, space.id, content),
-});
+// Compat shim — `spectrum-ts/providers/whatsapp-business` (the v4 import path).
+//
+// The provider lives in `@spectrum-ts/whatsapp-business` since v5; this
+// re-export keeps v4 imports working once that package is installed. A pure
+// `export *` is deliberate: it is the one shape that fails loudly everywhere
+// when the package is missing — hard build error in esbuild/bun/webpack/Vite,
+// `ERR_MODULE_NOT_FOUND` naming the package at startup under plain Node/Bun,
+// and a type error at the consumer's import even under `skipLibCheck`.
+// Mixing in any named export would silently degrade those failures to `any`.
+export * from "@spectrum-ts/whatsapp-business";

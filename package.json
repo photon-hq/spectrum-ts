@@ -1,11 +1,14 @@
 {
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "^2.4.12",
     "@types/node": "^25.6.0",
+    "clean-publish": "^7.0.0",
+    "publint": "^0.3.14",
     "turbo": "^2",
     "ultracite": "7.8.3"
   },
-  "packageManager": "bun@1.3.5",
+  "packageManager": "bun@1.3.14",
   "private": true,
   "scripts": {
     "build": "turbo build",

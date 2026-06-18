@@ -1,0 +1,21 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tags": ["core"],
+  "boundaries": {
+    "implicitDependencies": ["@spectrum-ts/test-support"]
+  },
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "env": ["SPECTRUM_PUBLISH"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/smoke-import.mjs",
+        "$TURBO_ROOT$/README.md",
+        "$TURBO_ROOT$/LICENSE"
+      ]
+    }
+  }
+}

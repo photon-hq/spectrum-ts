@@ -1,0 +1,18 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tags": ["meta"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/packages/*/src/index.ts",
+        "$TURBO_ROOT$/packages/*/src/config.ts",
+        "$TURBO_ROOT$/scripts/smoke-import.mjs"
+      ]
+    }
+  }
+}

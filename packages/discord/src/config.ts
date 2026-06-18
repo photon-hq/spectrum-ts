@@ -105,7 +105,7 @@ export const configSchema = z.object({
     .string()
     .regex(
       BOT_TOKEN_PATTERN,
-      "botToken must be in the form '<id>.<ts>.<hmac>'"
+      "botToken must be in the form '<id>.<ts>.<hmac>'. Get this token from Discord's Developer Portal."
     ),
   /**
    * The application's own snowflake id. For a bot account this equals the bot
@@ -115,7 +115,7 @@ export const configSchema = z.object({
    */
   applicationId: z
     .string()
-    .regex(APPLICATION_ID_PATTERN, "applicationId must be a numeric snowflake"),
+    .regex(APPLICATION_ID_PATTERN, "applicationId must be a numeric snowflake. Get this ID from Discord's Developer Portal."),
   /** Override the Discord API base URL. Defaults to `https://discord.com/api/v10`. */
   baseUrl: z.url().default(DEFAULT_BASE_URL),
   /**

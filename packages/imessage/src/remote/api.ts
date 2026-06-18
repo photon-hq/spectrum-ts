@@ -13,6 +13,7 @@ import type { CustomizedMiniApp } from "../content/customized-mini-app";
 import type { IMessageMessage, RemoteClient } from "../types";
 import { setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
+import { shareContactCard as shareRemoteContactCard } from "./contact-card";
 import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
 import {
@@ -69,6 +70,13 @@ export const markRead = async (
   spaceId: string
 ): Promise<void> => {
   await markRemoteRead(remote, spaceId);
+};
+
+export const shareContactCard = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<void> => {
+  await shareRemoteContactCard(remote, spaceId);
 };
 
 export const startTyping = async (

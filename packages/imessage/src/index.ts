@@ -8,6 +8,7 @@ import { withSpan } from "@photon-ai/otel";
 import {
   type Attachment,
   type Avatar,
+  type Content,
   definePlatform,
   type Edit,
   type Rename,
@@ -24,6 +25,7 @@ import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
 export { read } from "@spectrum-ts/core";
 export { type BackgroundInput, background } from "./content/background";
+export { type ContactCard, nativeContactCard } from "./content/contact-card";
 export {
   type CustomizedMiniApp,
   type CustomizedMiniAppInput,
@@ -40,6 +42,10 @@ import {
   background as backgroundContent,
   isBackground,
 } from "./content/background";
+import {
+  isContactCard,
+  nativeContactCard as nativeContactCardContent,
+} from "./content/contact-card";
 import {
   type CustomizedMiniApp,
   isCustomizedMiniApp,
@@ -62,6 +68,7 @@ import {
   setBackground as remoteSetBackground,
   setDisplayName as remoteSetDisplayName,
   setIcon as remoteSetIcon,
+  shareContactCard as remoteShareContactCard,
   startTyping as remoteStartTyping,
   stopTyping as remoteStopTyping,
   unsendMessage as remoteUnsendMessage,
@@ -237,6 +244,21 @@ const handleRead = async (
   await remoteMarkRead(remote, space.id);
 };
 
+const handleShareContactCard = async (
+  client: IMessageClient,
+  space: { id: string; phone: string }
+): Promise<void> => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(
+      "shareContactCard",
+      "iMessage (local mode)",
+      "sharing the contact card requires remote iMessage"
+    );
+  }
+  const remote = clientForPhone(client, space.phone);
+  await remoteShareContactCard(remote, space.id);
+};
+
 const handleTyping = async (
   client: IMessageClient,
   space: { id: string; phone: string },
@@ -299,6 +321,29 @@ const handleAvatar = async (
   }
   const remote = clientForPhone(client, space.phone);
   await remoteSetIcon(remote, space.id, content);
+};
+
+/**
+ * Dispatch the iMessage-only fire-and-forget control signals that live outside
+ * the universal `Content` union (`background`, `contactCard`). Each is narrowed
+ * via a runtime guard rather than a `content.type ===` check — the literals
+ * aren't members of `Content["type"]`. Returns `true` when it consumed the
+ * content so `send` can return early, keeping its dispatch chain flat.
+ */
+const handleProviderControlSignal = async (
+  client: IMessageClient,
+  space: { id: string; phone: string },
+  content: Content
+): Promise<boolean> => {
+  if (isBackground(content)) {
+    await handleBackground(client, space, content);
+    return true;
+  }
+  if (isContactCard(content)) {
+    await handleShareContactCard(client, space);
+    return true;
+  }
+  return false;
 };
 
 export const imessage = definePlatform("iMessage", {
@@ -450,6 +495,13 @@ export const imessage = definePlatform("iMessage", {
       ) => {
         await space.send(backgroundContent(input as never, opts));
       },
+      // Sugar: `space.shareContactCard()` → `space.send(nativeContactCard())`.
+      // Routed through the universal send pipeline so the unsupported-content +
+      // warn-and-skip path on local-mode iMessage is identical to the
+      // canonical form. Shares the bot account's native contact card.
+      shareContactCard: async (space: Space) => {
+        await space.send(nativeContactCardContent());
+      },
     },
   },
 
@@ -542,16 +594,13 @@ export const imessage = definePlatform("iMessage", {
       await handleRead(client, space);
       return;
     }
-    // `Background` is iMessage-only and lives outside the universal
-    // `Content` union — narrow via a runtime guard rather than a
-    // `content.type ===` check (the literal isn't a member of
-    // `Content["type"]`).
-    if (isBackground(content)) {
-      await handleBackground(client, space, content);
+    // iMessage-only fire-and-forget signals (`background`, `contactCard`) that
+    // live outside the universal `Content` union — see the helper.
+    if (await handleProviderControlSignal(client, space, content)) {
       return;
     }
-    // Also iMessage-only, but unlike `background` it produces a real
-    // message — return the record rather than treating it as fire-and-forget.
+    // Also iMessage-only, but unlike the fire-and-forget signals above it
+    // produces a real message — return the record rather than no id.
     if (isCustomizedMiniApp(content)) {
       return await handleCustomizedMiniApp(client, space, content);
     }

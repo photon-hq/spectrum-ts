@@ -215,11 +215,11 @@ subscription, and a native-generator provider (bounded-then-rescued).
 ## Verification
 
 ```bash
-bun test packages/spectrum-ts/test/core/spectrum.shutdown.test.ts   # new regression
-bun test packages/spectrum-ts/test/core/fusor/webhook.test.ts       # heavy stop()/broadcast user
-bun test packages/spectrum-ts/test                                  # full suite (60 pass)
+bun test packages/core/test/core/spectrum.shutdown.test.ts   # new regression
+bun test packages/core/test/core/fusor/webhook.test.ts       # heavy stop()/broadcast user
+bun test packages/core/test                                  # full suite (60 pass)
 bun run check                                                  # ultracite lint/format
-bun x tsc --noEmit -p packages/spectrum-ts/tsconfig.json      # types
+bun x tsc --noEmit -p packages/core/tsconfig.json      # types
 ```
 
 Manual smoke: a script with `terminal.config()` — subscribe, read one

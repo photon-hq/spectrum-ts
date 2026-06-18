@@ -1,0 +1,126 @@
+{
+  "name": "@spectrum-ts/core",
+  "version": "5.0.0",
+  "description": "The spectrum-ts runtime \u2014 Spectrum, content builders, fusor, and the provider authoring API.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/photon-hq/spectrum-ts.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://photon.codes/spectrum",
+  "bugs": {
+    "url": "https://github.com/photon-hq/spectrum-ts/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./authoring": {
+      "bun": "./src/authoring.ts",
+      "types": "./src/authoring.ts",
+      "default": "./dist/authoring.js"
+    },
+    "./elysia": {
+      "bun": "./src/elysia.ts",
+      "types": "./src/elysia.ts",
+      "default": "./dist/elysia.js"
+    },
+    "./express": {
+      "bun": "./src/express.ts",
+      "types": "./src/express.ts",
+      "default": "./dist/express.js"
+    },
+    "./hono": {
+      "bun": "./src/hono.ts",
+      "types": "./src/hono.ts",
+      "default": "./dist/hono.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./authoring": {
+        "types": "./dist/authoring.d.ts",
+        "default": "./dist/authoring.js"
+      },
+      "./elysia": {
+        "types": "./dist/elysia.d.ts",
+        "default": "./dist/elysia.js"
+      },
+      "./express": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "./hono": {
+        "types": "./dist/hono.d.ts",
+        "default": "./dist/hono.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "bun scripts/prepare-package.ts && tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
+    "dev": "tsdown --watch",
+    "generate:emoji": "bun scripts/generate-emoji.ts",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@photon-ai/otel": "^0.1.1",
+    "@photon-ai/proto": "^0.2.4",
+    "@repeaterjs/repeater": "^3.0.6",
+    "marked": "^18.0.5",
+    "mime-types": "^3.0.1",
+    "open-graph-scraper": "^6.11.0",
+    "vcf": "^2.1.2",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/express": "^5",
+    "@types/mime-types": "^3.0.1",
+    "@types/vcf": "^2.0.7",
+    "elysia": "^1",
+    "express": "^5",
+    "hono": "^4",
+    "hotscript": "^1.0.13",
+    "tsdown": "^0.22.2",
+    "unicode-emoji-json": "^0.9.0"
+  },
+  "peerDependencies": {
+    "elysia": "^1",
+    "express": "^4 || ^5",
+    "ffmpeg-static": "^5",
+    "hono": "^4",
+    "typescript": "^5 || ^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "elysia": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    },
+    "ffmpeg-static": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
+  "license": "MIT"
+}

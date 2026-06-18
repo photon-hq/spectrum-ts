@@ -51,17 +51,15 @@ bun run examples/basic/index.ts
 bun run test            # whole suite (via Turbo)
 ```
 
-Or from inside `packages/spectrum-ts`:
+Or from inside a package directory:
 
 ```bash
-bun test                      # whole suite
-bun test test/core            # core only
-bun test test/providers/telegram   # one provider
-bun run test:watch            # watch mode
-bun run test:coverage         # with coverage
+cd packages/core && bun test            # core suite
+cd packages/telegram && bun test        # one provider
+bun run test:watch                      # watch mode (core)
 ```
 
-Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in `packages/spectrum-ts/test/`, split into `core/` and `providers/<platform>/` mirroring `src/`. The test for `src/<path>.ts` lives at `test/core/<path>.test.ts` (non-provider) or `test/providers/<platform>/<rest>.test.ts`. Import the code under test through the `@/*` alias (`@/spectrum`, `@/providers/telegram/verify`) and shared fixtures from `@test/support/*`.
+Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in each package's `test/` directory, mirroring its `src/`. Core tests (`packages/core/test/{core,content,utils}/`) cover the SDK; each provider package carries its own tests (`packages/<platform>/test/`). Import the code under test through the package-local `@/*` alias (`@/spectrum` in core, `@/verify` in a provider) and shared fixtures from `@spectrum-ts/test-support/*`.
 
 ### Lint and format
 
@@ -76,16 +74,18 @@ This project uses [Ultracite](https://ultracite.ai) (Biome) for formatting and l
 
 ```
 packages/
-  spectrum-ts/           # Core SDK
-    src/
-      providers/         # Platform providers (iMessage, WhatsApp, terminal)
-      ...
-    test/
-      core/              # Tests for the core SDK (mirrors src/)
-      providers/         # Tests per platform provider
-      support/           # Shared test fixtures/helpers
+  core/                  # @spectrum-ts/core - the runtime: content, platform, fusor, utils
+  spectrum-ts/           # spectrum-ts metapackage (batteries: re-exports core + every provider)
+  imessage/              # @spectrum-ts/imessage
+  telegram/              # @spectrum-ts/telegram
+  slack/                 # @spectrum-ts/slack
+  whatsapp-business/     # @spectrum-ts/whatsapp-business
+  terminal/              # @spectrum-ts/terminal
+  test-support/          # Shared test fixtures/helpers (private, never published)
 examples/                # Example apps
 ```
+
+Providers import the core through its public entries (`@spectrum-ts/core`, `@spectrum-ts/core/authoring`) and declare it as a peer dependency — never through relative paths. `turbo boundaries` enforces that providers don't import each other.
 
 ## Pull Request Workflow
 

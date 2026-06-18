@@ -8,8 +8,8 @@ generated, type-safe Bot API client — so the provider holds **no** hand-writte
 HTTP client of its own.
 
 ```ts
-import { Spectrum } from "@photon-ai/spectrum-ts";
-import { telegram } from "@photon-ai/spectrum-ts/providers/telegram";
+import { Spectrum } from "spectrum-ts";
+import { telegram } from "@spectrum-ts/telegram";
 
 const app = Spectrum({
   providers: [telegram.config({ botToken: process.env.TELEGRAM_BOT_TOKEN! })],
@@ -182,7 +182,7 @@ Errors from photon surface as `TelegramApiError` (token-free).
 
 ## Testing
 
-Tests live under `test/providers/telegram/`. The seam is `globalThis.fetch`:
+Tests live under `packages/telegram/test/`. The seam is `globalThis.fetch`:
 because `send` and the inbound `read()` build the photon client inline from
 `config` (which has no `fetch` field), there is no client to inject — a per-test
 `spyOn(globalThis, "fetch")` cleanly intercepts the real path and exercises

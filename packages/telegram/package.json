@@ -1,0 +1,61 @@
+{
+  "name": "@spectrum-ts/telegram",
+  "version": "5.0.0",
+  "description": "Telegram provider for spectrum-ts.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/photon-hq/spectrum-ts.git",
+    "directory": "packages/telegram"
+  },
+  "homepage": "https://photon.codes/spectrum",
+  "bugs": {
+    "url": "https://github.com/photon-hq/spectrum-ts/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "spectrum": {
+    "key": "telegram",
+    "import": "telegram",
+    "label": "telegram"
+  },
+  "scripts": {
+    "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
+    "dev": "tsdown --watch",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@photon-ai/telegram-ts": "10.0.0",
+    "marked": "^18.0.5",
+    "zod": "^4.2.1"
+  },
+  "peerDependencies": {
+    "@spectrum-ts/core": "^5.0.0",
+    "typescript": "^5 || ^6.0.0"
+  },
+  "devDependencies": {
+    "@spectrum-ts/core": "workspace:*",
+    "@types/bun": "latest",
+    "tsdown": "^0.22.2"
+  },
+  "license": "MIT"
+}

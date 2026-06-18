@@ -1,16 +1,31 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "boundaries": {
+    "tags": {
+      "provider": {
+        "dependencies": {
+          "deny": ["provider"]
+        }
+      }
+    }
+  },
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**"],
+      "env": ["SPECTRUM_PUBLISH"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/smoke-import.mjs"]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "check": {},
-    "test": {},
-    "typecheck": {}
+    "test": {
+      "dependsOn": ["^typecheck"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    }
   }
 }

@@ -1,4 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"]
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "Shared runtime deps are duplicated across core and provider packages (bun catalogs can't be used: clean-publish/npm don't resolve catalog: ranges). Group them so one PR bumps every copy and the ranges never drift.",
+      "matchPackageNames": ["zod", "marked", "mime-types", "@photon-ai/otel"],
+      "groupName": "shared runtime dependencies"
+    }
+  ]
 }

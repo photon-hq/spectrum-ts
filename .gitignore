@@ -9,10 +9,16 @@ dist
 # local scratch work (ad-hoc scripts, debugging, real-account experiments)
 tmp
 
-# copied from repo root by `build` so they ship with the npm package
-# (clean-publish strips all scripts from the staged package.json, so prepack/prepublish hooks never run)
-packages/spectrum-ts/README.md
-packages/spectrum-ts/LICENSE
+# copied from repo root at build/release time so they ship with the npm
+# package (clean-publish strips all scripts from the staged package.json, so
+# prepack/prepublish hooks never run). The runtime's README is a copy of the
+# repo root's; every other package commits its own.
+packages/core/README.md
+packages/*/LICENSE
+
+# clean-publish staging dirs (check-artifacts, preview workflow)
+.clean-publish-tmp
+.preview
 
 # code coverage
 coverage

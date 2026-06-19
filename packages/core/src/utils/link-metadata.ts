@@ -3,6 +3,7 @@ import { type FetchedBytes, fetchUrlBytes } from "./io";
 
 export interface LinkMetadata {
   image?: { mimeType?: string; url: string };
+  siteName?: string;
   summary?: string;
   title?: string;
 }
@@ -44,6 +45,7 @@ export const fetchLinkMetadata = async (url: string): Promise<LinkMetadata> => {
       ogTitle,
       ogDescription,
       ogImage,
+      ogSiteName,
       twitterTitle,
       twitterDescription,
       twitterImage,
@@ -52,6 +54,7 @@ export const fetchLinkMetadata = async (url: string): Promise<LinkMetadata> => {
     const title = cleanString(ogTitle) ?? cleanString(twitterTitle);
     const summary =
       cleanString(ogDescription) ?? cleanString(twitterDescription);
+    const siteName = cleanString(ogSiteName);
 
     const imageCandidate = ogImage?.[0] ?? twitterImage?.[0];
     const resolved = imageCandidate
@@ -69,7 +72,7 @@ export const fetchLinkMetadata = async (url: string): Promise<LinkMetadata> => {
           }
         : undefined;
 
-    return { title, summary, image };
+    return { title, summary, siteName, image };
   } catch {
     return {};
   }

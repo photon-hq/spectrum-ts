@@ -1,54 +1,15 @@
-import type { Content, ContentBuilder } from "@spectrum-ts/core";
+import {
+  appLayoutSchema,
+  type Content,
+  type ContentBuilder,
+} from "@spectrum-ts/core";
 import z from "zod";
 
-/**
- * Visible layout of a mini-app card. Mirrors Apple's
- * `MSMessageTemplateLayout`. At least one of `caption`, `subcaption`,
- * `trailingCaption`, `trailingSubcaption`, or `image` must be set so the
- * bubble is not empty — `summary` is the fallback text shown on surfaces
- * that cannot render the card (notifications, lock screen) and is not a
- * visible slot on its own. `image` and `imageTitle` must be set together;
- * `imageSubtitle` requires `image`.
- */
-const layoutSchema = z
-  .object({
-    caption: z.string().nonempty().optional(),
-    subcaption: z.string().nonempty().optional(),
-    trailingCaption: z.string().nonempty().optional(),
-    trailingSubcaption: z.string().nonempty().optional(),
-    image: z.instanceof(Uint8Array).optional(),
-    imageTitle: z.string().nonempty().optional(),
-    imageSubtitle: z.string().nonempty().optional(),
-    summary: z.string().nonempty().optional(),
-  })
-  .refine(
-    (layout) =>
-      layout.caption !== undefined ||
-      layout.subcaption !== undefined ||
-      layout.trailingCaption !== undefined ||
-      layout.trailingSubcaption !== undefined ||
-      layout.image !== undefined,
-    {
-      message:
-        "layout must set at least one of caption, subcaption, trailingCaption, trailingSubcaption, image",
-    }
-  )
-  .refine(
-    (layout) =>
-      (layout.image === undefined) === (layout.imageTitle === undefined),
-    {
-      message: "layout.image and layout.imageTitle must be set together",
-      path: ["imageTitle"],
-    }
-  )
-  .refine(
-    (layout) =>
-      layout.imageSubtitle === undefined || layout.image !== undefined,
-    {
-      message: "layout.imageSubtitle requires layout.image",
-      path: ["imageSubtitle"],
-    }
-  );
+// The mini-app card layout is the universal `AppLayout` (promoted to
+// `@spectrum-ts/core` so the framework `app` content and this iMessage-only
+// primitive share one source of truth). It mirrors Apple's
+// `MSMessageTemplateLayout`.
+const layoutSchema = appLayoutSchema;
 
 /**
  * iMessage-only mini-app card content. Lives entirely under the iMessage

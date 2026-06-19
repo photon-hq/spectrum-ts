@@ -353,6 +353,15 @@ const sendContent = async (
       });
       return toUploadRecord(result, space, content);
     }
+    case "app": {
+      // No mini-app surface on Slack — send the bare URL (Slack unfurls it).
+      const result = await team.messages.send({
+        channel: space.id,
+        text: await content.url(),
+        threadTs,
+      });
+      return toRecord(result, space, content);
+    }
     default:
       throw UnsupportedError.content(content.type);
   }

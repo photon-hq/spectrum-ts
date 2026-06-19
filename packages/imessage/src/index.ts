@@ -6,6 +6,7 @@ import {
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { withSpan } from "@photon-ai/otel";
 import {
+  type App,
   type Attachment,
   type Avatar,
   type Content,
@@ -14,6 +15,7 @@ import {
   type Rename,
   type Space,
   type StreamText,
+  text,
   type Unsend,
   UnsupportedError,
 } from "@spectrum-ts/core";
@@ -74,6 +76,7 @@ import {
   unsendMessage as remoteUnsendMessage,
   unsendReaction as remoteUnsendReaction,
 } from "./remote/api";
+import { toSpectrumMiniApp } from "./remote/app";
 import { getRemoteAttachment } from "./remote/attachments";
 import {
   availablePhones,
@@ -229,6 +232,34 @@ const handleCustomizedMiniApp = async (
   );
 };
 
+/**
+ * Render the universal `app` content. On remote it becomes a native Spectrum
+ * mini-app card (fixed `SPECTRUM_MINI_APP` identity + the URL + the layout
+ * already parsed from the URL's link metadata). Local mode cannot send cards,
+ * so it degrades to the bare URL as a text message.
+ */
+const handleApp = async (
+  client: IMessageClient,
+  space: { id: string; phone: string; type: "dm" | "group" },
+  content: App
+): Promise<ProviderMessageRecord> => {
+  const url = await content.url();
+  if (isLocal(client)) {
+    return await localSend(client, space.id, await text(url).build());
+  }
+  const layout = await content.layout();
+  const remote = clientForPhone(client, space.phone);
+  return cacheRemoteOutbound(
+    remote,
+    space,
+    await remoteSendCustomizedMiniApp(
+      remote,
+      space.id,
+      toSpectrumMiniApp(url, layout)
+    )
+  );
+};
+
 const handleRead = async (
   client: IMessageClient,
   space: { id: string; phone: string }
@@ -344,6 +375,32 @@ const handleProviderControlSignal = async (
     return true;
   }
   return false;
+};
+
+/**
+ * Resolve the remote client for a `reply` / `reaction` whose target is another
+ * message. Both reject local mode and poll targets identically, so the guard
+ * lives here to keep the `send` dispatch flat. `action` labels the error and
+ * `pollNoun` is the plural used in the poll-unsupported message.
+ */
+const remoteForMessageTarget = (
+  client: IMessageClient,
+  space: { phone: string },
+  target: { content: { type: string } },
+  action: string,
+  pollNoun: string
+): AdvancedIMessage => {
+  if (isLocal(client)) {
+    throw UnsupportedError.action(action, "iMessage (local mode)");
+  }
+  if (isPollContent(target.content)) {
+    throw UnsupportedError.action(
+      action,
+      "iMessage",
+      `iMessage polls do not support ${pollNoun}`
+    );
+  }
+  return clientForPhone(client, space.phone);
 };
 
 export const imessage = definePlatform("iMessage", {
@@ -516,17 +573,13 @@ export const imessage = definePlatform("iMessage", {
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {
-      if (isLocal(client)) {
-        throw UnsupportedError.action("reply", "iMessage (local mode)");
-      }
-      if (isPollContent(content.target.content)) {
-        throw UnsupportedError.action(
-          "reply",
-          "iMessage",
-          "iMessage polls do not support replies"
-        );
-      }
-      const remote = clientForPhone(client, space.phone);
+      const remote = remoteForMessageTarget(
+        client,
+        space,
+        content.target,
+        "reply",
+        "replies"
+      );
       return cacheRemoteOutbound(
         remote,
         space,
@@ -539,17 +592,13 @@ export const imessage = definePlatform("iMessage", {
       );
     }
     if (content.type === "reaction") {
-      if (isLocal(client)) {
-        throw UnsupportedError.action("react", "iMessage (local mode)");
-      }
-      if (isPollContent(content.target.content)) {
-        throw UnsupportedError.action(
-          "react",
-          "iMessage",
-          "iMessage polls do not support reactions"
-        );
-      }
-      const remote = clientForPhone(client, space.phone);
+      const remote = remoteForMessageTarget(
+        client,
+        space,
+        content.target,
+        "react",
+        "reactions"
+      );
       // `content.target` is statically typed as the generic `Message`, but
       // execution only reaches this iMessage `send` action when the target
       // came from the iMessage stream — hence the unknown-cast widen.
@@ -593,6 +642,9 @@ export const imessage = definePlatform("iMessage", {
       // chat, never a per-message cutoff.
       await handleRead(client, space);
       return;
+    }
+    if (content.type === "app") {
+      return await handleApp(client, space, content);
     }
     // iMessage-only fire-and-forget signals (`background`, `contactCard`) that
     // live outside the universal `Content` union — see the helper.

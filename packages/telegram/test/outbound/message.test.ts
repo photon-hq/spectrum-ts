@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  app,
   attachment,
   type Content,
   contact,
@@ -50,6 +51,13 @@ describe("buildSend", () => {
 
   it("maps a richlink to sendMessage with the url (Telegram auto-unfurls)", async () => {
     expect(await buildSend(await richlink("https://x.test").build())).toEqual({
+      method: "sendMessage",
+      params: { text: "https://x.test" },
+    });
+  });
+
+  it("maps an app to sendMessage with the url (no mini-app surface)", async () => {
+    expect(await buildSend(await app("https://x.test").build())).toEqual({
       method: "sendMessage",
       params: { text: "https://x.test" },
     });

@@ -586,6 +586,13 @@ export const send = async (
       cachePoll(client, result.messageId, content);
       return toRecord(result, spaceId, content);
     }
+    case "app":
+      // No mini-app surface on WhatsApp — send the bare URL as text.
+      return toRecord(
+        await client.messages.send({ to: spaceId, text: await content.url() }),
+        spaceId,
+        content
+      );
     default:
       throw UnsupportedError.content(content.type);
   }
@@ -679,6 +686,17 @@ export const replyToMessage = async (
       cachePoll(client, result.messageId, content);
       return toRecord(result, spaceId, content);
     }
+    case "app":
+      // No mini-app surface on WhatsApp — send the bare URL as text.
+      return toRecord(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          text: await content.url(),
+        }),
+        spaceId,
+        content
+      );
     default:
       throw UnsupportedError.content(content.type);
   }

@@ -131,6 +131,11 @@ export const buildSend = async (content: Content): Promise<DiscordSendSpec> => {
       return { payload: { content: content.markdown } };
     case "richlink":
       return { payload: { content: content.url } };
+    // Discord has no mini-app surface (that's an iMessage feature), so an `app`
+    // sends its bare URL — Discord auto-embeds it, same as `richlink`. The lazy
+    // `layout` is ignored here.
+    case "app":
+      return { payload: { content: await content.url() } };
     case "attachment": {
       const bytes = await content.read();
       return {

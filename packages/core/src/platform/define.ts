@@ -532,8 +532,8 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
   const narrowSpace = (input: Space) => {
     if (input.__platform !== name) {
       platformLog.warn("space platform mismatch; narrowing skipped", {
-        expected: name,
-        actual: input.__platform,
+        "spectrum.platform.expected": name,
+        "spectrum.platform.actual": input.__platform,
       });
     }
     return input as PlatformSpace<Def>;
@@ -542,8 +542,8 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
   const narrowMessage = (input: Message) => {
     if (input.platform !== name) {
       platformLog.warn("message platform mismatch; narrowing skipped", {
-        expected: name,
-        actual: input.platform,
+        "spectrum.platform.expected": name,
+        "spectrum.platform.actual": input.platform,
       });
     }
     return input as PlatformMessage<Def>;

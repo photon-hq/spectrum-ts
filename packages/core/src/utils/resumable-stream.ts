@@ -1,5 +1,6 @@
-import { createLogger } from "@photon-ai/otel";
+import { createLogger, type LogAttrs } from "@photon-ai/otel";
 import { type ManagedStream, stream } from "./stream";
+import { errorAttrs } from "./telemetry";
 
 export const CATCH_UP_PAGE_SIZE = 100;
 export const MAX_BUFFERED_LIVE_EVENTS = 1000;
@@ -11,6 +12,8 @@ export const RECONNECT_MAX_DELAY_MS = 30_000;
 export const PERSISTENT_FAILURE_ERROR_THRESHOLD = 5;
 
 const log = createLogger("spectrum.stream");
+
+type StreamPhase = "catch-up" | "live";
 
 export interface CloseableAsyncIterable<T> extends AsyncIterable<T> {
   close?: () => Promise<void> | void;
@@ -90,9 +93,6 @@ const ignoreCleanupError = () => undefined;
 const jitterDelay = (delayMs: number): number =>
   delayMs * (0.5 + Math.random() * 0.5);
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 // Classifies only rejections raised by `source` itself: errors thrown by the
 // consuming for-await body exit a `yield*` through return(), not this catch,
 // so a processMissed/live error can never masquerade as a cursor rejection.
@@ -155,13 +155,30 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     let sleepTimer: ReturnType<typeof setTimeout> | undefined;
     let wakeSleep: (() => void) | undefined;
     const deliveredSinceCursor = new Set<string>();
+    // Stable id so concurrent streams (and one stream's reconnect storm) are
+    // distinguishable in logs and traces.
+    const streamId =
+      globalThis.crypto?.randomUUID?.() ??
+      `s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+    const baseStreamAttrs = (phase: StreamPhase): LogAttrs => ({
+      "spectrum.stream.id": streamId,
+      "spectrum.stream.label": label,
+      "spectrum.stream.phase": phase,
+      "spectrum.stream.has_cursor": lastCursor !== undefined,
+      "spectrum.stream.cursor": lastCursor,
+    });
 
     const noteRecovery = () => {
       retryDelayMs = initialRetryDelayMs;
       if (failedAttempts === 0) {
         return;
       }
-      log.info("stream recovered", { attempts: failedAttempts, label });
+      log.info("stream recovered", {
+        "spectrum.stream.id": streamId,
+        "spectrum.stream.label": label,
+        "spectrum.stream.attempt": failedAttempts,
+      });
       failedAttempts = 0;
     };
 
@@ -230,35 +247,46 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       return delay;
     };
 
-    const handleFailure = (error: unknown): number => {
+    const failureKind = (error: unknown): string => {
+      if (error instanceof CursorRejectedError) {
+        return "cursor-rejected";
+      }
+      if (failedAttempts >= PERSISTENT_FAILURE_ERROR_THRESHOLD) {
+        return "persistent";
+      }
+      return "transient";
+    };
+
+    const handleFailure = (error: unknown, phase: StreamPhase): number => {
       failedAttempts += 1;
       const delayMs = nextRetryDelay();
+      // Capture cursor/phase state before the cursor-rejected branch clears it,
+      // so the log shows which cursor was rejected. Unwrap CursorRejectedError
+      // to surface the underlying server error in `spectrum.error.*`.
+      const attrs: LogAttrs = {
+        ...baseStreamAttrs(phase),
+        "spectrum.stream.attempt": failedAttempts,
+        "spectrum.stream.delay_ms": delayMs,
+        "spectrum.stream.failure_kind": failureKind(error),
+        ...errorAttrs(
+          error instanceof CursorRejectedError ? error.cause : error
+        ),
+      };
       if (error instanceof CursorRejectedError) {
         lastCursor = undefined;
         deliveredSinceCursor.clear();
         log.warn(
           "resume cursor rejected; accepting event gap and resuming live",
-          {
-            attempt: failedAttempts,
-            delayMs,
-            error: errorMessage(error.cause),
-            label,
-          }
+          attrs,
+          error
         );
         return delayMs;
       }
-      const attrs = {
-        attempt: failedAttempts,
-        delayMs,
-        error: errorMessage(error),
-        hasCursor: lastCursor !== undefined,
-        label,
-      };
       if (failedAttempts >= PERSISTENT_FAILURE_ERROR_THRESHOLD) {
         log.error("stream persistently failing; still retrying", attrs, error);
         return delayMs;
       }
-      log.warn("stream interrupted; reconnecting", attrs);
+      log.warn("stream interrupted; reconnecting", attrs, error);
       return delayMs;
     };
 
@@ -399,6 +427,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
 
     const run = async () => {
       while (!closed) {
+        const phase: StreamPhase = lastCursor ? "catch-up" : "live";
         try {
           if (lastCursor) {
             await catchUpThenConsumeLive(lastCursor);
@@ -411,7 +440,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
           if (closed) {
             break;
           }
-          await sleep(handleFailure(error));
+          await sleep(handleFailure(error, phase));
         }
       }
       end();
@@ -421,7 +450,11 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     // should be unreachable — if it ever fires, fail loudly instead of dying
     // in silence.
     const pump = run().catch((error) => {
-      log.error("resumable stream loop crashed", { label }, error);
+      log.error(
+        "resumable stream loop crashed",
+        { "spectrum.stream.id": streamId, "spectrum.stream.label": label },
+        error
+      );
       if (!closed) {
         end(error);
       }

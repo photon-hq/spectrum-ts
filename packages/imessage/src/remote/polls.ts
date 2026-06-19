@@ -6,10 +6,17 @@ import type {
   PollEvent,
 } from "@photon-ai/advanced-imessage";
 import type { PollChoice } from "@spectrum-ts/core";
-import { asPoll, asPollOption } from "@spectrum-ts/core/authoring";
+import {
+  asPoll,
+  asPollOption,
+  createLogger,
+  errorAttrs,
+} from "@spectrum-ts/core/authoring";
 import type { CachedPoll, PollCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid } from "./ids";
+
+const log = createLogger("spectrum.imessage.poll");
 
 type VotedPollEvent = PollEvent & {
   delta: Extract<PollChangeDelta, { type: "voted" }>;
@@ -76,7 +83,14 @@ export const cachePollEvent = (
       cache.set(event.pollMessageGuid, cached);
       return cached;
     } catch (e) {
-      console.error("[spectrum-ts][imessage][poll] failed to cache poll", e);
+      log.error(
+        "failed to cache poll",
+        {
+          "spectrum.imessage.poll.guid": event.pollMessageGuid,
+          ...errorAttrs(e),
+        },
+        e
+      );
     }
   }
 };
@@ -91,7 +105,14 @@ const fetchPollInfo = async (
     cachePollInfo(cache, info);
     return info;
   } catch (e) {
-    console.error("[spectrum-ts][imessage][poll] failed to fetch poll", e);
+    log.error(
+      "failed to fetch poll",
+      {
+        "spectrum.imessage.poll.guid": event.pollMessageGuid,
+        ...errorAttrs(e),
+      },
+      e
+    );
     return;
   }
 };
@@ -110,7 +131,14 @@ const resolvePoll = async (
     const info = await client.polls.get(event.pollMessageGuid);
     return cachePollInfo(cache, info);
   } catch (e) {
-    console.error("[spectrum-ts][imessage][poll] failed to resolve poll", e);
+    log.error(
+      "failed to resolve poll",
+      {
+        "spectrum.imessage.poll.guid": event.pollMessageGuid,
+        ...errorAttrs(e),
+      },
+      e
+    );
     return;
   }
 };

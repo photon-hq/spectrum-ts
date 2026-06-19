@@ -1,6 +1,8 @@
 import {
   createLogger,
+  type LogLevel,
   type OtelHandle,
+  setLogLevel,
   setupOtel,
   withSpan,
 } from "@photon-ai/otel";
@@ -47,7 +49,7 @@ import {
   mergeStreams,
   stream,
 } from "./utils/stream";
-import { contentAttrs, senderAttrs } from "./utils/telemetry";
+import { contentAttrs, errorAttrs, senderAttrs } from "./utils/telemetry";
 import {
   type DeserializeContext,
   deserializeSpectrumMessage,
@@ -146,6 +148,15 @@ export interface SpectrumOptions {
    * @default false
    */
   flattenGroups?: boolean;
+
+  /**
+   * Minimum severity emitted by the SDK's structured logger (to both the
+   * console and, when telemetry is on, OTLP). Applies process-wide. The
+   * `LOG_LEVEL` environment variable still takes precedence.
+   *
+   * @default "debug" in development, "info" otherwise (via `DEPLOYMENT_ENV`)
+   */
+  logLevel?: LogLevel;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +166,7 @@ export interface SpectrumOptions {
 const spectrumOptionsSchema = z
   .object({
     flattenGroups: z.boolean().optional(),
+    logLevel: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   })
   .optional();
 
@@ -203,6 +215,14 @@ function bootstrapTelemetry(opts: {
     headers,
     resourceAttributes,
   });
+}
+
+// Apply an explicit log-level override (if any) before anything logs. Kept out
+// of Spectrum() so that factory stays under the cognitive-complexity cap.
+function applyLogLevel(level: LogLevel | undefined): void {
+  if (level) {
+    setLogLevel(level);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +281,10 @@ export async function Spectrum<
     webhookSecret,
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
+  // Honor an explicit log-level override before anything logs. Applies even
+  // when telemetry is off (the console logger respects it too); the LOG_LEVEL
+  // env var still wins inside @photon-ai/otel.
+  applyLogLevel(runtimeOptions?.logLevel);
   // The per-webhook signing secret for native Spectrum webhooks. Explicit option
   // wins; otherwise fall back to the env var so deployments can inject it.
   const resolvedWebhookSecret =
@@ -597,7 +621,10 @@ export async function Spectrum<
           if (!eventQueue) {
             lifecycleLog.warn(
               `spectrum: fusorEvent("${channel}", …) names a channel not declared in "${name}".events; dropping`,
-              { platform: name, channel }
+              {
+                "spectrum.lifecycle.platform": name,
+                "spectrum.lifecycle.channel": channel,
+              }
             );
             return;
           }
@@ -627,9 +654,9 @@ export async function Spectrum<
     .join(",");
 
   lifecycleLog.info("Spectrum started", {
-    providerCount: providers.length,
-    providers: providerNames,
-    telemetry: telemetry === true,
+    "spectrum.lifecycle.provider_count": providers.length,
+    "spectrum.lifecycle.providers": providerNames,
+    "spectrum.lifecycle.telemetry": telemetry === true,
   });
 
   // Advisory, fire-and-forget: in cloud mode, compare the project's enabled
@@ -655,7 +682,7 @@ export async function Spectrum<
             hint
               ? `spectrum: project has "${platform}" enabled but no matching provider is registered — ${hint}`
               : `spectrum: project has "${platform}" enabled but no matching provider is registered`,
-            { platform }
+            { "spectrum.lifecycle.platform": platform }
           );
         }
       })
@@ -822,7 +849,7 @@ export async function Spectrum<
     ]);
     if (streamTimedOut) {
       lifecycleLog.warn("stream close timed out; proceeding to teardown", {
-        timeoutMs: STREAM_CLOSE_TIMEOUT_MS,
+        "spectrum.lifecycle.stream_close_timeout_ms": STREAM_CLOSE_TIMEOUT_MS,
       });
     }
 
@@ -836,7 +863,7 @@ export async function Spectrum<
         await fusorStartPromise.catch(ignoreCleanupError);
       }
       await fusorCore.close().catch((error) => {
-        lifecycleLog.warn("fusor core close failed", { error });
+        lifecycleLog.warn("fusor core close failed", errorAttrs(error), error);
       });
       fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
       closeFusorSources();
@@ -877,10 +904,10 @@ export async function Spectrum<
     eventBroadcasters.clear();
     platformStates.clear();
     lifecycleLog.info("Spectrum stopped", {
-      providers: providerNames,
-      streamCloseMs,
-      fusorCloseMs,
-      clientCloseMs,
+      "spectrum.lifecycle.providers": providerNames,
+      "spectrum.lifecycle.stream_close_ms": streamCloseMs,
+      "spectrum.lifecycle.fusor_close_ms": fusorCloseMs,
+      "spectrum.lifecycle.client_close_ms": clientCloseMs,
     });
     if (otelHandle) {
       await otelHandle.shutdown();
@@ -979,13 +1006,14 @@ export async function Spectrum<
           await handler(space, message);
         } catch (error) {
           lifecycleLog.error(
-            `spectrum.webhook: handler threw (async), ${error}`,
+            "spectrum.webhook: handler threw (async)",
             {
-              eventId: context.eventId,
-              platform: context.platform,
-              messageId: message.id,
-              error: error instanceof Error ? error.message : String(error),
-            }
+              "spectrum.webhook.event_id": context.eventId,
+              "spectrum.webhook.platform": context.platform,
+              "spectrum.webhook.message_id": message.id,
+              ...errorAttrs(error),
+            },
+            error
           );
         }
       }
@@ -999,9 +1027,11 @@ export async function Spectrum<
     try {
       return RawInboundEvent.decode(bodyBytes);
     } catch (error) {
-      lifecycleLog.warn("spectrum.webhook: undecodable RawInboundEvent body", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      lifecycleLog.warn(
+        "spectrum.webhook: undecodable RawInboundEvent body",
+        errorAttrs(error),
+        error
+      );
       return null;
     }
   };
@@ -1051,12 +1081,13 @@ export async function Spectrum<
       deliverWebhookMessages(collected, runtime, handler, event).catch(
         (error) => {
           lifecycleLog.error(
-            `spectrum.webhook: delivery failed (async), ${error}`,
+            "spectrum.webhook: delivery failed (async)",
             {
-              eventId: event.eventId,
-              platform: event.platform,
-              error: error instanceof Error ? error.message : String(error),
-            }
+              "spectrum.webhook.event_id": event.eventId,
+              "spectrum.webhook.platform": event.platform,
+              ...errorAttrs(error),
+            },
+            error
           );
         }
       );
@@ -1164,7 +1195,8 @@ export async function Spectrum<
   ): Promise<WebhookRawResult> => {
     if (!resolvedWebhookSecret) {
       lifecycleLog.error(
-        "spectrum.webhook: received a signed Spectrum webhook but no webhookSecret is configured (set Spectrum({ webhookSecret }) or SPECTRUM_WEBHOOK_SECRET)"
+        "spectrum.webhook: received a signed Spectrum webhook but no webhookSecret is configured (set Spectrum({ webhookSecret }) or SPECTRUM_WEBHOOK_SECRET)",
+        { "spectrum.webhook.reason": "missing-secret" }
       );
       return webhookText(500, "webhook secret not configured");
     }
@@ -1187,7 +1219,9 @@ export async function Spectrum<
       envelope = slimEnvelopeSchema.parse(parsed);
     } catch (error) {
       lifecycleLog.warn(
-        `spectrum.webhook: malformed Spectrum webhook payload, ${error}`
+        "spectrum.webhook: malformed Spectrum webhook payload",
+        errorAttrs(error),
+        error
       );
       return webhookText(400, "malformed payload");
     }
@@ -1206,7 +1240,7 @@ export async function Spectrum<
     if (!runtime) {
       lifecycleLog.warn(
         `spectrum.webhook: no provider configured for platform "${platform}"; acknowledging without delivery`,
-        { platform }
+        { "spectrum.webhook.platform": platform }
       );
       return webhookText(200, "ok");
     }
@@ -1215,12 +1249,13 @@ export async function Spectrum<
     deliverWebhookMessages([record], runtime, handler, { platform }).catch(
       (error) => {
         lifecycleLog.error(
-          `spectrum.webhook: Spectrum delivery failed (async), ${error}`,
+          "spectrum.webhook: Spectrum delivery failed (async)",
           {
-            platform,
-            messageId: record.id,
-            error: error instanceof Error ? error.message : String(error),
-          }
+            "spectrum.webhook.platform": platform,
+            "spectrum.webhook.message_id": record.id,
+            ...errorAttrs(error),
+          },
+          error
         );
       }
     );

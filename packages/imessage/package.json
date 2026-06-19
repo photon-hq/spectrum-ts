@@ -46,7 +46,7 @@
   "dependencies": {
     "@photon-ai/advanced-imessage": "^0.11.0",
     "@photon-ai/imessage-kit": "^3.0.0",
-    "@photon-ai/otel": "^0.1.1",
+    "@photon-ai/otel": "^1.0.0",
     "lru-cache": "^11.0.0",
     "marked": "^18.0.5",
     "zod": "^4.2.1"

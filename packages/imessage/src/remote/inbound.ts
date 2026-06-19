@@ -10,6 +10,8 @@ import {
   asCustom,
   asRichlink,
   asText,
+  createLogger,
+  errorAttrs,
   groupSchema,
 } from "@spectrum-ts/core/authoring";
 import { getMessageCache, type MessageCache } from "../cache";
@@ -25,6 +27,8 @@ import {
   parseChildId,
   toMessageGuid,
 } from "./ids";
+
+const log = createLogger("spectrum.imessage.inbound");
 
 const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
 
@@ -114,9 +118,10 @@ const toVCardContent = async (
     const buf = await downloadPrimaryAttachment(client, info.guid);
     return asContact(fromVCard(buf.toString("utf8")));
   } catch (err) {
-    console.warn(
-      "[spectrum-ts][imessage] failed to parse vCard attachment; falling back to attachment content",
-      { error: err, guid: info.guid }
+    log.warn(
+      "failed to parse vCard attachment; falling back to attachment content",
+      { "spectrum.imessage.attachment.guid": info.guid, ...errorAttrs(err) },
+      err
     );
     return toAttachmentContent(client, info);
   }
@@ -155,9 +160,10 @@ const toRichlinkMessage = (
   try {
     return { ...base, id, content: asRichlink({ url }) };
   } catch (err) {
-    console.warn(
-      "[spectrum-ts][imessage] failed to convert message to rich link; falling back to text/custom content",
-      { error: err, message, url }
+    log.warn(
+      "failed to convert message to rich link; falling back to text/custom content",
+      { "spectrum.imessage.message.id": id, ...errorAttrs(err) },
+      err
     );
     return {
       ...base,

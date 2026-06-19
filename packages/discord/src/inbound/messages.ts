@@ -13,6 +13,8 @@ import {
   asText,
   asUnsend,
   type BaseContent,
+  createLogger,
+  errorAttrs,
   type ProviderMessageRecord,
 } from "@spectrum-ts/core/authoring";
 import {
@@ -41,6 +43,8 @@ import {
   type ReconstructedPoll,
   reconstructPoll,
 } from "./poll";
+
+const log = createLogger("spectrum.discord.inbound");
 
 // A poll's reconstructed shape is cached in the platform store under this key,
 // keyed by the poll message's id, so the first vote fetches the message once and
@@ -264,12 +268,20 @@ const resolveReconstructedPoll = async (
   if (cached) {
     return cached;
   }
+  log.debug("discord poll cache miss; fetching message to reconstruct poll", {
+    "spectrum.discord.message.id": messageId,
+    "spectrum.discord.space.id": channelId,
+  });
   const message = await getChannelMessage(
     discordClient(config),
     channelId,
     messageId
   );
   if (!message.poll) {
+    log.warn("discord poll vote dropped: fetched message carries no poll", {
+      "spectrum.discord.message.id": messageId,
+      "spectrum.discord.space.id": channelId,
+    });
     return;
   }
   const reconstructed = reconstructPoll(message.poll);
@@ -339,12 +351,26 @@ const fromInteraction = async (
     return;
   }
   // Ack first — even if we end up not surfacing the click below, the user must
-  // never see "interaction failed" in the UI.
-  await acknowledgeComponentInteraction(
-    discordClient(config),
-    interaction.id,
-    interaction.token
-  );
+  // never see "interaction failed" in the UI. A failure here misses Discord's
+  // 3-second window, so surface it before letting it reject the event.
+  try {
+    await acknowledgeComponentInteraction(
+      discordClient(config),
+      interaction.id,
+      interaction.token
+    );
+  } catch (err) {
+    log.warn(
+      "discord interaction ack failed; user may see 'interaction failed'",
+      {
+        "spectrum.discord.interaction.id": interaction.id,
+        "spectrum.discord.interaction.type": interaction.type,
+        ...errorAttrs(err),
+      },
+      err
+    );
+    throw err;
+  }
   // The actor is the guild member's user in a server, or the bare user in a DM.
   const actor = interaction.member?.user ?? interaction.user;
   // Drop the bot's own interactions (mirrors the message/reaction self-filters),

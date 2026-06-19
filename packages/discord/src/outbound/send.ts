@@ -5,7 +5,11 @@ import {
   type Reaction,
   UnsupportedError,
 } from "@spectrum-ts/core";
-import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
+import {
+  createLogger,
+  errorAttrs,
+  type ProviderMessageRecord,
+} from "@spectrum-ts/core/authoring";
 import {
   addReaction,
   createChannelMessage,
@@ -23,6 +27,8 @@ interface SendArgs {
   content: Content;
   space: DiscordSpace;
 }
+
+const log = createLogger("spectrum.discord.outbound");
 
 // Every mention type, parsed — the implicit Discord default when no
 // `allowed_mentions` is sent.
@@ -153,6 +159,33 @@ export const send = async ({
   config,
 }: SendArgs): Promise<ProviderMessageRecord | undefined> => {
   const client = discordClient(config);
+  try {
+    return await dispatch(client, space, content, config);
+  } catch (err) {
+    // UnsupportedError is a by-design "this content can't be sent here" signal,
+    // not an API failure — let it propagate without logging it as an error.
+    if (!(err instanceof UnsupportedError)) {
+      log.warn(
+        "discord outbound send failed",
+        {
+          "spectrum.discord.space.id": space.id,
+          "spectrum.discord.message.content.type": content.type,
+          ...errorAttrs(err),
+        },
+        err
+      );
+    }
+    throw err;
+  }
+};
+
+/** Route one content to its sender. Errors propagate to {@link send}'s logger. */
+const dispatch = async (
+  client: DiscordClient,
+  space: DiscordSpace,
+  content: Content,
+  config: DiscordConfig
+): Promise<ProviderMessageRecord | undefined> => {
   switch (content.type) {
     case "reaction":
       return await sendReaction(client, space, content);

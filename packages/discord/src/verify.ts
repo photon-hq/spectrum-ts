@@ -1,6 +1,9 @@
 import type { FusorVerify, FusorVerifyRequest } from "@spectrum-ts/core";
+import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
 import type { DiscordConfig } from "./config";
 import type { DiscordPayload, GatewayDispatch } from "./types";
+
+const log = createLogger("spectrum.discord.verify");
 
 /**
  * isDispatch ensures that the provided payload data has
@@ -18,10 +21,21 @@ const parseDispatch = (bodyText: string): GatewayDispatch => {
   let json: unknown;
   try {
     json = JSON.parse(bodyText);
-  } catch {
+  } catch (err) {
+    log.warn(
+      "discord event rejected: body is not valid JSON",
+      {
+        "spectrum.discord.event.body_bytes": bodyText.length,
+        ...errorAttrs(err),
+      },
+      err
+    );
     throw new Error("Discord event body is not valid JSON");
   }
   if (!isDispatch(json)) {
+    log.warn("discord event rejected: missing string `t` (event name)", {
+      "spectrum.discord.event.body_bytes": bodyText.length,
+    });
     throw new Error(
       "Discord event payload is missing a string `t` (event name)"
     );

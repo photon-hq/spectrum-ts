@@ -17,9 +17,12 @@ import {
   triggerTypingIndicator,
   updateMessage,
 } from "@photon-ai/discord-ts";
+import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
 import type { DiscordConfig } from "./config";
 import type { DiscordSendSpec } from "./types";
 import { toFormData } from "./util";
+
+const log = createLogger("spectrum.discord.client");
 
 /**
  * A photon Discord client (hey-api `Client`). Created per request — the
@@ -231,9 +234,20 @@ export const createDmChannel = async (
   config: DiscordConfig,
   recipientId: string
 ): Promise<string> => {
-  const channel = await createDm({
-    client: discordClient(config),
-    body: { recipient_id: recipientId },
-  });
-  return (channel as { id: string }).id;
+  try {
+    const channel = await createDm({
+      client: discordClient(config),
+      body: { recipient_id: recipientId },
+    });
+    return (channel as { id: string }).id;
+  } catch (err) {
+    // Most often a 403: the bot shares no guild with this user and so cannot DM
+    // them. Surface it — the id looks valid, so the failure is otherwise opaque.
+    log.warn(
+      "discord DM channel open failed (bot may share no guild with the user)",
+      { "spectrum.discord.recipient.id": recipientId, ...errorAttrs(err) },
+      err
+    );
+    throw err;
+  }
 };

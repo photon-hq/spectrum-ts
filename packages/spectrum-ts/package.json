@@ -1,7 +1,7 @@
 {
   "name": "spectrum-ts",
   "version": "5.0.0",
-  "description": "Bring agents to any interface \u2014 unified messaging SDK for TypeScript. Batteries-included: the runtime plus every official provider.",
+  "description": "Bring agents to any interface — unified messaging SDK for TypeScript. Batteries-included: the runtime plus every official provider.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",

@@ -6,6 +6,10 @@ import {
   type WhatsAppEvent,
 } from "@photon-ai/whatsapp-business";
 import { cloud, stream } from "@spectrum-ts/core";
+import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
+
+const log = createLogger("spectrum.whatsapp.auth");
+const streamLog = createLogger("spectrum.whatsapp.stream");
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
@@ -42,6 +46,7 @@ export async function createCloudClients(
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshFailures = 0;
 
   const lines = new Map<string, LineState>();
 
@@ -75,6 +80,28 @@ export async function createCloudClients(
     }
   };
 
+  const onRefreshSuccess = () => {
+    if (refreshFailures > 0) {
+      log.info("whatsapp token refresh recovered", {
+        "spectrum.whatsapp.auth.attempt": refreshFailures,
+      });
+      refreshFailures = 0;
+    }
+  };
+
+  const onRefreshFailure = (error: unknown) => {
+    refreshFailures += 1;
+    log.warn(
+      "whatsapp token refresh failed; retrying",
+      {
+        "spectrum.whatsapp.auth.attempt": refreshFailures,
+        "spectrum.whatsapp.auth.retry_in_ms": RETRY_DELAY_MS,
+        ...errorAttrs(error),
+      },
+      error
+    );
+  };
+
   const clearRenewalTimer = () => {
     if (renewalTimer !== undefined) {
       clearTimeout(renewalTimer);
@@ -93,12 +120,10 @@ export async function createCloudClients(
     renewalTimer = setTimeout(async () => {
       try {
         await refreshTokens();
+        onRefreshSuccess();
         scheduleRenewal();
       } catch (err) {
-        console.warn(
-          `[spectrum-ts] WhatsApp Business token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
-          err
-        );
+        onRefreshFailure(err);
         clearRenewalTimer();
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
         renewalTimer?.unref?.();
@@ -112,6 +137,7 @@ export async function createCloudClients(
       return;
     }
     await refreshTokens();
+    onRefreshSuccess();
     scheduleRenewal();
   };
 
@@ -222,7 +248,15 @@ const pumpOnce = async (ctx: ResubscribeContext): Promise<boolean> => {
       await ctx.emit(event);
     }
     return true;
-  } catch {
+  } catch (error) {
+    streamLog.warn(
+      "whatsapp event stream interrupted; resubscribing",
+      {
+        "spectrum.whatsapp.resubscribe_in_ms": RESUBSCRIBE_BACKOFF_MS,
+        ...errorAttrs(error),
+      },
+      error
+    );
     return false;
   } finally {
     ctx.setActive(undefined);

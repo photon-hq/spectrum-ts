@@ -1,4 +1,4 @@
-import type { LogAttrs } from "@photon-ai/otel";
+import { type LogAttrs, sanitizeErrorMessage } from "@photon-ai/otel";
 import type { Content } from "../content/types";
 import { classifyIdentifier } from "./identifier";
 
@@ -128,5 +128,60 @@ export function senderAttrs(sender: { id?: unknown } | undefined): LogAttrs {
   return {
     "spectrum.message.sender.id": identifier,
     "spectrum.message.sender.kind": kind,
+  };
+}
+
+const attrCode = (value: unknown): string | number | undefined => {
+  if (typeof value === "string" || typeof value === "number") {
+    return value;
+  }
+  return;
+};
+
+const causeType = (cause: unknown): string | undefined => {
+  if (cause === undefined) {
+    return;
+  }
+  return cause instanceof Error ? cause.name : typeof cause;
+};
+
+const causeMessage = (cause: unknown): string | undefined => {
+  if (cause === undefined) {
+    return;
+  }
+  const raw = cause instanceof Error ? cause.message : String(cause);
+  return sanitizeErrorMessage(raw);
+};
+
+/**
+ * Structured attributes for an unknown thrown value: its type, sanitized
+ * message, `code`/`status` when present, and one level of `cause`. Enough to
+ * debug from a log line or span without leaking PII or dumping a raw `Error`
+ * (which stringifies to "[object Object]" inside an attrs object). The stack is
+ * intentionally omitted — pass the `Error` as the logger's 3rd argument (or
+ * wrap with `withSpan`) so it lands on the OTLP record's `exception.*` fields.
+ */
+export function errorAttrs(
+  error: unknown,
+  prefix = "spectrum.error"
+): LogAttrs {
+  if (!(error instanceof Error)) {
+    return {
+      [`${prefix}.type`]: typeof error,
+      [`${prefix}.message`]: sanitizeErrorMessage(String(error)),
+    };
+  }
+  const { code, status, cause } = error as Error & {
+    cause?: unknown;
+    code?: unknown;
+    status?: unknown;
+  };
+  return {
+    [`${prefix}.type`]: error.name,
+    [`${prefix}.message`]: sanitizeErrorMessage(error.message),
+    [`${prefix}.code`]: attrCode(code),
+    [`${prefix}.status`]: attrCode(status),
+    [`${prefix}.cause.type`]: causeType(cause),
+    [`${prefix}.cause.message`]: causeMessage(cause),
   };
 }

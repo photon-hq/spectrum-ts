@@ -1,4 +1,5 @@
 import z from "zod";
+import { appSchema } from "./app";
 import { attachmentSchema } from "./attachment";
 import { avatarSchema } from "./avatar";
 import { contactSchema } from "./contact";
@@ -35,6 +36,7 @@ const baseContentSchemas = [
   contactSchema,
   voiceSchema,
   richlinkSchema,
+  appSchema,
   reactionSchema,
   groupSchema,
   pollSchema,

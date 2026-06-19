@@ -4,7 +4,10 @@ import {
   type DedicatedTokenData,
   type SharedTokenData,
 } from "@spectrum-ts/core";
+import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
 import { type RemoteClient, SHARED_PHONE } from "./types";
+
+const log = createLogger("spectrum.imessage.auth");
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
@@ -32,6 +35,7 @@ export async function createCloudClients(
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshFailures = 0;
 
   // The instanceId stays paired with each entry in this closure so renewal
   // can rewrite `entry.phone` in place without leaking instanceId onto the
@@ -42,6 +46,28 @@ export async function createCloudClients(
     for (const { entry, instanceId } of records) {
       entry.phone = requirePhone(data, instanceId);
     }
+  };
+
+  const onRefreshSuccess = () => {
+    if (refreshFailures > 0) {
+      log.info("imessage token refresh recovered", {
+        "spectrum.imessage.auth.attempt": refreshFailures,
+      });
+      refreshFailures = 0;
+    }
+  };
+
+  const onRefreshFailure = (error: unknown) => {
+    refreshFailures += 1;
+    log.warn(
+      "imessage token refresh failed; retrying",
+      {
+        "spectrum.imessage.auth.attempt": refreshFailures,
+        "spectrum.imessage.auth.retry_in_ms": RETRY_DELAY_MS,
+        ...errorAttrs(error),
+      },
+      error
+    );
   };
 
   const scheduleRenewal = () => {
@@ -58,8 +84,10 @@ export async function createCloudClients(
         if (tokenData.type === "dedicated") {
           syncPhones(tokenData);
         }
+        onRefreshSuccess();
         scheduleRenewal();
-      } catch {
+      } catch (error) {
+        onRefreshFailure(error);
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
         renewalTimer?.unref?.();
       }
@@ -78,6 +106,7 @@ export async function createCloudClients(
     if (tokenData.type === "dedicated") {
       syncPhones(tokenData);
     }
+    onRefreshSuccess();
     scheduleRenewal();
   };
 

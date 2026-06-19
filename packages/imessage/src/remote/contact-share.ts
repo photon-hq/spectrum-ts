@@ -1,6 +1,12 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import { sanitizeErrorMessage } from "@photon-ai/otel";
+import {
+  createLogger,
+  errorAttrs,
+  sanitizeErrorMessage,
+} from "@spectrum-ts/core/authoring";
 import { LRUCache } from "lru-cache";
+
+const log = createLogger("spectrum.imessage.contact");
 
 const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_TRACKED_CHATS = 10_000;
@@ -38,14 +44,18 @@ export class ContactShareTracker {
     client.chats
       .shareContactInfo(chatGuid)
       .then(() => {
-        console.info(
-          `[spectrum-ts][imessage][contact-share] shared contact info to ${safeChatGuid}`
-        );
+        log.info("shared contact card", {
+          "spectrum.imessage.contact.chat": safeChatGuid,
+        });
       })
       .catch((error: unknown) => {
         this.cache.delete(chatGuid);
-        console.warn(
-          `[spectrum-ts][imessage][contact-share] failed to share contact info to ${safeChatGuid}`,
+        log.warn(
+          "failed to share contact card",
+          {
+            "spectrum.imessage.contact.chat": safeChatGuid,
+            ...errorAttrs(error),
+          },
           error
         );
       });

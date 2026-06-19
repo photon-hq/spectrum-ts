@@ -3,6 +3,7 @@ import type {
   InboundReply,
   RawInboundEvent,
 } from "@photon-ai/proto/photon/fusor/v1/inbound";
+import { errorAttrs } from "../utils/telemetry";
 
 // fusor.v1.json WebSocket transport — the streaming transport.
 //
@@ -183,7 +184,7 @@ export function runFusorWsSession(
     }
     watchdog = setTimeout(() => {
       log.warn("fusor ws: no frame within staleness budget; closing", {
-        budgetMs: stalenessBudgetMs,
+        "spectrum.fusor.ws.staleness_budget_ms": stalenessBudgetMs,
       });
       settle(new FusorWsError("websocket heartbeat timeout"));
       try {
@@ -219,8 +220,10 @@ export function runFusorWsSession(
       stalenessBudgetMs = 2 * interval + STALENESS_GRACE_MS;
     }
     log.info("fusor ws stream ready", {
-      projectId: typeof frame.projectId === "string" ? frame.projectId : "",
-      heartbeatIntervalMs: typeof interval === "number" ? interval : 0,
+      "spectrum.fusor.ws.project_id":
+        typeof frame.projectId === "string" ? frame.projectId : "",
+      "spectrum.fusor.ws.heartbeat_interval_ms":
+        typeof interval === "number" ? interval : 0,
     });
   };
 
@@ -230,9 +233,11 @@ export function runFusorWsSession(
     try {
       event = toRawInboundEvent(eventFrame);
     } catch (error) {
-      log.warn("fusor ws: undecodable event frame; skipping", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      log.warn(
+        "fusor ws: undecodable event frame; skipping",
+        errorAttrs(error),
+        error
+      );
       return;
     }
     const sendReply = eventFrame.replyExpected
@@ -241,10 +246,11 @@ export function runFusorWsSession(
     tail = tail
       .then(() => options.onEvent(event, sendReply))
       .catch((error) => {
-        log.warn("fusor ws: event handler failed", {
-          eventId: event.eventId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        log.warn(
+          "fusor ws: event handler failed",
+          { "spectrum.fusor.ws.event_id": event.eventId, ...errorAttrs(error) },
+          error
+        );
       });
   };
 
@@ -258,7 +264,11 @@ export function runFusorWsSession(
     } else {
       // Typed non-fatal notice (reply_unknown_event, frame_invalid, …)
       // — the stream keeps running; surface it for debugging.
-      log.warn("fusor ws: server notice", { code, message, reason });
+      log.warn("fusor ws: server notice", {
+        "spectrum.fusor.ws.notice_code": code,
+        "spectrum.fusor.ws.notice_message": message,
+        "spectrum.fusor.ws.notice_reason": reason,
+      });
     }
   };
 

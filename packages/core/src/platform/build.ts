@@ -36,23 +36,6 @@ const platformLog = createLogger("spectrum.platform");
 
 export type { ProviderMessageRecord } from "./types";
 
-const ANSI_YELLOW = "\x1b[33m";
-const ANSI_RESET = "\x1b[0m";
-
-const supportsAnsiColor = (): boolean => {
-  if (typeof process === "undefined") {
-    return false;
-  }
-  if (process.env.NO_COLOR) {
-    return false;
-  }
-  const force = process.env.FORCE_COLOR;
-  if (force !== undefined) {
-    return force !== "" && force !== "0" && force !== "false";
-  }
-  return Boolean(process.stderr?.isTTY);
-};
-
 // Built-in content types whose provider `send` may return `void`/no id
 // because they're side-effects (typing indicator, edit, unsend), not new
 // messages. Reactions are NOT fire-and-forget: providers must return a
@@ -134,9 +117,13 @@ export const warnReservedAction = (
   name: string,
   platform: string
 ) => {
-  const body = `[spectrum-ts] ${platform} declared ${scope} action "${name}" which collides with a reserved ${scopeLabel(scope)} key; skipping.`;
-  console.warn(
-    supportsAnsiColor() ? `${ANSI_YELLOW}${body}${ANSI_RESET}` : body
+  platformLog.warn(
+    `${platform} declared ${scope} action "${name}" which collides with a reserved ${scopeLabel(scope)} key; skipping.`,
+    {
+      "spectrum.provider": platform,
+      "spectrum.reserved.scope": scope,
+      "spectrum.reserved.action": name,
+    }
   );
 };
 

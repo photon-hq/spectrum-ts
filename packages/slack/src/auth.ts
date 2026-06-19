@@ -5,6 +5,9 @@ import {
   type TokenProvider,
 } from "@photon-ai/slack";
 import { cloud, type SlackTokenData } from "@spectrum-ts/core";
+import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
+
+const log = createLogger("spectrum.slack.auth");
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
@@ -44,6 +47,7 @@ export async function createCloudClients(
   let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshFailures = 0;
 
   const clearRenewalTimer = () => {
     if (renewalTimer !== undefined) {
@@ -57,6 +61,28 @@ export async function createCloudClients(
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
   };
 
+  const onRefreshSuccess = () => {
+    if (refreshFailures > 0) {
+      log.info("slack token refresh recovered", {
+        "spectrum.slack.auth.attempt": refreshFailures,
+      });
+      refreshFailures = 0;
+    }
+  };
+
+  const onRefreshFailure = (error: unknown) => {
+    refreshFailures += 1;
+    log.warn(
+      "slack token refresh failed; retrying",
+      {
+        "spectrum.slack.auth.attempt": refreshFailures,
+        "spectrum.slack.auth.retry_in_ms": RETRY_DELAY_MS,
+        ...errorAttrs(error),
+      },
+      error
+    );
+  };
+
   const scheduleRetry = () => {
     if (disposed) {
       return;
@@ -68,12 +94,10 @@ export async function createCloudClients(
       }
       try {
         await refreshTokens();
+        onRefreshSuccess();
         scheduleRenewal();
       } catch (retryErr) {
-        console.warn(
-          `[spectrum-ts] Slack token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
-          retryErr
-        );
+        onRefreshFailure(retryErr);
         scheduleRetry();
       }
     }, RETRY_DELAY_MS);
@@ -91,12 +115,10 @@ export async function createCloudClients(
     renewalTimer = setTimeout(async () => {
       try {
         await refreshTokens();
+        onRefreshSuccess();
         scheduleRenewal();
       } catch (err) {
-        console.warn(
-          `[spectrum-ts] Slack token refresh failed; retrying in ${RETRY_DELAY_MS}ms.`,
-          err
-        );
+        onRefreshFailure(err);
         scheduleRetry();
       }
     }, renewInMs);
@@ -108,6 +130,7 @@ export async function createCloudClients(
       return;
     }
     await refreshTokens();
+    onRefreshSuccess();
     scheduleRenewal();
   };
 

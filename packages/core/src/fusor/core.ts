@@ -5,6 +5,7 @@ import type {
 } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import type { ProviderMessageRecord } from "../platform/types";
 import { officialProviderInstallHint } from "../utils/provider-packages";
+import { errorAttrs } from "../utils/telemetry";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
 import { FUSOR_MESSAGES_CHANNEL, isFusorEvent } from "./event";
 import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
@@ -225,7 +226,7 @@ export class FusorCore {
       this.options.projectSecret
     );
     this.connectionLoop = this.runConnectionLoop().catch((error) => {
-      log.error("fusor connection loop crashed", { error });
+      log.error("fusor connection loop crashed", errorAttrs(error), error);
     });
   }
 
@@ -262,9 +263,11 @@ export class FusorCore {
         this.tokenProvider?.invalidate();
       }
       if (!this.stopped) {
-        log.warn("fusor websocket stream errored; reconnecting", {
-          error: errorText(error),
-        });
+        log.warn(
+          "fusor websocket stream errored; reconnecting",
+          errorAttrs(error),
+          error
+        );
       }
       return false;
     }
@@ -335,7 +338,10 @@ export class FusorCore {
         hint
           ? `fusor: no handler for platform — ${hint}`
           : "fusor: no handler for platform",
-        { platform: event.platform }
+        {
+          "spectrum.fusor.platform": event.platform,
+          "spectrum.fusor.event_id": event.eventId,
+        }
       );
       return {
         eventId: event.eventId,
@@ -352,8 +358,9 @@ export class FusorCore {
     } catch (error) {
       const errorReason = errorText(error);
       log.warn("fusor: failed to parse raw_request", {
-        platform: event.platform,
-        error: errorReason,
+        "spectrum.fusor.platform": event.platform,
+        "spectrum.fusor.event_id": event.eventId,
+        ...errorAttrs(error),
       });
       return {
         eventId: event.eventId,

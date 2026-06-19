@@ -102,6 +102,9 @@ export const buildSend = async (
     case "richlink":
       // Telegram auto-unfurls a bare URL in the message text.
       return { method: "sendMessage", params: { text: content.url } };
+    case "app":
+      // No mini-app surface on Telegram — send the bare URL (auto-unfurled).
+      return { method: "sendMessage", params: { text: await content.url() } };
     case "attachment":
       return await attachmentSpec(content);
     case "voice": {

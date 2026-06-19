@@ -18,6 +18,21 @@
 // lazy `read()` for authenticated media, a stub target for inbound reactions —
 // which is exactly what a provider needs when mapping inbound events.
 
+// Logging & telemetry — the structured logger, level control, and PII helpers
+// a provider reaches for so its logs share the SDK's namespaces, severity
+// gating, and OTLP pipeline (a single `@photon-ai/otel` instance lives in
+// core). Use `createLogger("spectrum.<provider>")` and attach `errorAttrs(err)`
+// instead of dumping raw errors.
+export {
+  createLogger,
+  type LogAttrs,
+  type LogLevel,
+  type PhotonLogger,
+  sanitizeEmail,
+  sanitizeErrorMessage,
+  sanitizePhone,
+  setLogLevel,
+} from "@photon-ai/otel";
 // Content factories, schemas, and the inbound-record type (from `content/`).
 export { asAttachment, attachmentSchema } from "./content/attachment";
 export { asContact } from "./content/contact";
@@ -36,7 +51,6 @@ export type { BaseContent } from "./content/types";
 export { asUnsend } from "./content/unsend";
 export { asVoice } from "./content/voice";
 export type { ProviderMessageRecord } from "./platform/types";
-
 // Generic translation helpers (from `utils/`).
 export { ensureM4a } from "./utils/audio";
 export { renderInlineTokens } from "./utils/markdown";
@@ -51,3 +65,4 @@ export {
   resumableOrderedStream,
 } from "./utils/resumable-stream";
 export { createStore } from "./utils/store";
+export { errorAttrs } from "./utils/telemetry";

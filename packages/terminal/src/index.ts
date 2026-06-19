@@ -455,6 +455,10 @@ async function spectrumToProtocol(
       vcard: await toVCard(content),
     };
   }
+  if (content.type === "app") {
+    // No mini-app surface in the terminal — render the bare URL as text.
+    return { type: "text", text: await content.url() };
+  }
   // Surface the failure as an UnsupportedError — the platform builder
   // catches those and warns+skips, so an agent sending e.g. `richlink` on
   // this provider gets a warning rather than an uncaught throw that

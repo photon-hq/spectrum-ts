@@ -2,7 +2,7 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "^2.4.12",
-    "@types/node": "^25.6.0",
+    "@types/node": "^26.0.0",
     "clean-publish": "^7.0.0",
     "publint": "^0.3.14",
     "turbo": "^2",

@@ -34,17 +34,21 @@ export {
   setLogLevel,
 } from "@photon-ai/otel";
 // Content factories, schemas, and the inbound-record type (from `content/`).
-export { asAttachment } from "./content/attachment";
+export { asAttachment, attachmentSchema } from "./content/attachment";
 export { asContact } from "./content/contact";
 export { asCustom } from "./content/custom";
+export { asEdit } from "./content/edit";
 export { messageEffectSchema } from "./content/effect";
 export { asGroup, groupSchema } from "./content/group";
 export { asMarkdown } from "./content/markdown";
 export { asPoll, asPollOption } from "./content/poll";
 export { asReaction, reactionSchema } from "./content/reaction";
 export { asRead } from "./content/read";
+export { asReply } from "./content/reply";
 export { asRichlink } from "./content/richlink";
 export { asText } from "./content/text";
+export type { BaseContent } from "./content/types";
+export { asUnsend } from "./content/unsend";
 export { asVoice } from "./content/voice";
 export type { ProviderMessageRecord } from "./platform/types";
 // Generic translation helpers (from `utils/`).
@@ -60,4 +64,5 @@ export {
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "./utils/resumable-stream";
+export { createStore } from "./utils/store";
 export { errorAttrs } from "./utils/telemetry";

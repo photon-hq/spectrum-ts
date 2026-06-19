@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "specturm-ts",
@@ -59,6 +58,23 @@
         "hono",
       ],
     },
+    "packages/discord": {
+      "name": "@spectrum-ts/discord",
+      "version": "5.0.0",
+      "dependencies": {
+        "@photon-ai/discord-ts": "^10.0.0",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@types/bun": "latest",
+        "tsdown": "^0.22.2",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^5.0.0",
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
     "packages/imessage": {
       "name": "@spectrum-ts/imessage",
       "version": "5.0.0",
@@ -103,6 +119,7 @@
       "version": "5.0.0",
       "dependencies": {
         "@spectrum-ts/core": "5.0.0",
+        "@spectrum-ts/discord": "5.0.0",
         "@spectrum-ts/imessage": "5.0.0",
         "@spectrum-ts/slack": "5.0.0",
         "@spectrum-ts/telegram": "5.0.0",
@@ -340,6 +357,8 @@
 
     "@photon-ai/advanced-imessage": ["@photon-ai/advanced-imessage@0.11.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.11.0", "@grpc/grpc-js": "^1.12.6", "nice-grpc": "^2.1.11", "nice-grpc-common": "^2.0.2" } }, "sha512-lUeWq802EI1e0LKBfHpg1w84OQOKFvpS8s7vlUGQ221iC0hI5rBtZq+9bKfks0iskFTciFrBGvsjqdpnueafiw=="],
 
+    "@photon-ai/discord-ts": ["@photon-ai/discord-ts@10.0.0", "", { "dependencies": { "zod": "^4.4.3" } }, "sha512-ePkUBM9tCN2XuOWjfRiMP5wkwsZMMGDJ5s594o/VQvQtofpuPE5khKEXCLU+djTZvXtAzvuiwvVIjnN14inMrQ=="],
+
     "@photon-ai/imessage-kit": ["@photon-ai/imessage-kit@3.0.0", "", { "dependencies": { "@parseaple/typedstream": "^2.0.0" }, "optionalDependencies": { "better-sqlite3": "^12.5.0" } }, "sha512-GGDETlRbrPXP5eaRvswaead7MCBGQkm8f7d3aVbx8+rXhB4GEyPiw7Q1/yz5ix53rmxqKRevWywOfG7n+kZDBw=="],
 
     "@photon-ai/otel": ["@photon-ai/otel@1.0.0", "", { "dependencies": { "@opentelemetry/api": "^1.9.1", "@opentelemetry/api-logs": "^0.218.0", "@opentelemetry/context-async-hooks": "^2.7.1", "@opentelemetry/exporter-logs-otlp-http": "^0.218.0", "@opentelemetry/exporter-trace-otlp-http": "^0.218.0", "@opentelemetry/resources": "^2.7.1", "@opentelemetry/sdk-logs": "^0.218.0", "@opentelemetry/sdk-trace-base": "^2.7.1" }, "peerDependencies": { "typescript": "^5 || ^6.0.0" } }, "sha512-5fACVHN7BtGS+phglVAxun5QLckNUSS4p750oCxR//m9JNVzFQMoLFWfC6DnWBP/W0/+B2yP75+3NMVLodEJEg=="],
@@ -415,6 +434,8 @@
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
     "@spectrum-ts/core": ["@spectrum-ts/core@workspace:packages/core"],
+
+    "@spectrum-ts/discord": ["@spectrum-ts/discord@workspace:packages/discord"],
 
     "@spectrum-ts/example-basic": ["@spectrum-ts/example-basic@workspace:examples/basic"],
 

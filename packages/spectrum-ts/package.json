@@ -99,6 +99,7 @@
   },
   "dependencies": {
     "@spectrum-ts/core": "5.0.0",
+    "@spectrum-ts/discord": "5.0.0",
     "@spectrum-ts/imessage": "5.0.0",
     "@spectrum-ts/slack": "5.0.0",
     "@spectrum-ts/telegram": "5.0.0",

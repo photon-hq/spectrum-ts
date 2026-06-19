@@ -66,6 +66,7 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 | WhatsApp Business | [`@spectrum-ts/whatsapp-business`](https://npmjs.com/package/@spectrum-ts/whatsapp-business) |
 | Telegram | [`@spectrum-ts/telegram`](https://npmjs.com/package/@spectrum-ts/telegram) |
 | Slack | [`@spectrum-ts/slack`](https://npmjs.com/package/@spectrum-ts/slack) |
+| Discord | [`@spectrum-ts/discord`](https://npmjs.com/package/@spectrum-ts/discord) |
 | Terminal | [`@spectrum-ts/terminal`](https://npmjs.com/package/@spectrum-ts/terminal) |
 | Custom   | `definePlatform` from `spectrum-ts` |
 

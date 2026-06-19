@@ -5,6 +5,7 @@
 // Prefer importing from the individual `@spectrum-ts/*`
 // packages — or the per-provider `spectrum-ts/providers/*` shims — so you
 // only install the platforms you use.
+export { discord } from "@spectrum-ts/discord";
 export { imessage } from "@spectrum-ts/imessage";
 export { slack } from "@spectrum-ts/slack";
 export { telegram } from "@spectrum-ts/telegram";

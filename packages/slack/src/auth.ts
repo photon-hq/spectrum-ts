@@ -130,6 +130,7 @@ export async function createCloudClients(
       return;
     }
     await refreshTokens();
+    onRefreshSuccess();
     scheduleRenewal();
   };
 

@@ -106,6 +106,7 @@ export async function createCloudClients(
     if (tokenData.type === "dedicated") {
       syncPhones(tokenData);
     }
+    onRefreshSuccess();
     scheduleRenewal();
   };
 

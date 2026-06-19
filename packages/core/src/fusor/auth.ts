@@ -112,6 +112,7 @@ export function createFusorTokenProvider(
       async getToken(): Promise<string> {
         if (Date.now() >= tokenExpiresAt - EXPIRY_BUFFER_MS) {
           await refresh();
+          onRefreshSuccess();
           scheduleRenewal();
         }
         return tokenData.token;

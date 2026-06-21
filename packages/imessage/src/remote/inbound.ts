@@ -1,7 +1,9 @@
 import {
   type AdvancedIMessage,
+  type ChatServiceType,
   type MessageEvent,
   NotFoundError,
+  type SingleServiceAddressInfo,
 } from "@photon-ai/advanced-imessage";
 import { type Content, fromVCard, type Group } from "@spectrum-ts/core";
 import {
@@ -55,8 +57,25 @@ const resolveChatGuid = (
   return first ?? "";
 };
 
-const resolveSenderId = (message: AppleMessage): string =>
-  message.sender?.address ?? "";
+/**
+ * Normalize an Apple address (`message.sender` or an event `actor`) into the
+ * spectrum sender ref. `id` stays the cross-provider identity key (the
+ * address); `address`/`country`/`service` are surfaced when present so apps
+ * can tell iMessage from SMS/RCS. Empty fields are omitted.
+ */
+export const toSenderRef = (
+  addr: SingleServiceAddressInfo | undefined
+): {
+  id: string;
+  address?: string;
+  country?: string;
+  service?: ChatServiceType;
+} => ({
+  id: addr?.address ?? "",
+  ...(addr?.address ? { address: addr.address } : {}),
+  ...(addr?.country ? { country: addr.country } : {}),
+  ...(addr?.service ? { service: addr.service } : {}),
+});
 
 type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
 
@@ -87,7 +106,7 @@ export const buildMessageBase = (
   const chat = resolveChatGuid(message, chatGuidHint);
   return {
     direction: message.isFromMe ? "outbound" : "inbound",
-    sender: { id: resolveSenderId(message) },
+    sender: toSenderRef(message.sender),
     space: {
       id: chat,
       type: chatTypeFromGuid(chat),

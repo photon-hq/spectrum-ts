@@ -146,6 +146,33 @@ describe("iMessage remote toReactionMessages", () => {
     }
   });
 
+  it("carries the actor's address, country, and service onto the reaction sender", async () => {
+    const get = mock((_message: string) => Promise.resolve(sdkMessage()));
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+
+    const messages = await toReactionMessages(
+      remote,
+      new MessageCache(),
+      reactionEvent({
+        actor: {
+          address: "+15557654321",
+          country: "ca",
+          service: "iMessage",
+        },
+      } as Partial<Extract<MessageEvent, { type: "message.reactionAdded" }>>),
+      "+15551234567"
+    );
+
+    expect(messages[0]?.sender).toEqual({
+      id: "+15557654321",
+      address: "+15557654321",
+      country: "ca",
+      service: "iMessage",
+    });
+  });
+
   it("resolves tapbacks on a just-sent streamText message from the outbound cache", async () => {
     const sent = sdkMessage({ guid: "outbound-stream-guid" });
     const sendText = mock((_chat: string, _text: string) =>

@@ -15,6 +15,7 @@ import {
 import type { CachedPoll, PollCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid } from "./ids";
+import { toSenderRef } from "./inbound";
 
 const log = createLogger("spectrum.imessage.poll");
 
@@ -38,7 +39,7 @@ interface PollOptionMessageInput {
   optionId: string;
   phone: string;
   selected: boolean;
-  senderAddress: string;
+  sender: ReturnType<typeof toSenderRef>;
 }
 
 const isVotedPollEvent = (event: PollEvent): event is VotedPollEvent =>
@@ -154,8 +155,8 @@ const buildPollOptionMessage = (
   const eventTime = input.event.occurredAt.getTime();
 
   return {
-    id: `${input.event.pollMessageGuid}:${input.senderAddress}:${input.optionId}:${action}:${eventTime}`,
-    sender: { id: input.senderAddress },
+    id: `${input.event.pollMessageGuid}:${input.sender.id}:${input.optionId}:${action}:${eventTime}`,
+    sender: input.sender,
     space: {
       id: input.chatGuid,
       type: chatTypeFromGuid(input.chatGuid),
@@ -188,9 +189,9 @@ const toPollOptionMessage = async (
   event: VotedPollEvent | UnvotedPollEvent,
   phone: string
 ): Promise<IMessageMessage[]> => {
-  const senderAddress = event.actor?.address;
+  const sender = toSenderRef(event.actor);
   const optionId = event.delta.optionIdentifier;
-  if (!(senderAddress && optionId)) {
+  if (!(sender.id && optionId)) {
     return [];
   }
 
@@ -213,7 +214,7 @@ const toPollOptionMessage = async (
     optionId,
     phone,
     selected: event.delta.type === "voted",
-    senderAddress,
+    sender,
   });
 
   return message ? [message] : [];

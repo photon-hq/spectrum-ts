@@ -72,7 +72,11 @@ export const toMessages = async (
   }
 
   const base: Omit<IMessageMessage, "id" | "content"> = {
-    sender: { id: message.participant ?? "" },
+    // Local mode exposes only the participant address; no service/country.
+    sender: {
+      id: message.participant ?? "",
+      ...(message.participant ? { address: message.participant } : {}),
+    },
     // Local mode has no concept of "which-of-my-phones"; phone is empty.
     space: {
       id: chatId,

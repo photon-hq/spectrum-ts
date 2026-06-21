@@ -15,6 +15,7 @@ import {
   cacheMessage,
   isIMessageMessage,
   rebuildFromAppleMessage,
+  toSenderRef,
 } from "./inbound";
 
 type ReactionAddedEvent = Extract<
@@ -93,8 +94,7 @@ export const toReactionMessages = async (
   if (!emoji) {
     return [];
   }
-  const senderAddress = event.actor?.address;
-  if (!senderAddress) {
+  if (!event.actor?.address) {
     return [];
   }
   const resolved = await resolveReactionTarget(
@@ -116,7 +116,7 @@ export const toReactionMessages = async (
 
   return [
     {
-      sender: { id: senderAddress },
+      sender: toSenderRef(event.actor),
       space: {
         id: event.chatGuid,
         type: chatTypeFromGuid(event.chatGuid),

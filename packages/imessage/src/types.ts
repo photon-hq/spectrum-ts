@@ -34,7 +34,19 @@ export const configSchema = z.union([
   }),
 ]);
 
-export const userSchema = z.object({});
+/**
+ * iMessage sender identity. `id` is the cross-provider key (the address);
+ * `address`/`country`/`service` mirror the SDK's `SingleServiceAddressInfo`,
+ * letting apps tell iMessage from SMS/RCS. All optional — local mode and
+ * actor-less events can't always supply them.
+ */
+const SERVICE_VALUES = ["iMessage", "SMS", "RCS", "unknown"] as const;
+
+export const userSchema = z.object({
+  address: z.string().optional(),
+  country: z.string().optional(),
+  service: z.enum(SERVICE_VALUES).optional(),
+});
 
 export const spaceSchema = z.object({
   id: z.string(),

@@ -634,12 +634,24 @@ type SchemaSpaceOf<Def extends AnyPlatformDef> = InferOptionalSchema<
 type ResolvedUserOf<Def extends AnyPlatformDef> = AwaitedReturn<
   Def["user"]["resolve"]
 >;
+type SchemaUserOf<Def extends AnyPlatformDef> = InferOptionalSchema<
+  Def["user"]["schema"]
+>;
 
 type SpaceShapeOf<Def extends AnyPlatformDef> = [SchemaSpaceOf<Def>] extends [
   never,
 ]
   ? ResolvedSpaceOf<Def>
   : SchemaSpaceOf<Def>;
+
+// Mirrors `SpaceShapeOf`: a declared `user.schema` is authoritative for the
+// app-facing sender shape; without one we fall back to `user.resolve`'s
+// return type so providers that declare no schema are unaffected.
+type UserShapeOf<Def extends AnyPlatformDef> = [SchemaUserOf<Def>] extends [
+  never,
+]
+  ? ResolvedUserOf<Def>
+  : SchemaUserOf<Def>;
 
 // When a provider declares no `space.params`, `definePlatform`'s
 // `_SpaceParamsSchema` has no inference candidate and falls back to its
@@ -811,7 +823,7 @@ export type PlatformMessage<Def extends AnyPlatformDef> = Omit<
   MessageActionMethods<Def>;
 
 export type PlatformUser<Def extends AnyPlatformDef> = Omit<
-  ResolvedUserOf<Def>,
+  UserShapeOf<Def>,
   keyof User
 > &
   User;

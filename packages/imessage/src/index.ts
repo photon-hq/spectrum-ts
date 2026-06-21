@@ -95,6 +95,7 @@ import {
   SHARED_PHONE,
   spaceParamsSchema,
   spaceSchema,
+  userSchema,
 } from "./types";
 
 const isPollContent = (content: { type: string }): boolean =>
@@ -456,6 +457,7 @@ export const imessage = definePlatform("iMessage", {
   },
 
   user: {
+    schema: userSchema,
     resolve: async ({ input }) => ({ id: input.userID }),
   },
 

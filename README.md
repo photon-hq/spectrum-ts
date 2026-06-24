@@ -23,7 +23,7 @@ Learn more at **https://photon.codes**.
 
 ## Getting Started
 
-The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for platforms like iMessage, with credentials ready in minutes.
+The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for  like iMessage, with credentials ready in minutes.
 
 1. Sign up at **[app.photon.codes](https://app.photon.codes)** to get your project ID and secret.
 2. Install the SDK (`spectrum-ts` is batteries-included — the runtime plus

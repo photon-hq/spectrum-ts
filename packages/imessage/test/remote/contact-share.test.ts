@@ -17,11 +17,11 @@ describe("ContactShareTracker", () => {
   it("shares once per chat across repeated inbound messages", async () => {
     const share = mock((_: string) => Promise.resolve());
     const client = makeClient(share);
-    const tracker = new ContactShareTracker();
+    const tracker = new ContactShareTracker(client);
 
-    tracker.maybeShare(client, "chat-A");
-    tracker.maybeShare(client, "chat-A");
-    tracker.maybeShare(client, "chat-A");
+    tracker.maybeShare("chat-A");
+    tracker.maybeShare("chat-A");
+    tracker.maybeShare("chat-A");
     await flush();
 
     expect(share).toHaveBeenCalledTimes(1);
@@ -35,13 +35,13 @@ describe("ContactShareTracker", () => {
     });
     const share = mock((_: string) => sharePromise);
     const client = makeClient(share);
-    const tracker = new ContactShareTracker();
+    const tracker = new ContactShareTracker(client);
 
     // Five concurrent inbound messages for the same chat — only the first
     // should kick off the share; the rest should see the cached entry and
     // skip even though the in-flight promise hasn't resolved yet.
     for (let i = 0; i < 5; i++) {
-      tracker.maybeShare(client, "chat-burst");
+      tracker.maybeShare("chat-burst");
     }
     expect(share).toHaveBeenCalledTimes(1);
 
@@ -53,11 +53,11 @@ describe("ContactShareTracker", () => {
   it("shares for distinct chats independently", async () => {
     const share = mock((_: string) => Promise.resolve());
     const client = makeClient(share);
-    const tracker = new ContactShareTracker();
+    const tracker = new ContactShareTracker(client);
 
-    tracker.maybeShare(client, "chat-A");
-    tracker.maybeShare(client, "chat-B");
-    tracker.maybeShare(client, "chat-A");
+    tracker.maybeShare("chat-A");
+    tracker.maybeShare("chat-B");
+    tracker.maybeShare("chat-A");
     await flush();
 
     expect(share).toHaveBeenCalledTimes(2);
@@ -76,20 +76,20 @@ describe("ContactShareTracker", () => {
         : Promise.resolve();
     });
     const client = makeClient(share);
-    const tracker = new ContactShareTracker();
+    const tracker = new ContactShareTracker(client);
 
-    tracker.maybeShare(client, "chat-retry");
+    tracker.maybeShare("chat-retry");
     await flush();
     expect(share).toHaveBeenCalledTimes(1);
 
     // After failure the cache entry should be evicted, so the next inbound
     // tries again rather than silently muting the chat.
-    tracker.maybeShare(client, "chat-retry");
+    tracker.maybeShare("chat-retry");
     await flush();
     expect(share).toHaveBeenCalledTimes(2);
 
     // The retry succeeded — subsequent inbounds within the window are deduped.
-    tracker.maybeShare(client, "chat-retry");
+    tracker.maybeShare("chat-retry");
     await flush();
     expect(share).toHaveBeenCalledTimes(2);
   });
@@ -97,25 +97,43 @@ describe("ContactShareTracker", () => {
   it("never throws synchronously even when shareContactInfo rejects", async () => {
     const share = mock((_: string) => Promise.reject(new Error("boom")));
     const client = makeClient(share);
-    const tracker = new ContactShareTracker();
+    const tracker = new ContactShareTracker(client);
 
-    expect(() => tracker.maybeShare(client, "chat-throw")).not.toThrow();
+    expect(() => tracker.maybeShare("chat-throw")).not.toThrow();
     await flush();
     expect(share).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("getContactShareTracker", () => {
-  it("returns the same tracker for the same owner", () => {
-    const owner = {};
-    const a = getContactShareTracker(owner);
-    const b = getContactShareTracker(owner);
+  const noopClient = () => makeClient(() => Promise.resolve());
+
+  it("returns the same tracker for the same client", () => {
+    const client = noopClient();
+    const a = getContactShareTracker(client);
+    const b = getContactShareTracker(client);
     expect(a).toBe(b);
   });
 
-  it("returns distinct trackers for distinct owners", () => {
-    const a = getContactShareTracker({});
-    const b = getContactShareTracker({});
+  it("returns distinct trackers for distinct clients", () => {
+    const a = getContactShareTracker(noopClient());
+    const b = getContactShareTracker(noopClient());
     expect(a).not.toBe(b);
+  });
+
+  it("shares per line — distinct clients dedupe the same chat independently", async () => {
+    const shareA = mock((_: string) => Promise.resolve());
+    const shareB = mock((_: string) => Promise.resolve());
+    const trackerA = getContactShareTracker(makeClient(shareA));
+    const trackerB = getContactShareTracker(makeClient(shareB));
+
+    // Same DM chat guid (encodes the peer) arriving on two different lines.
+    trackerA.maybeShare("any;-;+15550123");
+    trackerB.maybeShare("any;-;+15550123");
+    trackerA.maybeShare("any;-;+15550123"); // dup on line A — deduped
+    await flush();
+
+    expect(shareA).toHaveBeenCalledTimes(1);
+    expect(shareB).toHaveBeenCalledTimes(1);
   });
 });

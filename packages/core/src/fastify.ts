@@ -1,25 +1,15 @@
-// Spectrum webhook receiver as a first-party Express plugin.
+// Spectrum webhook receiver as a first-party Fastify plugin.
 //
-// Express runs on Node `req`/`res`, not the Web `Request`/`Response`, so this
-// plugin uses `app.webhook()`'s raw overload (`{ body, headers }` →
-// `{ status, headers, body }`) and writes the result back itself. The raw body
-// bytes only exist if a body parser captures them as a Buffer, so the plugin
-// mounts `express.raw({ type: "*/*" })` on its own route — Spectrum verifies the
-// native webhook's HMAC over the EXACT wire bytes
-// (`HMAC-SHA256(secret, "v0:<ts>:<rawBody>")`), so a parsed-and-re-encoded body
-// would break verification (and the fusor protobuf body would fail to decode).
+// Fastify runs on its own Request/Reply abstraction model. This plugin
+// registers a custom content type parser for `*` (all content types) to capture
+// the raw request body payload bytes as a `Buffer`.
 //
-// ⚠️ Ordering hazard (the Express analog of Elysia's parse lifecycle): a global
-// `express.json()` mounted BEFORE this router consumes the request stream first,
-// leaving `req.body` a parsed object rather than the raw bytes — verification
-// then fails. Mount this plugin before any global `express.json()`, or scope
-// `json()` so it never matches the webhook path.
+// ⚠️ Encapsulation: Registering the content type parser inside this plugin scope
+// ensures it only applies to this route, preventing interference with global parsers.
 //
-// It returns an Express `Router`, so a host app composes it with one
-// `app.use(spectrum(...))` — the route, the raw-body parser, and the response
-// writing are all owned by the plugin.
+// It returns an async Fastify plugin function.
 
-import express, { type Router } from "express";
+import type { FastifyInstance } from "fastify";
 import type { WebhookHandler } from "./fusor";
 
 /**
@@ -60,41 +50,66 @@ export interface SpectrumPluginOptions {
 }
 
 /**
- * Mount a Spectrum webhook endpoint on an Express app.
+ * Mount a Spectrum webhook endpoint on a Fastify app.
  *
  * @example
  * ```ts
- * import express from "express";
+ * import Fastify from "fastify";
  * import { Spectrum } from "spectrum-ts";
- * import { spectrum } from "spectrum-ts/express";
+ * import { spectrum } from "spectrum-ts/fastify";
  *
  * const app = await Spectrum({ ...,  webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET });
  *
- * const server = express();
- * server.use(spectrum({ // mount before any global express.json()
+ * const server = Fastify();
+ * server.register(spectrum, {
  *   app,
  *   onMessage: async (space, message) => {
  *     if (message.content.type === "text") await space.send(`echo: ${message.content.text}`);
  *   },
- * }));
- * server.listen(3000);
+ * });
+ * server.listen({ port: 3000 });
  * ```
  */
-export function spectrum(options: SpectrumPluginOptions): Router {
+export async function spectrum(
+  fastify: FastifyInstance,
+  options: SpectrumPluginOptions
+) {
   const { app, onMessage, path = "/spectrum/webhook" } = options;
 
-  const router = express.Router();
-  router.post(path, express.raw({ type: "*/*" }), async (req, res) => {
+  // Remove default/global content type parsers inside this plugin's scope
+  // to ensure they don't override our wildcard/raw body parser.
+  fastify.removeAllContentTypeParsers();
+
+  // Custom parser to capture the exact raw body bytes as a Buffer.
+  // Using "*" captures all content types (application/json, application/x-protobuf, etc.)
+  // under the scope of this plugin.
+  fastify.addContentTypeParser("*", (_request, payload, done) => {
+    const chunks: Uint8Array[] = [];
+    payload.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+    payload.on("end", () => {
+      done(null, Buffer.concat(chunks));
+    });
+    payload.on("error", (err) => {
+      done(err);
+    });
+  });
+
+  fastify.post(path, async (request, reply) => {
     const result = await app.webhook(
-      { body: req.body, headers: normalizeHeaders(req.headers) },
+      {
+        body: request.body as Buffer,
+        headers: normalizeHeaders(request.headers),
+      },
       onMessage
     );
-    res
+
+    return reply
       .status(result.status)
-      .set(result.headers)
+      .headers(result.headers)
       .send(Buffer.from(result.body));
   });
-  return router;
 }
 
 function normalizeHeaders(

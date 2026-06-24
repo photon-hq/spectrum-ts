@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { markdownToPlainText } from "@/utils/markdown";
+import {
+  markdownToPlainText,
+  markdownToSlack,
+  markdownToWhatsapp,
+} from "@/utils/markdown";
 
 describe("markdownToPlainText", () => {
   it("strips nested emphasis markers", () => {
@@ -91,5 +95,68 @@ describe("markdownToPlainText", () => {
 
   it("separates blocks with a blank line", () => {
     expect(markdownToPlainText("one\n\ntwo")).toBe("one\n\ntwo");
+  });
+});
+
+describe("markdownToSlack", () => {
+  it("converts strong, em, and del to slack mrkdwn style", () => {
+    expect(markdownToSlack("**bold _italic_ ~~strike~~**")).toBe(
+      "*bold _italic_ ~strike~*"
+    );
+  });
+
+  it("converts codespan", () => {
+    expect(markdownToSlack("run `a < b` now")).toBe("run `a < b` now");
+  });
+
+  it("escapes Slack special characters &, <, and >", () => {
+    expect(markdownToSlack("a & b < c > d")).toBe("a &amp; b &lt; c &gt; d");
+  });
+
+  it("converts markdown links to Slack mrkdwn links", () => {
+    expect(markdownToSlack("see [docs](https://d.test)")).toBe(
+      "see <https://d.test|docs>"
+    );
+    expect(markdownToSlack("see [https://d.test](https://d.test)")).toBe(
+      "see <https://d.test>"
+    );
+  });
+
+  it("converts headings to bold text", () => {
+    expect(markdownToSlack("# Title\n\nbody")).toBe("*Title*\n\nbody");
+  });
+
+  it("converts lists and blockquotes", () => {
+    expect(markdownToSlack("- item 1\n- item 2")).toBe("• item 1\n• item 2");
+    expect(markdownToSlack("> quote line")).toBe("> quote line");
+  });
+});
+
+describe("markdownToWhatsapp", () => {
+  it("converts strong, em, and del to whatsapp style", () => {
+    expect(markdownToWhatsapp("**bold _italic_ ~~strike~~**")).toBe(
+      "*bold _italic_ ~strike~*"
+    );
+  });
+
+  it("converts codespan", () => {
+    expect(markdownToWhatsapp("run `a < b` now")).toBe("run `a < b` now");
+  });
+
+  it("does not escape HTML entities for whatsapp", () => {
+    expect(markdownToWhatsapp("a & b < c > d")).toBe("a & b < c > d");
+  });
+
+  it("degrades markdown links to label (url) for whatsapp", () => {
+    expect(markdownToWhatsapp("see [docs](https://d.test)")).toBe(
+      "see docs (https://d.test)"
+    );
+    expect(markdownToWhatsapp("see [https://d.test](https://d.test)")).toBe(
+      "see https://d.test"
+    );
+  });
+
+  it("converts headings to bold text", () => {
+    expect(markdownToWhatsapp("# Title\n\nbody")).toBe("*Title*\n\nbody");
   });
 });

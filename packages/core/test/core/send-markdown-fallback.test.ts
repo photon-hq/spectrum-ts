@@ -296,4 +296,54 @@ describe("markdown plain-text fallback", () => {
       await app.stop();
     }
   });
+
+  it("re-sends the markdown formatted for Slack when the platform is Slack", async () => {
+    const { seen, sendImpl } = noMarkdownSend("Slack");
+    const provider = makeProvider("Slack", sendImpl);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [space] = await firstMessage(app);
+      const sent = await space.send(markdown("**Hi** [docs](https://d.test)"));
+
+      expect(seen.map((c) => c.type)).toEqual(["markdown", "text"]);
+      expect(seen.at(-1)).toEqual({
+        type: "text",
+        text: "*Hi* <https://d.test|docs>",
+      });
+      expect(sent?.content).toEqual({
+        type: "text",
+        text: "*Hi* <https://d.test|docs>",
+      });
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("re-sends the markdown formatted for WhatsApp when the platform is WhatsApp Business", async () => {
+    const { seen, sendImpl } = noMarkdownSend("WhatsApp Business");
+    const provider = makeProvider("WhatsApp Business", sendImpl);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [space] = await firstMessage(app);
+      const sent = await space.send(markdown("**Hi** [docs](https://d.test)"));
+
+      expect(seen.map((c) => c.type)).toEqual(["markdown", "text"]);
+      expect(seen.at(-1)).toEqual({
+        type: "text",
+        text: "*Hi* docs (https://d.test)",
+      });
+      expect(sent?.content).toEqual({
+        type: "text",
+        text: "*Hi* docs (https://d.test)",
+      });
+    } finally {
+      await app.stop();
+    }
+  });
 });

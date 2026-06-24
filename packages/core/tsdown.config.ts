@@ -7,11 +7,12 @@ export default defineConfig({
     elysia: "src/elysia.ts",
     express: "src/express.ts",
     hono: "src/hono.ts",
+    fastify: "src/fastify.ts",
   },
   format: "esm",
   fixedExtension: false,
   dts: true,
   clean: true,
   platform: "node",
-  external: ["ffmpeg-static", "elysia", "express", "hono"],
+  external: ["ffmpeg-static", "elysia", "express", "hono", "fastify"],
 });

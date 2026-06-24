@@ -23,7 +23,11 @@ import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { AgentSender } from "../types/user";
 import { UnsupportedError } from "../utils/errors";
-import { markdownToPlainText } from "../utils/markdown";
+import {
+  markdownToPlainText,
+  markdownToSlack,
+  markdownToWhatsapp,
+} from "../utils/markdown";
 import type { Store } from "../utils/store";
 import { contentAttrs } from "../utils/telemetry";
 import type {
@@ -230,26 +234,37 @@ const replaceStreamText = (
 
 // `undefined` when the markdown renders to empty plain text (e.g. an
 // HTML-comment-only source) — there is nothing sensible to send.
-const downgradeMarkdown = (md: Markdown): BaseContent | undefined => {
-  const plain = markdownToPlainText(md.markdown);
-  return plain ? asText(plain) : undefined;
+const downgradeMarkdown = (
+  md: Markdown,
+  platform: string
+): BaseContent | undefined => {
+  const platformLower = platform.toLowerCase();
+  let textContent: string;
+  if (platformLower === "slack") {
+    textContent = markdownToSlack(md.markdown);
+  } else if (platformLower.includes("whatsapp")) {
+    textContent = markdownToWhatsapp(md.markdown);
+  } else {
+    textContent = markdownToPlainText(md.markdown);
+  }
+  return textContent ? asText(textContent) : undefined;
 };
 
-// Rewrite markdown-bearing content as readable plain text, preserving
-// `reply`/`edit` wrappers and `group` structure. Returns `item` itself
+// Rewrite markdown-bearing content as readable plain text or platform-specific rich text,
+// preserving `reply`/`edit` wrappers and `group` structure. Returns `item` itself
 // (reference-equal) when there is nothing to downgrade. Group items are
 // scanned here but deliberately not in `findStreamText`: a markdown caption
 // in an album downgrades to text meaningfully, while a live stream inside a
 // multipart bubble has no sensible downgrade.
-const replaceMarkdown = (item: Content): Content => {
+const replaceMarkdown = (item: Content, platform: string): Content => {
   if (item.type === "markdown") {
-    return downgradeMarkdown(item) ?? item;
+    return downgradeMarkdown(item, platform) ?? item;
   }
   if (
     (item.type === "reply" || item.type === "edit") &&
     item.content.type === "markdown"
   ) {
-    const downgraded = downgradeMarkdown(item.content);
+    const downgraded = downgradeMarkdown(item.content, platform);
     return downgraded ? { ...item, content: downgraded } : item;
   }
   if (item.type === "group") {
@@ -258,7 +273,7 @@ const replaceMarkdown = (item: Content): Content => {
       if (member.content.type !== "markdown") {
         return member;
       }
-      const downgraded = downgradeMarkdown(member.content);
+      const downgraded = downgradeMarkdown(member.content, platform);
       if (!downgraded) {
         return member;
       }
@@ -354,12 +369,12 @@ async function sendWithFallbacks(
     if (source) {
       return await resendDrainedStream(send, item, source, platform, err);
     }
-    const downgraded = replaceMarkdown(item);
+    const downgraded = replaceMarkdown(item, platform);
     if (downgraded === item) {
       throw err;
     }
     platformLog.info(
-      `${platform} does not support markdown; sending the content as plain text instead.`,
+      `${platform} does not support markdown; sending downgraded content instead.`,
       {
         "spectrum.provider": platform,
         "spectrum.markdown.fallback": true,

@@ -44,6 +44,11 @@
       "types": "./src/hono.ts",
       "default": "./dist/hono.js"
     },
+    "./fastify": {
+      "bun": "./src/fastify.ts",
+      "types": "./src/fastify.ts",
+      "default": "./dist/fastify.js"
+    },
     "./providers": {
       "bun": "./src/providers/index.ts",
       "types": "./src/providers/index.ts",
@@ -78,6 +83,10 @@
       "./hono": {
         "types": "./dist/hono.d.ts",
         "default": "./dist/hono.js"
+      },
+      "./fastify": {
+        "types": "./dist/fastify.d.ts",
+        "default": "./dist/fastify.js"
       },
       "./providers": {
         "types": "./dist/providers/index.d.ts",

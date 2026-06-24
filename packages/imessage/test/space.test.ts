@@ -7,7 +7,7 @@ import { SHARED_PHONE } from "@/types";
 
 const SHARED_GROUP_ERROR = /shared mode cannot create group chats/;
 const MULTI_CLIENT_ERROR = /params\.phone.*\+15550100, \+15550111/;
-const LOCAL_MODE_ERROR = /local mode/;
+const LOCAL_GROUP_ERROR = /local mode cannot create group chats/;
 
 const def = imessage.config({}).__definition;
 
@@ -43,6 +43,32 @@ const clients = (
   entries.map(([phone, onCreate]) => ({ phone, client: fakeRemote(onCreate) }));
 
 describe("imessage space.create", () => {
+  it("local mode: builds a deterministic DM guid without a remote API", async () => {
+    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
+    await expect(
+      def.space.create({
+        ...ctx,
+        client: localClient,
+        input: { users: [{ id: "+15550123" }] },
+      })
+    ).resolves.toEqual({
+      id: "any;-;+15550123",
+      type: "dm",
+      phone: "",
+    });
+  });
+
+  it("local mode: cannot create group chats from addresses", async () => {
+    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
+    await expect(
+      def.space.create({
+        ...ctx,
+        client: localClient,
+        input: { users: [{ id: "a@x.com" }, { id: "b@x.com" }] },
+      })
+    ).rejects.toThrow(LOCAL_GROUP_ERROR);
+  });
+
   it("shared mode: builds the deterministic DM guid without an API call", async () => {
     const client = clients([[SHARED_PHONE]]);
     await expect(
@@ -173,10 +199,33 @@ describe("imessage space.get", () => {
     ).rejects.toThrow(MULTI_CLIENT_ERROR);
   });
 
-  it("is unsupported in local mode", async () => {
+  it("local mode: constructs the space offline, deriving dm type from the guid shape", async () => {
     const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
     await expect(
-      def.space.get?.({ ...ctx, client: localClient, input: { id: "any;-;x" } })
-    ).rejects.toThrow(LOCAL_MODE_ERROR);
+      def.space.get?.({
+        ...ctx,
+        client: localClient,
+        input: { id: "any;-;+15550123" },
+      })
+    ).resolves.toEqual({
+      id: "any;-;+15550123",
+      type: "dm",
+      phone: "",
+    });
+  });
+
+  it("local mode: derives group type from the `;+;` guid separator", async () => {
+    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
+    await expect(
+      def.space.get?.({
+        ...ctx,
+        client: localClient,
+        input: { id: "iMessage;+;chat42" },
+      })
+    ).resolves.toEqual({
+      id: "iMessage;+;chat42",
+      type: "group",
+      phone: "",
+    });
   });
 });

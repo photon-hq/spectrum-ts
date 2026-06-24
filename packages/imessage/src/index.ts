@@ -470,16 +470,23 @@ export const imessage = definePlatform("iMessage", {
     schema: spaceSchema,
     params: spaceParamsSchema,
     create: async ({ input, client }) => {
-      if (isLocal(client)) {
-        throw UnsupportedError.action(
-          "space.create",
-          "iMessage (local mode)",
-          "local mode only supports replying to existing messages"
-        );
-      }
-
       if (input.users.length === 0) {
         throw new Error("iMessage space creation requires at least one user");
+      }
+
+      if (isLocal(client)) {
+        if (input.users.length > 1) {
+          throw UnsupportedError.action(
+            "space.create",
+            "iMessage (local mode)",
+            "local mode cannot create group chats — use space.get(chatGuid) for an existing group"
+          );
+        }
+        return {
+          id: dmChatGuid(input.users[0]?.id ?? ""),
+          type: "dm" as const,
+          phone: "",
+        };
       }
 
       if (client.length === 0) {
@@ -519,11 +526,11 @@ export const imessage = definePlatform("iMessage", {
     },
     get: async ({ input, client }) => {
       if (isLocal(client)) {
-        throw UnsupportedError.action(
-          "space.get",
-          "iMessage (local mode)",
-          "local mode only supports replying to existing messages"
-        );
+        return {
+          id: input.id,
+          type: chatTypeFromGuid(input.id),
+          phone: "",
+        };
       }
 
       if (client.length === 0) {

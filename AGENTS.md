@@ -121,3 +121,17 @@ Biome's linter will catch most issues automatically. Focus your attention on:
 ---
 
 Most formatting and common issues are automatically fixed by Biome. Run `bun x ultracite fix` before committing to ensure compliance.
+
+---
+
+## Cursor Cloud specific instructions
+
+This is a **Bun workspaces + Turbo monorepo** that publishes the `spectrum-ts` SDK and its provider packages. It is a **library, not a deployable service** — there are no servers, databases, or background daemons to run. The full validation loop is in-process. Standard commands live in `CONTRIBUTING.md` (`bun run check` / `typecheck` / `test` / `build`) and `package.json` scripts; use those rather than reinventing them.
+
+Runtime: Bun (pinned to `.bun-version`, currently 1.3.14) is the package manager and test runner. Node 24 is also installed and made the default `node` (see build gotcha below).
+
+Non-obvious gotchas:
+
+- **Build/dev require Node ≥ 24.11.1, not the pre-installed Node 22.** The `tsdown` build tool runs via a `#!/usr/bin/env node` shebang, and its `auto` config loader only loads the `tsdown.config.ts` files natively on Node ≥ 24.11.1. On older Node it falls back to the optional `unrun` package (not installed) and the build fails with `Failed to import module "unrun"`. Node 24 is installed via nvm and prepended onto `PATH` in `~/.bashrc` ahead of the pre-installed `/exec-daemon` Node 22, so `bun run build` and `bun run dev` work as documented. If you ever see the `unrun` error, run `node --version` — it must report v24.x. (Alternatively `bun run --bun build` forces the bin under Bun and also works.)
+- **`bun run dev` needs `--concurrency` ≥ 11.** There are 10 persistent watch tasks and Turbo's default concurrency is 10, so plain `bun run dev` aborts with `Invalid task configuration`. Run `bun run dev --concurrency=12`.
+- **Example app (`bun run examples/basic/index.ts`)** uses the Terminal provider, which downloads a `tuichat` binary on first run (needs network the first time; set `TUICHAT_BINARY`/`TUICHAT_VERSION` to skip). In a non-TTY shell it runs in plain readline mode and reads inbound messages from stdin, so you can drive it by piping lines in; it reacts with 👀 and echoes each message back.

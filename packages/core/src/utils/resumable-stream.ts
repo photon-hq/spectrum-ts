@@ -61,6 +61,8 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
    * continues either way, so a recover that itself fails is harmless.
    */
   recover?: (error: unknown, failureCount: number) => Promise<void> | void;
+  /** Cap on how long a `recover` hook may run before it is abandoned; injectable for tests. */
+  recoverTimeoutMs?: number;
   subscribeLive: (cursor?: string) => CloseableAsyncIterable<TLive>;
 }
 
@@ -97,6 +99,34 @@ const closeIterable = async <T>(
 };
 
 const ignoreCleanupError = () => undefined;
+
+// A recover hook (e.g. an auth-token re-mint) that never settles must not
+// freeze the reconnect loop or leave close() waiting on the pump forever. Cap
+// it; on timeout the abandoned result is ignored and the loop proceeds.
+const RECOVER_TIMEOUT_MS = 30_000;
+
+const runWithTimeout = async (
+  work: Promise<void>,
+  timeoutMs: number,
+  onTimeout: () => Error
+): Promise<void> => {
+  // Swallow a late rejection from the abandoned work so it can't surface as an
+  // unhandled rejection once we stop awaiting it.
+  work.catch(ignoreCleanupError);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(onTimeout()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+};
 
 // Equal jitter: a near-zero random draw must not defeat backoff during an
 // outage, so the floor is half the nominal delay.
@@ -155,6 +185,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       options.initialRetryDelayMs ?? RECONNECT_INITIAL_DELAY_MS;
     const maxRetryDelayMs = options.maxRetryDelayMs ?? RECONNECT_MAX_DELAY_MS;
     const jitter = options.jitter ?? jitterDelay;
+    const recoverTimeoutMs = options.recoverTimeoutMs ?? RECOVER_TIMEOUT_MS;
     const label = options.label;
 
     let activeLive: CloseableAsyncIterable<TLive> | undefined;
@@ -319,7 +350,14 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       }
       lastRecoverAttempt = failedAttempts;
       try {
-        await options.recover(error, failedAttempts);
+        await runWithTimeout(
+          Promise.resolve(options.recover(error, failedAttempts)),
+          recoverTimeoutMs,
+          () =>
+            new Error(
+              `recover hook did not settle within ${recoverTimeoutMs}ms`
+            )
+        );
         log.info("stream recover hook ran", {
           "spectrum.stream.id": streamId,
           "spectrum.stream.label": label,

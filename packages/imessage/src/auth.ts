@@ -112,13 +112,22 @@ export async function createCloudClients(
     const ttlMs = tokenData.expiresIn * 1000;
     const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
 
-    renewalTimer = setTimeout(() => {
+    const runScheduledRefresh = () => {
       coalescedRefresh().catch((error) => {
         onRefreshFailure(error);
-        renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
+        if (disposed) {
+          return;
+        }
+        // Retry the refresh itself after RETRY_DELAY_MS. Re-running
+        // scheduleRenewal would instead wait another full renewal window (80%
+        // of TTL), leaving the token stale/expired during an outage. On
+        // success, refreshNow() re-arms the next renewal.
+        renewalTimer = setTimeout(runScheduledRefresh, RETRY_DELAY_MS);
         renewalTimer?.unref?.();
       });
-    }, renewInMs);
+    };
+
+    renewalTimer = setTimeout(runScheduledRefresh, renewInMs);
     renewalTimer?.unref?.();
   };
 

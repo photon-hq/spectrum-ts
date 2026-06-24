@@ -93,7 +93,7 @@ than writing an empty manifest.
 This is the part that keeps the hand-written `spectrum` metadata honest.
 `validateAgainstSource()` reads the provider's `src/index.ts` and matches it against:
 
-```
+```text
 export const <import> = definePlatform(<label>, …)
 ```
 

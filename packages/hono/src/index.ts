@@ -52,7 +52,7 @@ export interface SpectrumPluginOptions {
  * ```ts
  * import { Hono } from "hono";
  * import { Spectrum } from "spectrum-ts";
- * import { spectrum } from "spectrum-ts/hono";
+ * import { spectrum } from "@spectrum-ts/hono";
  *
  * const app = await Spectrum({ ...,  webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET });
  *

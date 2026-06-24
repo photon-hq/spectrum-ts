@@ -51,7 +51,7 @@ export interface SpectrumPluginOptions {
  * ```ts
  * import { Elysia } from "elysia";
  * import { Spectrum } from "spectrum-ts";
- * import { spectrum } from "spectrum-ts/elysia";
+ * import { spectrum } from "@spectrum-ts/elysia";
  *
  * const app = await Spectrum({ ...,  webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET });
  *

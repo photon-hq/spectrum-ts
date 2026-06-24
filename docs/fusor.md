@@ -178,7 +178,7 @@ The reply Hono sends is the platform ack, produced by the pipeline — not
 whatever your handler does. `space.send(...)` posts a *new* message back to the
 platform out-of-band; it is not the HTTP response.
 
-> 🔌 Prefer the first-party **[`spectrum-ts/hono`](./hono.md)** plugin to mount
+> 🔌 Prefer the first-party **[`@spectrum-ts/hono`](./hono.md)** plugin to mount
 > this endpoint in one `app.route(...)`.
 
 **Bun.serve / Next.js App Router / Cloudflare Workers** — native `Request` →
@@ -211,14 +211,14 @@ app.post(
 );
 ```
 
-> 🔌 Prefer the first-party **[`spectrum-ts/express`](./express.md)** plugin — it
+> 🔌 Prefer the first-party **[`@spectrum-ts/express`](./express.md)** plugin — it
 > bundles `express.raw` and the response writing behind one `app.use(...)`.
 
 **ElysiaJS** — use the first-party plugin (it handles the raw-body parsing for
 you); see **[ElysiaJS plugin](./elysia.md)**:
 
 ```typescript
-import { spectrum } from "spectrum-ts/elysia";
+import { spectrum } from "@spectrum-ts/elysia";
 
 new Elysia().use(
   spectrum({

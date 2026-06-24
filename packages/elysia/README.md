@@ -33,7 +33,4 @@ new Elysia()
   .listen(3000);
 ```
 
-> Using the batteries-included `spectrum-ts` metapackage? Import from
-> `spectrum-ts/elysia` instead — it re-exports this package.
-
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.

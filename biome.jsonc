@@ -20,9 +20,6 @@
         "packages/core/src/fusor/index.ts",
         "packages/spectrum-ts/src/index.ts",
         "packages/spectrum-ts/src/authoring.ts",
-        "packages/spectrum-ts/src/elysia.ts",
-        "packages/spectrum-ts/src/express.ts",
-        "packages/spectrum-ts/src/hono.ts",
         "packages/spectrum-ts/src/providers/**"
       ],
       "linter": {

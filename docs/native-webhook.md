@@ -79,9 +79,9 @@ app.post(
 > `express.raw(...)` — never `req.json()`.
 
 > 🔌 **First-party plugins** mount the endpoint for you in one call, with the
-> raw-body handling already correct: **[`spectrum-ts/hono`](./hono.md)**,
-> **[`spectrum-ts/express`](./express.md)**, and
-> **[`spectrum-ts/elysia`](./elysia.md)** (Elysia auto-parses JSON bodies, so the
+> raw-body handling already correct: **[`@spectrum-ts/hono`](./hono.md)**,
+> **[`@spectrum-ts/express`](./express.md)**, and
+> **[`@spectrum-ts/elysia`](./elysia.md)** (Elysia auto-parses JSON bodies, so the
 > plugin disables parsing on its route and forwards the raw request).
 
 ## What the SDK does for you

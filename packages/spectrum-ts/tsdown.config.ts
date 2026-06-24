@@ -4,9 +4,6 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     authoring: "src/authoring.ts",
-    elysia: "src/elysia.ts",
-    express: "src/express.ts",
-    hono: "src/hono.ts",
     "providers/index": "src/providers/index.ts",
     "providers/imessage/index": "src/providers/imessage/index.ts",
     "providers/slack/index": "src/providers/slack/index.ts",

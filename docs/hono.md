@@ -1,6 +1,6 @@
 # Hono plugin
 
-`spectrum-ts/hono` is a first-party [Hono](https://hono.dev) plugin that mounts a
+`@spectrum-ts/hono` is a first-party [Hono](https://hono.dev) plugin that mounts a
 Spectrum webhook endpoint in a single `.route()`. It wraps
 [`app.webhook()`](./fusor.md#webhook-mode--appwebhook), so it handles **both**
 webhook formats — the [native Spectrum webhook](./native-webhook.md) (HMAC-signed
@@ -32,10 +32,12 @@ returns a mountable Hono sub-app, so you compose it with `app.route(...)`.
 ## Install
 
 ```bash
-bun add hono spectrum-ts
+bun add spectrum-ts @spectrum-ts/hono hono
 ```
 
-`hono` is an optional peer dependency — you only need it if you use this subpath.
+`spectrum-ts` provides `Spectrum` (and your providers); `@spectrum-ts/hono` is the
+plugin; `hono` is its required peer dependency. (Using `@spectrum-ts/core` directly
+instead of the metapackage? Swap it in for `spectrum-ts`.)
 
 ## Usage
 
@@ -43,7 +45,7 @@ bun add hono spectrum-ts
 import { Hono } from "hono";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
-import { spectrum } from "spectrum-ts/hono";
+import { spectrum } from "@spectrum-ts/hono";
 
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID,
@@ -81,5 +83,5 @@ semantics — is exactly [what `app.webhook()` does](./native-webhook.md#what-th
 
 ## Reference
 
-- Plugin source — `src/hono.ts`
-- `app.webhook(request, handler)` — `src/spectrum.ts`
+- Plugin source — `@spectrum-ts/hono` (`packages/hono/src/index.ts`)
+- `app.webhook(request, handler)` — `@spectrum-ts/core` (`packages/core/src/spectrum.ts`)

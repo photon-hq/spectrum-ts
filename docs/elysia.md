@@ -1,6 +1,6 @@
 # ElysiaJS plugin
 
-`spectrum-ts/elysia` is a first-party [ElysiaJS](https://elysiajs.com) plugin that
+`@spectrum-ts/elysia` is a first-party [ElysiaJS](https://elysiajs.com) plugin that
 mounts a Spectrum webhook endpoint in a single `.use()`. It wraps
 [`app.webhook()`](./fusor.md#webhook-mode--appwebhook), so it handles **both**
 webhook formats — the [native Spectrum webhook](./native-webhook.md) (HMAC-signed
@@ -25,10 +25,12 @@ leaves the body untouched, then forwards the raw `Request` straight to
 ## Install
 
 ```bash
-bun add elysia spectrum-ts
+bun add spectrum-ts @spectrum-ts/elysia elysia
 ```
 
-`elysia` is an optional peer dependency — you only need it if you use this subpath.
+`spectrum-ts` provides `Spectrum` (and your providers); `@spectrum-ts/elysia` is the
+plugin; `elysia` is its required peer dependency. (Using `@spectrum-ts/core`
+directly instead of the metapackage? Swap it in for `spectrum-ts`.)
 
 ## Usage
 
@@ -36,7 +38,7 @@ bun add elysia spectrum-ts
 import { Elysia } from "elysia";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
-import { spectrum } from "spectrum-ts/elysia";
+import { spectrum } from "@spectrum-ts/elysia";
 
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID,
@@ -73,5 +75,5 @@ semantics — is exactly [what `app.webhook()` does](./native-webhook.md#what-th
 
 ## Reference
 
-- Plugin source — `src/elysia.ts`
-- `app.webhook(request, handler)` — `src/spectrum.ts`
+- Plugin source — `@spectrum-ts/elysia` (`packages/elysia/src/index.ts`)
+- `app.webhook(request, handler)` — `@spectrum-ts/core` (`packages/core/src/spectrum.ts`)

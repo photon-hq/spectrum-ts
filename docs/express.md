@@ -1,6 +1,6 @@
 # Express plugin
 
-`spectrum-ts/express` is a first-party [Express](https://expressjs.com) plugin
+`@spectrum-ts/express` is a first-party [Express](https://expressjs.com) plugin
 that mounts a Spectrum webhook endpoint in a single `.use()`. It wraps
 [`app.webhook()`](./fusor.md#webhook-mode--appwebhook), so it handles **both**
 webhook formats — the [native Spectrum webhook](./native-webhook.md) (HMAC-signed
@@ -42,10 +42,12 @@ response writing — behind one `app.use()`.
 ## Install
 
 ```bash
-bun add express spectrum-ts
+bun add spectrum-ts @spectrum-ts/express express
 ```
 
-`express` is an optional peer dependency — you only need it if you use this subpath.
+`spectrum-ts` provides `Spectrum` (and your providers); `@spectrum-ts/express` is
+the plugin; `express` is its required peer dependency. (Using `@spectrum-ts/core`
+directly instead of the metapackage? Swap it in for `spectrum-ts`.)
 
 ## Usage
 
@@ -53,7 +55,7 @@ bun add express spectrum-ts
 import express from "express";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
-import { spectrum } from "spectrum-ts/express";
+import { spectrum } from "@spectrum-ts/express";
 
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID,
@@ -99,5 +101,5 @@ semantics — is exactly [what `app.webhook()` does](./native-webhook.md#what-th
 
 ## Reference
 
-- Plugin source — `src/express.ts`
-- `app.webhook(request, handler)` — `src/spectrum.ts`
+- Plugin source — `@spectrum-ts/express` (`packages/express/src/index.ts`)
+- `app.webhook(request, handler)` — `@spectrum-ts/core` (`packages/core/src/spectrum.ts`)

@@ -32,7 +32,4 @@ const server = new Hono().route(
 );
 ```
 
-> Using the batteries-included `spectrum-ts` metapackage? Import from
-> `spectrum-ts/hono` instead — it re-exports this package.
-
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.

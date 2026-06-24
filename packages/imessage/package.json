@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/imessage",
-  "version": "5.2.0",
+  "version": "6.0.0",
   "description": "iMessage provider for spectrum-ts — local and remote (advanced) modes.",
   "repository": {
     "type": "git",
@@ -52,7 +52,7 @@
     "zod": "^4.2.1"
   },
   "peerDependencies": {
-    "@spectrum-ts/core": "^5.0.0",
+    "@spectrum-ts/core": "^6.0.0",
     "typescript": "^5 || ^6.0.0"
   },
   "devDependencies": {

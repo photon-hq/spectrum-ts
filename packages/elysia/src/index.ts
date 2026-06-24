@@ -14,8 +14,8 @@
 // `app.webhook()`'s behavior (native + fusor detection, signature verification,
 // fire-and-forget dispatch) for free.
 
+import type { WebhookHandler } from "@spectrum-ts/core";
 import { Elysia } from "elysia";
-import type { WebhookHandler } from "./fusor";
 
 /**
  * The minimal structural surface of a Spectrum instance the plugin needs. Kept
@@ -77,6 +77,4 @@ export function spectrum(options: SpectrumPluginOptions) {
   );
 }
 
-export type { WebhookHandler } from "./fusor";
-export type { Message } from "./types/message";
-export type { Space } from "./types/space";
+export type { Message, Space, WebhookHandler } from "@spectrum-ts/core";

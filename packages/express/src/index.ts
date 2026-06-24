@@ -19,8 +19,8 @@
 // `app.use(spectrum(...))` — the route, the raw-body parser, and the response
 // writing are all owned by the plugin.
 
+import type { WebhookHandler } from "@spectrum-ts/core";
 import express, { type Router } from "express";
-import type { WebhookHandler } from "./fusor";
 
 /**
  * The minimal structural surface of a Spectrum instance the plugin needs. Kept
@@ -97,6 +97,4 @@ export function spectrum(options: SpectrumPluginOptions): Router {
   return router;
 }
 
-export type { WebhookHandler } from "./fusor";
-export type { Message } from "./types/message";
-export type { Space } from "./types/space";
+export type { Message, Space, WebhookHandler } from "@spectrum-ts/core";

@@ -15,8 +15,8 @@
 // composes it with `app.route("/", spectrum(...))` — the direct analog of
 // Elysia's `.use(spectrum(...))`.
 
+import type { WebhookHandler } from "@spectrum-ts/core";
 import { Hono } from "hono";
-import type { WebhookHandler } from "./fusor";
 
 /**
  * The minimal structural surface of a Spectrum instance the plugin needs. Kept
@@ -70,6 +70,4 @@ export function spectrum(options: SpectrumPluginOptions) {
   return new Hono().post(path, (c) => app.webhook(c.req.raw, onMessage));
 }
 
-export type { WebhookHandler } from "./fusor";
-export type { Message } from "./types/message";
-export type { Space } from "./types/space";
+export type { Message, Space, WebhookHandler } from "@spectrum-ts/core";

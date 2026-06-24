@@ -35,29 +35,68 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
-        "@types/express": "^5",
         "@types/mime-types": "^3.0.1",
         "@types/vcf": "^2.0.7",
-        "elysia": "^1",
-        "express": "^5",
-        "hono": "^4",
         "hotscript": "^1.0.13",
         "tsdown": "^0.22.2",
         "unicode-emoji-json": "^0.9.0",
       },
       "peerDependencies": {
-        "elysia": "^1",
-        "express": "^4 || ^5",
         "ffmpeg-static": "^5",
-        "hono": "^4",
         "typescript": "^5 || ^6.0.0",
       },
       "optionalPeers": [
-        "elysia",
-        "express",
         "ffmpeg-static",
-        "hono",
       ],
+    },
+    "packages/elysia": {
+      "name": "@spectrum-ts/elysia",
+      "version": "6.1.1",
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@spectrum-ts/test-support": "workspace:*",
+        "@types/bun": "latest",
+        "elysia": "^1",
+        "tsdown": "^0.22.2",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^6.0.0",
+        "elysia": "^1",
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
+    "packages/express": {
+      "name": "@spectrum-ts/express",
+      "version": "6.1.1",
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@spectrum-ts/test-support": "workspace:*",
+        "@types/bun": "latest",
+        "@types/express": "^5",
+        "express": "^5",
+        "tsdown": "^0.22.2",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^6.0.0",
+        "express": "^4 || ^5",
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
+    "packages/hono": {
+      "name": "@spectrum-ts/hono",
+      "version": "6.1.1",
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@spectrum-ts/test-support": "workspace:*",
+        "@types/bun": "latest",
+        "hono": "^4",
+        "tsdown": "^0.22.2",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^6.0.0",
+        "hono": "^4",
+        "typescript": "^5 || ^6.0.0",
+      },
     },
     "packages/imessage": {
       "name": "@spectrum-ts/imessage",
@@ -102,12 +141,15 @@
       "name": "spectrum-ts",
       "version": "6.1.1",
       "dependencies": {
-        "@spectrum-ts/core": "5.0.0",
-        "@spectrum-ts/imessage": "5.0.0",
-        "@spectrum-ts/slack": "5.0.0",
-        "@spectrum-ts/telegram": "5.0.0",
-        "@spectrum-ts/terminal": "5.0.0",
-        "@spectrum-ts/whatsapp-business": "5.0.0",
+        "@spectrum-ts/core": "6.1.1",
+        "@spectrum-ts/elysia": "6.1.1",
+        "@spectrum-ts/express": "6.1.1",
+        "@spectrum-ts/hono": "6.1.1",
+        "@spectrum-ts/imessage": "6.1.1",
+        "@spectrum-ts/slack": "6.1.1",
+        "@spectrum-ts/telegram": "6.1.1",
+        "@spectrum-ts/terminal": "6.1.1",
+        "@spectrum-ts/whatsapp-business": "6.1.1",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -416,7 +458,13 @@
 
     "@spectrum-ts/core": ["@spectrum-ts/core@workspace:packages/core"],
 
+    "@spectrum-ts/elysia": ["@spectrum-ts/elysia@workspace:packages/elysia"],
+
     "@spectrum-ts/example-basic": ["@spectrum-ts/example-basic@workspace:examples/basic"],
+
+    "@spectrum-ts/express": ["@spectrum-ts/express@workspace:packages/express"],
+
+    "@spectrum-ts/hono": ["@spectrum-ts/hono@workspace:packages/hono"],
 
     "@spectrum-ts/imessage": ["@spectrum-ts/imessage@workspace:packages/imessage"],
 

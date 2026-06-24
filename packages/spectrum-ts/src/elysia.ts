@@ -1,3 +1,3 @@
-// Re-export of the runtime's ElysiaJS webhook plugin so the
+// Re-export of the standalone `@spectrum-ts/elysia` adapter so the
 // `spectrum-ts/elysia` import path works through the metapackage.
-export * from "@spectrum-ts/core/elysia";
+export * from "@spectrum-ts/elysia";

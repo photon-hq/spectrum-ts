@@ -28,21 +28,6 @@
       "bun": "./src/authoring.ts",
       "types": "./src/authoring.ts",
       "default": "./dist/authoring.js"
-    },
-    "./elysia": {
-      "bun": "./src/elysia.ts",
-      "types": "./src/elysia.ts",
-      "default": "./dist/elysia.js"
-    },
-    "./express": {
-      "bun": "./src/express.ts",
-      "types": "./src/express.ts",
-      "default": "./dist/express.js"
-    },
-    "./hono": {
-      "bun": "./src/hono.ts",
-      "types": "./src/hono.ts",
-      "default": "./dist/hono.js"
     }
   },
   "publishConfig": {
@@ -55,18 +40,6 @@
       "./authoring": {
         "types": "./dist/authoring.d.ts",
         "default": "./dist/authoring.js"
-      },
-      "./elysia": {
-        "types": "./dist/elysia.d.ts",
-        "default": "./dist/elysia.js"
-      },
-      "./express": {
-        "types": "./dist/express.d.ts",
-        "default": "./dist/express.js"
-      },
-      "./hono": {
-        "types": "./dist/hono.d.ts",
-        "default": "./dist/hono.js"
       }
     }
   },
@@ -91,34 +64,18 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/express": "^5",
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
-    "elysia": "^1",
-    "express": "^5",
-    "hono": "^4",
     "hotscript": "^1.0.13",
     "tsdown": "^0.22.2",
     "unicode-emoji-json": "^0.9.0"
   },
   "peerDependencies": {
-    "elysia": "^1",
-    "express": "^4 || ^5",
     "ffmpeg-static": "^5",
-    "hono": "^4",
     "typescript": "^5 || ^6.0.0"
   },
   "peerDependenciesMeta": {
-    "elysia": {
-      "optional": true
-    },
-    "express": {
-      "optional": true
-    },
     "ffmpeg-static": {
-      "optional": true
-    },
-    "hono": {
       "optional": true
     }
   },

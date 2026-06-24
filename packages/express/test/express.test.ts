@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { AddressInfo } from "node:net";
+import { type Message, Spectrum } from "@spectrum-ts/core";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   baseConfig,
@@ -13,9 +14,7 @@ import {
   textEnvelope,
 } from "@spectrum-ts/test-support/webhook";
 import express from "express";
-import { spectrum } from "@/express";
-import { Spectrum } from "@/spectrum";
-import type { Message } from "@/types/message";
+import { spectrum } from "@/index";
 
 stubCloud();
 

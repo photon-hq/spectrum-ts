@@ -99,6 +99,9 @@
   },
   "dependencies": {
     "@spectrum-ts/core": "6.1.1",
+    "@spectrum-ts/elysia": "6.1.1",
+    "@spectrum-ts/express": "6.1.1",
+    "@spectrum-ts/hono": "6.1.1",
     "@spectrum-ts/imessage": "6.1.1",
     "@spectrum-ts/slack": "6.1.1",
     "@spectrum-ts/telegram": "6.1.1",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { type Message, Spectrum } from "@spectrum-ts/core";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   baseConfig,
@@ -11,10 +12,8 @@ import {
   signSpectrum,
   textEnvelope,
 } from "@spectrum-ts/test-support/webhook";
-import { Hono } from "hono";
-import { spectrum } from "@/hono";
-import { Spectrum } from "@/spectrum";
-import type { Message } from "@/types/message";
+import { Elysia } from "elysia";
+import { spectrum } from "@/index";
 
 stubCloud();
 
@@ -39,16 +38,15 @@ const post = (signed: SignedSpectrumWebhook, url = DEFAULT_URL) =>
     body: signed.body,
   });
 
-describe("spectrum (hono plugin)", () => {
-  it("verifies and delivers a signed webhook (raw body survives Hono)", async () => {
+describe("spectrum (elysia plugin)", () => {
+  it("verifies and delivers a signed webhook (raw body survives Elysia parsing)", async () => {
     const app = await makeApp();
     try {
       const received: Message[] = [];
       const { promise: finished, resolve: done } =
         Promise.withResolvers<void>();
 
-      const hono = new Hono().route(
-        "/",
+      const elysia = new Elysia().use(
         spectrum({
           app,
           onMessage: (_space, message) => {
@@ -59,11 +57,11 @@ describe("spectrum (hono plugin)", () => {
       );
 
       const signed = signSpectrum(textEnvelope(PLATFORM, "hello there"));
-      const response = await hono.request(post(signed));
+      const response = await elysia.handle(post(signed));
       await finished;
 
       // A valid signature only verifies if the exact wire bytes reached the SDK
-      // — so a 200 here proves Hono never consumed or re-encoded the body.
+      // — so a 200 here proves Elysia never consumed or re-encoded the body.
       expect(response.status).toBe(200);
       expect(received).toHaveLength(1);
       expect(received[0]?.content).toEqual({
@@ -79,8 +77,7 @@ describe("spectrum (hono plugin)", () => {
     const app = await makeApp();
     try {
       let called = false;
-      const hono = new Hono().route(
-        "/",
+      const elysia = new Elysia().use(
         spectrum({
           app,
           onMessage: () => {
@@ -92,7 +89,7 @@ describe("spectrum (hono plugin)", () => {
       const signed = signSpectrum(textEnvelope(PLATFORM, "hi"), {
         secret: "the-wrong-secret",
       });
-      const response = await hono.request(post(signed));
+      const response = await elysia.handle(post(signed));
       await flush();
 
       expect(response.status).toBe(401);
@@ -107,8 +104,7 @@ describe("spectrum (hono plugin)", () => {
     try {
       const { promise: finished, resolve: done } =
         Promise.withResolvers<void>();
-      const hono = new Hono().route(
-        "/",
+      const elysia = new Elysia().use(
         spectrum({
           app,
           path: "/hooks/spectrum",
@@ -117,7 +113,7 @@ describe("spectrum (hono plugin)", () => {
       );
 
       const signed = signSpectrum(textEnvelope(PLATFORM, "custom path"));
-      const response = await hono.request(
+      const response = await elysia.handle(
         post(signed, "https://example.com/hooks/spectrum")
       );
       await finished;

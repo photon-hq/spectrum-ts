@@ -51,6 +51,16 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   maxRetryDelayMs?: number;
   processLive: (event: TLive) => Promise<ResumableStreamItem<TOutput>>;
   processMissed: (event: TMissed) => Promise<ResumableStreamItem<TOutput>>;
+  /**
+   * Invoked when reconnects have failed persistently (the consecutive-failure
+   * count has reached a multiple of `PERSISTENT_FAILURE_ERROR_THRESHOLD`) to
+   * rebuild state a plain reconnect cannot refresh — e.g. re-mint an auth token
+   * the server rejects after a restart. Runs between the failure and the next
+   * retry, throttled to once per threshold window, and resets once the stream
+   * recovers. Errors thrown are logged and swallowed; the reconnect loop
+   * continues either way, so a recover that itself fails is harmless.
+   */
+  recover?: (error: unknown, failureCount: number) => Promise<void> | void;
   subscribeLive: (cursor?: string) => CloseableAsyncIterable<TLive>;
 }
 
@@ -150,6 +160,10 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     let activeLive: CloseableAsyncIterable<TLive> | undefined;
     let closed = false;
     let failedAttempts = 0;
+    // The `failedAttempts` value at which `recover` last ran, so the hook fires
+    // at most once per `PERSISTENT_FAILURE_ERROR_THRESHOLD` window instead of on
+    // every retry. Reset on recovery so a later outage triggers it again.
+    let lastRecoverAttempt = 0;
     let lastCursor: string | undefined;
     let retryDelayMs = initialRetryDelayMs;
     let sleepTimer: ReturnType<typeof setTimeout> | undefined;
@@ -171,6 +185,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
 
     const noteRecovery = () => {
       retryDelayMs = initialRetryDelayMs;
+      lastRecoverAttempt = 0;
       if (failedAttempts === 0) {
         return;
       }
@@ -288,6 +303,40 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       }
       log.warn("stream interrupted; reconnecting", attrs, error);
       return delayMs;
+    };
+
+    // Once reconnects fail persistently, give the caller a chance to rebuild
+    // state a plain retry cannot fix (e.g. re-mint a rejected auth token).
+    // Throttled to once per threshold window via `lastRecoverAttempt`; a hook
+    // that throws is logged and ignored so it can never wedge the loop.
+    const maybeRecover = async (error: unknown): Promise<void> => {
+      if (
+        !options.recover ||
+        failedAttempts < PERSISTENT_FAILURE_ERROR_THRESHOLD ||
+        failedAttempts - lastRecoverAttempt < PERSISTENT_FAILURE_ERROR_THRESHOLD
+      ) {
+        return;
+      }
+      lastRecoverAttempt = failedAttempts;
+      try {
+        await options.recover(error, failedAttempts);
+        log.info("stream recover hook ran", {
+          "spectrum.stream.id": streamId,
+          "spectrum.stream.label": label,
+          "spectrum.stream.attempt": failedAttempts,
+        });
+      } catch (recoverError) {
+        log.warn(
+          "stream recover hook failed",
+          {
+            "spectrum.stream.id": streamId,
+            "spectrum.stream.label": label,
+            "spectrum.stream.attempt": failedAttempts,
+            ...errorAttrs(recoverError),
+          },
+          recoverError
+        );
+      }
     };
 
     const consumeLive = async (): Promise<void> => {
@@ -440,7 +489,9 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
           if (closed) {
             break;
           }
-          await sleep(handleFailure(error, phase));
+          const delayMs = handleFailure(error, phase);
+          await maybeRecover(error);
+          await sleep(delayMs);
         }
       }
       end();

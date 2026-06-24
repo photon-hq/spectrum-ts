@@ -16,6 +16,7 @@ import {
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "@spectrum-ts/core/authoring";
+import { getCloudRecover } from "../auth";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
 import {
   type IMessageMessage,
@@ -202,12 +203,14 @@ const withClose = <T extends MessageEvent | PollEvent>(
 const messageStream = (
   client: AdvancedIMessage,
   phone: string,
-  onInbound?: OnInboundMessage
+  onInbound?: OnInboundMessage,
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("messages", phone),
+    recover,
     processLive: (event) =>
       toMessageItem(client, event, phone, String(event.sequence), onInbound),
     processMissed: (event) =>
@@ -227,12 +230,14 @@ const messageStream = (
 const pollStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
-  phone: string
+  phone: string,
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("polls", phone),
+    recover,
     processLive: (event) =>
       toPollItem(client, pollCache, event, phone, String(event.sequence)),
     processMissed: (event) =>
@@ -247,11 +252,12 @@ const clientStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
   phone: string,
-  onInbound?: OnInboundMessage
+  onInbound?: OnInboundMessage,
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   mergeStreams([
-    messageStream(client, phone, onInbound),
-    pollStream(client, pollCache, phone),
+    messageStream(client, phone, onInbound, recover),
+    pollStream(client, pollCache, phone, recover),
   ]);
 
 export const messages = (
@@ -265,6 +271,10 @@ export const messages = (
   // shape as `getPollCache` — so multi-Spectrum setups don't cross-pollute.
   const shareEnabled = projectConfig?.profile?.imessageSynced === true;
   const tracker = shareEnabled ? getContactShareTracker(clients) : undefined;
+  // Cloud clients can re-mint a rejected token; explicit/static-token clients
+  // return undefined (nothing to refresh). Shared across this client array's
+  // streams so the message + poll loops coalesce onto one re-mint.
+  const recover = getCloudRecover(clients);
   return mergeStreams(
     clients.map((entry) =>
       clientStream(
@@ -273,7 +283,8 @@ export const messages = (
         entry.phone,
         tracker
           ? (chatGuid) => tracker.maybeShare(entry.client, chatGuid)
-          : undefined
+          : undefined,
+        recover
       )
     )
   );

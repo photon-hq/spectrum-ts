@@ -85,6 +85,7 @@ interface FixtureConfig {
   ) => CloseableAsyncIterable<Item>;
   maxRetryDelayMs?: number;
   processMissed?: (event: Item) => Promise<Item>;
+  recover?: (error: unknown, failureCount: number) => Promise<void> | void;
 }
 
 const buildStream = (config: FixtureConfig) => {
@@ -113,6 +114,7 @@ const buildStream = (config: FixtureConfig) => {
     maxRetryDelayMs: config.maxRetryDelayMs ?? 8,
     processLive: (event) => Promise.resolve(event),
     processMissed: config.processMissed ?? ((event) => Promise.resolve(event)),
+    recover: config.recover,
     subscribeLive: (cursor) => {
       liveCalls.push(cursor);
       return config.live(liveCalls.length, cursor);
@@ -402,6 +404,47 @@ describe("resumableOrderedStream", () => {
     expect(fx.liveCalls).toEqual([undefined, "1"]);
     expect(fx.fetchCalls).toEqual(["1"]);
     expect(fx.delays).toEqual([1]);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("runs recover once at the persistent-failure threshold and resumes after it heals", async () => {
+    let healed = false;
+    const recoverAt: number[] = [];
+    const fx = buildStream({
+      // Reject every reconnect (server rejecting a stale token) until recover
+      // "re-mints" it; then the next reconnect succeeds.
+      live: () =>
+        healed
+          ? liveSession([item("1", "ok")], "pending")
+          : liveSession([], "throw", () => new Error("Invalid credentials")),
+      recover: (_error, failureCount) => {
+        recoverAt.push(failureCount);
+        healed = true;
+      },
+    });
+
+    await waitUntil(() => fx.received.includes("ok"));
+    // Fired exactly once, at the threshold — not on every prior failure.
+    expect(recoverAt).toEqual([PERSISTENT_FAILURE_ERROR_THRESHOLD]);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("throttles recover to once per threshold window while failures persist", async () => {
+    const recoverAt: number[] = [];
+    const fx = buildStream({
+      live: () =>
+        liveSession([], "throw", () => new Error("Invalid credentials")),
+      recover: (_error, failureCount) => {
+        recoverAt.push(failureCount);
+      },
+    });
+
+    await waitUntil(() => recoverAt.length >= 2);
+    // Never before the threshold; re-armed exactly one window later.
+    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
+    expect(recoverAt[1]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD * 2);
     await fx.close();
     expect(await fx.ended).toBe("done");
   });

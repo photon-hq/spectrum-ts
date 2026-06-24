@@ -12,9 +12,14 @@ const log = createLogger("spectrum.imessage.auth");
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
 const RETRY_DELAY_MS = 30_000;
+// Floor between forced re-mints so a stream reconnect storm can't hammer the
+// cloud token endpoint — well below any token TTL, just enough to coalesce the
+// message + poll streams asking at nearly the same instant.
+const FORCE_REFRESH_MIN_INTERVAL_MS = 5000;
 
 interface CloudAuth {
   dispose: () => void;
+  forceRefresh: () => Promise<void>;
 }
 
 const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
@@ -36,6 +41,8 @@ export async function createCloudClients(
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshFailures = 0;
+  let refreshInFlight: Promise<void> | undefined;
+  let lastRefreshAt = Date.now();
 
   // The instanceId stays paired with each entry in this closure so renewal
   // can rewrite `entry.phone` in place without leaking instanceId onto the
@@ -70,27 +77,47 @@ export async function createCloudClients(
     );
   };
 
+  const refreshNow = async (): Promise<void> => {
+    tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+    tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
+    lastRefreshAt = Date.now();
+    if (tokenData.type === "dedicated") {
+      syncPhones(tokenData);
+    }
+    onRefreshSuccess();
+    scheduleRenewal();
+  };
+
+  // Coalesce concurrent re-mints: the message + poll streams and the renewal
+  // timer can all ask at once, but only one issueImessageTokens call should run.
+  const coalescedRefresh = (): Promise<void> => {
+    if (!refreshInFlight) {
+      refreshInFlight = refreshNow().finally(() => {
+        refreshInFlight = undefined;
+      });
+    }
+    return refreshInFlight;
+  };
+
   const scheduleRenewal = () => {
     if (disposed) {
       return;
     }
+    // Clear any prior timer first — refreshNow()/forceRefresh() can re-arm the
+    // schedule, and leaving the old timer running would leak overlapping renewals.
+    if (renewalTimer !== undefined) {
+      clearTimeout(renewalTimer);
+      renewalTimer = undefined;
+    }
     const ttlMs = tokenData.expiresIn * 1000;
     const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
 
-    renewalTimer = setTimeout(async () => {
-      try {
-        tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-        tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-        if (tokenData.type === "dedicated") {
-          syncPhones(tokenData);
-        }
-        onRefreshSuccess();
-        scheduleRenewal();
-      } catch (error) {
+    renewalTimer = setTimeout(() => {
+      coalescedRefresh().catch((error) => {
         onRefreshFailure(error);
         renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
         renewalTimer?.unref?.();
-      }
+      });
     }, renewInMs);
     renewalTimer?.unref?.();
   };
@@ -101,14 +128,28 @@ export async function createCloudClients(
     if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
       return;
     }
-    tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-    tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-    if (tokenData.type === "dedicated") {
-      syncPhones(tokenData);
-    }
-    onRefreshSuccess();
-    scheduleRenewal();
+    await coalescedRefresh();
   };
+
+  // Re-mint unconditionally — wired to the stream recover hook so a token the
+  // server rejects after a restart (UNAUTHENTICATED / "Invalid credentials",
+  // not yet near expiry) is replaced. The per-RPC token function then hands the
+  // fresh token to the next reconnect without recreating the gRPC channel.
+  const forceRefresh = async (): Promise<void> => {
+    if (Date.now() - lastRefreshAt < FORCE_REFRESH_MIN_INTERVAL_MS) {
+      return;
+    }
+    await coalescedRefresh();
+  };
+
+  const dispose = () => {
+    disposed = true;
+    if (renewalTimer !== undefined) {
+      clearTimeout(renewalTimer);
+      renewalTimer = undefined;
+    }
+  };
+  const cloudAuth: CloudAuth = { dispose, forceRefresh };
 
   if (tokenData.type === "shared") {
     const address =
@@ -128,15 +169,7 @@ export async function createCloudClients(
       },
     ];
 
-    cloudAuthState.set(entries, {
-      dispose: () => {
-        disposed = true;
-        if (renewalTimer !== undefined) {
-          clearTimeout(renewalTimer);
-          renewalTimer = undefined;
-        }
-      },
-    });
+    cloudAuthState.set(entries, cloudAuth);
 
     return entries;
   }
@@ -159,15 +192,7 @@ export async function createCloudClients(
   }
   const entries = records.map((r) => r.entry);
 
-  cloudAuthState.set(entries, {
-    dispose: () => {
-      disposed = true;
-      if (renewalTimer !== undefined) {
-        clearTimeout(renewalTimer);
-        renewalTimer = undefined;
-      }
-    },
-  });
+  cloudAuthState.set(entries, cloudAuth);
 
   return entries;
 }
@@ -178,4 +203,16 @@ export async function disposeCloudAuth(clients: RemoteClient[]): Promise<void> {
     auth.dispose();
     cloudAuthState.delete(clients);
   }
+}
+
+/**
+ * The recover hook for a cloud-backed client array: forces a token re-mint so a
+ * persistently-failing stream (server rejecting an unexpired token after a
+ * restart) gets a fresh bearer on its next reconnect. Returns undefined for
+ * explicitly-configured (static-token) clients, which have nothing to re-mint.
+ */
+export function getCloudRecover(
+  clients: RemoteClient[]
+): (() => Promise<void>) | undefined {
+  return cloudAuthState.get(clients)?.forceRefresh;
 }

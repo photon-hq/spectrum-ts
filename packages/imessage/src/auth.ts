@@ -119,6 +119,12 @@ export async function createCloudClients(
         phone: SHARED_PHONE,
         client: createClient({
           address,
+          // Auto-retry transient unary failures so a brief server blip during
+          // an outbound action (send/react/reply) doesn't surface as an
+          // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
+          // mutating RPCs so the retry can't double-apply.
+          autoIdempotency: true,
+          retry: true,
           tls: true,
           token: async () => {
             await refreshIfNeeded();
@@ -147,6 +153,8 @@ export async function createCloudClients(
       phone: requirePhone(dedicated, instanceId),
       client: createClient({
         address: `${instanceId}.imsg.photon.codes:443`,
+        autoIdempotency: true,
+        retry: true,
         tls: true,
         token: async () => {
           await refreshIfNeeded();

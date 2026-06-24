@@ -431,6 +431,11 @@ export const imessage = definePlatform("iMessage", {
           phone: e.phone,
           client: createClient({
             address: e.address,
+            // Auto-retry transient unary failures (idempotency-keyed so retries
+            // can't double-apply) so a server blip during an outbound action
+            // doesn't crash the app.
+            autoIdempotency: true,
+            retry: true,
             tls: true,
             token: e.token,
           }),

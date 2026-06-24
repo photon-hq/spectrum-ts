@@ -265,27 +265,28 @@ export const messages = (
   projectConfig?: ProjectData | undefined
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
-  // When the project profile opts in to iMessage sync, push the bot's
-  // contact card to any chat we receive a new message in (24h dedupe per
-  // chat, fire-and-forget). The tracker is per `clients` array — same key
-  // shape as `getPollCache` — so multi-Spectrum setups don't cross-pollute.
+  // When the project profile opts in to iMessage sync, push the bot's contact
+  // card to any chat we receive a new message in (24h dedupe per chat per line,
+  // fire-and-forget). The tracker is keyed per `entry.client` — same shape as
+  // `getMessageCache` — so each line dedupes independently (a DM guid encodes
+  // the peer, not the line) and multi-Spectrum setups don't cross-pollute.
   const shareEnabled = projectConfig?.profile?.imessageSynced === true;
-  const tracker = shareEnabled ? getContactShareTracker(clients) : undefined;
   // Cloud clients can re-mint a rejected token; explicit/static-token clients
   // return undefined (nothing to refresh). Shared across this client array's
   // streams so the message + poll loops coalesce onto one re-mint.
   const recover = getCloudRecover(clients);
   return mergeStreams(
-    clients.map((entry) =>
-      clientStream(
+    clients.map((entry) => {
+      const tracker = shareEnabled
+        ? getContactShareTracker(entry.client)
+        : undefined;
+      return clientStream(
         entry.client,
         pollCache,
         entry.phone,
-        tracker
-          ? (chatGuid) => tracker.maybeShare(entry.client, chatGuid)
-          : undefined,
+        tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
         recover
-      )
-    )
+      );
+    })
   );
 };

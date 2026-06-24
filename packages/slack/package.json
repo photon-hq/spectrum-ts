@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/slack",
-  "version": "5.2.0",
+  "version": "6.0.0",
   "description": "Slack provider for spectrum-ts.",
   "repository": {
     "type": "git",
@@ -48,7 +48,7 @@
     "zod": "^4.2.1"
   },
   "peerDependencies": {
-    "@spectrum-ts/core": "^5.0.0",
+    "@spectrum-ts/core": "^6.0.0",
     "typescript": "^5 || ^6.0.0"
   },
   "devDependencies": {

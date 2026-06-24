@@ -29,7 +29,8 @@ server.register(spectrum, {
     }
   },
 });
-server.listen({ port: 3000 });
+// Await listen so a startup failure surfaces instead of going unhandled.
+await server.listen({ port: 3000 });
 ```
 
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.

@@ -79,7 +79,8 @@ server.register(spectrum, {
   },
 });
 
-server.listen({ port: 3000 });
+// Await listen so a startup failure surfaces instead of going unhandled.
+await server.listen({ port: 3000 });
 ```
 
 ## Options

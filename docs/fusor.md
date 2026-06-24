@@ -230,6 +230,20 @@ new Elysia().use(
 );
 ```
 
+**Fastify** — use the first-party plugin (it registers a scoped raw-body parser
+for you); see **[Fastify plugin](./fastify.md)**:
+
+```typescript
+import { spectrum } from "@spectrum-ts/fastify";
+
+server.register(spectrum, {
+  app,
+  onMessage: async (space, message) => {
+    await space.send("got it");
+  },
+});
+```
+
 ### What's automatic vs. your job
 
 - **Automatic:** decode the envelope, route by platform, verify the platform

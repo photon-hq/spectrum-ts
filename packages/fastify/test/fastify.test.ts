@@ -1,0 +1,135 @@
+import { describe, expect, it } from "bun:test";
+import { type Message, Spectrum } from "@spectrum-ts/core";
+import { stubCloud } from "@spectrum-ts/test-support/cloud";
+import {
+  baseConfig,
+  makeManagedProvider,
+} from "@spectrum-ts/test-support/platform";
+import { flush } from "@spectrum-ts/test-support/timing";
+import {
+  type SignedSpectrumWebhook,
+  SPECTRUM_WEBHOOK_SECRET,
+  signSpectrum,
+  textEnvelope,
+} from "@spectrum-ts/test-support/webhook";
+import Fastify from "fastify";
+import { spectrum } from "@/index";
+
+stubCloud();
+
+// Don't let a host env secret leak into the wrong-secret case.
+process.env.SPECTRUM_WEBHOOK_SECRET = "";
+
+const PLATFORM = "im";
+
+const makeApp = (overrides: Record<string, unknown> = {}) =>
+  Spectrum({
+    ...baseConfig,
+    providers: [makeManagedProvider(PLATFORM).config({})],
+    webhookSecret: SPECTRUM_WEBHOOK_SECRET,
+    ...overrides,
+  });
+
+/** Boot the fastify app on an ephemeral port; returns the base URL + a closer. */
+const listen = async (server: ReturnType<typeof Fastify>) => {
+  const url = await server.listen({ host: "127.0.0.1", port: 0 });
+  return {
+    url,
+    close: () => server.close(),
+  };
+};
+
+const post = (url: string, signed: SignedSpectrumWebhook) =>
+  fetch(url, {
+    method: "POST",
+    headers: signed.headers,
+    body: signed.body,
+  });
+
+describe("spectrum (fastify plugin)", () => {
+  it("verifies and delivers a signed webhook (raw body survives fastify)", async () => {
+    const app = await makeApp();
+    const received: Message[] = [];
+    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
+
+    const server = Fastify();
+    await server.register(spectrum, {
+      app,
+      onMessage: (_space, message) => {
+        received.push(message);
+        done();
+      },
+    });
+    const { url, close } = await listen(server);
+
+    try {
+      const signed = signSpectrum(textEnvelope(PLATFORM, "hello there"));
+      const response = await post(`${url}/spectrum/webhook`, signed);
+      await finished;
+
+      // A valid signature only verifies if the exact wire bytes reached the SDK
+      // — so a 200 here proves the custom parser handed over the untouched body.
+      expect(response.status).toBe(200);
+      expect(received).toHaveLength(1);
+      expect(received[0]?.content).toEqual({
+        type: "text",
+        text: "hello there",
+      });
+    } finally {
+      await close();
+      await app.stop();
+    }
+  });
+
+  it("rejects a bad signature with 401 and never calls onMessage", async () => {
+    const app = await makeApp();
+    let called = false;
+
+    const server = Fastify();
+    await server.register(spectrum, {
+      app,
+      onMessage: () => {
+        called = true;
+      },
+    });
+    const { url, close } = await listen(server);
+
+    try {
+      const signed = signSpectrum(textEnvelope(PLATFORM, "hi"), {
+        secret: "the-wrong-secret",
+      });
+      const response = await post(`${url}/spectrum/webhook`, signed);
+      await flush();
+
+      expect(response.status).toBe(401);
+      expect(called).toBe(false);
+    } finally {
+      await close();
+      await app.stop();
+    }
+  });
+
+  it("honors a custom path", async () => {
+    const app = await makeApp();
+    const { promise: finished, resolve: done } = Promise.withResolvers<void>();
+
+    const server = Fastify();
+    await server.register(spectrum, {
+      app,
+      path: "/hooks/spectrum",
+      onMessage: () => done(),
+    });
+    const { url, close } = await listen(server);
+
+    try {
+      const signed = signSpectrum(textEnvelope(PLATFORM, "custom path"));
+      const response = await post(`${url}/hooks/spectrum`, signed);
+      await finished;
+
+      expect(response.status).toBe(200);
+    } finally {
+      await close();
+      await app.stop();
+    }
+  });
+});

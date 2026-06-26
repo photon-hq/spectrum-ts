@@ -1,0 +1,21 @@
+---
+title: "Slack"
+description: "Send and receive messages through the Slack API."
+---
+
+```ts
+import { slack } from "spectrum-ts/providers/slack";
+```
+
+The Slack provider connects your agent to Slack workspaces through the Slack API. It supports multi-workspace installations, text and media messaging, reactions, threaded replies, typing indicators, and edits.
+
+## Explore Slack
+
+<CardGroup cols={2}>
+  <Card title="Setup" icon="sliders-horizontal" href="/spectrum-ts/providers/slack/setup">
+    Configure single-workspace or multi-workspace Slack apps and start an echo loop.
+  </Card>
+  <Card title="Conversations and events" icon="message-circle" href="/spectrum-ts/providers/slack/conversations-and-events">
+    Start conversations, inspect narrowed Slack fields, and check supported features.
+  </Card>
+</CardGroup>

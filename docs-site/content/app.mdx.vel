@@ -1,0 +1,22 @@
+---
+title: "App"
+description: "Send a URL as a tappable app card, delivered on iMessage through the Spectrum Mini App."
+---
+
+Use `app()` to send a URL as an app card. On iMessage, the card renders as an iMessage mini app: recipients tap it to open the link directly inside Messages, with no browser. It's delivered through the [Spectrum Mini App](https://apps.apple.com/ca/app/spectrum-by-photon/id6777616651), Photon's Apple-approved mini-app launcher. On Slack, Telegram, WhatsApp, and terminal, it falls back to the plain URL.
+
+```ts
+import { app } from "spectrum-ts";
+
+await space.send(app("https://example.com/deep-link"));
+```
+
+Use `app()` when you want to present a link as a tappable card rather than an inline URL.
+
+## iMessage App
+
+On iMessage, app cards open inside the [Spectrum Mini App](https://apps.apple.com/ca/app/spectrum-by-photon/id6777616651), a mini-app launcher approved by Apple. Recipients download it once on first use (they can download it directly inside the Messages app); after that, every app card you send opens directly in Messages without leaving the conversation.
+
+The launcher keeps a library of every mini app a recipient has opened, so they can reopen those apps later or share them with friends.
+
+For customized iMessage app with layout control, see [Mini-app cards](/spectrum-ts/providers/imessage/messaging-features#mini-app-cards).

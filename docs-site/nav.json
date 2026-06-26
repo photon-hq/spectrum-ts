@@ -1,0 +1,109 @@
+{
+  "source": "spectrum-ts",
+  "groups": [
+    {
+      "group": "Get started",
+      "pages": [
+        "spectrum-ts/introduction",
+        "spectrum-ts/getting-started"
+      ]
+    },
+    {
+      "group": "Core concepts",
+      "pages": [
+        "spectrum-ts/messages",
+        "spectrum-ts/spaces-and-users",
+        "spectrum-ts/reactions-and-replies",
+        "spectrum-ts/platform-narrowing",
+        "spectrum-ts/webhooks"
+      ]
+    },
+    {
+      "group": "Content",
+      "pages": [
+        "spectrum-ts/content",
+        "spectrum-ts/content/text",
+        "spectrum-ts/content/markdown",
+        "spectrum-ts/content/attachments",
+        "spectrum-ts/content/voice",
+        "spectrum-ts/content/contacts",
+        "spectrum-ts/content/rich-links",
+        "spectrum-ts/content/app",
+        "spectrum-ts/content/polls",
+        "spectrum-ts/content/groups",
+        "spectrum-ts/content/custom",
+        "spectrum-ts/content/replies",
+        "spectrum-ts/content/edits",
+        "spectrum-ts/content/unsend",
+        "spectrum-ts/content/typing-indicators",
+        "spectrum-ts/content/rename",
+        "spectrum-ts/content/avatar",
+        "spectrum-ts/content/composing-content"
+      ]
+    },
+    {
+      "group": "Providers",
+      "pages": [
+        "spectrum-ts/providers",
+        {
+          "group": "iMessage",
+          "icon": "comment",
+          "root": "spectrum-ts/providers/imessage",
+          "pages": [
+            "spectrum-ts/providers/imessage/connection-and-routing",
+            "spectrum-ts/providers/imessage/messaging-features"
+          ]
+        },
+        {
+          "group": "Terminal",
+          "icon": "terminal",
+          "root": "spectrum-ts/providers/terminal",
+          "pages": [
+            "spectrum-ts/providers/terminal/setup-and-usage",
+            "spectrum-ts/providers/terminal/interactions"
+          ]
+        },
+        {
+          "group": "WhatsApp Business",
+          "icon": "whatsapp",
+          "root": "spectrum-ts/providers/whatsapp-business",
+          "pages": [
+            "spectrum-ts/providers/whatsapp-business/setup",
+            "spectrum-ts/providers/whatsapp-business/conversations"
+          ]
+        },
+        {
+          "group": "Telegram",
+          "icon": "paper-plane",
+          "root": "spectrum-ts/providers/telegram",
+          "pages": [
+            "spectrum-ts/providers/telegram/setup",
+            "spectrum-ts/providers/telegram/conversations-and-features"
+          ]
+        },
+        {
+          "group": "Slack",
+          "icon": "hash",
+          "root": "spectrum-ts/providers/slack",
+          "pages": [
+            "spectrum-ts/providers/slack/setup",
+            "spectrum-ts/providers/slack/conversations-and-events"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Advanced",
+      "pages": [
+        "spectrum-ts/custom-events-and-lifecycle",
+        "spectrum-ts/custom-platforms"
+      ]
+    },
+    {
+      "group": "Troubleshooting",
+      "pages": [
+        "spectrum-ts/troubleshooting/imessage"
+      ]
+    }
+  ]
+}

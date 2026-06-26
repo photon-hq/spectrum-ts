@@ -1,0 +1,20 @@
+---
+title: "Groups"
+description: "Bundle multiple messages into one logical visual group."
+---
+
+Use `group()` to bundle multiple messages into one logical unit, such as an album of images or a multi-attachment reply.
+
+Each item is delivered as its own `Message`, but the items ship together so the receiving platform can render them as a single visual group when supported.
+
+```ts
+import { group, attachment } from "spectrum-ts";
+
+await space.send(group(
+  attachment("/path/to/photo-1.jpg"),
+  attachment("/path/to/photo-2.jpg"),
+  attachment("/path/to/photo-3.jpg"),
+));
+```
+
+Groups don't nest, and reactions can't be group members. The builder enforces both at construction time. Platforms that don't support grouping fall back to sending each item sequentially.

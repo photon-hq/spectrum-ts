@@ -1,0 +1,25 @@
+---
+title: "Avatar"
+description: "Set or clear group chat avatars."
+---
+
+Use `avatar()` to set or clear the chat avatar, also called a group icon. It is fire-and-forget: `space.send(avatar(...))` resolves to `undefined`.
+
+```ts
+import { avatar } from "spectrum-ts";
+
+// Set from a file path - MIME type inferred from the extension
+await space.send(avatar("./icon.png"));
+
+// Set from a buffer - mimeType is required
+await space.send(avatar(buffer, { mimeType: "image/jpeg" }));
+
+// Clear the current avatar
+await space.send(avatar("clear"));
+```
+
+`space.avatar(...)` is sugar for `space.send(avatar(...))`. Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as `UnsupportedError` from the provider's send action.
+
+<Note>
+  The string `"clear"` is a reserved sentinel. If you have a file literally named `clear` with no extension, pass `"./clear"` or load it as a `Buffer`.
+</Note>

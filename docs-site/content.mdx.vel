@@ -1,0 +1,78 @@
+---
+title: "Content"
+description: "Build every outbound message shape with Spectrum content builders."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set ci = symbol("ts:spectrum-ts#ContentInput") %}
+{% set cb = symbol("ts:spectrum-ts#ContentBuilder") %}
+
+Spectrum exposes a family of content builders for text, markdown, attachments, rich previews, replies, edits, typing indicators, chat metadata, and provider-specific payloads. Any API that takes a <TypeTooltip name="ContentInput" type={`{{ ci.signature }}`} /> accepts a plain string or a <TypeTooltip name="ContentBuilder" type={`{{ cb.signature }}`} />.
+
+Use this section when you need to choose the right outbound content shape or understand how a builder degrades across providers.
+
+<CardGroup cols={2}>
+  <Card title="Text" icon="message-square-text" href="/spectrum-ts/content/text">
+    Send plain text and stream generated text into supported providers.
+  </Card>
+  <Card title="Markdown" icon="pilcrow" href="/spectrum-ts/content/markdown">
+    Send styled text that renders through each provider's native formatting model.
+  </Card>
+  <Card title="Attachments" icon="paperclip" href="/spectrum-ts/content/attachments">
+    Send files from paths or buffers with stable attachment IDs.
+  </Card>
+  <Card title="Voice" icon="audio-lines" href="/spectrum-ts/content/voice">
+    Send voice notes with audio metadata and provider fallbacks.
+  </Card>
+  <Card title="Contacts" icon="contact" href="/spectrum-ts/content/contacts">
+    Share contact cards from structured data, users, or vCards.
+  </Card>
+  <Card title="Rich links" icon="link" href="/spectrum-ts/content/rich-links">
+    Render URLs as rich previews with lazy Open Graph metadata.
+  </Card>
+  <Card title="App link cards" icon="panel-top" href="/spectrum-ts/content/app-link-cards">
+    Present URLs as tappable app-style cards where providers support them.
+  </Card>
+  <Card title="Polls" icon="list-checks" href="/spectrum-ts/content/polls">
+    Send poll prompts and receive selected options as content.
+  </Card>
+  <Card title="Groups" icon="images" href="/spectrum-ts/content/groups">
+    Bundle multiple messages into one logical visual group.
+  </Card>
+  <Card title="Custom content" icon="braces" href="/spectrum-ts/content/custom">
+    Send provider-specific structured payloads.
+  </Card>
+  <Card title="Replies" icon="reply" href="/spectrum-ts/content/replies">
+    Thread content under an existing message.
+  </Card>
+  <Card title="Edits" icon="square-pen" href="/spectrum-ts/content/edits">
+    Rewrite previously sent outbound messages.
+  </Card>
+  <Card title="Unsend" icon="undo-2" href="/spectrum-ts/content/unsend">
+    Retract a previously sent outbound message.
+  </Card>
+  <Card title="Typing indicators" icon="ellipsis" href="/spectrum-ts/content/typing-indicators">
+    Send start and stop typing signals.
+  </Card>
+  <Card title="Rename" icon="type" href="/spectrum-ts/content/rename">
+    Rename chats through the content pipeline.
+  </Card>
+  <Card title="Avatar" icon="image" href="/spectrum-ts/content/avatar">
+    Set or clear group chat avatars.
+  </Card>
+  <Card title="Composing content" icon="layers" href="/spectrum-ts/content/composing-content">
+    Send multiple content items or reply with multiple parts.
+  </Card>
+</CardGroup>
+
+## Builder shortcut
+
+Plain strings are equivalent to `text()`:
+
+```ts
+await space.send("Hello, world.");
+await space.send(text("Hello, world."));
+```
+
+Reach for an explicit builder when you need provider-aware behavior, structured metadata, or a content type that is not plain text.

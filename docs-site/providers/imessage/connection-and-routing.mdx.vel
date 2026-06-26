@@ -1,0 +1,163 @@
+---
+title: "iMessage connection and routing"
+sidebarTitle: "Connection and routing"
+description: "Configure iMessage connection modes, lines, quotas, spaces, and per-phone routing."
+---
+
+Use this page to choose an iMessage connection mode and understand how Spectrum routes iMessage conversations.
+
+## Connection modes
+
+<Tabs>
+  <Tab title="Cloud (default)">
+    Authenticates with Spectrum Cloud and connects to managed iMessage infrastructure via gRPC. Full feature set: send, receive, typing, reactions, replies, and group creation.
+
+    ```ts
+    imessage.config();
+    ```
+
+    Tokens are renewed automatically at 80% of their TTL. Requires `projectId` and `projectSecret` on the `Spectrum()` call:
+
+    ```ts
+    const app = await Spectrum({
+      projectId: process.env.PROJECT_ID!,
+      projectSecret: process.env.PROJECT_SECRET!,
+      providers: [imessage.config()],
+    });
+    ```
+  </Tab>
+  <Tab title="Local">
+    Reads the macOS Messages SQLite database directly. No network. Good for development on your own Mac.
+
+    ```ts
+    imessage.config({ local: true });
+    ```
+
+    <Note>
+      Local mode only supports sending text and attachments. Reactions, typing indicators, threaded replies, group creation, chat backgrounds, chat renaming, and group avatars are not available.
+    </Note>
+  </Tab>
+  <Tab title="Dedicated">
+    Connect directly to one or more iMessage gRPC endpoints with your own tokens. Use this when you're running your own iMessage relay and want to skip cloud auth. Each entry must include the `phone` number the instance serves, so Spectrum can route messages through the right number:
+
+    ```ts
+    imessage.config({
+      clients: [
+        { address: "instance-1.example.com:443", token: "your-token", phone: "+15551111111" },
+        { address: "instance-2.example.com:443", token: "your-token", phone: "+15552222222" },
+      ],
+    });
+    ```
+
+    Multiple clients route messages based on the phone number associated with each space.
+  </Tab>
+</Tabs>
+
+## Line model
+
+Cloud mode routes your messages through phone numbers, also called lines, provisioned by Spectrum. Which lines you get depends on your plan, and the difference is mostly invisible to end users.
+
+| Plan | Line allocation | What end users see |
+|---|---|---|
+| **Free / Pro** | **Shared pool.** Each of your end users is routed through a different number from a shared pool. | A normal iMessage from a number that may differ across recipients. |
+| **Business** | **Dedicated.** All of your end users text the same number, which belongs to your project. | A normal iMessage, always from the same number. |
+
+End-user delivery is identical in both modes. The distinction is which number sends.
+
+### Auto-scale
+
+When traffic to a dedicated line approaches its per-line capacity, Spectrum can automatically provision an additional line so deliverability isn't affected. Auto-scale is an opt-in feature on the Business plan. Enable it in your project settings if you'd rather not get paged when a line saturates.
+
+<Note>
+  These are managed Spectrum Cloud features. If you're on the open-source path (`imessage.config({ local: true })` or your own dedicated relay), you provide your own iCloud account and managed-line concepts don't apply.
+</Note>
+
+## Quotas
+
+<Warning>
+  Default per-server and per-line quotas apply. Contact [help@photon.codes](mailto:help@photon.codes) for an increase.
+
+  - **5,000 messages per server per day.** Counts every message your instance sends across all chats. Additional sends are rejected until the window resets.
+  - **50 new conversations initiated per line per day.** A "new conversation" is the first message your line sends to a recipient it has never messaged before. Replies within existing conversations don't count.
+</Warning>
+
+## Space types
+
+iMessage spaces carry a `type` field, either `"dm"` or `"group"`, and a `phone` field indicating which phone number the conversation is routed through. Both are accessible through narrowing:
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.platform !== "iMessage") continue;
+  const im = imessage(space);
+  console.log(im.phone); // the phone number handling this conversation
+  if (im.type === "group") {
+    // group chat logic
+  }
+}
+```
+
+## User properties
+
+iMessage users carry optional platform-specific fields when resolved through narrowing. These are available when the platform has sender details for the user:
+
+| Field | Type | Description |
+|---|---|---|
+| `address` | `string` (optional) | The user's phone number or email address. |
+| `country` | `string` (optional) | The user's country code. |
+| `service` | `"iMessage" \| "SMS" \| "RCS" \| "unknown"` (optional) | The messaging service the user is reachable on. |
+
+```ts
+const im = imessage(app);
+const alice = await im.user("+15551111111");
+console.log(alice.address, alice.country, alice.service);
+```
+
+These fields are also available on `message.sender` after narrowing:
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.platform !== "iMessage") continue;
+  const imMsg = imessage(message);
+  console.log(imMsg.sender.service);
+}
+```
+
+## Creating conversations
+
+Resolve users by phone number or email, then create a space with `space.create(...)`:
+
+```ts
+const im = imessage(app);
+const alice = await im.user("+15551111111");
+const bob = await im.user("+15552222222");
+
+// DM
+const dm = await im.space.create(alice);
+await dm.send("Hi Alice");
+
+// Group
+const group = await im.space.create([alice, bob]);
+await group.send("Welcome to the group.");
+```
+
+To look up an existing conversation by its chat GUID, use `space.get(id)`:
+
+```ts
+const existing = await im.space.get("any;-;+15551111111");
+```
+
+Space creation requires cloud or dedicated mode. In local mode `space.create()` throws because the local Messages database doesn't expose chat creation. Shared mode cannot create group chats. Use a dedicated number, or `space.get(chatGuid)` for an existing group.
+
+### Per-phone routing
+
+If your account has multiple dedicated phone numbers, you can pin a conversation to a specific line by passing `phone` as a space parameter:
+
+```ts
+const dm = await im.space.create(alice, { phone: "+15559999999" });
+```
+
+When omitted, Spectrum picks a phone at random from the available dedicated lines. All subsequent actions on that space route through the chosen number, including sending, typing, replies, edits, reactions, unsends, and lookups.
+
+<Note>
+  Per-phone routing applies to dedicated lines on the Business plan only. On shared-pool plans the `phone` parameter is ignored because all conversations route through the shared pool automatically.
+</Note>

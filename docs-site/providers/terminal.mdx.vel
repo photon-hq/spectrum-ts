@@ -1,0 +1,27 @@
+---
+title: "Terminal"
+description: "A full chat TUI for developing and testing agents locally."
+---
+
+```ts
+import { terminal } from "spectrum-ts/providers/terminal";
+```
+
+The terminal provider gives your agent a real chat interface in the terminal: multiple conversations in a sidebar, typing indicators, reactions, threaded replies, file attachments, and inline image rendering. It uses the same Spectrum APIs you use against iMessage or WhatsApp Business.
+
+<Frame>
+  <img src="https://framerusercontent.com/images/AMLYOPHgKunMxQPxUzQUFUTkvHM.png?width=2400&height=1260" alt="Terminal UI showing a chat sidebar with multiple conversations, message thread, and typing indicator" />
+</Frame>
+
+It is a drop-in test harness. Write your agent against the unified `app.messages` stream, and develop end-to-end without provisioning a phone number or pairing a device.
+
+## Explore Terminal
+
+<CardGroup cols={2}>
+  <Card title="Setup and usage" icon="terminal" href="/spectrum-ts/providers/terminal/setup-and-usage">
+    Start the terminal provider, configure slash commands, and work with multiple spaces.
+  </Card>
+  <Card title="Interactions" icon="messages-square" href="/spectrum-ts/providers/terminal/interactions">
+    Use local reactions, replies, attachments, inline images, typing indicators, and console capture.
+  </Card>
+</CardGroup>

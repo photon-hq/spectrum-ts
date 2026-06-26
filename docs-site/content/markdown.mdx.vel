@@ -1,0 +1,28 @@
+---
+title: "Markdown"
+description: "Send styled text that renders through each provider's native formatting model."
+---
+
+Use `markdown()` when you want to send styled text written in standard markdown. Spectrum supports CommonMark plus GFM tables and strikethrough.
+
+Each platform renders markdown to its native format. Telegram uses `parse_mode: "HTML"`. iMessage in remote mode uses UTF-16 styled text formatting ranges. Platforms without native markdown support receive readable plain text through the send pipeline's automatic fallback.
+
+```ts
+import { markdown } from "spectrum-ts";
+
+await space.send(markdown("**Bold** and _italic_ text."));
+```
+
+## Streaming markdown
+
+`markdown()` accepts a stream source, just like `text()`. Markdown streams render progressively on platforms with native support. Everywhere else, the accumulated text falls back through the markdown pipeline instead of surfacing raw `**` markers.
+
+```ts
+import { markdown } from "spectrum-ts";
+import { streamText as aiStreamText } from "ai";
+
+const result = aiStreamText({ model, prompt: message.content.text });
+await space.send(markdown(result));
+```
+
+Markdown is outbound-only by design. Inbound messages always surface as `text` content regardless of platform formatting.

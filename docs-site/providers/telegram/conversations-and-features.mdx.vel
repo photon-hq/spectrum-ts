@@ -1,0 +1,33 @@
+---
+title: "Telegram conversations and features"
+sidebarTitle: "Conversations and features"
+description: "Start Telegram conversations and review supported provider features."
+---
+
+Use [platform narrowing](/spectrum-ts/platform-narrowing) when you need Telegram-specific actions.
+
+## Starting a conversation
+
+Resolve a user by their Telegram user ID and open a space. You can also pass a `chatId` parameter to target a specific Telegram chat:
+
+```ts
+const tg = telegram(app);
+const user = await tg.user("123456789");
+const space = await tg.space.create(user);
+
+await space.send("Hello from Spectrum.");
+```
+
+## Supported features
+
+| Feature | Support |
+|---|---|
+| Text messages | Send and receive |
+| Markdown | Send, rendered as Telegram HTML via `parse_mode` |
+| Streaming text / markdown | Send, with native draft preview in private chats |
+| Media, photos, documents, audio, and video | Send and receive |
+| Reactions | Send and receive |
+| Threaded replies | Send and receive |
+| Typing indicators | Send |
+| Message edits | Send and receive, including text and markdown |
+| Custom Bot API calls | Via platform-specific actions |

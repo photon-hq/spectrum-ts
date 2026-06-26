@@ -1,0 +1,264 @@
+---
+title: "iMessage messaging features"
+sidebarTitle: "Messaging features"
+description: "Use iMessage effects, chat metadata, mini-app cards, contact cards, attachments, and tapbacks."
+---
+
+Use these provider-specific helpers after you have configured the [iMessage provider](/spectrum-ts/providers/imessage).
+
+## Message effects
+
+iMessage supports bubble effects, which animate the sent message bubble, and screen effects, which play a full-screen animation on receive. Wrap any content with `effect()`:
+
+```ts
+import { attachment } from "spectrum-ts";
+import { effect, imessage } from "spectrum-ts/providers/imessage";
+
+await space.send(effect("Happy birthday!", imessage.effect.message.celebration));
+await space.send(effect(attachment("/path/to/photo.jpg"), imessage.effect.message.confetti));
+```
+
+The wrapped content can be a string, `markdown(...)`, or any `attachment(...)`. Effects only apply on iMessage. Other platforms see the inner content unchanged.
+
+<AccordionGroup>
+  <Accordion title="Bubble effects" description="Animate the sent message bubble.">
+    | Constant | Value |
+    |---|---|
+    | `imessage.effect.message.slam` | `"com.apple.MobileSMS.expressivesend.impact"` |
+    | `imessage.effect.message.loud` | `"com.apple.MobileSMS.expressivesend.loud"` |
+    | `imessage.effect.message.gentle` | `"com.apple.MobileSMS.expressivesend.gentle"` |
+    | `imessage.effect.message.invisible` | `"com.apple.MobileSMS.expressivesend.invisibleink"` |
+  </Accordion>
+  <Accordion title="Screen effects" description="Play a full-screen animation on the recipient's device when the message arrives.">
+    | Constant | Value |
+    |---|---|
+    | `imessage.effect.message.confetti` | `"com.apple.messages.effect.CKConfettiEffect"` |
+    | `imessage.effect.message.fireworks` | `"com.apple.messages.effect.CKFireworksEffect"` |
+    | `imessage.effect.message.balloons` | `"com.apple.messages.effect.CKBalloonEffect"` |
+    | `imessage.effect.message.heart` | `"com.apple.messages.effect.CKHeartEffect"` |
+    | `imessage.effect.message.lasers` | `"com.apple.messages.effect.CKLasersEffect"` |
+    | `imessage.effect.message.celebration` | `"com.apple.messages.effect.CKHappyBirthdayEffect"` |
+    | `imessage.effect.message.sparkles` | `"com.apple.messages.effect.CKSparklesEffect"` |
+    | `imessage.effect.message.spotlight` | `"com.apple.messages.effect.CKSpotlightEffect"` |
+    | `imessage.effect.message.echo` | `"com.apple.messages.effect.CKEchoEffect"` |
+  </Accordion>
+</AccordionGroup>
+
+## Chat renaming
+
+Rename a group chat using `space.rename()` or the canonical `rename()` content builder:
+
+```ts
+import { rename } from "spectrum-ts";
+
+// Sugar
+await space.rename("Book Club");
+
+// Canonical
+await space.send(rename("Book Club"));
+```
+
+Renaming requires cloud or dedicated mode and only works on group chats. In local mode or on a DM, `rename()` throws an `UnsupportedError`.
+
+## Group avatars
+
+Set or clear the group chat icon using `space.avatar()` or the canonical `avatar()` content builder:
+
+```ts
+import { avatar } from "spectrum-ts";
+
+// Sugar - set from a file path
+await space.avatar("./icon.png");
+
+// Sugar - clear the current avatar
+await space.avatar("clear");
+
+// Canonical
+await space.send(avatar("./icon.png"));
+```
+
+Group avatars require cloud or dedicated mode and only work on group chats. In local mode or on a DM, `avatar()` throws an `UnsupportedError`.
+
+## Chat backgrounds
+
+Set or clear the chat background image. Import `background` from the iMessage provider and use the sugar method on a narrowed space:
+
+```ts
+import { background, imessage } from "spectrum-ts/providers/imessage";
+
+const im = imessage(space);
+
+// Set from a file path - MIME type inferred from the extension
+await im.background("./wallpaper.jpg");
+
+// Set from a buffer - mimeType is required
+await im.background(buffer, { mimeType: "image/jpeg" });
+
+// Clear the current background
+await im.background("clear");
+```
+
+`space.background(...)` is sugar for `space.send(background(...))`. The canonical form works on any space reference:
+
+```ts
+await space.send(background("./wallpaper.jpg"));
+await space.send(background("clear"));
+```
+
+After a successful set, the background usually syncs to other users' devices within `30s`. The background asset is uploaded to iCloud and then distributed to the other members of the conversation. Display time is not a hard SLA: network state, iCloud state, and the Messages client state can all affect when the UI appears.
+
+| Stage | What happens |
+|---|---|
+| Before `background(...)` resolves | The provider waits until the background asset reaches a distributable state. |
+| After `background(...)` resolves | The conversation has accepted the background change; iCloud distributes the asset to other members. |
+| Other members' devices | The background appears after the device receives the iCloud distribution. |
+
+Background UI may not appear in these cases:
+
+| Case | Result |
+|---|---|
+| The recipient's network, iCloud, or Messages state is unhealthy | The background may appear late, often after reopening Messages. |
+| A group member has never spoken, interacted, or is treated by the system as unknown or untrusted | Apple may not show the background UI to that member. |
+
+<Note>
+  The second case is an Apple Messages display limit, not a Spectrum option. If one group member never sees the background, have that member send a message in the group, mark the sender as known, or reopen Messages before retrying the background change.
+</Note>
+
+<Note>
+  Chat backgrounds require cloud or dedicated mode. In local mode, `background()` throws an `UnsupportedError`.
+</Note>
+
+<Note>
+  The string `"clear"` is a reserved sentinel. If you have a file literally named `clear` with no extension, pass `"./clear"` or load it as a `Buffer`.
+</Note>
+
+## Mini-app cards
+
+Send a customized iMessage mini-app card: a remote-only rich bubble that shows app metadata, a deep link, and a visual layout. Import `customizedMiniApp` from the iMessage provider:
+
+```ts
+import { customizedMiniApp } from "spectrum-ts/providers/imessage";
+
+const sent = await space.send(customizedMiniApp({
+  appName: "My App",
+  extensionBundleId: "com.example.myapp.imessage",
+  teamId: "ABCDE12345",
+  url: "https://example.com/deep-link",
+  layout: {
+    caption: "Check this out",
+    subcaption: "Tap to open",
+  },
+}));
+```
+
+`space.send(customizedMiniApp(...))` returns the sent message record. Unlike `background` and `read`, mini-app cards are real outbound messages.
+
+`appStoreId` is optional. Omit it to send a card whose extension isn't published on the App Store. When set, recipients without the extension are directed to its App Store entry.
+
+<AccordionGroup>
+  <Accordion title="CustomizedMiniAppInput" description="Fields for building a mini-app card.">
+    | Field | Type | Description |
+    |---|---|---|
+    | `appName` | `string` | Display name of the owning app, shown by Messages fallback UI. |
+    | `appStoreId` | `number` (optional) | Apple App Store numeric ID. Omit for unpublished extensions. |
+    | `extensionBundleId` | `string` | Bundle identifier of the iMessage extension target. |
+    | `layout` | `CustomizedMiniAppLayout` | Visible card layout. See below. |
+    | `teamId` | `string` | 10-character uppercase alphanumeric Apple Team ID. |
+    | `url` | `string` | Absolute URL delivered to the installed extension on tap. |
+  </Accordion>
+  <Accordion title="CustomizedMiniAppLayout" description="Visible layout of a mini-app card. Mirrors Apple's MSMessageTemplateLayout.">
+    | Field | Type | Description |
+    |---|---|---|
+    | `caption` | `string` (optional) | Primary caption text. |
+    | `subcaption` | `string` (optional) | Secondary caption text. |
+    | `trailingCaption` | `string` (optional) | Right-aligned primary text. |
+    | `trailingSubcaption` | `string` (optional) | Right-aligned secondary text. |
+    | `image` | `Uint8Array` (optional) | Image data for the card. Must be set with `imageTitle`. |
+    | `imageTitle` | `string` (optional) | Title for the image. Must be set with `image`. |
+    | `imageSubtitle` | `string` (optional) | Subtitle for the image. Requires `image`. |
+    | `summary` | `string` (optional) | Fallback text for surfaces that can't render the card, such as notifications and lock screen. |
+
+    At least one of `caption`, `subcaption`, `trailingCaption`, `trailingSubcaption`, or `image` must be set.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  Mini-app cards require cloud or dedicated mode. In local mode, `customizedMiniApp()` throws an `UnsupportedError`.
+</Note>
+
+## Native contact card sharing
+
+Share the bot account's own iMessage contact card directly in a chat. Use `nativeContactCard()` to build the content, or the `space.shareContactCard()` sugar method on a narrowed iMessage space:
+
+<Tabs>
+  <Tab title="Sugar (space.shareContactCard)">
+    ```ts
+    import { imessage } from "spectrum-ts/providers/imessage";
+
+    const im = imessage(space);
+    await im.shareContactCard();
+    ```
+  </Tab>
+  <Tab title="Canonical (space.send)">
+    ```ts
+    import { nativeContactCard } from "spectrum-ts/providers/imessage";
+
+    await space.send(nativeContactCard());
+    ```
+  </Tab>
+</Tabs>
+
+This shares the bot's own contact card as it appears in iMessage. Recipients can tap it to save the contact. Use it in onboarding flows where you want users to add your bot to their contacts.
+
+<Note>
+  Native contact card sharing requires cloud or dedicated mode. In local mode, `nativeContactCard()` throws an `UnsupportedError`.
+</Note>
+
+## Fetching attachments
+
+Retrieve an attachment by its iMessage GUID using `getAttachment` on the narrowed platform instance. The returned `Attachment` is lazy. `.read()` and `.stream()` each trigger an independent download, so cache `.read()` if you need the bytes more than once.
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const im = imessage(app);
+const att = await im.getAttachment("p:0/GUID");
+
+if (att) {
+  console.log(att.name, att.mimeType, att.size);
+  const bytes = await att.read();
+}
+```
+
+In multi-phone mode, pass the phone number as the second argument to route the request through the correct instance:
+
+```ts
+const att = await im.getAttachment("p:0/GUID", "+15559999999");
+```
+
+When only one phone is configured, or in shared-pool mode, the phone parameter is optional.
+
+<Note>
+  `getAttachment` requires cloud or dedicated mode. In local mode it throws an `UnsupportedError`.
+</Note>
+
+## Tapback constants
+
+iMessage uses a fixed set of tapback reactions. The `imessage` object exposes them as constants:
+
+| Constant | Value |
+|---|---|
+| `imessage.tapbacks.love` | `"love"` |
+| `imessage.tapbacks.like` | `"like"` |
+| `imessage.tapbacks.dislike` | `"dislike"` |
+| `imessage.tapbacks.laugh` | `"laugh"` |
+| `imessage.tapbacks.emphasize` | `"emphasize"` |
+| `imessage.tapbacks.question` | `"question"` |
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+await message.react(imessage.tapbacks.laugh);
+```
+
+See [Reactions and replies](/spectrum-ts/reactions-and-replies) for the cross-platform reaction model.

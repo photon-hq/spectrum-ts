@@ -1,0 +1,16 @@
+---
+title: "Rename"
+description: "Rename chats through the content pipeline."
+---
+
+Use `rename()` to rename the current chat. It is fire-and-forget: `space.send(rename(...))` resolves to `undefined`.
+
+```ts
+import { rename } from "spectrum-ts";
+
+await space.send(rename("New Chat Name"));
+```
+
+`space.rename(displayName)` is sugar for `space.send(rename(displayName))`. The builder throws at construction time if `displayName` is empty.
+
+Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as `UnsupportedError` from the provider's send action.

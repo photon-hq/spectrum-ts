@@ -1,0 +1,23 @@
+---
+title: "Rich links"
+description: "Render URLs as rich previews with lazy Open Graph metadata."
+---
+
+Use `richlink()` to render a URL as a rich preview card with title, summary, and cover image. Spectrum scrapes Open Graph metadata at send time. Pass just the URL and the builder fills in the rest.
+
+```ts
+import { richlink } from "spectrum-ts";
+
+await space.send(richlink("https://example.com/article"));
+```
+
+`title()`, `summary()`, and `cover()` are lazy async accessors. The metadata fetch happens only if the receiving platform needs it. Platforms without rich-link support fall back to the URL as plain text.
+
+<Accordion title="Richlink" description="Resolved rich-link content with lazy metadata accessors.">
+  | Field | Type | Description |
+  |---|---|---|
+  | `url` | `string` | The original URL. |
+  | `title()` | `() => Promise<string \| undefined>` | OG title. |
+  | `summary()` | `() => Promise<string \| undefined>` | OG description. |
+  | `cover()` | `() => Promise<{ mimeType?, read(), stream() } \| undefined>` | OG image. |
+</Accordion>

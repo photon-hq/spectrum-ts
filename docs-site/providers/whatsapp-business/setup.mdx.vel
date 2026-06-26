@@ -1,0 +1,48 @@
+---
+title: "WhatsApp Business setup"
+sidebarTitle: "Setup"
+description: "Configure the WhatsApp Business provider with Meta credentials."
+---
+
+Use `whatsappBusiness.config(...)` with credentials from Meta for Developers.
+
+## Config
+
+```ts
+whatsappBusiness.config({
+  accessToken: "your-access-token",
+  phoneNumberId: "your-phone-number-id",
+  appSecret: "your-app-secret",
+});
+```
+
+| Option | Description |
+|---|---|
+| `accessToken` | Permanent or system-user token from Meta for Developers. |
+| `phoneNumberId` | The phone number ID for the business account sending messages. |
+| `appSecret` | App secret used to verify webhook payload signatures. |
+
+Find these values in your WhatsApp Business app settings on [Meta for Developers](https://developers.facebook.com/).
+
+## Example
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { whatsappBusiness } from "spectrum-ts/providers/whatsapp-business";
+
+const app = await Spectrum({
+  providers: [
+    whatsappBusiness.config({
+      accessToken: process.env.WA_TOKEN!,
+      phoneNumberId: process.env.WA_NUMBER_ID!,
+      appSecret: process.env.WA_SECRET!,
+    }),
+  ],
+});
+
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "text") {
+    await message.reply(`Got it: ${message.content.text}`);
+  }
+}
+```

@@ -1,0 +1,60 @@
+---
+title: "Contacts"
+description: "Share contact cards from structured data, users, or vCards."
+---
+
+Use `contact()` to share contact cards. The builder takes either a structured `ContactInput`, a vCard string, a `vcf` instance, or a known `User` paired with optional `ContactDetails`.
+
+<Tabs>
+  <Tab title="Structured">
+    ```ts
+    import { contact } from "spectrum-ts";
+
+    await space.send(contact({
+      name: { first: "Ada", last: "Lovelace" },
+      phones: [{ value: "+15551234567", type: "mobile" }],
+      emails: [{ value: "ada@example.com", type: "work" }],
+    }));
+    ```
+  </Tab>
+  <Tab title="From a User">
+    ```ts
+    import { contact } from "spectrum-ts";
+
+    // Attach extra details on top of an existing platform user
+    await space.send(contact(alice, {
+      name: { first: "Alice", last: "Anderson" },
+      org: { name: "Acme", title: "Engineer" },
+    }));
+    ```
+  </Tab>
+  <Tab title="From vCard">
+    ```ts
+    import { contact, fromVCard } from "spectrum-ts";
+
+    const vcf = await readFile("/path/to/ada.vcf", "utf8");
+    await space.send(contact(vcf));
+
+    // Or parse first if you want to inspect/edit the fields
+    const parsed = fromVCard(vcf);
+    await space.send(contact({ ...parsed, note: "Met at conference" }));
+    ```
+  </Tab>
+</Tabs>
+
+`fromVCard(vcf)` parses a vCard string into a `ContactInput`. `toVCard(contact)` serializes a resolved `Contact` back to vCard.
+
+<Accordion title="ContactInput" description="The fields you can populate on a contact card. All fields are optional except where the receiving platform requires at least one identifying field.">
+  | Field | Type | Description |
+  |---|---|---|
+  | `name` | `{ formatted?, first?, last?, middle?, prefix?, suffix? }` | Structured display name. |
+  | `phones` | `Array<{ value, type? }>` | Phone numbers. `type` is `"mobile" \| "home" \| "work" \| "other"`. |
+  | `emails` | `Array<{ value, type? }>` | Email addresses. `type` is `"home" \| "work" \| "other"`. |
+  | `addresses` | `Array<{ street?, city?, region?, postalCode?, country?, type? }>` | Postal addresses. |
+  | `org` | `{ name?, title?, department? }` | Employer or org info. |
+  | `urls` | `string[]` | Associated URLs. |
+  | `birthday` | `string` | ISO date. |
+  | `note` | `string` | Free-form note. |
+  | `photo` | `{ mimeType, read() }` | Profile photo bytes. |
+  | `raw` | `unknown` | Provider-specific extras passed through untouched. |
+</Accordion>

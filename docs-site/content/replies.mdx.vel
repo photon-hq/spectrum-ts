@@ -1,0 +1,27 @@
+---
+title: "Replies"
+description: "Thread content under an existing message."
+---
+
+Use `reply()` to send a threaded reply by wrapping content with the message being replied to. See [Reactions and replies](/spectrum-ts/reactions-and-replies) for the full details and sugar methods.
+
+```ts
+import { reply, text } from "spectrum-ts";
+
+await space.send(reply(text("Got it"), message));
+```
+
+`reply()` cannot wrap `reply`, `edit`, `reaction`, `group`, `typing`, `rename`, `avatar`, or `unsend` content.
+
+## Reply sugar
+
+`message.reply(...)` has the same variadic signature and delegates to `space.send(reply(...))` internally:
+
+```ts
+await message.reply(
+  "Thanks for the question.",
+  attachment("/path/to/answer.png"),
+);
+```
+
+On platforms without thread support, `reply()` resolves as a no-op. If you need guaranteed delivery, use `space.send(...)` instead.

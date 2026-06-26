@@ -1,0 +1,73 @@
+---
+title: "Custom Events and Lifecycle"
+description: "Platform-specific event streams and graceful shutdown"
+---
+
+## Custom events
+
+Platform providers can emit events beyond messages — typing indicators, read receipts, delivery status, whatever the provider chooses to surface. Spectrum exposes each event as a flat async iterable on the app instance:
+
+```ts
+for await (const event of app.typing) {
+  console.log(`${event.platform}: typing event received`);
+}
+```
+
+The property name matches the event name the provider declared. Events are merged across every provider that emits them, and each payload is annotated with a `platform` field so you know the source.
+
+### Lazy streams
+
+Event streams are created lazily on first access. Accessing `app.typing` once kicks off the underlying listener; subsequent iterations share the same source.
+
+### Per-platform access
+
+The same events are available on a narrowed platform instance, scoped to that platform only:
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const im = imessage(app);
+for await (const event of im.typing) {
+  // iMessage-only typing events
+}
+```
+
+Use the flat form on `app` when you want a merged feed across platforms; use the narrowed form when you only care about one.
+
+### Fusor custom events
+
+Fusor-backed providers can emit non-message events (presence, read receipts, delivery status) into typed event streams using `fusorEvent`. Inside a Fusor `messages` handler, yield a `fusorEvent(name, data)` alongside regular messages to push events into `app.<name>` streams:
+
+```ts
+import { fusorEvent } from "spectrum-ts";
+
+yield fusorEvent("presence", { userId: update.userId, online: true });
+```
+
+Events emitted this way are available as `app.presence` (merged across providers) or `narrowedInstance.presence` (scoped to the emitting provider). The event name and data shape are fully typed based on the provider's event declarations.
+
+## Lifecycle
+
+### Graceful shutdown
+
+```ts
+await app.stop();
+```
+
+This closes the merged message stream, drains and disposes every custom event stream, tears down every platform client via its `lifecycle.destroyClient` hook (if one is defined), and flushes any pending telemetry data when [telemetry](/spectrum-ts/getting-started#telemetry) is enabled. It's idempotent — calling `stop()` twice is safe.
+
+### Signal handling
+
+Spectrum registers `SIGINT` and `SIGTERM` handlers on startup. When a signal fires:
+
+1. `stop()` is invoked with a 3-second timeout.
+2. If cleanup completes in time, the process exits with code 0.
+3. If not, the process exits with code 1.
+
+You don't need to wire this up yourself — running your app in a container with `docker stop` or hitting Ctrl-C in a terminal will drain cleanly.
+
+### When to call `stop()` manually
+
+- You're embedding Spectrum in a longer-running process and want to tear it down without exiting.
+- You're writing tests that create and dispose an app per case.
+- You want deterministic cleanup before re-initializing with a different provider set.

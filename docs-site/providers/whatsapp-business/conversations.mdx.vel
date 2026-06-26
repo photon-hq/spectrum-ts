@@ -1,0 +1,21 @@
+---
+title: "WhatsApp Business conversations"
+sidebarTitle: "Conversations"
+description: "Resolve WhatsApp users and start supported 1:1 conversations."
+---
+
+WhatsApp Business supports 1:1 conversations. The provider rejects group creation explicitly.
+
+## Starting a conversation
+
+Resolve a user by their WhatsApp phone number in international format with digits only, then open a 1:1 space:
+
+```ts
+const wa = whatsappBusiness(app);
+const customer = await wa.user("15551234567");
+const space = await wa.space.create(customer);
+
+await space.send("Thanks for reaching out.");
+```
+
+Passing more than one user to `space.create()` throws.

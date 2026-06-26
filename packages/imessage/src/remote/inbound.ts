@@ -10,7 +10,6 @@ import {
   asAttachment,
   asContact,
   asCustom,
-  asRichlink,
   asText,
   createLogger,
   errorAttrs,
@@ -32,15 +31,10 @@ import {
 
 const log = createLogger("spectrum.imessage.inbound");
 
-const URL_BALLOON_BUNDLE_ID = "com.apple.messages.URLBalloonProvider";
-
 export type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 export type AppleMessage = ReceivedEvent["message"];
 type AppleAttachment = AppleMessage["content"]["attachments"][number];
 export type RemoteMessageBase = Omit<IMessageMessage, "id" | "content">;
-
-const getBalloonBundleId = (message: AppleMessage): string | undefined =>
-  message.content.balloonBundleId;
 
 const messageAttachments = (
   message: AppleMessage
@@ -170,28 +164,6 @@ const buildAttachmentMessage = async (
   return msg;
 };
 
-const toRichlinkMessage = (
-  message: AppleMessage,
-  base: RemoteMessageBase,
-  id: string
-): IMessageMessage => {
-  const url = message.content.text ?? "";
-  try {
-    return { ...base, id, content: asRichlink({ url }) };
-  } catch (err) {
-    log.warn(
-      "failed to convert message to rich link; falling back to text/custom content",
-      { "spectrum.imessage.message.id": id, ...errorAttrs(err) },
-      err
-    );
-    return {
-      ...base,
-      id,
-      content: url ? asText(url) : asCustom(message),
-    };
-  }
-};
-
 export const rebuildFromAppleMessage = async (
   client: AdvancedIMessage,
   message: AppleMessage,
@@ -237,10 +209,6 @@ export const rebuildFromAppleMessage = async (
     };
   }
 
-  if (getBalloonBundleId(message) === URL_BALLOON_BUNDLE_ID) {
-    return toRichlinkMessage(message, base, messageGuidStr);
-  }
-
   const text = message.content.text;
   return {
     ...base,
@@ -276,12 +244,6 @@ export const toInboundMessages = async (
     phone
   );
   const messageGuidStr = event.message.guid as string;
-
-  if (getBalloonBundleId(event.message) === URL_BALLOON_BUNDLE_ID) {
-    const msg = toRichlinkMessage(event.message, base, messageGuidStr);
-    cacheMessage(cache, msg);
-    return [msg];
-  }
 
   const attachments = messageAttachments(event.message);
 

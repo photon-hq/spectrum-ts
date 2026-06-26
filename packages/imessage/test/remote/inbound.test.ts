@@ -14,7 +14,10 @@ const RECEIVED_AT = new Date(1_700_000_000_000);
 // bare stub is enough to exercise the sender-normalization path.
 const client = {} as unknown as AdvancedIMessage;
 
-const receivedEvent = (sender?: Record<string, unknown>): ReceivedEvent =>
+const receivedEvent = (
+  sender?: Record<string, unknown>,
+  content?: Record<string, unknown>
+): ReceivedEvent =>
   ({
     type: "message.received",
     sequence: 1,
@@ -24,7 +27,13 @@ const receivedEvent = (sender?: Record<string, unknown>): ReceivedEvent =>
     message: {
       guid: "msg-guid",
       chatGuids: ["s1"],
-      content: { attachments: [], formatting: [], mentions: [], text: "hi" },
+      content: {
+        attachments: [],
+        formatting: [],
+        mentions: [],
+        text: "hi",
+        ...content,
+      },
       dateCreated: RECEIVED_AT,
       isFromMe: false,
       sender,
@@ -69,5 +78,26 @@ describe("iMessage remote toInboundMessages sender", () => {
 
   it("falls back to an empty id when the sender is absent", async () => {
     expect(await inboundSender(undefined)).toEqual({ id: "" });
+  });
+});
+
+describe("iMessage remote toInboundMessages content", () => {
+  it("surfaces a URL balloon as plain text rather than a rich link", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          text: "https://example.com/post",
+          balloonBundleId: "com.apple.messages.URLBalloonProvider",
+        }
+      ),
+      "+15550000000"
+    );
+    expect(message?.content).toEqual({
+      type: "text",
+      text: "https://example.com/post",
+    });
   });
 });

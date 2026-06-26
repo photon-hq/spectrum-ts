@@ -5,7 +5,6 @@ import {
   type ContactPhone,
 } from "../content/contact";
 import { asCustom } from "../content/custom";
-import { asRichlink } from "../content/richlink";
 import type { Content } from "../content/types";
 import type { ProviderMessageRecord } from "../platform/build";
 import { UnsupportedError } from "../utils/errors";
@@ -126,7 +125,8 @@ const mapContent = (
     case "text":
       return { type: "text", text: asString(raw.text) };
     case "richlink":
-      return asRichlink({ url: asString(raw.url) });
+      // Outbound-only content type; inbound URLs always surface as text.
+      return { type: "text", text: asString(raw.url) };
     case "contact":
       return deserializeContact(raw);
     case "reaction":

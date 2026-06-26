@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Attachment } from "@/content/attachment";
 import type { Reaction } from "@/content/reaction";
-import type { Richlink } from "@/content/richlink";
 import {
   type DeserializeContext,
   deserializeSpectrumMessage,
@@ -136,16 +135,15 @@ describe("deserializeSpectrumMessage", () => {
     expect(content.items[1]?.id).toBe("g1");
   });
 
-  it("maps a richlink with lazy accessors", () => {
+  it("surfaces an inbound richlink as plain text (outbound-only type)", () => {
     const { record } = deserialize({
       type: "richlink",
       url: "https://example.com/post",
     });
-    const content = record.content as Richlink;
-    expect(content.type).toBe("richlink");
-    expect(content.url).toBe("https://example.com/post");
-    expect(typeof content.title).toBe("function");
-    expect(typeof content.cover).toBe("function");
+    expect(record.content).toEqual({
+      type: "text",
+      text: "https://example.com/post",
+    });
   });
 
   it("maps a contact's name and phones", () => {

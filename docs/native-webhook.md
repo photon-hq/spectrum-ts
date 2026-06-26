@@ -2,7 +2,7 @@
 
 Spectrum Cloud can **POST already-normalized, signed JSON** to your HTTPS
 endpoint — Spectrum's own message model (`text`, `attachment`, `contact`,
-`richlink`, `reaction`, `group`), with raw bytes and SDK methods stripped, signed
+`reaction`, `group`), with raw bytes and SDK methods stripped, signed
 with an HMAC. This is the webhook documented at
 <https://photon.codes/docs/webhooks>.
 

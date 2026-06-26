@@ -77,7 +77,7 @@ describe("send (markdown)", () => {
     expect(record.space).toEqual({ id: "chat" });
   });
 
-  it("omits formatting and data detection for unstyled, link-free markdown", async () => {
+  it("omits formatting for unstyled markdown", async () => {
     const { remote, sendText } = makeRemote();
 
     await send(remote, "chat", asMarkdown("just words"));
@@ -85,7 +85,7 @@ describe("send (markdown)", () => {
     expect(sendText.mock.calls[0]).toEqual(["chat", "just words", {}]);
   });
 
-  it("enables data detection when the markdown contains links", async () => {
+  it("sends link-bearing markdown as plain text (no data detection)", async () => {
     const { remote, sendText } = makeRemote();
 
     await send(remote, "chat", asMarkdown("[docs](https://d.test)"));
@@ -93,7 +93,7 @@ describe("send (markdown)", () => {
     expect(sendText.mock.calls[0]).toEqual([
       "chat",
       "docs (https://d.test)",
-      { enableDataDetection: true },
+      {},
     ]);
   });
 

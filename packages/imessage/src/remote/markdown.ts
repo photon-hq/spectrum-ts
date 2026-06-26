@@ -70,15 +70,12 @@ const STYLE_ORDER: readonly InlineStyle[] = ["bold", "italic", "strikethrough"];
 // block separator. Offsets are assigned only in `finalize`, after the full
 // span sequence (including trim) is fixed — they can never be invalidated.
 interface StyledSpan {
-  /** Set on spans produced by link/image rendering — drives `hasLinks`. */
-  readonly link?: boolean;
   readonly styles: readonly InlineStyle[];
   readonly text: string;
 }
 
 export interface IMessageRenderedMarkdown {
   readonly formatting: readonly TextFormatInput[];
-  readonly hasLinks: boolean;
   readonly text: string;
 }
 
@@ -90,9 +87,6 @@ const withStyle = (spans: StyledSpan[], style: InlineStyle): StyledSpan[] =>
       ? span
       : { ...span, styles: [...span.styles, style] }
   );
-
-const asLink = (spans: StyledSpan[]): StyledSpan[] =>
-  spans.map((span) => ({ ...span, link: true }));
 
 const spanText = (spans: readonly StyledSpan[]): string => {
   let out = "";
@@ -162,12 +156,12 @@ const renderLink = (token: Tokens.Link): StyledSpan[] => {
   // A bare autolink lexes with its label equal to its href — render the
   // url alone instead of doubling it as "url (url)".
   if (token.text === token.href) {
-    return [{ text: token.href, styles: [], link: true }];
+    return [{ text: token.href, styles: [] }];
   }
   // The label keeps its inline styling; the " (url)" suffix stays unstyled.
   return [
-    ...asLink(renderInlineTokens(token.tokens)),
-    { text: ` (${token.href})`, styles: [], link: true },
+    ...renderInlineTokens(token.tokens),
+    { text: ` (${token.href})`, styles: [] },
   ];
 };
 
@@ -175,7 +169,6 @@ const renderImage = (token: Tokens.Image): StyledSpan[] => [
   {
     text: token.text ? `${token.text} (${token.href})` : token.href,
     styles: [],
-    link: true,
   },
 ];
 
@@ -351,7 +344,6 @@ const trimSpans = (spans: StyledSpan[]): StyledSpan[] => {
 // closes it. Unstyled separator/prefix spans therefore bound every range.
 const finalize = (spans: StyledSpan[]): IMessageRenderedMarkdown => {
   let text = "";
-  let hasLinks = false;
   const open = new Map<InlineStyle, number>();
   const ranges: { type: InlineStyle; start: number; length: number }[] = [];
 
@@ -367,7 +359,6 @@ const finalize = (spans: StyledSpan[]): IMessageRenderedMarkdown => {
     if (!span.text) {
       continue;
     }
-    hasLinks ||= span.link === true;
     const offset = text.length;
     for (const style of STYLE_ORDER) {
       if (span.styles.includes(style)) {
@@ -389,7 +380,7 @@ const finalize = (spans: StyledSpan[]): IMessageRenderedMarkdown => {
       a.start - b.start ||
       STYLE_ORDER.indexOf(a.type) - STYLE_ORDER.indexOf(b.type)
   );
-  return { text, formatting: ranges, hasLinks };
+  return { text, formatting: ranges };
 };
 
 /**
@@ -399,8 +390,7 @@ const finalize = (spans: StyledSpan[]): IMessageRenderedMarkdown => {
  * bullets, `label (url)` links); inline emphasis becomes native
  * bold/italic/strikethrough ranges instead of being stripped, headings
  * render as bold, and code maps to Unicode mathematical monospace
- * characters. `hasLinks` reports whether any link or image put a URL into
- * the text, so the sender can enable Apple's data-detector pass.
+ * characters.
  */
 export const markdownToIMessageText = (
   markdown: string

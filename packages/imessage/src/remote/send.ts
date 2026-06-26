@@ -94,11 +94,6 @@ const formattingOption = (
 ): Pick<SendOptions, "formatting"> =>
   formatting.length > 0 ? { formatting } : {};
 
-const dataDetectionOption = (
-  hasLinks: boolean
-): Pick<SendOptions, "enableDataDetection"> =>
-  hasLinks ? { enableDataDetection: true } : {};
-
 // Markdown that renders to nothing (e.g. a whitespace-only source) throws
 // UnsupportedError so the pipeline's downgrade path handles it exactly like
 // platforms without native markdown support.
@@ -217,7 +212,6 @@ const sendContent = async (
           {
             ...effectOption(effect),
             ...formattingOption(rendered.formatting),
-            ...dataDetectionOption(rendered.hasLinks),
           },
           replyTo
         )
@@ -308,7 +302,6 @@ const resolvePart = async (
     case "text":
       return { text: content.text };
     case "markdown": {
-      // `MessagePart` has no data-detection flag, so `hasLinks` is dropped.
       const rendered = renderMarkdown(content.markdown);
       return { text: rendered.text, ...formattingOption(rendered.formatting) };
     }

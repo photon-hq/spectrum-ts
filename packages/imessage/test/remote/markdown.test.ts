@@ -6,7 +6,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("hello")).toEqual({
       text: "hello",
       formatting: [],
-      hasLinks: false,
     });
   });
 
@@ -14,7 +13,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("a **b** c")).toEqual({
       text: "a b c",
       formatting: [{ type: "bold", start: 2, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -29,7 +27,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("🎉 **x**")).toEqual({
       text: "🎉 x",
       formatting: [{ type: "bold", start: 3, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -47,7 +44,6 @@ describe("markdownToIMessageText", () => {
         { type: "bold", start: 0, length: 12 },
         { type: "italic", start: 5, length: 2 },
       ],
-      hasLinks: false,
     });
   });
 
@@ -59,7 +55,6 @@ describe("markdownToIMessageText", () => {
         { type: "bold", start: 0, length: 3 },
         { type: "italic", start: 2, length: 1 },
       ],
-      hasLinks: false,
     });
   });
 
@@ -70,7 +65,6 @@ describe("markdownToIMessageText", () => {
         { type: "bold", start: 0, length: 1 },
         { type: "bold", start: 3, length: 1 },
       ],
-      hasLinks: false,
     });
   });
 
@@ -78,15 +72,13 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("# Title\n\nbody")).toEqual({
       text: "Title\n\nbody",
       formatting: [{ type: "bold", start: 0, length: 5 }],
-      hasLinks: false,
     });
   });
 
-  it("renders links as label (url) and reports hasLinks", () => {
+  it("renders links as label (url)", () => {
     expect(markdownToIMessageText("[docs](https://d.test)")).toEqual({
       text: "docs (https://d.test)",
       formatting: [],
-      hasLinks: true,
     });
   });
 
@@ -94,7 +86,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("[**a**](https://d.test)")).toEqual({
       text: "a (https://d.test)",
       formatting: [{ type: "bold", start: 0, length: 1 }],
-      hasLinks: true,
     });
   });
 
@@ -102,7 +93,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("see https://bare.example")).toEqual({
       text: "see https://bare.example",
       formatting: [],
-      hasLinks: true,
     });
   });
 
@@ -110,7 +100,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("![chart](https://i.test/p.png)")).toEqual({
       text: "chart (https://i.test/p.png)",
       formatting: [],
-      hasLinks: true,
     });
   });
 
@@ -118,7 +107,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("`npm install spectrum-ts`")).toEqual({
       text: "𝚗𝚙𝚖 𝚒𝚗𝚜𝚝𝚊𝚕𝚕 𝚜𝚙𝚎𝚌𝚝𝚛𝚞𝚖-𝚝𝚜",
       formatting: [],
-      hasLinks: false,
     });
   });
 
@@ -135,7 +123,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("`ab` **c**")).toEqual({
       text: "𝚊𝚋 c",
       formatting: [{ type: "bold", start: 5, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -143,7 +130,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("- **a**\n- b")).toEqual({
       text: "• a\n• b",
       formatting: [{ type: "bold", start: 2, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -165,7 +151,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("> **q**")).toEqual({
       text: "> q",
       formatting: [{ type: "bold", start: 2, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -179,7 +164,6 @@ describe("markdownToIMessageText", () => {
     ).toEqual({
       text: "h1 | h2\na | b",
       formatting: [{ type: "bold", start: 8, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -191,7 +175,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("<u>under</u> ok")).toEqual({
       text: "<u>under</u> ok",
       formatting: [],
-      hasLinks: false,
     });
   });
 
@@ -199,7 +182,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("**line one\nline two**")).toEqual({
       text: "line one\nline two",
       formatting: [{ type: "bold", start: 0, length: 17 }],
-      hasLinks: false,
     });
   });
 
@@ -207,7 +189,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("\n\n# A")).toEqual({
       text: "A",
       formatting: [{ type: "bold", start: 0, length: 1 }],
-      hasLinks: false,
     });
   });
 
@@ -215,7 +196,6 @@ describe("markdownToIMessageText", () => {
     expect(markdownToIMessageText("   ")).toEqual({
       text: "",
       formatting: [],
-      hasLinks: false,
     });
   });
 });

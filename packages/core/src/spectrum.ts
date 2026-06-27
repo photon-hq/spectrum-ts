@@ -214,6 +214,10 @@ function bootstrapTelemetry(opts: {
     endpoint: PHOTON_OTEL_ENDPOINT,
     headers,
     resourceAttributes,
+    // Never monkeypatch the consumer's global fetch: it would wrap their own
+    // unrelated outbound requests in spans and inject trace headers into them.
+    // Spectrum only traces its own operations via withSpan.
+    instrumentFetch: false,
   });
 }
 

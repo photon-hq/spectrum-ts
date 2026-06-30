@@ -16,6 +16,7 @@ import {
   groupSchema,
 } from "@spectrum-ts/core/authoring";
 import { getMessageCache, type MessageCache } from "../cache";
+import { type OrderedPart, toOrderedParts } from "../shared/inbound-parts";
 import { isVCardAttachment } from "../shared/vcard";
 import type { IMessageMessage } from "../types";
 import {
@@ -164,6 +165,104 @@ const buildAttachmentMessage = async (
   return msg;
 };
 
+const buildTextMessage = (
+  base: RemoteMessageBase,
+  text: string,
+  id: string,
+  partIndex: number,
+  parentId?: string
+): IMessageMessage => {
+  const msg: IMessageMessage = {
+    ...base,
+    id,
+    content: asText(text),
+    partIndex,
+  };
+  if (parentId !== undefined) {
+    msg.parentId = parentId;
+  }
+  return msg;
+};
+
+const buildOrderedPartMessage = async (
+  client: AdvancedIMessage,
+  base: RemoteMessageBase,
+  part: OrderedPart<AppleAttachment>,
+  id: string,
+  partIndex: number,
+  parentId?: string
+): Promise<IMessageMessage> =>
+  part.type === "text"
+    ? buildTextMessage(base, part.text, id, partIndex, parentId)
+    : await buildAttachmentMessage(
+        client,
+        base,
+        part.attachment,
+        id,
+        partIndex,
+        parentId
+      );
+
+const buildContentMessage = async (
+  client: AdvancedIMessage,
+  base: RemoteMessageBase,
+  message: AppleMessage,
+  messageGuidStr: string
+): Promise<IMessageMessage> => {
+  const attachments = messageAttachments(message);
+
+  if (attachments.length === 0) {
+    const text = message.content.text;
+    return {
+      ...base,
+      id: messageGuidStr,
+      content: text ? asText(text) : asCustom(message),
+    };
+  }
+
+  const parts = toOrderedParts(message.content.text, attachments);
+
+  if (parts.length === 0) {
+    return {
+      ...base,
+      id: messageGuidStr,
+      content: asCustom(message),
+    };
+  }
+
+  if (parts.length === 1) {
+    const part = parts[0];
+    if (!part) {
+      throw new Error("Unreachable: parts.length === 1 but no element");
+    }
+    return buildOrderedPartMessage(client, base, part, messageGuidStr, 0);
+  }
+
+  const items: IMessageMessage[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) {
+      continue;
+    }
+    items.push(
+      await buildOrderedPartMessage(
+        client,
+        base,
+        part,
+        formatChildId(i, messageGuidStr),
+        i,
+        messageGuidStr
+      )
+    );
+  }
+
+  return {
+    ...base,
+    id: messageGuidStr,
+    content: asProviderGroup(items),
+  };
+};
+
 export const rebuildFromAppleMessage = async (
   client: AdvancedIMessage,
   message: AppleMessage,
@@ -173,48 +272,7 @@ export const rebuildFromAppleMessage = async (
   const messageGuidStr = message.guid as string;
   const timestamp = message.dateCreated ?? new Date();
   const base = buildMessageBase(message, chatGuidHint, timestamp, phone);
-
-  const attachments = messageAttachments(message);
-
-  if (attachments.length === 1) {
-    const info = attachments[0];
-    if (!info) {
-      throw new Error("Unreachable: attachments.length === 1 but no element");
-    }
-    return buildAttachmentMessage(client, base, info, messageGuidStr, 0);
-  }
-
-  if (attachments.length > 1) {
-    const items: IMessageMessage[] = [];
-    for (let i = 0; i < attachments.length; i++) {
-      const info = attachments[i];
-      if (!info) {
-        continue;
-      }
-      items.push(
-        await buildAttachmentMessage(
-          client,
-          base,
-          info,
-          formatChildId(i, messageGuidStr),
-          i,
-          messageGuidStr
-        )
-      );
-    }
-    return {
-      ...base,
-      id: messageGuidStr,
-      content: asProviderGroup(items),
-    };
-  }
-
-  const text = message.content.text;
-  return {
-    ...base,
-    id: messageGuidStr,
-    content: text ? asText(text) : asCustom(message),
-  };
+  return buildContentMessage(client, base, message, messageGuidStr);
 };
 
 export const cacheMessage = (
@@ -244,58 +302,12 @@ export const toInboundMessages = async (
     phone
   );
   const messageGuidStr = event.message.guid as string;
-
-  const attachments = messageAttachments(event.message);
-
-  if (attachments.length === 1) {
-    const info = attachments[0];
-    if (!info) {
-      throw new Error("Unreachable: attachments.length === 1 but no element");
-    }
-    const msg = await buildAttachmentMessage(
-      client,
-      base,
-      info,
-      messageGuidStr,
-      0
-    );
-    cacheMessage(cache, msg);
-    return [msg];
-  }
-
-  if (attachments.length > 1) {
-    const items: IMessageMessage[] = [];
-    for (let i = 0; i < attachments.length; i++) {
-      const info = attachments[i];
-      if (!info) {
-        continue;
-      }
-      items.push(
-        await buildAttachmentMessage(
-          client,
-          base,
-          info,
-          formatChildId(i, messageGuidStr),
-          i,
-          messageGuidStr
-        )
-      );
-    }
-    const parent: IMessageMessage = {
-      ...base,
-      id: messageGuidStr,
-      content: asProviderGroup(items),
-    };
-    cacheMessage(cache, parent);
-    return [parent];
-  }
-
-  const text = event.message.content.text;
-  const msg: IMessageMessage = {
-    ...base,
-    id: messageGuidStr,
-    content: text ? asText(text) : asCustom(event.message),
-  };
+  const msg = await buildContentMessage(
+    client,
+    base,
+    event.message,
+    messageGuidStr
+  );
   cacheMessage(cache, msg);
   return [msg];
 };

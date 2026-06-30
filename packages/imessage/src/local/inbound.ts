@@ -4,10 +4,15 @@ import type {
   Message as LocalIMessage,
 } from "@photon-ai/imessage-kit";
 import { type ManagedStream, stream } from "@spectrum-ts/core";
+import { asText } from "@spectrum-ts/core/authoring";
+import {
+  ATTACHMENT_PLACEHOLDER,
+  hasUsableTextPart,
+  toOrderedParts,
+} from "../shared/inbound-parts";
 import type { IMessageMessage } from "../types";
 import { localAttachmentContent } from "./attachments";
 
-const ATTACHMENT_PLACEHOLDER = "\uFFFC";
 const ATTACHMENT_JOIN_RETRY_DELAY_MS = 250;
 const ATTACHMENT_JOIN_RETRY_LIMIT = 8;
 const ATTACHMENT_JOIN_FETCH_LIMIT = 10;
@@ -87,13 +92,43 @@ export const toMessages = async (
   };
 
   if (message.attachments.length > 0) {
-    return Promise.all(
-      message.attachments.map(async (att) => ({
-        ...base,
-        id: `${message.id}:${att.id}`,
-        content: await localAttachmentContent(att),
-      }))
-    );
+    if (!hasUsableTextPart(message.text)) {
+      return Promise.all(
+        message.attachments.map(async (att) => ({
+          ...base,
+          id: `${message.id}:${att.id}`,
+          content: await localAttachmentContent(att),
+        }))
+      );
+    }
+
+    const parts = toOrderedParts(message.text, message.attachments);
+    const messages: IMessageMessage[] = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (!part) {
+        continue;
+      }
+
+      messages.push(
+        part.type === "text"
+          ? {
+              ...base,
+              id: `${message.id}:text:${i}`,
+              content: asText(part.text),
+              partIndex: i,
+            }
+          : {
+              ...base,
+              id: `${message.id}:${part.attachment.id}`,
+              content: await localAttachmentContent(part.attachment),
+              partIndex: i,
+            }
+      );
+    }
+
+    return messages;
   }
 
   return [

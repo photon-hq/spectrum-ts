@@ -1,0 +1,266 @@
+---
+title: "Building a Custom Platform"
+description: "Use definePlatform to plug a new messaging platform into Spectrum"
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set pd = symbol("ts:spectrum-ts#PlatformDef") %}
+{% set ep = symbol("ts:spectrum-ts#EventProducer") %}
+{% set schemaMsg = symbol("ts:spectrum-ts#SchemaMessage") %}
+
+`definePlatform` is the entry point for building your own provider. It takes a name and a definition object, and returns a callable that:
+
+- exposes a `.config()` method for registering the provider on `Spectrum()`
+- accepts a Spectrum instance, space, or message for [narrowing](/spectrum-ts/platform-narrowing)
+- carries any `static` properties you declare (like iMessage's `tapbacks`)
+
+The full definition shape is <TypeTooltip name="PlatformDef" type={`{{ pd.signature }}`} />.
+
+## Shape
+
+```ts
+import { definePlatform } from "spectrum-ts";
+import z from "zod";
+
+export const myPlatform = definePlatform("my-platform", {
+  // Validate provider config
+  config: z.object({
+    apiKey: z.string(),
+  }),
+
+  // Resolve a user from a string ID
+  user: {
+    resolve: async ({ input, client }) => ({
+      id: input.userID,
+      displayName: await client.lookupUser(input.userID),
+    }),
+  },
+
+  // Create a conversation from participants
+  space: {
+    create: async ({ input, client }) => ({
+      id: await client.findOrCreateConversation(input.users.map(u => u.id)),
+    }),
+  },
+
+  // Client lifecycle
+  lifecycle: {
+    createClient: async ({ config, store }) => new MyPlatformClient(config.apiKey),
+    destroyClient: async ({ client }) => { await client.disconnect(); },
+  },
+
+  // Inbound message stream
+  async *messages({ client }) {
+    for await (const msg of client.onMessage()) {
+      yield {
+        id: msg.id,
+        content: { type: "text", text: msg.body },
+        sender: { id: msg.authorId },
+        space: { id: msg.channelId },
+        timestamp: new Date(msg.ts),
+      };
+    }
+  },
+
+  // Outbound dispatcher — all content types flow through here
+  send: async ({ space, content, client }) => {
+    switch (content.type) {
+      case "text":
+        return await client.send(space.id, content.text);
+      case "reaction":
+        return await client.react(space.id, content.target.id, content.emoji);
+      case "reply":
+        return await client.reply(space.id, content.target.id, content.content);
+      case "typing":
+        await client.setTyping(space.id, content.state === "start");
+        return;
+    }
+  },
+
+  // Optional static properties
+  static: {
+    reactions: { thumbsUp: "+1", thumbsDown: "-1" } as const,
+  },
+});
+```
+
+## Field reference
+
+| Field | Required | Description |
+|---|---|---|
+| `config` | Yes | A Zod schema that validates the object passed to `platform.config()`. If every field is optional, `platform.config()` can be called with no arguments. |
+| `user.resolve` | Yes | Resolves a user from a string ID. Returns at minimum `{ id: string }`. |
+| `user.schema` | No | Optional Zod schema for extra user properties. |
+| `space.create` | Yes | Creates a conversation from participants. Receives an array of users plus optional params. |
+| `space.get` | No | Hydrates a space from a known platform space ID. When omitted, the framework builds `{ id }` and validates it against `space.schema`. Providers whose schema requires more fields must implement this. |
+| `space.schema` | No | Optional Zod schema for the resolved space. |
+| `space.params` | No | Zod schema for additional space parameters — surfaces as the second arg to `platform(app).space.create()` and `platform(app).space.get()`. |
+| `space.actions` | No | A map of content-builder factories that become sugar methods on the resolved space. Each `space.<name>(...args)` delegates to `space.send(factory(...args))`. Names that collide with built-in `Space` methods (`send`, `edit`, `unsend`, `startTyping`, `stopTyping`, `responding`, `getMessage`, `rename`, `avatar`) are skipped at runtime with a warning. |
+| `lifecycle.createClient` | Yes | Creates the platform client. Receives `config`, `projectId`, `projectSecret` (both may be `undefined`), and `store`. |
+| `lifecycle.destroyClient` | No | Tears down the client on shutdown. Omit if no cleanup is needed. |
+| `messages` | Yes | Async generator that yields incoming messages. |
+| `send` | Yes | Dispatches a content item to a space. All content types — text, markdown, attachments, reactions, replies, edits, unsends, typing indicators — flow through this single action. Return a `ProviderMessageRecord` for content that produces a message (including reactions — the record is the unsend handle), or `undefined` for fire-and-forget signals (typing, edits, unsends). |
+| `actions.getMessage` | No | Fetches a message by ID from a space. Receives `(ctx, space, messageId)` where `ctx` is `{ client, config, store }`. Powers `space.getMessage(id)`. When omitted, `space.getMessage()` throws `UnsupportedError`. |
+| `actions.[custom]` | No | Platform-specific methods projected onto the platform instance. Each receives `(ctx, ...args)` where `ctx` is `{ client, config, store }`; the public signature drops `ctx`. Names that collide with reserved instance keys (`user`, `space`, `messages`, plus any event names) are skipped at runtime with a warning. |
+| `events.[custom]` | No | Additional async generators for platform-specific events — exposed on `app.[eventName]`. |
+| `message.schema` | No | Zod schema for extra properties on incoming messages. |
+| `static` | No | Constants attached to the platform object (e.g. tapback names). |
+
+## Message direction
+
+Records yielded from `messages` are wrapped as inbound, and records returned from `send` are wrapped as outbound. When a provider knows the actual direction of a record, it can set `direction` on the raw record and Spectrum will use it instead of the wrapping context:
+
+```ts
+yield {
+  id: reactionEvent.id,
+  content: {
+    type: "reaction",
+    emoji: reactionEvent.emoji,
+    target: {
+      id: reactionEvent.targetId,
+      content: { type: "text", text: reactionEvent.targetText },
+      direction: "outbound",
+      space: { id: reactionEvent.channelId },
+    },
+  },
+  sender: { id: reactionEvent.userId },
+  space: { id: reactionEvent.channelId },
+};
+```
+
+This matters for nested records like reaction targets: the outer reaction is inbound (someone reacted) but the target may be outbound (they reacted to a message you sent). Without `direction`, nested targets default to the outer record's direction.
+
+## Event producers
+
+Every event generator receives `{ client, config, store }` and returns an `AsyncIterable`. The signature is <TypeTooltip name="EventProducer" type={`{{ ep.signature }}`} />.
+
+The core `messages` stream lives at the top level of the definition. Optional custom event streams (presence, read receipts, etc.) live inside `events`:
+
+```ts
+// Top-level — required
+async *messages({ client }) { /* ... */ },
+
+// Optional custom events
+events: {
+  async *presence({ client }) {
+    for await (const ev of client.presence()) {
+      yield { spaceId: ev.chatId, userId: ev.user, online: ev.online };
+    }
+  },
+},
+```
+
+Custom events are auto-wired as flat properties on both the Spectrum instance (`app.presence`) and the narrowed platform instance (`myPlatform(app).presence`).
+
+## Message extras
+
+Declare a `message.schema` to add extra typed fields to every incoming message. The extractor surfaces them through a narrowed message:
+
+```ts
+message: {
+  schema: z.object({
+    threadId: z.string().optional(),
+    reactions: z.array(z.string()),
+  }),
+},
+```
+
+Use <TypeTooltip name="SchemaMessage" type={`{{ schemaMsg.signature }}`} /> when you need the message shape in your own types.
+
+## Instance actions
+
+Methods declared in `actions` are projected onto the platform instance returned by `myPlatform(app)`. The framework injects `ctx = { client, config, store }` as the first argument, so callers only pass the trailing args.
+
+Two tiers share the `actions` slot:
+
+- **Platform-wise actions** (`getMessage`) — framework-recognized names. Always present on every platform instance. When omitted, the framework wires a default that throws `UnsupportedError`.
+- **Platform-specific actions** — free-form keys for platform ergonomics (e.g. iMessage's `getAttachment`). Only present when declared.
+
+```ts
+export const myPlatform = definePlatform("my-platform", {
+  // ...
+  actions: {
+    getMessage: async ({ client }, space, messageId) => {
+      return await client.fetchMessage(space.id, messageId);
+    },
+    lookupThread: async ({ client }, threadId: string) => {
+      return await client.getThread(threadId);
+    },
+  },
+});
+
+const mine = myPlatform(app);
+
+// Platform-wise — always available, throws UnsupportedError if not overridden
+const msg = await mine.getMessage(space, "msg-123");
+
+// Platform-specific — available because declared above
+const thread = await mine.lookupThread("thread-456");
+```
+
+## Fusor-backed providers
+
+When your platform receives inbound messages through webhooks (rather than a persistent connection), use `fusor(...)` as the client in `lifecycle.createClient`. A Fusor client handles webhook signature verification and delivers parsed payloads to your `messages` handler:
+
+```ts
+import { definePlatform, fusor, fusorEvent } from "spectrum-ts";
+import z from "zod";
+
+export const myWebhookPlatform = definePlatform("my-webhook-platform", {
+  config: z.object({
+    webhookSecret: z.string(),
+  }),
+
+  lifecycle: {
+    createClient: async ({ config }) =>
+      fusor("my-webhook-platform", (req) => {
+        verifySignature(req.rawBody, req.headers, config.webhookSecret);
+        return JSON.parse(new TextDecoder().decode(req.rawBody));
+      }),
+  },
+
+  messages: async function* ({ payload, config, respond }) {
+    respond({ status: 200 });
+    yield {
+      id: payload.id,
+      content: { type: "text", text: payload.text },
+      sender: { id: payload.userId },
+      space: { id: payload.chatId },
+      timestamp: new Date(payload.ts),
+    };
+  },
+
+  send: async ({ space, content, config }) => {
+    // dispatch outbound messages
+  },
+
+  user: {
+    resolve: async ({ input }) => ({ id: input.userID }),
+  },
+
+  space: {
+    create: async ({ input }) => ({ id: input.users[0].id }),
+  },
+});
+```
+
+The Fusor overload of `definePlatform` replaces the top-level `messages` async generator with a per-webhook-delivery handler that receives `{ payload, config, respond }`. Call `respond()` to set the HTTP response sent back to the webhook caller.
+
+## Registering your platform
+
+Exported platforms work like the built-ins — register with `.config()` and use narrowing for the typed surface:
+
+```ts
+const app = await Spectrum({
+  providers: [
+    myPlatform.config({ apiKey: process.env.MY_KEY! }),
+  ],
+});
+
+const mine = myPlatform(app);
+const user = await mine.user("user-123");
+const space = await mine.space.create(user);
+
+await space.send("Hello from my custom platform.");
+```

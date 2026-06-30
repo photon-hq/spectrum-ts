@@ -1,0 +1,17 @@
+---
+title: "Edits"
+description: "Rewrite previously sent outbound messages."
+---
+
+Use `edit()` to rewrite the content of a previously sent outbound message. Edits are fire-and-forget: `space.send(edit(...))` resolves to `undefined`.
+
+```ts
+import { edit, text } from "spectrum-ts";
+
+const sent = await space.send("Draft");
+await space.send(edit(text("Final version"), sent));
+```
+
+`edit()` cannot wrap `edit`, `reply`, `reaction`, `group`, `typing`, `rename`, `avatar`, or `unsend` content.
+
+Provider constraints surface at send time. For example, a provider may reject edits after its native edit window closes.

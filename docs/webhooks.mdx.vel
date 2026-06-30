@@ -1,0 +1,192 @@
+---
+title: "Webhooks"
+description: "Receive messages via HTTP instead of a long-lived process"
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+`app.webhook()` lets you receive messages through HTTP `POST` requests instead of the `app.messages` stream. It handles two webhook formats through the same method:
+
+| | Native Spectrum webhook | Fusor webhook |
+|---|---|---|
+| Body | HMAC-signed, normalized JSON | Protobuf envelope (raw provider request) |
+| Auth | HMAC over body, verified with `webhookSecret` | Platform's own signature via provider `verify()` |
+| Requires a Fusor provider | No | Yes |
+
+Detection is by payload shape (JSON vs protobuf), not headers. Your handler receives the same `(space, message)` pair either way.
+
+## Configuring a webhook secret
+
+Native Spectrum webhooks require a signing secret for HMAC verification. Pass it to `Spectrum()`:
+
+```ts
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [imessage.config()],
+  webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
+});
+```
+
+The `webhookSecret` option can also be supplied via the `SPECTRUM_WEBHOOK_SECRET` environment variable (the explicit option takes precedence). A native delivery that arrives without a configured secret is answered `500`.
+
+## Receiving deliveries
+
+Call `app.webhook()` from your HTTP server's `POST` route. The method has two overloads:
+
+<Tabs>
+  <Tab title="Web Request (Hono / Bun.serve / Workers)">
+    ```ts
+    server.post("/spectrum/webhook", (c) =>
+      app.webhook(c.req.raw, async (space, message) => {
+        if (message.content.type === "text") {
+          await space.send(`echo: ${message.content.text}`);
+        }
+      })
+    );
+    ```
+  </Tab>
+  <Tab title="Raw (Express / Node)">
+    ```ts
+    server.post(
+      "/spectrum/webhook",
+      express.raw({ type: "*/*" }),
+      async (req, res) => {
+        const result = await app.webhook(
+          { body: req.body, headers: req.headers },
+          async (space, message) => {
+            if (message.content.type === "text") {
+              await space.send(`echo: ${message.content.text}`);
+            }
+          }
+        );
+        res.status(result.status).set(result.headers).send(Buffer.from(result.body));
+      }
+    );
+    ```
+  </Tab>
+</Tabs>
+
+The handler is invoked **fire-and-forget** — it runs after the HTTP response is sent. A throw is logged, never surfaced. Dedupe on `message.id` for exactly-once side effects.
+
+<Warning>
+Pass the raw body bytes. The HMAC is computed over the exact bytes on the wire. If your framework parses the body to JSON and you re-stringify it, the bytes change and verification fails.
+</Warning>
+
+## Framework adapters
+
+First-party adapters mount the endpoint for you and handle raw-body parsing correctly. Each is an optional subpath import — install the framework as a peer dependency only if you use it.
+
+<Tabs>
+  <Tab title="Hono">
+    ```ts
+    import { Hono } from "hono";
+    import { Spectrum } from "spectrum-ts";
+    import { imessage } from "spectrum-ts/providers/imessage";
+    import { spectrum } from "spectrum-ts/hono";
+
+    const app = await Spectrum({
+      projectId: process.env.PROJECT_ID!,
+      projectSecret: process.env.PROJECT_SECRET!,
+      providers: [imessage.config()],
+      webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
+    });
+
+    const server = new Hono().route(
+      "/",
+      spectrum({
+        app,
+        onMessage: async (space, message) => {
+          if (message.content.type === "text") {
+            await space.send(`echo: ${message.content.text}`);
+          }
+        },
+      })
+    );
+
+    export default server;
+    ```
+  </Tab>
+  <Tab title="Express">
+    ```ts
+    import express from "express";
+    import { Spectrum } from "spectrum-ts";
+    import { imessage } from "spectrum-ts/providers/imessage";
+    import { spectrum } from "spectrum-ts/express";
+
+    const app = await Spectrum({
+      projectId: process.env.PROJECT_ID!,
+      projectSecret: process.env.PROJECT_SECRET!,
+      providers: [imessage.config()],
+      webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
+    });
+
+    const server = express();
+
+    server.use(
+      spectrum({
+        app,
+        onMessage: async (space, message) => {
+          if (message.content.type === "text") {
+            await space.send(`echo: ${message.content.text}`);
+          }
+        },
+      })
+    );
+
+    server.use(express.json());
+    server.listen(3000);
+    ```
+
+    Mount the adapter **before** any global `express.json()`. A global JSON parser consumes the body stream first, breaking signature verification.
+  </Tab>
+  <Tab title="Elysia">
+    ```ts
+    import { Elysia } from "elysia";
+    import { Spectrum } from "spectrum-ts";
+    import { imessage } from "spectrum-ts/providers/imessage";
+    import { spectrum } from "spectrum-ts/elysia";
+
+    const app = await Spectrum({
+      projectId: process.env.PROJECT_ID!,
+      projectSecret: process.env.PROJECT_SECRET!,
+      providers: [imessage.config()],
+      webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
+    });
+
+    new Elysia()
+      .use(
+        spectrum({
+          app,
+          onMessage: async (space, message) => {
+            if (message.content.type === "text") {
+              await space.send(`echo: ${message.content.text}`);
+            }
+          },
+        })
+      )
+      .listen(3000);
+    ```
+  </Tab>
+</Tabs>
+
+All three adapters accept the same options:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `app` | `Spectrum` instance | — | The instance returned by `await Spectrum({...})`. |
+| `onMessage` | `(space, message) => void \| Promise<void>` | — | Invoked once per inbound message, fire-and-forget. |
+| `path` | `string` | `"/spectrum/webhook"` | Route the endpoint is mounted on. |
+
+## What the SDK handles
+
+- **Signature verification.** Native webhooks are verified with `HMAC-SHA256` over `v0:<timestamp>:<rawBody>`, with a 5-minute replay window. Bad signature returns `401`, missing headers return `400`.
+- **Payload deserialization.** Native webhook JSON is deserialized into normal `Message` / `Space` objects, including reactions and grouped items.
+- **Attachment rehydration.** Native webhooks carry attachment metadata only. `read()` and `stream()` fetch the bytes lazily via the platform.
+- **Format detection.** Native vs Fusor is detected per request by payload shape — JSON for native, protobuf for Fusor.
+
+## Delivery semantics
+
+`app.webhook()` is stateless and request-scoped — it does **not** feed `app.messages`, and it never opens the streaming connection. Both formats deliver at-least-once, so dedupe on `message.id` for exactly-once side effects.
+
+For more on Spectrum's webhook delivery model, see the [Webhooks documentation](/webhooks/overview).

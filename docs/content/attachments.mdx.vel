@@ -1,0 +1,41 @@
+---
+title: "Attachments"
+description: "Send files from paths or buffers with stable attachment IDs."
+---
+
+Use `attachment()` to send files. Pass a file path or a `Buffer`. MIME types are detected from the file extension. Override with `options.mimeType` when you already have the bytes.
+
+```ts
+import { attachment } from "spectrum-ts";
+
+// From a file path - name and MIME type inferred
+await space.send(attachment("/path/to/photo.jpg"));
+
+// From a buffer - provide name and MIME type
+await space.send(attachment(buffer, {
+  name: "report.pdf",
+  mimeType: "application/pdf",
+}));
+```
+
+If the MIME type can't be inferred from the name and you didn't pass `options.mimeType`, `attachment()` throws when the content is built.
+
+## Attachment IDs
+
+Every resolved attachment carries a stable `id`. When the attachment originates from a provider, the ID preserves the provider-native identifier, such as an iMessage GUID, Slack file ID, or WhatsApp media ID.
+
+For outbound attachments built with `attachment()`, Spectrum assigns a random UUID unless you pass `options.id`:
+
+```ts
+await space.send(attachment(buffer, {
+  id: "custom-id",
+  name: "report.pdf",
+  mimeType: "application/pdf",
+}));
+```
+
+The `Attachment` and `AttachmentInput` types are exported from the public API for use in your own type signatures:
+
+```ts
+import { type Attachment, type AttachmentInput } from "spectrum-ts";
+```

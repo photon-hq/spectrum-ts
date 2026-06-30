@@ -1,0 +1,113 @@
+---
+title: "Spaces and Users"
+description: "Send messages, manage typing indicators, and resolve participants"
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set space = symbol("ts:spectrum-ts#Space") %}
+{% set user = symbol("ts:spectrum-ts#User") %}
+
+A **space** is a conversation — a DM, a group chat, a terminal session. A **user** is a participant identified by a platform-specific ID. Both carry a `__platform` tag so the narrowing functions from [platform narrowing](/spectrum-ts/platform-narrowing) can recover their platform-specific shapes.
+
+## Space
+
+Every <TypeTooltip name="Space" type={`{{ space.signature }}`} /> exposes the same interface regardless of platform:
+
+| Method | Description |
+|---|---|
+| `send(...content)` | Send one or more content items into the conversation. |
+| `edit(message, newContent)` | Rewrite a previously-sent message. Sugar for `send(edit(newContent, message))`. |
+| `unsend(message)` | Retract a previously-sent message. Sugar for `send(unsend(message))`. |
+| `startTyping()` | Show a typing indicator. No-op if the platform doesn't support it. |
+| `stopTyping()` | Hide the typing indicator. |
+| `responding(fn)` | Start a typing indicator, run `fn`, and stop the indicator when it completes — even if `fn` throws. |
+| `getMessage(id)` | Fetch a message by ID from the conversation. Throws `UnsupportedError` on platforms that don't support it. |
+| `rename(displayName)` | Rename the chat. Sugar for `send(rename(displayName))`. |
+| `avatar(input, options?)` | Set or clear the chat avatar. Sugar for `send(avatar(input, options?))`. |
+
+```ts
+for await (const [space, message] of app.messages) {
+  await space.send("Got it.");
+}
+```
+
+## User
+
+Users are minimal: an ID and a platform tag.
+
+```ts
+interface User {
+  readonly id: string;
+  readonly __platform: string;
+}
+```
+
+Resolve a user from a platform-specific identifier through a narrowed platform instance:
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const im = imessage(app);
+const alice = await im.user("+15551234567");
+```
+
+The returned user may include additional platform-specific fields when the provider defines a `user.schema`.
+
+## Typing indicators
+
+### Manual
+
+```ts
+await space.startTyping();
+// ... do work ...
+await space.stopTyping();
+```
+
+These are sugar for `space.send(typing("start"))` and `space.send(typing("stop"))` — see [Typing indicators](/spectrum-ts/content/typing-indicators) for the canonical form.
+
+### Automatic with `responding`
+
+`responding` is the recommended pattern. It guarantees the typing indicator is cleared even if the inner function throws:
+
+```ts
+await space.responding(async () => {
+  const result = await generateResponse(message);
+  await space.send(result);
+});
+```
+
+The helper is also available on the app itself:
+
+```ts
+await app.responding(space, async () => {
+  await space.send("Thinking...");
+});
+```
+
+## Creating a space
+
+To start a new conversation, use [platform narrowing](/spectrum-ts/platform-narrowing) to get a platform instance, then call `space.create(...)` with the users:
+
+```ts
+const im = imessage(app);
+const alice = await im.user("+15551111111");
+const bob = await im.user("+15552222222");
+
+// DM
+const dm = await im.space.create(alice);
+
+// Group
+const group = await im.space.create([alice, bob]);
+
+await group.send("Welcome to the group.");
+```
+
+To look up an existing conversation by its platform ID, use `space.get(id)`:
+
+```ts
+const existing = await im.space.get("any;-;+15551111111");
+await existing.send("Hello again.");
+```
+
+The returned space is the platform-specific type — so you can read extra fields like `type: "dm" | "group"` on iMessage — but it also satisfies the generic `Space` interface, so `send()`, `startTyping()`, and friends are always available.

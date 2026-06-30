@@ -1,0 +1,75 @@
+---
+title: "Platform Narrowing"
+description: "Recover platform-specific types and actions from unified Spectrum primitives"
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set pi = symbol("ts:spectrum-ts#PlatformInstance") %}
+
+Every platform provider exports a callable — `imessage`, `terminal`, `whatsappBusiness`, `telegram` — that **narrows** generic Spectrum types into platform-specific ones. The same function handles three different inputs.
+
+## Narrowing the app
+
+Pass a `Spectrum` instance to get a <TypeTooltip name="PlatformInstance" type={`{{ pi.signature }}`} /> for that platform. The instance gives you `user()` and `space.create()` / `space.get()` resolvers, plus access to any custom events the provider emits.
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const im = imessage(app);
+
+const user = await im.user("+15551234567");
+const space = await im.space.create(user);
+
+await space.send("Hello from a new conversation.");
+```
+
+If the platform isn't registered in `providers`, the type of `imessage(app)` resolves to `never` — the call is a compile-time error.
+
+## Narrowing a space
+
+Pass an existing space to access platform-specific fields:
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.platform !== "iMessage") continue;
+
+  const imessageSpace = imessage(space);
+  if (imessageSpace.type === "group") {
+    // group chat logic — `type` only exists on iMessage spaces
+  }
+}
+```
+
+Narrowing a space from the wrong platform logs a structured warning at runtime. Always gate on `message.platform` (or a similar signal) first to avoid unexpected behavior.
+
+## Narrowing a message
+
+Same idea for messages — useful when a provider declares a `message.schema` to attach extra properties:
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.platform !== "iMessage") continue;
+  const imessageMessage = imessage(message);
+  // imessageMessage carries any iMessage-specific fields
+}
+```
+
+## Creating group conversations
+
+`space.create(...)` accepts a single user or an array of users. On iMessage:
+
+```ts
+const im = imessage(app);
+const alice = await im.user("+15551111111");
+const bob = await im.user("+15552222222");
+
+const group = await im.space.create([alice, bob]);
+await group.send("Welcome to the group.");
+```
+
+Some platforms support an additional `params` argument for extra space creation options — the shape of those params is defined per-provider through `space.params` on the platform definition.
+
+## Why narrowing matters
+
+The generic `Space` and `Message` interfaces are deliberately small — just enough to send, react, and reply across every platform. Narrowing is the escape hatch for everything else: typed access to iMessage chat types, WhatsApp phone numbers, or any extra field your [custom platform](/spectrum-ts/custom-platforms) exposes.

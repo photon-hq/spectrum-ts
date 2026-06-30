@@ -1,0 +1,21 @@
+---
+title: "Telegram"
+description: "Send and receive messages through the Telegram Bot API."
+---
+
+```ts
+import { telegram } from "spectrum-ts/providers/telegram";
+```
+
+The Telegram provider connects your agent to the Telegram Bot API. Inbound messages are delivered through Fusor webhooks. Outbound messages use the Bot API directly. The provider supports text, media, reactions, replies, typing indicators, edits, and lazy media downloads.
+
+## Explore Telegram
+
+<CardGroup cols={2}>
+  <Card title="Setup" icon="sliders-horizontal" href="/spectrum-ts/providers/telegram/setup">
+    Configure a bot token, register webhooks, and run an echo loop.
+  </Card>
+  <Card title="Conversations and features" icon="message-circle" href="/spectrum-ts/providers/telegram/conversations-and-features">
+    Start Telegram chats and see which content features the provider supports.
+  </Card>
+</CardGroup>

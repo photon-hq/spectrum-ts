@@ -1,0 +1,170 @@
+---
+title: "Getting Started"
+description: "Install spectrum-ts and send your first message across platforms"
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+`spectrum-ts` is a unified messaging SDK for TypeScript. Write your logic once, deliver it across every platform — iMessage, WhatsApp Business, your terminal, or a custom platform you build yourself.
+
+## Installation
+
+`spectrum-ts` is the batteries-included package — it bundles the runtime and every official provider.
+
+<CodeGroup>
+```bash npm
+npm install spectrum-ts
+```
+
+```bash pnpm
+pnpm add spectrum-ts
+```
+
+```bash yarn
+yarn add spectrum-ts
+```
+
+```bash bun
+bun add spectrum-ts
+```
+</CodeGroup>
+
+For a leaner install, depend on `@spectrum-ts/core` plus only the providers you need:
+
+```bash
+bun add @spectrum-ts/core @spectrum-ts/imessage @spectrum-ts/telegram
+```
+
+Either way, the `spectrum-ts/providers/<platform>` import paths work as long as the matching provider package is installed.
+
+Requires TypeScript 5 or later (TypeScript 6 is also supported).
+
+## Core concepts
+
+Spectrum is built around four primitives:
+
+| Primitive | What it represents |
+|---|---|
+| **Message** | An incoming piece of content — text, attachments, or structured data — from any platform. |
+| **Space** | A conversation context. A DM, a group chat, a terminal session. You send messages *into* a space. |
+| **User** | A participant on a platform, identified by a platform-specific ID. |
+| **Platform provider** | A platform adapter (iMessage, terminal, WhatsApp, or your own) that translates platform-specific protocols into Spectrum's unified interface. |
+
+Every message arrives as a `[Space, Message]` tuple. The space gives you the ability to respond; the message gives you the content and metadata.
+
+## Quickstart
+
+### Get your credentials
+
+Find your `PROJECT_ID` and `SECRET_KEY` in your project **Settings** on the [dashboard](https://app.photon.codes/).
+
+### Run your first app
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const app = await Spectrum({
+  projectId: "your-project-id",
+  projectSecret: "your-project-secret",
+  providers: [
+    imessage.config(),
+  ],
+});
+
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "text") {
+    console.log(`[${message.platform}] ${message.sender.id}: ${message.content.text}`);
+    await space.send("hello world");
+  }
+}
+```
+
+Projectless providers (like `terminal`) can be used without credentials:
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { terminal } from "spectrum-ts/providers/terminal";
+
+const app = await Spectrum({
+  providers: [terminal.config()],
+});
+```
+
+## The app instance
+
+{% set spectrumInstance = symbol("ts:spectrum-ts#SpectrumInstance") %}
+`Spectrum()` returns a <TypeTooltip name="SpectrumInstance" type={`{{ spectrumInstance.signature }}`} /> — an object that merges a message stream with platform-specific custom event streams.
+
+```ts
+app.messages                 // AsyncIterable<[Space, Message]>
+await app.send(space, ...)   // send into a space
+await app.responding(space, fn)  // run fn with a typing indicator
+await app.webhook(req, handler)  // handle an inbound webhook delivery
+await app.stop()             // graceful shutdown
+```
+
+Custom events emitted by providers are exposed as flat async iterables on the same object — see [Custom events and lifecycle](/spectrum-ts/custom-events-and-lifecycle).
+
+`app.webhook()` handles both native Spectrum webhooks and Fusor webhooks through the same method. See [Webhooks](/spectrum-ts/webhooks) for setup and framework adapters.
+
+## Multi-platform in three lines
+
+Combine providers to receive and send across platforms simultaneously:
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "spectrum-ts/providers/imessage";
+import { terminal } from "spectrum-ts/providers/terminal";
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [
+    imessage.config(),
+    terminal.config(),
+  ],
+});
+
+for await (const [space, message] of app.messages) {
+  await space.responding(async () => {
+    await message.reply("Hello from Spectrum.");
+  });
+}
+```
+
+Messages from every provider merge into the single `app.messages` stream. The `message.platform` field identifies the source.
+
+## Logging
+
+Spectrum emits structured logs across the core runtime and providers. Control the verbosity with `logLevel`:
+
+```ts
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [imessage.config()],
+  logLevel: "debug",
+});
+```
+
+Log output is sanitized — sensitive fields like tokens and secrets are redacted from error attributes before they reach any log destination.
+
+## Telemetry
+
+Spectrum has built-in [OpenTelemetry](https://opentelemetry.io/) instrumentation. Enable it by passing `telemetry: true`:
+
+```ts
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [imessage.config()],
+  telemetry: true,
+});
+```
+
+When enabled, Spectrum traces initialization, provider setup, message send/receive/get flows, space resolution, and custom events. Each span includes attributes like the provider name, space ID, content type, and sender kind.
+
+Traces are sent to the Photon OTLP endpoint by default. Standard `OTEL_EXPORTER_OTLP_*` environment variables override the default endpoint and headers.
+
+Calling `app.stop()` flushes any pending telemetry data before shutting down.

@@ -1,0 +1,124 @@
+---
+title: "Introduction"
+description: "Spectrum brings your agents to the interfaces millions already use."
+---
+
+Welcome to the Spectrum documentation.
+
+If you need support with your integration, email [ryan@photon.codes](mailto:ryan@photon.codes).
+
+Here are some helpful links:
+
+- [Quickstart](/spectrum-ts/getting-started) - Send your first Spectrum message.
+- [iMessage provider](/spectrum-ts/providers/imessage) - Build with Photon's managed iMessage infrastructure.
+- [API reference](/api-reference/introduction) - Manage Spectrum through the API.
+- [Photon CLI](/cli/spectrum) - Manage Spectrum from your terminal.
+- [Spectrum skills](https://www.skills.sh/photon-hq/skills/spectrum) - Add Spectrum knowledge to your AI coding tools.
+
+## What is Spectrum?
+
+Spectrum lets you build an agent once and connect it to the places your users already are.
+
+A user might message you in iMessage today, WhatsApp tomorrow, and your app next week. Without Spectrum, each interface becomes a separate integration with its own authentication, events, message formats, edge cases, and tools.
+
+With Spectrum, you run one agent server and add providers for the interfaces you want to support. Each provider connects a native interface to the same Spectrum API, so your agent can feel consistent everywhere.
+
+Today, Spectrum supports iMessage, WhatsApp Business, Telegram, Slack, and terminal development. The same model is built for more interfaces over time: Discord, websites, apps, phone calls, meetings, and hardware like HomePod.
+
+## Supported interfaces today
+
+Spectrum currently includes official providers for:
+
+<CardGroup cols={2}>
+  <Card title="iMessage" icon="comment" href="/spectrum-ts/providers/imessage">
+    Run production iMessage agents through managed iMessage lines.
+  </Card>
+  <Card title="WhatsApp Business" icon="whatsapp" href="/spectrum-ts/providers/whatsapp-business">
+    Connect to the official WhatsApp Business Cloud API.
+  </Card>
+  <Card title="Telegram" icon="paper-plane" href="/spectrum-ts/providers/telegram">
+    Build bots on the Telegram Bot API with inbound webhooks through Fusor.
+  </Card>
+  <Card title="Slack" icon="hashtag" href="/spectrum-ts/providers/slack">
+    Connect to Slack workspaces through the Slack API.
+  </Card>
+  <Card title="Terminal" icon="terminal" href="/spectrum-ts/providers/terminal">
+    Build, test, and demo agents from your local terminal.
+  </Card>
+</CardGroup>
+
+You can also build custom providers with `definePlatform`. Use custom providers to bring websites, apps, Discord, internal tools, or new device interfaces into Spectrum.
+
+<Card title="View all providers" icon="plug" href="/spectrum-ts/providers">
+  See the built-in providers and learn how to combine them.
+</Card>
+
+## The agent server model
+
+Spectrum is designed around a simple idea: your agent should run once.
+
+Your Spectrum server owns the product behavior: routing, tools, memory, handoff, safety, analytics, and anything else your agent needs. Providers own the interface work: connecting to each platform, receiving events, sending messages, and exposing native features when they exist.
+
+That keeps your code small. You add providers, but the agent loop stays the same:
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { imessage, terminal } from "spectrum-ts/providers";
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [
+    imessage.config(),
+    terminal.config(),
+  ],
+});
+
+for await (const [space] of app.messages) {
+  await space.send("How can I help?");
+}
+```
+
+Every provider feeds the same message stream. Your agent can send, react, reply, and use platform-specific features only when it needs them.
+
+## Built for iMessage
+
+iMessage is where Spectrum is most mature.
+
+Spectrum gives you production iMessage infrastructure with the richest iMessage feature set we offer today. You get managed iMessage lines, so your agent can run on any server and connect to iMessage through Spectrum. The managed iMessage provider supports local development, DMs and groups, typing indicators, reactions, threaded replies, group creation, message effects, chat backgrounds, chat renaming, group avatars, per-line routing, dedicated line auto-scale, and automatic token renewal.
+
+That matters because iMessage is not a generic SMS fallback. Users expect native behavior, reliable delivery, and conversations that feel like they belong on Apple devices.
+
+<Card title="Explore the iMessage provider" icon="comment" href="/spectrum-ts/providers/imessage">
+  Learn how Spectrum connects your agent to managed iMessage lines.
+</Card>
+
+## Manage Spectrum your way
+
+You do not have to manage Spectrum only from the dashboard. Use the dashboard for setup, the API for automation, and the Photon CLI for terminal workflows and scripts.
+
+<CardGroup cols={3}>
+  <Card title="Dashboard" icon="layout-dashboard" href="https://app.photon.codes">
+    Configure projects, users, lines, platforms, and profile settings from the browser.
+  </Card>
+  <Card title="API reference" icon="braces" href="/api-reference/introduction">
+    Automate Spectrum management from your own systems and test live requests.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/cli/spectrum">
+    Script profile updates, users, lines, platform toggles, and avatars from a terminal.
+  </Card>
+</CardGroup>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Get started" icon="rocket" href="/spectrum-ts/getting-started">
+    Install `spectrum-ts` and send your first message.
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/spectrum-ts/webhooks">
+    Receive messages via HTTP with native and Fusor webhook support, plus Hono, Express, and Elysia adapters.
+  </Card>
+  <Card title="Build a custom platform" icon="blocks" href="/spectrum-ts/custom-platforms">
+    Add a new interface with Spectrum's provider model.
+  </Card>
+</CardGroup>

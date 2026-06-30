@@ -1,0 +1,52 @@
+---
+title: "iMessage"
+description: "Receive and send iMessage across local, cloud, and dedicated modes."
+---
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+```
+
+The iMessage provider supports three connection modes: local, cloud, and dedicated. It exposes iMessage-specific features such as tapbacks, DM and group spaces, chat backgrounds, mini-app cards, and per-phone routing through [platform narrowing](/spectrum-ts/platform-narrowing).
+
+## Quick start
+
+Use cloud mode when you want Spectrum to manage the iMessage infrastructure:
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [imessage.config()],
+});
+```
+
+Use local mode when you are developing on your own Mac and only need local Messages database access:
+
+```ts
+imessage.config({ local: true });
+```
+
+Use dedicated mode when you operate your own iMessage relay:
+
+```ts
+imessage.config({
+  clients: [
+    { address: "instance-1.example.com:443", token: "your-token", phone: "+15551111111" },
+  ],
+});
+```
+
+## Explore iMessage
+
+<CardGroup cols={2}>
+  <Card title="Connection and routing" icon="route" href="/spectrum-ts/providers/imessage/connection-and-routing">
+    Compare local, cloud, and dedicated modes. Learn line allocation, quotas, space types, and per-phone routing.
+  </Card>
+  <Card title="Messaging features" icon="sparkles" href="/spectrum-ts/providers/imessage/messaging-features">
+    Use effects, chat renames, avatars, backgrounds, mini-app cards, contact cards, attachments, and tapbacks.
+  </Card>
+</CardGroup>

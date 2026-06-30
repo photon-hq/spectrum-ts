@@ -1,0 +1,45 @@
+---
+title: "Terminal interactions"
+sidebarTitle: "Interactions"
+description: "Use reactions, replies, attachments, inline images, typing indicators, and console capture in the terminal provider."
+---
+
+Input and output are decoupled, so you can type while the agent is responding and the agent can push messages whenever it wants.
+
+## What you get
+
+| Feature | How |
+|---|---|
+| Multiple chats | `Ctrl+N` opens a new chat. `Ctrl+J` and `Ctrl+K` switch between them. Each chat is its own Spectrum space. |
+| Reactions | Press `r` on a message to react. It arrives in your code as a `reaction` content message. |
+| Replies | Press `e` to reply inline. It arrives with a `replyTo: { messageId }` extra on the message. |
+| File attachments | Drag-and-drop into the terminal. Messages arrive with name, MIME type, and buffer. |
+| Inline images | Rendered with the Kitty graphics protocol when supported, with a half-block fallback. |
+| Typing indicators | `space.startTyping()` and `space.stopTyping()` show a live indicator. |
+| Console capture | `console.log`, `info`, `warn`, `error`, and `debug` from your agent are forwarded into a pinned `__system__` chat instead of garbling the UI. |
+
+## Reactions and replies
+
+Reactions ride the same `app.messages` stream as text. They arrive as a `reaction` content message:
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "reaction") {
+    console.log(`${message.sender.id} reacted ${message.content.emoji}`);
+    continue;
+  }
+  if (message.content.type === "text") {
+    await message.react("👀");
+    await space.send(`echo: ${message.content.text}`);
+  }
+}
+```
+
+Threaded replies arrive as a normal message with a `replyTo` field:
+
+```ts
+const replyTo = (message as { replyTo?: { messageId: string } }).replyTo;
+if (replyTo) {
+  await message.reply(`acknowledged your reply to ${replyTo.messageId}`);
+}
+```

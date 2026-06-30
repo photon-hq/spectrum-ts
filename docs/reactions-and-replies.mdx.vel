@@ -1,0 +1,147 @@
+---
+title: "Reactions and Replies"
+description: "React to incoming messages and send threaded replies"
+---
+
+Both `react` and `reply` live directly on an incoming message. They no-op silently on platforms that don't support the feature — no `try/catch` required.
+
+Spectrum also exports first-class `reaction()`, `reply()`, and `unsend()` content builders that you can pass directly to `space.send(...)` — the sugar methods on `message` delegate through the same `send` pipeline.
+
+## Reactions
+
+<Tabs>
+  <Tab title="Sugar (message.react)">
+    ```ts
+    const sent = await message.react("love");
+    ```
+  </Tab>
+  <Tab title="Canonical (space.send)">
+    ```ts
+    import { reaction } from "spectrum-ts";
+
+    const sent = await space.send(reaction("love", message));
+    ```
+  </Tab>
+</Tabs>
+
+Both forms are equivalent — `message.react(emoji)` delegates to `space.send(reaction(emoji, message))` internally.
+
+Reactions resolve to a `Message` — keep it as the handle to `unsend()` later. Resolves `undefined` only when the platform does not support reactions.
+
+The reaction string is platform-specific. For iMessage, use the built-in tapback constants:
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+await message.react(imessage.tapbacks.laugh);
+```
+
+`reaction()` rejects reaction messages as targets — reacting to a reaction throws at build time.
+
+Available tapbacks:
+
+| Constant | Value |
+|---|---|
+| `imessage.tapbacks.love` | `"love"` |
+| `imessage.tapbacks.like` | `"like"` |
+| `imessage.tapbacks.dislike` | `"dislike"` |
+| `imessage.tapbacks.laugh` | `"laugh"` |
+| `imessage.tapbacks.emphasize` | `"emphasize"` |
+| `imessage.tapbacks.question` | `"question"` |
+
+## Threaded replies
+
+<Tabs>
+  <Tab title="Sugar (message.reply)">
+    ```ts
+    await message.reply("Replying to your message.");
+
+    await message.reply(
+      "Here's the attachment you asked for:",
+      attachment("/path/to/file.pdf"),
+    );
+    ```
+  </Tab>
+  <Tab title="Canonical (space.send)">
+    ```ts
+    import { reply, text } from "spectrum-ts";
+
+    await space.send(reply(text("Replying to your message."), message));
+    ```
+  </Tab>
+</Tabs>
+
+Both forms are equivalent — `message.reply(content)` wraps each content item in `reply(content, message)` and delegates to `space.send(...)` internally.
+
+On platforms with thread support (iMessage, WhatsApp Business), this sends a threaded reply. On platforms without, the call resolves as a no-op — **the reply is not downgraded to a regular send**. If you need guaranteed delivery, use `space.send(...)` instead.
+
+`reply()` cannot wrap `reply`, `edit`, `reaction`, `group`, `typing`, `rename`, `avatar`, or `unsend` content — the builder throws at construction time.
+
+## Editing messages
+
+<Tabs>
+  <Tab title="Sugar (message.edit)">
+    ```ts
+    const sent = await space.send("Draft");
+    await sent.edit("Final version");
+    ```
+  </Tab>
+  <Tab title="Canonical (space.send)">
+    ```ts
+    import { edit, text } from "spectrum-ts";
+
+    const sent = await space.send("Draft");
+    await space.send(edit(text("Final version"), sent));
+    ```
+  </Tab>
+</Tabs>
+
+`edit()` takes new content and the outbound message to rewrite. Edits are fire-and-forget — `space.send(edit(...))` resolves to `undefined`.
+
+`edit()` cannot wrap `edit`, `reply`, `reaction`, `group`, `typing`, `rename`, `avatar`, or `unsend` content.
+
+## Unsending messages
+
+<Tabs>
+  <Tab title="Sugar (message.unsend)">
+    ```ts
+    const sent = await space.send("Oops");
+    await sent.unsend();
+    ```
+  </Tab>
+  <Tab title="Sugar (space.unsend)">
+    ```ts
+    const sent = await space.send("Oops");
+    await space.unsend(sent);
+    ```
+  </Tab>
+  <Tab title="Canonical (space.send)">
+    ```ts
+    import { unsend } from "spectrum-ts";
+
+    const sent = await space.send("Oops");
+    await space.send(unsend(sent));
+    ```
+  </Tab>
+</Tabs>
+
+Unsends retract a previously-sent outbound message. Fire-and-forget — the result is always `undefined`. Only outbound messages can be unsent; the builder throws at build time for inbound targets.
+
+Reactions can also be unsent — keep the `Message` returned by `react()` and pass it to `unsend()`:
+
+```ts
+const reaction = await message.react("love");
+await reaction?.unsend();
+```
+
+## When to use what
+
+| Want to | Use |
+|---|---|
+| Send fresh content into the conversation | `space.send(...)` |
+| Reply in-thread to a specific message | `message.reply(...)` or `space.send(reply(...))` |
+| React to a specific message | `message.react(emoji)` or `space.send(reaction(emoji, message))` |
+| Rewrite a sent message | `message.edit(content)` or `space.send(edit(content, message))` |
+| Retract a sent message | `message.unsend()` or `space.unsend(message)` or `space.send(unsend(message))` |
+
+`space.send` is the safe default — it works on every platform. The sugar methods (`message.reply`, `message.react`, `message.edit`, `message.unsend`) and the canonical content builders (`reply()`, `reaction()`, `edit()`, `unsend()`) are interchangeable — they both route through the same `send` pipeline.

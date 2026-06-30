@@ -1,0 +1,49 @@
+---
+title: "Telegram setup"
+sidebarTitle: "Setup"
+description: "Configure the Telegram provider and webhook registration."
+---
+
+Use `telegram.config(...)` with a Telegram bot token.
+
+## Config
+
+```ts
+telegram.config({
+  botToken: "your-bot-token",
+});
+```
+
+| Option | Description |
+|---|---|
+| `botToken` | Bot token from [@BotFather](https://t.me/BotFather). |
+| `webhookSecret` | Optional secret token for verifying webhook payloads. |
+
+## Example
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { telegram } from "spectrum-ts/providers/telegram";
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [
+    telegram.config({
+      botToken: process.env.TELEGRAM_BOT_TOKEN!,
+    }),
+  ],
+});
+
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "text") {
+    await space.send(`Echo: ${message.content.text}`);
+  }
+}
+```
+
+## Webhook registration
+
+In cloud mode, when `projectId` and `projectSecret` are provided, the Telegram provider automatically registers its Fusor webhook on startup.
+
+In local or direct mode, configure the webhook yourself through the Telegram Bot API.

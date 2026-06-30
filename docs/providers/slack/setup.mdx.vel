@@ -1,0 +1,74 @@
+---
+title: "Slack setup"
+sidebarTitle: "Setup"
+description: "Configure the Slack provider for one or more workspaces."
+---
+
+Use `slack.config(...)` to register one or more Slack workspaces.
+
+## Config
+
+<Tabs>
+  <Tab title="Single workspace">
+    ```ts
+    slack.config({
+      tokens: {
+        TEAM_ID: "xoxb-your-bot-token",
+      },
+    });
+    ```
+  </Tab>
+  <Tab title="Multi-workspace">
+    ```ts
+    slack.config({
+      tokens: {
+        TEAM_A: process.env.SLACK_TOKEN_A!,
+        TEAM_B: process.env.SLACK_TOKEN_B!,
+      },
+      teams: {
+        TEAM_A: {
+          appId: "A0123456789",
+          botUserId: "U0123456789",
+          grantedScopes: ["chat:write", "channels:history"],
+          teamName: "Team A",
+        },
+        TEAM_B: {
+          appId: "A9876543210",
+          botUserId: "U9876543210",
+          grantedScopes: ["chat:write", "channels:history"],
+          teamName: "Team B",
+        },
+      },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+| Option | Description |
+|---|---|
+| `tokens` | A map of team ID to bot token (`xoxb-...`). At least one entry is required. |
+| `teams` | Optional metadata per team: app ID, bot user ID, granted scopes, and display name. |
+| `endpoint` | Optional custom Slack API base URL. |
+
+## Example
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { slack } from "spectrum-ts/providers/slack";
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  providers: [
+    slack.config({
+      tokens: { TEAM_ID: process.env.SLACK_BOT_TOKEN! },
+    }),
+  ],
+});
+
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "text") {
+    await space.send(`Echo: ${message.content.text}`);
+  }
+}
+```

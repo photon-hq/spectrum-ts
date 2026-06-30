@@ -1,0 +1,25 @@
+---
+title: "WhatsApp Business"
+description: "Send and receive messages through the WhatsApp Business API."
+---
+
+```ts
+import { whatsappBusiness } from "spectrum-ts/providers/whatsapp-business";
+```
+
+The WhatsApp Business provider wraps the official WhatsApp Business Cloud API. Reactions and threaded replies map to native WhatsApp features.
+
+<Note>
+  WhatsApp Business supports **1:1 conversations only**. The API does not expose group management for business accounts. Calling `space.create([userA, userB])` throws.
+</Note>
+
+## Explore WhatsApp Business
+
+<CardGroup cols={2}>
+  <Card title="Setup" icon="sliders-horizontal" href="/spectrum-ts/providers/whatsapp-business/setup">
+    Configure Meta credentials and run a Spectrum message loop.
+  </Card>
+  <Card title="Conversations" icon="message-circle" href="/spectrum-ts/providers/whatsapp-business/conversations">
+    Resolve WhatsApp users and start supported 1:1 conversations.
+  </Card>
+</CardGroup>

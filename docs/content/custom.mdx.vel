@@ -1,0 +1,16 @@
+---
+title: "Custom content"
+description: "Send provider-specific structured payloads."
+---
+
+Use `custom()` to send structured, platform-specific payloads. Reach for this when the receiving provider supports rich content types that don't fit into the built-in builders.
+
+```ts
+import { custom } from "spectrum-ts";
+
+await space.send(custom({ type: "card", title: "Order Confirmed" }));
+```
+
+The raw payload round-trips through the provider's `send` action. The provider decides how to interpret it.
+
+If you need a reusable provider-specific abstraction, wrap `custom()` in your own helper so call sites still read like product-level actions.

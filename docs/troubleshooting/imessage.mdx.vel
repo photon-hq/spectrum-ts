@@ -1,0 +1,73 @@
+---
+title: "iMessage troubleshooting"
+sidebarTitle: "iMessage"
+description: "Common iMessage problems on Spectrum, what they mean, and how to fix them."
+---
+
+If iMessage sends are failing and you've ruled out your code, this page is organized by the error you're seeing. Find the message in the headings below and follow the fix. Each section is self-contained, so you can land here from a search result and still get what you need.
+
+If your symptom isn't listed, jump to [Still stuck?](#still-stuck) for what to send us so we can trace it on our side.
+
+## "Target not allowed for this project"
+
+You're on the **Free** or **Pro** plan. On these plans your project sends through a [shared pool of lines](/spectrum-ts/providers/imessage/connection-and-routing#line-model), and a shared line will only message recipients you've registered as **users** of your project. Any other target is rejected with `Target not allowed for this project`.
+
+<Note>
+  This limit applies to shared-pool plans only. The **Business** plan uses a dedicated line and isn't subject to the allowlist — see [Line model](/spectrum-ts/providers/imessage/connection-and-routing#line-model).
+</Note>
+
+Two things cause this error.
+
+### 1. You haven't added yourself as a user
+
+The target you're messaging has to exist as a user on the project first. Add the number your iMessage is linked to:
+
+<Steps>
+  <Step title="Open the dashboard">
+    Go to the [Dashboard](https://app.photon.codes) and select your project.
+  </Step>
+  <Step title="Open the Users tab">
+    In the project, open **Users**.
+  </Step>
+  <Step title="Add yourself">
+    Add a user with the phone number (or email) your iMessage is linked to, then send again. The target is now allowlisted.
+  </Step>
+</Steps>
+
+### 2. The number you added isn't the one iMessage actually uses
+
+If you've added yourself and still get the error, the handle you entered probably doesn't match the one Apple actually sends iMessage from. This happens — Apple sometimes registers iMessage under a number or email you wouldn't expect, so the user you added never matches the inbound sender.
+
+To find the handle iMessage is really using:
+
+<Steps>
+  <Step title="Message the debug line">
+    Open [debug.photon.codes](https://debug.photon.codes). It opens an iMessage to our debug bot.
+  </Step>
+  <Step title="Read the handle it reports">
+    The debug bot replies with the exact handle (phone number or email) Apple is sending from for your device.
+  </Step>
+  <Step title="Add that handle">
+    Add **that** handle under **Users** in the [Dashboard](https://app.photon.codes), then retry.
+  </Step>
+</Steps>
+
+<Note>
+  **If the debug bot reports an email instead of a phone number**, your iPhone is starting iMessage conversations from your Apple Account email rather than your number. To switch it, open **Settings → Messages → Send & Receive** on your iPhone and pick your phone number under **Start new conversations from**. Apple's guide: [If your iPhone sends text messages from your email address](https://support.apple.com/en-us/101744).
+</Note>
+
+If the handle the debug bot reports isn't what you expect at all, the underlying issue is on Apple's side — iMessage isn't registered to the number you think it is. Apple's official guides for fixing iMessage registration and activation:
+
+- [If you can't turn on or sign in to iMessage or FaceTime on your iPhone](https://support.apple.com/en-us/119859) — phone-number verification and activation.
+- [If you can't send or receive messages on your iPhone or iPad](https://support.apple.com/en-us/118433) — general send/receive failures.
+- [Messages support](https://support.apple.com/messages) — Apple's full Messages support hub.
+
+## Still stuck?
+
+Send us:
+
+- Your project id (from `photon projects show`).
+- The exact error string you're seeing.
+- The target handle you're trying to message and the handle the [debug line](https://debug.photon.codes) reports.
+
+We'll trace it on our side. Email us at [help@photon.codes](mailto:help@photon.codes) or ping us in the Discord linked in the footer.

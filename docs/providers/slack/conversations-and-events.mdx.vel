@@ -1,0 +1,54 @@
+---
+title: "Slack conversations and events"
+sidebarTitle: "Conversations and events"
+description: "Start Slack conversations and inspect provider-specific message fields."
+---
+
+Use [platform narrowing](/spectrum-ts/platform-narrowing) when you need Slack-specific space and message fields.
+
+## Starting a conversation
+
+Resolve a user by their Slack user ID and open a space. Pass `teamId` as a space parameter to target a specific workspace:
+
+```ts
+const sl = slack(app);
+const user = await sl.user("U0123456789");
+const space = await sl.space.create(user, { teamId: "TEAM_ID" });
+
+await space.send("Hello from Spectrum.");
+```
+
+## Space properties
+
+Slack spaces carry a `teamId` field indicating which workspace the conversation belongs to. Access it through narrowing:
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.platform !== "Slack") continue;
+  const slackSpace = slack(space);
+  console.log(slackSpace.teamId);
+}
+```
+
+## Message extras
+
+Narrowed Slack messages expose additional fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `isFromMe` | `boolean` | Whether the message was sent by the bot. |
+| `subtype` | `string` (optional) | Slack message subtype, such as `"bot_message"`. |
+| `threadTs` | `string` (optional) | Thread timestamp if the message is in a thread. |
+| `ts` | `string` (optional) | Message timestamp. |
+
+## Supported features
+
+| Feature | Support |
+|---|---|
+| Text messages | Send and receive |
+| Markdown | Send, rendered as Slack mrkdwn |
+| Media, files, and images | Send and receive |
+| Reactions | Send and receive |
+| Threaded replies | Send and receive |
+| Typing indicators | Send |
+| Message edits | Send and receive |

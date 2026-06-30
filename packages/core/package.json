@@ -53,7 +53,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@photon-ai/otel": "^1.0.0",
+    "@photon-ai/otel": "^3.1.0",
     "@photon-ai/proto": "^0.2.4",
     "@repeaterjs/repeater": "^3.0.6",
     "marked": "^18.0.5",

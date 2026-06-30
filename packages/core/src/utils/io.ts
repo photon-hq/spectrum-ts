@@ -1,4 +1,6 @@
+import { sanitizeUrl } from "@photon-ai/otel";
 import z from "zod";
+import { tracedFetch } from "./instrumented-fetch";
 
 export const readSchema = z.function({
   input: [],
@@ -25,6 +27,11 @@ export interface FetchedBytes {
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 
+// Spectrum's own media/URL downloads, traced as CLIENT spans. sanitizeUrl
+// scrubs presigned-URL secrets from the recorded url.full (the real request
+// still uses the original URL).
+const mediaFetch = tracedFetch("media", { redactUrl: sanitizeUrl });
+
 /**
  * Fetch URL bytes into memory — never touches the filesystem, so callers
  * remain safe in read-only environments. Returns the response's Content-Type
@@ -40,7 +47,7 @@ export const fetchUrlBytes = async (
     options?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS
   );
   try {
-    const res = await fetch(url, {
+    const res = await mediaFetch(url, {
       signal: controller.signal,
       headers: options?.headers,
     });

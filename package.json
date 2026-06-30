@@ -23,6 +23,6 @@
     "examples/*"
   ],
   "dependencies": {
-    "@photon-ai/otel": "^1.1.0"
+    "@photon-ai/otel": "^3.1.0"
   }
 }

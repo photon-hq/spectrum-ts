@@ -1,3 +1,5 @@
+import { tracedFetch } from "./instrumented-fetch";
+
 export const SPECTRUM_CLOUD_URL =
   process.env.SPECTRUM_CLOUD_URL ?? "https://spectrum.photon.codes";
 
@@ -119,8 +121,12 @@ interface ErrorBody {
   succeed: false;
 }
 
+// Spectrum's calls to its own cloud API, traced as CLIENT spans. The URL
+// carries no secret (Basic auth lives in init.headers), so no redaction needed.
+const cloudFetch = tracedFetch("spectrum-cloud");
+
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${SPECTRUM_CLOUD_URL}${path}`, init);
+  const response = await cloudFetch(`${SPECTRUM_CLOUD_URL}${path}`, init);
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");

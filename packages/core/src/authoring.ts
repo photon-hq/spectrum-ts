@@ -28,9 +28,11 @@ export {
   type LogAttrs,
   type LogLevel,
   type PhotonLogger,
+  type SanitizeUrlOptions,
   sanitizeEmail,
   sanitizeErrorMessage,
   sanitizePhone,
+  sanitizeUrl,
   setLogLevel,
 } from "@photon-ai/otel";
 // Content factories, schemas, and the inbound-record type (from `content/`).
@@ -49,6 +51,10 @@ export { asVoice } from "./content/voice";
 export type { ProviderMessageRecord } from "./platform/types";
 // Generic translation helpers (from `utils/`).
 export { ensureM4a } from "./utils/audio";
+// Outbound-HTTP tracing — wrap a provider's own fetch so its requests get a
+// CLIENT span tagged `peer.service`, without ever touching globalThis.fetch.
+// Pair `redactUrl` with `sanitizeUrl` to strip secrets from the recorded URL.
+export { tracedFetch } from "./utils/instrumented-fetch";
 export { renderInlineTokens } from "./utils/markdown";
 export {
   buildPhotoAction,

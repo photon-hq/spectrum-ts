@@ -27,6 +27,7 @@ import {
   asReaction,
   asText,
   type ProviderMessageRecord,
+  tracedFetch,
 } from "@spectrum-ts/core/authoring";
 import { extension as mimeExtension } from "mime-types";
 import { pollOptionId, pollToInteractive } from "./poll";
@@ -322,12 +323,29 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
   }
 };
 
+// WhatsApp media URLs are signed (the download credential lives in the query
+// string), so drop the query from the recorded span URL — host + path are
+// enough to identify the download. The real request still uses the full URL.
+export const redactMediaUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
+
+const waMediaFetch = tracedFetch("whatsapp-business", {
+  redactUrl: redactMediaUrl,
+});
+
 const fetchMedia = async (
   client: WhatsAppClient,
   mediaId: string
 ): Promise<Response> => {
   const { url } = await client.media.getUrl(mediaId);
-  const response = await fetch(url);
+  const response = await waMediaFetch(url);
   if (!response.ok) {
     throw new Error(`Media download failed: ${response.status}`);
   }

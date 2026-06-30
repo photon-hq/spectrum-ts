@@ -1,9 +1,24 @@
 import { createTelegramClient, getFile } from "@photon-ai/telegram-ts";
+import { tracedFetch } from "@spectrum-ts/core/authoring";
 import type { TelegramConfig } from "./config";
 import type { SentMessage, TelegramSendSpec } from "./types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const TRAILING_SLASHES = /\/+$/;
+// The `bot<token>` segment of a Telegram file URL path.
+const BOT_TOKEN_SEGMENT = /\/bot[^/]+/;
+
+/**
+ * Mask the bot token embedded in a Telegram file URL path before it is recorded
+ * on a span (`/file/bot<token>/…` → `/file/bot<redacted>/…`). The real download
+ * still uses the true URL — only the span's `url.full` is masked.
+ */
+export const redactBotToken = (url: string): string =>
+  url.replace(BOT_TOKEN_SEGMENT, "/bot<redacted>");
+
+// Spectrum's Telegram media downloads, traced as CLIENT spans with the bot
+// token redacted from the recorded URL.
+const mediaFetch = tracedFetch("telegram", { redactUrl: redactBotToken });
 
 /**
  * A photon Bot API client (hey-api `Client`). Created per request — the
@@ -103,9 +118,12 @@ export const downloadFile = async (
     throw new Error(`Telegram getFile returned no file_path for ${fileId}`);
   }
   const base = config.baseUrl.replace(TRAILING_SLASHES, "");
-  const res = await fetch(`${base}/file/bot${config.botToken}/${filePath}`, {
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  const res = await mediaFetch(
+    `${base}/file/bot${config.botToken}/${filePath}`,
+    {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }
+  );
   if (!res.ok) {
     throw new Error(
       `Telegram media download failed: ${res.status} ${res.statusText}`

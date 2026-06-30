@@ -65,6 +65,23 @@ const sdkMessage = (overrides: Partial<SDKMessage> = {}): SDKMessage =>
     ...overrides,
   }) as unknown as SDKMessage;
 
+const attachment = (
+  guid: string,
+  fileName: string,
+  mimeType: string
+): SDKMessage["content"]["attachments"][number] =>
+  ({
+    fileName,
+    guid,
+    isHidden: false,
+    isOutgoing: false,
+    isSticker: false,
+    mimeType,
+    totalBytes: 123,
+    transferState: "finished",
+    uti: undefined,
+  }) as unknown as SDKMessage["content"]["attachments"][number];
+
 const reactionEvent = (
   overrides: Partial<
     Extract<MessageEvent, { type: "message.reactionAdded" }>
@@ -221,6 +238,55 @@ describe("iMessage remote toReactionMessages", () => {
         text: "hello",
         type: "text",
       });
+    }
+  });
+
+  it("resolves tapbacks to the ordered part inside an interleaved message", async () => {
+    const get = mock((_message: string) =>
+      Promise.resolve(
+        sdkMessage({
+          content: {
+            attachments: [
+              attachment("att-0", "IMG_9151.png", "image/png"),
+              attachment("att-1", "central.log", "application/octet-stream"),
+              attachment("att-2", "IMG_8883.png", "image/png"),
+            ],
+            formatting: [],
+            mentions: [],
+            text: "before \uFFFC middle \uFFFC after \uFFFC done",
+          },
+          isFromMe: false,
+          sender: { address: "+15550001111", service: "iMessage" },
+        })
+      )
+    );
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+
+    const messages = await toReactionMessages(
+      remote,
+      new MessageCache(),
+      reactionEvent({ targetPartIndex: 5 }),
+      "+15551234567"
+    );
+
+    expect(messages).toHaveLength(1);
+    const message = messages[0];
+    expect(message?.id).toBe("msg-guid:reaction:1:5");
+    expect(message?.content.type).toBe("reaction");
+    if (message?.content.type !== "reaction") {
+      throw new Error("expected reaction content");
+    }
+
+    const targetMessage = message.content.target as unknown as IMessageMessage;
+    expect(targetMessage.id).toBe("p:5/msg-guid");
+    expect(targetMessage.parentId).toBe("msg-guid");
+    expect(targetMessage.partIndex).toBe(5);
+    expect(targetMessage.content.type).toBe("attachment");
+    if (targetMessage.content.type === "attachment") {
+      expect(targetMessage.content.id).toBe("att-2");
+      expect(targetMessage.content.name).toBe("IMG_8883.png");
     }
   });
 });

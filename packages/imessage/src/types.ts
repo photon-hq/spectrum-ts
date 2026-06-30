@@ -60,8 +60,9 @@ export const spaceParamsSchema = z.object({
 
 /**
  * iMessage-specific per-message metadata surfaced on `IMessageMessage`.
- * - `partIndex`: attachment index within a multi-part message (0 for bare
- *   or single-attachment messages; 0..N-1 for a group's sub-items).
+ * - `partIndex`: ordered part index within a multi-part message. Text and
+ *   attachment parts both consume an index (0 for bare or single-part
+ *   messages; 0..N-1 for a group's sub-items).
  * - `parentId`: guid of the parent message for a group sub-item. Undefined
  *   when the message itself is the parent.
  */

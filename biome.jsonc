@@ -10,9 +10,9 @@
     }
   },
   "files": {
-    // docs-site/ holds Mintlify .vel templates + a generated nav.json fragment
+    // docs/ holds Mintlify .vel templates + a generated nav.json fragment
     // pulled by the photon-hq/docs aggregator; it isn't spectrum-ts source.
-    "includes": ["!!bun.lock", "!!docs-site"]
+    "includes": ["!!bun.lock", "!!docs"]
   },
   "overrides": [
     {

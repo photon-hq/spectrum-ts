@@ -15,4 +15,12 @@ describe("redactBotToken", () => {
       "https://custom.example/file/bot987654:ZZ_top-secret/voice/v.ogg";
     expect(redactBotToken(url)).not.toContain("987654:ZZ_top-secret");
   });
+
+  it("redacts the token without mangling a bot-prefixed host", () => {
+    const url =
+      "https://bot-proxy.example/file/bot987654:ZZ_top-secret/voice/v.ogg";
+    expect(redactBotToken(url)).toBe(
+      "https://bot-proxy.example/file/bot<redacted>/voice/v.ogg"
+    );
+  });
 });

@@ -5,8 +5,10 @@ import type { SentMessage, TelegramSendSpec } from "./types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const TRAILING_SLASHES = /\/+$/;
-// The `bot<token>` segment of a Telegram file URL path.
-const BOT_TOKEN_SEGMENT = /\/bot[^/]+/;
+// The `/file/bot<token>` path segment of a Telegram file-download URL. Anchored
+// on `/file/` so a base whose host starts with `bot` (e.g. bot-proxy.example)
+// can't match the host instead of the token.
+const BOT_TOKEN_SEGMENT = /\/file\/bot[^/]+/;
 
 /**
  * Mask the bot token embedded in a Telegram file URL path before it is recorded
@@ -14,7 +16,7 @@ const BOT_TOKEN_SEGMENT = /\/bot[^/]+/;
  * still uses the true URL — only the span's `url.full` is masked.
  */
 export const redactBotToken = (url: string): string =>
-  url.replace(BOT_TOKEN_SEGMENT, "/bot<redacted>");
+  url.replace(BOT_TOKEN_SEGMENT, "/file/bot<redacted>");
 
 // Spectrum's Telegram media downloads, traced as CLIENT spans with the bot
 // token redacted from the recorded URL.

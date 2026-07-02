@@ -25,7 +25,8 @@ const client = {} as unknown as AdvancedIMessage;
 
 const receivedEvent = (
   sender?: Record<string, unknown>,
-  content?: Record<string, unknown>
+  content?: Record<string, unknown>,
+  messageOverrides?: Record<string, unknown>
 ): ReceivedEvent =>
   ({
     type: "message.received",
@@ -46,6 +47,7 @@ const receivedEvent = (
       dateCreated: RECEIVED_AT,
       isFromMe: false,
       sender,
+      ...messageOverrides,
     },
   }) as unknown as ReceivedEvent;
 
@@ -173,6 +175,137 @@ describe("iMessage remote toInboundMessages content", () => {
     expect(message?.content).toEqual({
       type: "text",
       text: "https://example.com/post",
+    });
+  });
+
+  it("wraps text replies with the canonical reply target", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        {
+          replyTargetGuid: "target-guid",
+          replyToGuid: "ignored-reply-to",
+          threadOriginatorGuid: "thread-guid",
+        }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.content).toEqual({
+      type: "text",
+      text: "reply text",
+    });
+    expect(message.content.target.id).toBe("target-guid");
+  });
+
+  it("falls back to threadOriginatorGuid for inbound replies", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { threadOriginatorGuid: "thread-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target.id).toBe("thread-guid");
+  });
+
+  it("does not treat replyToGuid alone as a public reply target", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "plain text" },
+        { replyToGuid: "diagnostic-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content).toEqual({ type: "text", text: "plain text" });
+  });
+
+  it("resolves reply targets from the message cache", async () => {
+    const cache = new MessageCache();
+    cache.set("target-guid", {
+      content: { type: "text", text: "cached target" },
+      id: "target-guid",
+      space: { id: "s1", phone: "+15550000000", type: "dm" },
+      timestamp: RECEIVED_AT,
+    } as Awaited<ReturnType<typeof toInboundMessages>>[number]);
+
+    const [message] = await toInboundMessages(
+      client,
+      cache,
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target.content).toEqual({
+      type: "text",
+      text: "cached target",
+    });
+  });
+
+  it("resolves reply targets from the remote client when absent from cache", async () => {
+    const remote = {
+      messages: {
+        get: async (guid: string) => ({
+          chatGuids: ["s1"],
+          content: {
+            attachments: [],
+            formatting: [],
+            mentions: [],
+            text: `target ${guid}`,
+          },
+          dateCreated: RECEIVED_AT,
+          guid,
+          isFromMe: false,
+          sender: { address: "+15557654321" },
+        }),
+      },
+    } as unknown as AdvancedIMessage;
+
+    const [message] = await toInboundMessages(
+      remote,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target.content).toEqual({
+      type: "text",
+      text: "target target-guid",
     });
   });
 
@@ -346,6 +479,73 @@ describe("iMessage remote toInboundMessages content", () => {
       { id: "att-0", partIndex: 1, type: "attachment" },
       { partIndex: 2, text: "after", type: "text" },
     ]);
+  });
+
+  it("wraps a single inbound attachment reply", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [attachment("att-0", "IMG_9151.png", "image/png")],
+          text: undefined,
+        },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target.id).toBe("target-guid");
+    expect(message.content.content.type).toBe("attachment");
+    if (message.content.content.type === "attachment") {
+      expect(message.content.content.id).toBe("att-0");
+    }
+  });
+
+  it("wraps interleaved inbound reply content without changing part order", async () => {
+    const cache = new MessageCache();
+    const [message] = await toInboundMessages(
+      client,
+      cache,
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [
+            attachment("att-0", "IMG_9151.png", "image/png"),
+            attachment("att-1", "central.log", "application/octet-stream"),
+          ],
+          text: `before ${ATTACHMENT_PLACEHOLDER} middle ${ATTACHMENT_PLACEHOLDER} after`,
+        },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.content.type).toBe("group");
+    if (message.content.content.type !== "group") {
+      throw new Error("expected grouped reply content");
+    }
+    expect(message.content.content.items.map(summarizeCaptionItem)).toEqual([
+      { partIndex: 0, text: "before", type: "text" },
+      { id: "att-0", partIndex: 1, type: "attachment" },
+      { partIndex: 2, text: "middle", type: "text" },
+      { id: "att-1", partIndex: 3, type: "attachment" },
+      { partIndex: 4, text: "after", type: "text" },
+    ]);
+    expect(cache.get("p:1/msg-guid")?.content.type).toBe("attachment");
+    expect(cache.get("p:4/msg-guid")?.content).toEqual({
+      type: "text",
+      text: "after",
+    });
   });
 
   it("keeps attachment indexes stable when text has no placeholder", async () => {

@@ -469,8 +469,8 @@ const rawDirection = (
  * record can carry its own `direction` when the provider knows better than the
  * wrapping context, which matters for inbound reactions targeting outbound
  * messages.
- * Recursion through `wrapNestedContent` handles reaction targets and group
- * items, which providers return as nested raw records.
+ * Recursion through `wrapNestedContent` handles reaction/reply targets and
+ * group items, which providers return as nested raw records.
  */
 export function wrapProviderMessage(
   raw: ProviderMessageRecord,
@@ -523,6 +523,22 @@ const wrapNestedContent = (
       };
     }
     return content;
+  }
+  if (content.type === "reply") {
+    const wrappedInner = wrapNestedContent(
+      content.content,
+      ctx,
+      direction
+    ) as typeof content.content;
+    const target = content.target as unknown;
+    if (isRawProviderRecord(target)) {
+      return {
+        ...content,
+        content: wrappedInner,
+        target: wrapProviderMessage(target, ctx, "inbound"),
+      };
+    }
+    return { ...content, content: wrappedInner };
   }
   if (content.type === "edit") {
     const target = content.target as unknown;

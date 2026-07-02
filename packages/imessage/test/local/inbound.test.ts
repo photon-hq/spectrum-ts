@@ -74,6 +74,36 @@ describe("iMessage local toMessages", () => {
     ]);
   });
 
+  it("wraps plain text replies with the thread root target", async () => {
+    const [message] = await toMessages(
+      localMessage({
+        text: "reply text",
+        threadRootMessageId: "target-message",
+      } as Partial<LocalIMessage>)
+    );
+
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.content).toEqual({
+      text: "reply text",
+      type: "text",
+    });
+    expect(message.content.target.id).toBe("target-message");
+  });
+
+  it("does not treat replyToMessageId alone as a public reply target", async () => {
+    const [message] = await toMessages(
+      localMessage({
+        replyToMessageId: "diagnostic-message",
+        text: "plain text",
+      } as Partial<LocalIMessage>)
+    );
+
+    expect(message?.content).toEqual({ text: "plain text", type: "text" });
+  });
+
   it("keeps a single attachment without text as a single attachment message", async () => {
     const messages = await toMessages(
       localMessage({
@@ -95,6 +125,28 @@ describe("iMessage local toMessages", () => {
         partIndex: undefined,
       },
     ]);
+  });
+
+  it("wraps attachment replies without changing the local message id", async () => {
+    const [message] = await toMessages(
+      localMessage({
+        attachments: [attachment("att-0", "IMG_9151.png", "image/png")],
+        hasAttachments: true,
+        text: undefined,
+        threadRootMessageId: "target-message",
+      } as Partial<LocalIMessage>)
+    );
+
+    expect(message?.id).toBe("msg-1:att-0");
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target.id).toBe("target-message");
+    expect(message.content.content.type).toBe("attachment");
+    if (message.content.content.type === "attachment") {
+      expect(message.content.content.id).toBe("att-0");
+    }
   });
 
   it("keeps multiple attachments without usable text as attachment messages", async () => {
@@ -198,6 +250,43 @@ describe("iMessage local toMessages", () => {
         partIndex: 6,
       },
     ]);
+  });
+
+  it("wraps each local interleaved reply part without changing order", async () => {
+    const messages = await toMessages(
+      localMessage({
+        attachments: [
+          attachment("att-0", "IMG_9151.png", "image/png"),
+          attachment("att-1", "central.log", "application/octet-stream"),
+        ],
+        hasAttachments: true,
+        text: `before ${ATTACHMENT_PLACEHOLDER} after ${ATTACHMENT_PLACEHOLDER}`,
+        threadRootMessageId: "target-message",
+      } as Partial<LocalIMessage>)
+    );
+
+    expect(messages).toHaveLength(4);
+    expect(messages.map((message) => message.content.type)).toEqual([
+      "reply",
+      "reply",
+      "reply",
+      "reply",
+    ]);
+    const inners = messages.map((message) =>
+      message.content.type === "reply" ? message.content.content.type : "none"
+    );
+    expect(inners).toEqual(["text", "attachment", "text", "attachment"]);
+    expect(
+      messages.map((message) =>
+        message.content.type === "reply" ? message.content.target.id : ""
+      )
+    ).toEqual([
+      "target-message",
+      "target-message",
+      "target-message",
+      "target-message",
+    ]);
+    expect(messages.map((message) => message.partIndex)).toEqual([0, 1, 2, 3]);
   });
 
   it("keeps attachment indexes stable when text has no placeholder", async () => {

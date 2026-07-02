@@ -7,6 +7,7 @@ import {
 } from "@spectrum-ts/test-support/platform";
 import z from "zod";
 import { asReaction, reaction } from "@/content/reaction";
+import { asReply } from "@/content/reply";
 import type { Content } from "@/content/types";
 import { definePlatform } from "@/platform/define";
 import type { ProviderMessage, ProviderMessageRecord } from "@/platform/types";
@@ -233,6 +234,110 @@ describe("inbound reaction target direction", () => {
       if (message.content.type === "reaction") {
         expect(message.content.target.direction).toBe("inbound");
       }
+    } finally {
+      await app.stop();
+    }
+  });
+});
+
+describe("inbound reply target wrapping", () => {
+  const makeInboundReplyProvider = (
+    name: string,
+    target: ProviderMessageRecord,
+    content: Content = { type: "text", text: "answer" }
+  ) => {
+    const queue = makeQueue<ProviderMessage<{ id: string }, { id: string }>>();
+    queue.push({
+      id: "reply-1",
+      content: asReply({
+        content: content as Parameters<typeof asReply>[0]["content"],
+        target: target as unknown as Message,
+      }),
+      sender: { id: "u1" },
+      space: { id: "s1" },
+      timestamp: REACTION_TIMESTAMP,
+    });
+    queue.close();
+    return definePlatform(name, {
+      config: z.object({}),
+      lifecycle: {
+        createClient: () => Promise.resolve({}),
+      },
+      user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+      space: {
+        create: ({ input }) =>
+          Promise.resolve({ id: input.users[0]?.id ?? "s1" }),
+      },
+      messages: () => queue.iter,
+      send: () => Promise.resolve(undefined),
+    });
+  };
+
+  it("wraps a raw reply target into a Message", async () => {
+    const provider = makeInboundReplyProvider("reply-target-wrap", {
+      id: "question-1",
+      content: { type: "text", text: "question" },
+      space: { id: "s1" },
+      timestamp: new Date(0),
+    });
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [, message] = await firstMessage(app);
+
+      expect(message.content.type).toBe("reply");
+      if (message.content.type === "reply") {
+        expect(message.content.target.id).toBe("question-1");
+        expect(message.content.target.direction).toBe("inbound");
+        expect(typeof message.content.target.reply).toBe("function");
+      }
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("wraps raw group items inside a reply", async () => {
+    const provider = makeInboundReplyProvider(
+      "reply-inner-group-wrap",
+      {
+        id: "question-1",
+        content: { type: "text", text: "question" },
+        space: { id: "s1" },
+        timestamp: new Date(0),
+      },
+      {
+        type: "group",
+        items: [
+          {
+            id: "reply-part-1",
+            content: { type: "text", text: "answer part" },
+            space: { id: "s1" },
+            timestamp: new Date(1),
+          } as unknown as Message,
+        ],
+      }
+    );
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const [, message] = await firstMessage(app);
+
+      expect(message.content.type).toBe("reply");
+      if (message.content.type !== "reply") {
+        throw new Error("expected reply content");
+      }
+      expect(message.content.content.type).toBe("group");
+      if (message.content.content.type !== "group") {
+        throw new Error("expected group reply content");
+      }
+      const [item] = message.content.content.items;
+      expect(item?.id).toBe("reply-part-1");
+      expect(item?.platform).toBe("reply-inner-group-wrap");
+      expect(typeof item?.reply).toBe("function");
     } finally {
       await app.stop();
     }

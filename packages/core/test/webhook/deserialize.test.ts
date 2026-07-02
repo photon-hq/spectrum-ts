@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Attachment } from "@/content/attachment";
 import type { Reaction } from "@/content/reaction";
+import type { Reply } from "@/content/reply";
 import {
   type DeserializeContext,
   deserializeSpectrumMessage,
@@ -106,6 +107,30 @@ describe("deserializeSpectrumMessage", () => {
     expect(target.id).toBe("target-1");
     expect(target.content).toEqual({ type: "text", text: "earlier message" });
     // A raw record (no methods) so wrapNestedContent wraps it into a Message.
+    expect((target as { react?: unknown }).react).toBeUndefined();
+  });
+
+  it("maps a reply to inner content and a raw text target", () => {
+    const { record } = deserialize({
+      type: "reply",
+      content: { type: "text", text: "answer" },
+      target: {
+        id: "target-1",
+        platform: PLATFORM,
+        timestamp: "2026-06-12T09:59:00.000Z",
+        sender: { id: "u2", platform: PLATFORM },
+        contentPreview: "question",
+      },
+    });
+    const content = record.content as unknown as Reply;
+    expect(content.type).toBe("reply");
+    expect(content.content).toEqual({ type: "text", text: "answer" });
+    const target = content.target as unknown as {
+      id: string;
+      content: { type: string; text: string };
+    };
+    expect(target.id).toBe("target-1");
+    expect(target.content).toEqual({ type: "text", text: "question" });
     expect((target as { react?: unknown }).react).toBeUndefined();
   });
 

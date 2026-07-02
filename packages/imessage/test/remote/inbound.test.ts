@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import type {
-  AdvancedIMessage,
-  MessageEvent,
+import {
+  type AdvancedIMessage,
+  type MessageEvent,
+  NotFoundError,
 } from "@photon-ai/advanced-imessage";
 import { MessageCache } from "@/cache";
 import { toInboundMessages } from "@/remote/inbound";
@@ -19,9 +20,17 @@ type GroupItem = Extract<
 const RECEIVED_AT = new Date(1_700_000_000_000);
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
 
-// A plain text message never touches the client (no attachment download), so a
-// bare stub is enough to exercise the sender-normalization path.
-const client = {} as unknown as AdvancedIMessage;
+const client = {
+  messages: {
+    get: async () => {
+      throw new NotFoundError("not found", {
+        code: "messageNotFound",
+        grpcCode: 5,
+        retryable: false,
+      });
+    },
+  },
+} as unknown as AdvancedIMessage;
 
 const receivedEvent = (
   sender?: Record<string, unknown>,
@@ -306,6 +315,60 @@ describe("iMessage remote toInboundMessages content", () => {
     expect(message.content.target.content).toEqual({
       type: "text",
       text: "target target-guid",
+    });
+  });
+
+  it("uses a stub target for cyclic reply target chains", async () => {
+    const fetchedGuids: string[] = [];
+    const remote = {
+      messages: {
+        get: async (guid: string) => {
+          fetchedGuids.push(guid);
+          return {
+            chatGuids: ["s1"],
+            content: {
+              attachments: [],
+              formatting: [],
+              mentions: [],
+              text: "target reply",
+            },
+            dateCreated: RECEIVED_AT,
+            guid,
+            isFromMe: false,
+            replyTargetGuid: "msg-guid",
+            sender: { address: "+15557654321" },
+          };
+        },
+      },
+    } as unknown as AdvancedIMessage;
+
+    const [message] = await toInboundMessages(
+      remote,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(fetchedGuids).toEqual(["target-guid"]);
+    expect(message?.content.type).toBe("reply");
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target.content.type).toBe("reply");
+    if (message.content.target.content.type !== "reply") {
+      throw new Error("expected nested reply content");
+    }
+    expect(message.content.target.content.target.id).toBe("msg-guid");
+    expect(message.content.target.content.target.content).toEqual({
+      raw: {
+        imessage_type: "reply-target",
+        stub: true,
+      },
+      type: "custom",
     });
   });
 

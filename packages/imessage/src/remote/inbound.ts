@@ -78,6 +78,7 @@ type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
 interface BuildContentOptions {
   cache?: MessageCache;
   phone: string;
+  visitedReplyGuids?: ReadonlySet<string>;
 }
 
 export const isIMessageMessage = (value: unknown): value is IMessageMessage => {
@@ -297,7 +298,10 @@ const resolveReplyTarget = async (
   currentGuid: string,
   options: BuildContentOptions
 ): Promise<RawProviderMessage> => {
-  if (targetGuid === currentGuid) {
+  if (
+    targetGuid === currentGuid ||
+    options.visitedReplyGuids?.has(targetGuid)
+  ) {
     return stubReplyTarget(base, targetGuid);
   }
 
@@ -307,19 +311,33 @@ const resolveReplyTarget = async (
   }
 
   try {
+    const visitedReplyGuids = new Set(options.visitedReplyGuids);
+    visitedReplyGuids.add(currentGuid);
     const fetched = await client.messages.get(toMessageGuid(targetGuid));
     const rebuilt = await rebuildFromAppleMessage(
       client,
       fetched,
       options.phone,
       base.space.id,
-      options.cache
+      options.cache,
+      visitedReplyGuids
     );
     if (options.cache) {
       cacheMessage(options.cache, rebuilt);
     }
     return rebuilt;
-  } catch {
+  } catch (err) {
+    if (!(err instanceof NotFoundError)) {
+      log.warn(
+        "failed to resolve iMessage reply target; falling back to stub target",
+        {
+          "spectrum.imessage.message.guid": currentGuid,
+          "spectrum.imessage.reply.target_guid": targetGuid,
+          ...errorAttrs(err),
+        },
+        err
+      );
+    }
     return stubReplyTarget(base, targetGuid);
   }
 };
@@ -372,7 +390,8 @@ export const rebuildFromAppleMessage = async (
   message: AppleMessage,
   phone: string,
   chatGuidHint?: string,
-  cache?: MessageCache
+  cache?: MessageCache,
+  visitedReplyGuids?: ReadonlySet<string>
 ): Promise<IMessageMessage> => {
   const messageGuidStr = message.guid as string;
   const timestamp = message.dateCreated ?? new Date();
@@ -380,6 +399,7 @@ export const rebuildFromAppleMessage = async (
   return buildContentMessage(client, base, message, messageGuidStr, {
     cache,
     phone,
+    visitedReplyGuids,
   });
 };
 

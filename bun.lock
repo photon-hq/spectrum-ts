@@ -38,6 +38,7 @@
         "zod": "^4.2.1",
       },
       "devDependencies": {
+        "@opentelemetry/api": "^1.9.1",
         "@types/bun": "latest",
         "@types/mime-types": "^3.0.1",
         "@types/vcf": "^2.0.7",

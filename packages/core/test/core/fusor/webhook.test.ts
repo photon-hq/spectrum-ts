@@ -1,4 +1,3 @@
-import { describe, expect, it, spyOn } from "bun:test";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   CTX_PROBE_PLATFORM,
@@ -15,6 +14,7 @@ import {
   settleSoon,
   TICK_MS,
 } from "@spectrum-ts/test-support/timing";
+import { describe, expect, it, vi } from "vitest";
 import { FusorCore } from "@/fusor/core";
 import { Spectrum } from "@/spectrum";
 import type { Message } from "@/types/message";
@@ -343,9 +343,9 @@ describe("spectrum.webhook", () => {
   });
 
   it("never opens the Fusor stream for webhook, but does for spectrum.messages", async () => {
-    const startSpy = spyOn(FusorCore.prototype, "start").mockResolvedValue(
-      undefined
-    );
+    const startSpy = vi
+      .spyOn(FusorCore.prototype, "start")
+      .mockResolvedValue(undefined);
     try {
       const spectrum = await Spectrum({
         ...baseConfig,
@@ -379,9 +379,9 @@ describe("spectrum.webhook", () => {
   });
 
   it("does not feed spectrum.messages (webhook is request-scoped)", async () => {
-    const startSpy = spyOn(FusorCore.prototype, "start").mockResolvedValue(
-      undefined
-    );
+    const startSpy = vi
+      .spyOn(FusorCore.prototype, "start")
+      .mockResolvedValue(undefined);
     try {
       const spectrum = await Spectrum({
         ...baseConfig,

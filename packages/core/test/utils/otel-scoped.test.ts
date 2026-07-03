@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
 import { trace } from "@opentelemetry/api";
 import { setupOtel } from "@photon-ai/otel";
+import { describe, expect, it } from "vitest";
 
 // Regression guard for the client-facing-SDK conflict fix: scoped mode
 // (register: false) must NOT register spectrum's providers as the process-global

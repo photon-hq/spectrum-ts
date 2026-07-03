@@ -1,9 +1,9 @@
-import { describe, expect, it } from "bun:test";
 import {
   type AdvancedIMessage,
   type MessageEvent,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
+import { describe, expect, it } from "vitest";
 import { MessageCache } from "@/cache";
 import { toInboundMessages } from "@/remote/inbound";
 

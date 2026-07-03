@@ -21,7 +21,10 @@
       "persistent": true
     },
     "check": {},
-    "test": {
+    "test:node": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test:bun": {
       "dependsOn": ["^typecheck"]
     },
     "typecheck": {

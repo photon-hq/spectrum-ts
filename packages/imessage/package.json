@@ -1,7 +1,7 @@
 {
   "name": "@spectrum-ts/imessage",
   "version": "8.2.1",
-  "description": "iMessage provider for spectrum-ts — local and remote (advanced) modes.",
+  "description": "iMessage provider for spectrum-ts \u2014 local and remote (advanced) modes.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
@@ -40,7 +40,8 @@
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
-    "test": "bun test",
+    "test:bun": "bun --bun vitest run",
+    "test:node": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -59,7 +60,8 @@
     "@spectrum-ts/core": "workspace:*",
     "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
-    "tsdown": "^0.22.2"
+    "tsdown": "^0.22.2",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }

@@ -1,7 +1,7 @@
 {
   "name": "@spectrum-ts/terminal",
   "version": "8.2.1",
-  "description": "Terminal (tuichat) provider for spectrum-ts — chat with your agent from the command line.",
+  "description": "Terminal (tuichat) provider for spectrum-ts \u2014 chat with your agent from the command line.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
@@ -40,7 +40,8 @@
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
-    "test": "bun test --pass-with-no-tests",
+    "test:bun": "bun --bun vitest run",
+    "test:node": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -52,8 +53,10 @@
   },
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
+    "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
-    "tsdown": "^0.22.2"
+    "tsdown": "^0.22.2",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }

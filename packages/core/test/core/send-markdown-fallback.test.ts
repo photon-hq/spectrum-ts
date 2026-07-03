@@ -1,10 +1,10 @@
-import { describe, expect, it } from "bun:test";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   baseConfig,
   makeQueue,
   record,
 } from "@spectrum-ts/test-support/platform";
+import { describe, expect, it } from "vitest";
 import z from "zod";
 import { group } from "@/content/group";
 import { markdown } from "@/content/markdown";

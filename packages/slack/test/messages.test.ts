@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
 import type { Message } from "@spectrum-ts/core";
 import { asRead } from "@spectrum-ts/core/authoring";
+import { describe, expect, it } from "vitest";
 import { send } from "@/messages";
 
 const target = {

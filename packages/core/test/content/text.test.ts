@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import type { StreamText, StreamTextSource } from "@/content/stream-text";
 import { text } from "@/content/text";
 import type { ContentBuilder } from "@/content/types";

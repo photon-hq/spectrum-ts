@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { slack } from "@/index";
 
 // Reach the inline def through the provider-config seam — the hooks only

@@ -1,14 +1,4 @@
 import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-} from "bun:test";
-
-import {
   attachment,
   type Content,
   type Message,
@@ -20,6 +10,7 @@ import {
   voice,
 } from "@spectrum-ts/core";
 import { asRead } from "@spectrum-ts/core/authoring";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configSchema } from "@/config";
 import { send } from "@/outbound/send";
 
@@ -80,13 +71,13 @@ beforeEach(() => {
       return Response.json(responseFor(method));
     });
   };
-  spyOn(globalThis, "fetch").mockImplementation(
+  vi.spyOn(globalThis, "fetch").mockImplementation(
     impl as unknown as typeof fetch
   );
 });
 
 afterEach(() => {
-  mock.restore();
+  vi.restoreAllMocks();
 });
 
 describe("send — messages", () => {

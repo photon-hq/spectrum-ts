@@ -1,14 +1,6 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  setSystemTime,
-  spyOn,
-} from "bun:test";
 import { markdown, text, UnsupportedError } from "@spectrum-ts/core";
+import { setSystemTime } from "@spectrum-ts/test-support/time";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configSchema } from "@/config";
 import { send } from "@/outbound/send";
 
@@ -54,13 +46,13 @@ beforeEach(() => {
       return Response.json(responseFor(method));
     });
   };
-  spyOn(globalThis, "fetch").mockImplementation(
+  vi.spyOn(globalThis, "fetch").mockImplementation(
     impl as unknown as typeof fetch
   );
 });
 
 afterEach(() => {
-  mock.restore();
+  vi.restoreAllMocks();
   setSystemTime(); // restore the real clock after time-controlled tests
 });
 
@@ -70,8 +62,7 @@ async function* fromArray(items: string[]): AsyncIterable<string> {
   }
 }
 
-// bun's setSystemTime treats epoch 0 as "restore the real clock", so the
-// frozen timeline must start at a non-zero instant.
+// A non-zero instant so a frozen Date.now() is unmistakably mocked.
 const BASE_MS = 1_000_000;
 
 // Advances the mocked system clock by `stepMs` before each delta, so the

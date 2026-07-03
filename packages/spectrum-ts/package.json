@@ -1,7 +1,7 @@
 {
   "name": "spectrum-ts",
   "version": "8.2.1",
-  "description": "Bring agents to any interface — unified messaging SDK for TypeScript. Batteries-included: the runtime plus every official provider.",
+  "description": "Bring agents to any interface \u2014 unified messaging SDK for TypeScript. Batteries-included: the runtime plus every official provider.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
@@ -67,7 +67,8 @@
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js && bun scripts/generate-manifest.ts",
     "dev": "tsdown --watch",
     "generate:manifest": "bun scripts/generate-manifest.ts",
-    "test": "bun test",
+    "test:bun": "bun --bun vitest run",
+    "test:node": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -79,8 +80,10 @@
     "@spectrum-ts/whatsapp-business": "8.2.1"
   },
   "devDependencies": {
+    "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
-    "tsdown": "^0.22.2"
+    "tsdown": "^0.22.2",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }

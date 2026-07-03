@@ -40,7 +40,8 @@
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
-    "test": "bun test",
+    "test:bun": "bun --bun vitest run",
+    "test:node": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -54,9 +55,11 @@
   },
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
+    "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
-    "tsdown": "^0.22.2"
+    "tsdown": "^0.22.2",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }

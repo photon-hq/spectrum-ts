@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import { configSchema } from "@/config";
 import { handleMessages } from "@/inbound/messages";
 import type { Update } from "@/types";
@@ -176,9 +176,9 @@ describe("handleMessages — media", () => {
       }
       return Promise.resolve(new Response(DOWNLOAD));
     };
-    const spy = spyOn(globalThis, "fetch").mockImplementation(
-      impl as unknown as typeof fetch
-    );
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(impl as unknown as typeof fetch);
     try {
       const record = handle({
         document: {

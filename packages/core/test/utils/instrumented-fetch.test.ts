@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { tracedFetch } from "@/utils/instrumented-fetch";
 
 describe("tracedFetch", () => {
   afterEach(() => {
-    mock.restore();
+    vi.restoreAllMocks();
   });
 
   it("delegates to a globalThis.fetch spy installed AFTER the wrapper is built", async () => {
@@ -11,10 +11,12 @@ describe("tracedFetch", () => {
     // test installs its fetch mock. Capturing globalThis.fetch here instead of
     // delegating would silently bypass the spy.
     const tf = tracedFetch("test-peer");
-    const spy = spyOn(globalThis, "fetch").mockImplementation(
-      (async () =>
-        new Response("ok", { status: 200 })) as unknown as typeof fetch
-    );
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(
+        (async () =>
+          new Response("ok", { status: 200 })) as unknown as typeof fetch
+      );
 
     const res = await tf("https://example.test/thing");
 
@@ -25,7 +27,7 @@ describe("tracedFetch", () => {
   it("forwards method, headers, and signal to the delegated fetch", async () => {
     const tf = tracedFetch("test-peer");
     let seenInit: RequestInit | undefined;
-    spyOn(globalThis, "fetch").mockImplementation((async (
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (
       _input: unknown,
       init?: RequestInit
     ) => {

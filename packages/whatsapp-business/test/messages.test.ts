@@ -1,6 +1,6 @@
-import { describe, expect, it, mock } from "bun:test";
 import type { Message } from "@spectrum-ts/core";
 import { asRead } from "@spectrum-ts/core/authoring";
+import { describe, expect, it, vi } from "vitest";
 import { send } from "@/messages";
 import type { WhatsAppClients } from "@/types";
 
@@ -12,7 +12,7 @@ const target = {
 
 describe("whatsapp send — read", () => {
   it("marks the conversation read up to the target via markRead", async () => {
-    const markRead = mock(() => Promise.resolve());
+    const markRead = vi.fn(() => Promise.resolve());
     const clients = [{ messages: { markRead } }] as unknown as WhatsAppClients;
 
     const result = await send(clients, "15550001111", asRead({ target }));

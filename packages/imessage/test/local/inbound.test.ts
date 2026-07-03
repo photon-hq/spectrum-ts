@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import type { Message as LocalIMessage } from "@photon-ai/imessage-kit";
+import { describe, expect, it } from "vitest";
 import { toMessages } from "@/local/inbound";
 
 const CREATED_AT = new Date(1_700_000_000_000);

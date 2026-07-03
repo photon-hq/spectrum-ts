@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, vi } from "vitest";
 import type { LinkMetadata } from "@/utils/link-metadata";
 
 // `app`'s layout is parsed from the URL's link metadata, so stub the network
@@ -14,14 +14,14 @@ const DEFAULT_METADATA: LinkMetadata = {
 // JPEG magic bytes (FF D8) — `app` keeps the image only if it is real JPEG.
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
 
-const fetchLinkMetadata = mock(
+const fetchLinkMetadata = vi.fn(
   (_url: string): Promise<LinkMetadata> => Promise.resolve(DEFAULT_METADATA)
 );
-const fetchImage = mock((_url: string) =>
+const fetchImage = vi.fn((_url: string) =>
   Promise.resolve({ data: JPEG_BYTES, mimeType: "image/jpeg" })
 );
 
-mock.module("@/utils/link-metadata", () => ({ fetchLinkMetadata, fetchImage }));
+vi.doMock("@/utils/link-metadata", () => ({ fetchLinkMetadata, fetchImage }));
 
 const { app } = await import("@/content/app");
 
@@ -46,7 +46,7 @@ describe("app content — consumable url", () => {
   });
 
   it("resolves a thunk url and memoizes it (called once)", async () => {
-    const thunk = mock(() => "https://example.com/x");
+    const thunk = vi.fn(() => "https://example.com/x");
     const content = await buildApp(thunk);
     expect(await content.url()).toBe("https://example.com/x");
     expect(await content.url()).toBe("https://example.com/x");

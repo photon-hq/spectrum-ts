@@ -1,4 +1,3 @@
-import { describe, expect, it } from "bun:test";
 import {
   app,
   attachment,
@@ -12,6 +11,7 @@ import {
   text,
   voice,
 } from "@spectrum-ts/core";
+import { describe, expect, it } from "vitest";
 import { buildSend } from "@/outbound/message";
 
 const target = {

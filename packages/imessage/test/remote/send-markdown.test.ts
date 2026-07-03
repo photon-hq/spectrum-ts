@@ -1,4 +1,3 @@
-import { describe, expect, it, mock } from "bun:test";
 import type {
   AdvancedIMessage,
   Message as SDKMessage,
@@ -15,6 +14,7 @@ import {
   asMarkdown,
   asText,
 } from "@spectrum-ts/core/authoring";
+import { describe, expect, it, vi } from "vitest";
 import { effect } from "@/content/effect";
 import { editMessage, replyToMessage, send } from "@/remote/send";
 
@@ -26,14 +26,14 @@ const makeRemote = () => {
     guid: "msg-guid",
     dateCreated: SENT_DATE,
   } as unknown as SDKMessage;
-  const sendText = mock((_chat: string, _text: string, _options?: unknown) =>
+  const sendText = vi.fn((_chat: string, _text: string, _options?: unknown) =>
     Promise.resolve(reply)
   );
-  const sendMultipart = mock((_chat: string, _parts: unknown) =>
+  const sendMultipart = vi.fn((_chat: string, _parts: unknown) =>
     Promise.resolve(reply)
   );
-  const edit = mock(() => Promise.resolve(reply));
-  const upload = mock(() =>
+  const edit = vi.fn(() => Promise.resolve(reply));
+  const upload = vi.fn(() =>
     Promise.resolve({ attachment: { guid: "att-guid" } })
   );
   const remote = {

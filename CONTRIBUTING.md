@@ -48,18 +48,20 @@ bun run examples/basic/index.ts
 ### Run tests
 
 ```bash
-bun run test            # whole suite (via Turbo)
+bun run test            # whole suite under BOTH runtimes (via Turbo)
+bun run test:node       # whole suite under Node only
+bun run test:bun        # whole suite under the Bun runtime only
 ```
 
 Or from inside a package directory:
 
 ```bash
-cd packages/core && bun test            # core suite
-cd packages/telegram && bun test        # one provider
-bun run test:watch                      # watch mode (core)
+cd packages/core && bun run test:node   # core suite (Node)
+cd packages/telegram && bun run test:bun # one provider (Bun runtime)
+bun run test:watch                      # watch mode (core, Node)
 ```
 
-Tests use [`bun:test`](https://bun.sh/docs/cli/test) and live in each package's `test/` directory, mirroring its `src/`. Core tests (`packages/core/test/{core,content,utils}/`) cover the SDK; each provider package carries its own tests (`packages/<platform>/test/`). Import the code under test through the package-local `@/*` alias (`@/spectrum` in core, `@/verify` in a provider) and shared fixtures from `@spectrum-ts/test-support/*`.
+Tests use [Vitest](https://vitest.dev) and run under both Node (`vitest run`) and the Bun runtime (`bun --bun vitest run`) so Bun/Node incompatibilities surface in CI. They live in each package's `test/` directory, mirroring its `src/`. Core tests (`packages/core/test/{core,content,utils}/`) cover the SDK; each provider package carries its own tests (`packages/<platform>/test/`). Import the code under test through the package-local `@/*` alias (`@/spectrum` in core, `@/verify` in a provider) and shared fixtures from `@spectrum-ts/test-support/*`.
 
 ### Lint and format
 

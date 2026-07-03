@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { createSpace } from "@/space";
 
 const ZERO_USERS_ERROR = /requires a recipient user/;

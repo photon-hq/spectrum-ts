@@ -38,6 +38,7 @@
         "spectrum-ts/content/typing-indicators",
         "spectrum-ts/content/rename",
         "spectrum-ts/content/avatar",
+        "spectrum-ts/content/membership",
         "spectrum-ts/content/composing-content"
       ]
     },

@@ -1,0 +1,27 @@
+---
+title: "Membership"
+description: "Add or remove group members and leave chats through the content pipeline."
+---
+
+Use `addMember()` and `removeMember()` to manage a group chat's members, and `leaveSpace()` to make the agent's own account leave the chat. All three are fire-and-forget: `space.send(...)` resolves to `undefined`.
+
+```ts
+import { addMember, leaveSpace, removeMember } from "spectrum-ts";
+
+await space.send(addMember("+15551234567"));
+await space.send(removeMember(["+15551234567", "carol@example.com"]));
+await space.send(leaveSpace());
+```
+
+`space.add(users)`, `space.remove(users)`, and `space.leave()` are sugar for the canonical forms above.
+
+```ts
+await space.add(alice);                       // a resolved User
+await space.add(["+15551234567", bob]);       // ids and Users mix; batches land in one provider call
+await space.remove("+15551234567");
+await space.leave();
+```
+
+`addMember()` and `removeMember()` accept a single `User` or id string, or an array of either. Ids use the same platform handle format `space.create` accepts (for iMessage: an E.164 phone number or email); they are passed to the provider verbatim, with no resolution step. The builders throw at construction time if the member list is empty.
+
+Per-platform constraints surface as `UnsupportedError` from the provider's send action. iMessage requires remote mode and a group chat — a DM cannot be converted into a group, so on a DM the error points you at creating a group via `space.create` instead.

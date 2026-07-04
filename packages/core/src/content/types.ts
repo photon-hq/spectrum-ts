@@ -8,6 +8,11 @@ import { editSchema } from "./edit";
 import { messageEffectSchema } from "./effect";
 import { groupSchema } from "./group";
 import { markdownSchema } from "./markdown";
+import {
+  addMemberSchema,
+  leaveSpaceSchema,
+  removeMemberSchema,
+} from "./membership";
 import { pollOptionSchema, pollSchema } from "./poll";
 import { reactionSchema } from "./reaction";
 import { readSchema } from "./read";
@@ -45,6 +50,9 @@ const baseContentSchemas = [
   typingSchema,
   renameSchema,
   avatarSchema,
+  addMemberSchema,
+  removeMemberSchema,
+  leaveSpaceSchema,
 ] as const;
 
 export const baseContentSchema = z.discriminatedUnion(

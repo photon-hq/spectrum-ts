@@ -3,6 +3,12 @@ import { type AvatarInput, avatar as avatarContent } from "../content/avatar";
 import { edit as editContent } from "../content/edit";
 import { asMarkdown, type Markdown } from "../content/markdown";
 import {
+  addMember as addMemberContent,
+  leaveSpace as leaveSpaceContent,
+  type MemberInput,
+  removeMember as removeMemberContent,
+} from "../content/membership";
+import {
   type Reaction,
   reaction as reactionContent,
 } from "../content/reaction";
@@ -48,6 +54,9 @@ const FIRE_AND_FORGET_TYPES: ReadonlySet<string> = new Set([
   "edit",
   "rename",
   "avatar",
+  "addMember",
+  "removeMember",
+  "leaveSpace",
   "unsend",
   "read",
 ]);
@@ -70,6 +79,9 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "getMessage",
   "rename",
   "avatar",
+  "add",
+  "remove",
+  "leave",
   "startTyping",
   "stopTyping",
   "responding",
@@ -770,6 +782,24 @@ export function buildSpace(params: BuildSpaceParams): Space {
       }
       await space.send(avatarContent(input, { mimeType: options.mimeType }));
     }) as Space["avatar"],
+    add: async (users: MemberInput): Promise<void> => {
+      // Sugar for `space.send(addMember(users))`. Fire-and-forget; the
+      // (always-undefined) result is discarded. Per-platform support and
+      // constraints live in each provider's `send` action.
+      await space.send(addMemberContent(users));
+    },
+    remove: async (users: MemberInput): Promise<void> => {
+      // Sugar for `space.send(removeMember(users))`. Fire-and-forget; the
+      // (always-undefined) result is discarded. Per-platform support and
+      // constraints live in each provider's `send` action.
+      await space.send(removeMemberContent(users));
+    },
+    leave: async (): Promise<void> => {
+      // Sugar for `space.send(leaveSpace())`. Fire-and-forget; the
+      // (always-undefined) result is discarded. Per-platform support and
+      // constraints live in each provider's `send` action.
+      await space.send(leaveSpaceContent());
+    },
     startTyping: async () => {
       // Sugar for `space.send(typing("start"))`. Typing is fire-and-forget;
       // providers handle it inside their `send` action and any platforms

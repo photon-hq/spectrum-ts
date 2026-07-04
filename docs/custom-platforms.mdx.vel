@@ -96,7 +96,7 @@ export const myPlatform = definePlatform("my-platform", {
 | `space.get` | No | Hydrates a space from a known platform space ID. When omitted, the framework builds `{ id }` and validates it against `space.schema`. Providers whose schema requires more fields must implement this. |
 | `space.schema` | No | Optional Zod schema for the resolved space. |
 | `space.params` | No | Zod schema for additional space parameters — surfaces as the second arg to `platform(app).space.create()` and `platform(app).space.get()`. |
-| `space.actions` | No | A map of content-builder factories that become sugar methods on the resolved space. Each `space.<name>(...args)` delegates to `space.send(factory(...args))`. Names that collide with built-in `Space` methods (`send`, `edit`, `unsend`, `startTyping`, `stopTyping`, `responding`, `getMessage`, `rename`, `avatar`) are skipped at runtime with a warning. |
+| `space.actions` | No | A map of content-builder factories that become sugar methods on the resolved space. Each `space.<name>(...args)` delegates to `space.send(factory(...args))`. Names that collide with built-in `Space` methods (`send`, `edit`, `unsend`, `read`, `startTyping`, `stopTyping`, `responding`, `getMessage`, `rename`, `avatar`, `add`, `remove`, `leave`) are skipped at runtime with a warning. |
 | `lifecycle.createClient` | Yes | Creates the platform client. Receives `config`, `projectId`, `projectSecret` (both may be `undefined`), and `store`. |
 | `lifecycle.destroyClient` | No | Tears down the client on shutdown. Omit if no cleanup is needed. |
 | `messages` | Yes | Async generator that yields incoming messages. |

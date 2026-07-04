@@ -1,9 +1,11 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import type {
+  AddMember,
   Avatar,
   Content,
   ManagedStream,
   ProjectData,
+  RemoveMember,
   Rename,
   StreamText,
 } from "@spectrum-ts/core";
@@ -16,6 +18,11 @@ import { setBackground as setRemoteBackground } from "./background";
 import { shareContactCard as shareRemoteContactCard } from "./contact-card";
 import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
+import {
+  addParticipants as addRemoteParticipants,
+  leaveGroup as leaveRemoteGroup,
+  removeParticipants as removeRemoteParticipants,
+} from "./members";
 import {
   reactToMessage as reactToRemoteMessage,
   unsendReaction as unsendRemoteReaction,
@@ -58,6 +65,23 @@ export const setDisplayName = async (
   spaceId: string,
   content: Rename
 ): Promise<void> => setRemoteDisplayName(remote, spaceId, content);
+
+export const addParticipants = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: AddMember
+): Promise<void> => addRemoteParticipants(remote, spaceId, content);
+
+export const removeParticipants = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: RemoveMember
+): Promise<void> => removeRemoteParticipants(remote, spaceId, content);
+
+export const leaveGroup = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<void> => leaveRemoteGroup(remote, spaceId);
 
 export const setIcon = async (
   remote: AdvancedIMessage,

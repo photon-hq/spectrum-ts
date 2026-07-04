@@ -25,6 +25,9 @@ Every <TypeTooltip name="Space" type={`{{ space.signature }}`} /> exposes the sa
 | `getMessage(id)` | Fetch a message by ID from the conversation. Throws `UnsupportedError` on platforms that don't support it. |
 | `rename(displayName)` | Rename the chat. Sugar for `send(rename(displayName))`. |
 | `avatar(input, options?)` | Set or clear the chat avatar. Sugar for `send(avatar(input, options?))`. |
+| `add(users)` | Add members to the chat. Sugar for `send(addMember(users))`. |
+| `remove(users)` | Remove members from the chat. Sugar for `send(removeMember(users))`. |
+| `leave()` | Leave the chat with the agent's own account. Sugar for `send(leaveSpace())`. |
 
 ```ts
 for await (const [space, message] of app.messages) {

@@ -27,6 +27,15 @@ export { type Edit, edit } from "./content/edit";
 export { type Group, group } from "./content/group";
 export { type Markdown, markdown } from "./content/markdown";
 export {
+  type AddMember,
+  addMember,
+  type LeaveSpace,
+  leaveSpace,
+  type MemberInput,
+  type RemoveMember,
+  removeMember,
+} from "./content/membership";
+export {
   option,
   type Poll,
   type PollChoice,

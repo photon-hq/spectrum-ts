@@ -61,6 +61,9 @@ Use this section when you need to choose the right outbound content shape or und
   <Card title="Avatar" icon="image" href="/spectrum-ts/content/avatar">
     Set or clear group chat avatars.
   </Card>
+  <Card title="Membership" icon="users" href="/spectrum-ts/content/membership">
+    Add or remove group members and leave chats.
+  </Card>
   <Card title="Composing content" icon="layers" href="/spectrum-ts/content/composing-content">
     Send multiple content items or reply with multiple parts.
   </Card>

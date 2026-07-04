@@ -47,6 +47,6 @@ imessage.config({
     Compare local, cloud, and dedicated modes. Learn line allocation, quotas, space types, and per-phone routing.
   </Card>
   <Card title="Messaging features" icon="sparkles" href="/spectrum-ts/providers/imessage/messaging-features">
-    Use effects, chat renames, avatars, backgrounds, mini-app cards, contact cards, attachments, and tapbacks.
+    Use effects, chat renames, avatars, group membership, backgrounds, mini-app cards, contact cards, attachments, and tapbacks.
   </Card>
 </CardGroup>

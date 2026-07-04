@@ -185,6 +185,9 @@ export const send = async ({
     case "effect":
     case "rename":
     case "avatar":
+    case "addMember":
+    case "removeMember":
+    case "leaveSpace":
       throw UnsupportedError.content(content.type, TELEGRAM_PLATFORM);
     default:
       return await sendContent(client, space, content);

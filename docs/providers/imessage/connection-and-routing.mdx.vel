@@ -34,7 +34,7 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
     ```
 
     <Note>
-      Local mode only supports sending text and attachments. Reactions, typing indicators, threaded replies, group creation, chat backgrounds, chat renaming, and group avatars are not available.
+      Local mode only supports sending text and attachments. Reactions, typing indicators, threaded replies, group creation, chat backgrounds, chat renaming, group avatars, and group membership management are not available.
     </Note>
   </Tab>
   <Tab title="Dedicated">

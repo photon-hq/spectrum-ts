@@ -13,7 +13,13 @@ const streamLog = createLogger("spectrum.whatsapp.stream");
 
 const RENEWAL_RATIO = 0.8;
 const EXPIRY_BUFFER_MS = 30_000;
-const RETRY_DELAY_MS = 30_000;
+// Failed-renewal retry: exponential backoff from BASE, capped at MAX, with
+// half-jitter. Backoff keeps a sustained cloud outage from turning every
+// project into a 30s retry storm; jitter stops all projects from retrying in
+// lockstep (thundering herd). The token is already expired during an outage,
+// so the only cost of backing off is up to MAX of extra recovery latency.
+const RETRY_BASE_MS = 30_000;
+const RETRY_MAX_MS = 120_000;
 const RESUBSCRIBE_BACKOFF_MS = 500;
 
 interface CloudAuth {
@@ -47,6 +53,10 @@ export async function createCloudClients(
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshFailures = 0;
+  // Coalesces the timer-driven renewal and the per-RPC lazy refresh so the two
+  // can never run concurrent token swaps (racing client rebuilds / leaked
+  // clients). Cleared when the in-flight refresh settles.
+  let inFlightRefresh: Promise<void> | undefined;
 
   const lines = new Map<string, LineState>();
 
@@ -60,15 +70,30 @@ export async function createCloudClients(
     return createClient({ accessToken, appSecret: "", phoneNumberId });
   };
 
-  const refreshTokens = async (): Promise<void> => {
-    tokenData = await cloud.issueWhatsappBusinessTokens(
+  const doRefresh = async (): Promise<void> => {
+    const next = await cloud.issueWhatsappBusinessTokens(
       projectId,
       projectSecret
     );
+    // Bail if disposed while the token request was in flight — otherwise we'd
+    // build clients that dispose() already finished closing (it snapshots the
+    // line set) and they would leak, never being closed.
+    if (disposed) {
+      return;
+    }
+    tokenData = next;
     tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
 
     for (const [phoneNumberId, state] of lines) {
       if (!tokenData.auth[phoneNumberId]) {
+        // The refreshed response no longer carries this line, so we cannot
+        // rebuild its client — the existing one keeps running on a token that
+        // will expire, and its event stream goes quiet with no other signal.
+        // Surface it rather than dropping it silently.
+        log.warn(
+          "whatsapp line missing from refreshed token response; keeping existing client (its stream may stop until the line returns)",
+          { "spectrum.whatsapp.auth.phone_number_id": phoneNumberId }
+        );
         continue;
       }
       const old = state.current;
@@ -80,6 +105,17 @@ export async function createCloudClients(
     }
   };
 
+  // Single-flight wrapper: concurrent callers share one refresh instead of
+  // issuing racing token swaps.
+  const refreshTokens = (): Promise<void> => {
+    if (!inFlightRefresh) {
+      inFlightRefresh = doRefresh().finally(() => {
+        inFlightRefresh = undefined;
+      });
+    }
+    return inFlightRefresh;
+  };
+
   const onRefreshSuccess = () => {
     if (refreshFailures > 0) {
       log.info("whatsapp token refresh recovered", {
@@ -89,23 +125,56 @@ export async function createCloudClients(
     }
   };
 
-  const onRefreshFailure = (error: unknown) => {
+  // Exponential backoff with half-jitter, from the already-incremented failure
+  // count. E.g. ~15–30s, ~30–60s, ~60–120s, then capped at ~60–120s.
+  const nextRetryDelayMs = (): number => {
+    const exp = Math.min(
+      RETRY_BASE_MS * 2 ** (refreshFailures - 1),
+      RETRY_MAX_MS
+    );
+    return Math.round(exp * (0.5 + Math.random() * 0.5));
+  };
+
+  const onRefreshFailure = (error: unknown): number => {
     refreshFailures += 1;
+    const retryInMs = nextRetryDelayMs();
     log.warn(
       "whatsapp token refresh failed; retrying",
       {
         "spectrum.whatsapp.auth.attempt": refreshFailures,
-        "spectrum.whatsapp.auth.retry_in_ms": RETRY_DELAY_MS,
+        "spectrum.whatsapp.auth.retry_in_ms": retryInMs,
         ...errorAttrs(error),
       },
       error
     );
+    return retryInMs;
   };
 
   const clearRenewalTimer = () => {
     if (renewalTimer !== undefined) {
       clearTimeout(renewalTimer);
       renewalTimer = undefined;
+    }
+  };
+
+  // One renewal attempt. On success, schedule the next at the TTL ratio; on
+  // failure, RETRY the refresh itself after a jittered backoff. The old code
+  // rescheduled scheduleRenewal() on failure, which waited another full
+  // ~0.8×TTL against the STALE expiry before trying again — so a single 500
+  // from cloud left the token to expire and the stream silent for ~12 minutes.
+  const runRenewal = async (): Promise<void> => {
+    try {
+      await refreshTokens();
+      onRefreshSuccess();
+      scheduleRenewal();
+    } catch (err) {
+      const retryInMs = onRefreshFailure(err);
+      if (disposed) {
+        return;
+      }
+      clearRenewalTimer();
+      renewalTimer = setTimeout(runRenewal, retryInMs);
+      renewalTimer?.unref?.();
     }
   };
 
@@ -117,18 +186,7 @@ export async function createCloudClients(
     const ttlMs = tokenData.expiresIn * 1000;
     const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
 
-    renewalTimer = setTimeout(async () => {
-      try {
-        await refreshTokens();
-        onRefreshSuccess();
-        scheduleRenewal();
-      } catch (err) {
-        onRefreshFailure(err);
-        clearRenewalTimer();
-        renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
-        renewalTimer?.unref?.();
-      }
-    }, renewInMs);
+    renewalTimer = setTimeout(runRenewal, renewInMs);
     renewalTimer?.unref?.();
   };
 

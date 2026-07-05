@@ -62,8 +62,10 @@ import {
 import {
   addParticipants as remoteAddParticipants,
   editMessage as remoteEditMessage,
+  getIcon as remoteGetIcon,
   getMessage as remoteGetMessage,
   leaveGroup as remoteLeaveGroup,
+  listParticipants as remoteListParticipants,
   markRead as remoteMarkRead,
   messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
@@ -764,6 +766,26 @@ export const imessage = definePlatform("iMessage", {
       }
       const remote = clientForPhone(client, space.phone);
       return remoteGetMessage(remote, space.id, messageId, space.phone);
+    },
+    // List a remote group chat's current participants. Remote + group only;
+    // the agent's own number is excluded. `id` is the canonical address
+    // (E.164 phone or email); `address`/`country`/`service` ride along per
+    // `userSchema`.
+    getMembers: async ({ client }, space) => {
+      const remote = remoteGroupClient(client, space, "getMembers", {
+        dm: "only group chats support listing members (this space is a DM)",
+        local: "listing members requires remote iMessage",
+      });
+      return await remoteListParticipants(remote, space.id, space.phone);
+    },
+    // Download the group chat's current icon; `undefined` when none is set.
+    // Remote + group only — mirrors the avatar setter's guards.
+    getAvatar: async ({ client }, space) => {
+      const remote = remoteGroupClient(client, space, "getAvatar", {
+        dm: "only group chats have avatars (this space is a DM)",
+        local: "fetching group avatars requires remote iMessage",
+      });
+      return await remoteGetIcon(remote, space.id);
     },
     // Fetch an attachment by GUID. Returns a spectrum `Attachment` whose
     // `.read()` / `.stream()` lazily download the bytes — calling both

@@ -10,7 +10,12 @@ export {
   type AttachmentInput,
   attachment,
 } from "./content/attachment";
-export { type Avatar, type AvatarInput, avatar } from "./content/avatar";
+export {
+  type Avatar,
+  type AvatarData,
+  type AvatarInput,
+  avatar,
+} from "./content/avatar";
 export {
   type Contact,
   type ContactAddress,

@@ -27,6 +27,16 @@ export type Avatar = z.infer<typeof avatarSchema>;
 export type AvatarInput = PhotoInput;
 
 /**
+ * The current chat avatar as returned by `space.getAvatar()`: raw image bytes
+ * plus MIME type. `data` is a Buffer so the value round-trips into the
+ * setter — `space.avatar(res.data, { mimeType: res.mimeType })`.
+ */
+export interface AvatarData {
+  data: Buffer;
+  mimeType: string;
+}
+
+/**
  * Build an `Avatar` content value.
  *
  * - `avatar("clear")` — remove the current chat avatar.

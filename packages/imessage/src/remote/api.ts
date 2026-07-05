@@ -2,6 +2,7 @@ import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import type {
   AddMember,
   Avatar,
+  AvatarData,
   Content,
   ManagedStream,
   ProjectData,
@@ -13,14 +14,16 @@ import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { Background } from "../content/background";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";
 import type { IMessageMessage, RemoteClient } from "../types";
-import { setIcon as setRemoteIcon } from "./avatar";
+import { getIcon as getRemoteIcon, setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { shareContactCard as shareRemoteContactCard } from "./contact-card";
 import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
 import {
   addParticipants as addRemoteParticipants,
+  type IMessageParticipant,
   leaveGroup as leaveRemoteGroup,
+  listParticipants as listRemoteParticipants,
   removeParticipants as removeRemoteParticipants,
 } from "./members";
 import {
@@ -82,6 +85,18 @@ export const leaveGroup = async (
   remote: AdvancedIMessage,
   spaceId: string
 ): Promise<void> => leaveRemoteGroup(remote, spaceId);
+
+export const listParticipants = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  selfPhone: string
+): Promise<IMessageParticipant[]> =>
+  listRemoteParticipants(remote, spaceId, selfPhone);
+
+export const getIcon = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<AvatarData | undefined> => getRemoteIcon(remote, spaceId);
 
 export const setIcon = async (
   remote: AdvancedIMessage,

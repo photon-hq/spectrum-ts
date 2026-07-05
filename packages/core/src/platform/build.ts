@@ -1,5 +1,9 @@
 import { createLogger, withSpan } from "@photon-ai/otel";
-import { type AvatarInput, avatar as avatarContent } from "../content/avatar";
+import {
+  type AvatarData,
+  type AvatarInput,
+  avatar as avatarContent,
+} from "../content/avatar";
 import { edit as editContent } from "../content/edit";
 import { asMarkdown, type Markdown } from "../content/markdown";
 import {
@@ -27,7 +31,7 @@ import { typing as typingContent } from "../content/typing";
 import { unsend as unsendContent } from "../content/unsend";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
-import type { AgentSender } from "../types/user";
+import type { AgentSender, User } from "../types/user";
 import { UnsupportedError } from "../utils/errors";
 import { markdownToPlainText } from "../utils/markdown";
 import type { Store } from "../utils/store";
@@ -36,6 +40,7 @@ import type {
   AnyPlatformDef,
   PlatformWiseActionKey,
   ProviderMessageRecord,
+  ProviderUserRecord,
 } from "./types";
 
 const platformLog = createLogger("spectrum.platform");
@@ -77,6 +82,8 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "unsend",
   "read",
   "getMessage",
+  "getMembers",
+  "getAvatar",
   "rename",
   "avatar",
   "add",
@@ -91,9 +98,15 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
 // distinguish platform-wise overrides from platform-specific extensions, and
 // to wire the same set onto every `PlatformInstance` regardless of override
 // status. The runtime list must stay in sync with `PlatformWiseActions` in
-// `types.ts` — the typed `satisfies` here catches typos at the element level.
+// `types.ts` — the typed `satisfies` here catches typos at the element level
+// but not omissions (a key missing here silently never reaches the
+// instance); the platform-wise-reads tests pin the wiring.
 export const PLATFORM_WISE_ACTION_KEYS: ReadonlySet<PlatformWiseActionKey> =
-  new Set(["getMessage"] satisfies readonly PlatformWiseActionKey[]);
+  new Set([
+    "getMessage",
+    "getMembers",
+    "getAvatar",
+  ] satisfies readonly PlatformWiseActionKey[]);
 
 // Reserved keys on `Message` — platform-defined `message.actions` entries
 // with these names are skipped at runtime (with a warning) so the universal
@@ -695,6 +708,62 @@ export function buildSpace(params: BuildSpaceParams): Space {
     );
   }
 
+  async function getMembersImpl(): Promise<User[]> {
+    const getMembers = definition.actions?.getMembers;
+    if (!getMembers) {
+      // Default behavior when the provider hasn't implemented the
+      // platform-wise `getMembers` action: throw `UnsupportedError`. Mirrors
+      // the same default the `PlatformInstance` wires for `im.getMembers`.
+      throw UnsupportedError.action("getMembers", definition.name);
+    }
+    return withSpan(
+      "spectrum.space.members.get",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+      },
+      async () => {
+        const raw = (await getMembers(
+          { client, config, store },
+          spaceRef
+        )) as readonly ProviderUserRecord[];
+        // Reads bypass `wrapProviderMessage`, so the platform tag is applied
+        // here — mirrors `buildSenderWithPlatform` for message senders. The
+        // `as object` spread drops the record's index signature so the
+        // literal stays assignable to `User`; provider extras still ride
+        // along at runtime.
+        return raw.map(
+          (member): User => ({
+            ...(member as object),
+            id: member.id,
+            __platform: definition.name,
+          })
+        );
+      }
+    );
+  }
+
+  async function getAvatarImpl(): Promise<AvatarData | undefined> {
+    const getAvatar = definition.actions?.getAvatar;
+    if (!getAvatar) {
+      // Default behavior when the provider hasn't implemented the
+      // platform-wise `getAvatar` action: throw `UnsupportedError`. Mirrors
+      // the same default the `PlatformInstance` wires for `im.getAvatar`.
+      throw UnsupportedError.action("getAvatar", definition.name);
+    }
+    return withSpan(
+      "spectrum.space.avatar.get",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+      },
+      async () =>
+        (await getAvatar({ client, config, store }, spaceRef)) as
+          | AvatarData
+          | undefined
+    );
+  }
+
   // Platform-defined sugar methods declared via `PlatformDef.space.actions`.
   // Each factory becomes `space.<name>(...args) = space.send(factory(...args))`.
   // Spread order is load-bearing: actions go *after* `extras`/`spaceRef`
@@ -754,6 +823,8 @@ export function buildSpace(params: BuildSpaceParams): Space {
       await space.send(readContent(message));
     },
     getMessage: getMessageImpl,
+    getMembers: getMembersImpl,
+    getAvatar: getAvatarImpl,
     rename: async (displayName: string): Promise<void> => {
       // Sugar for `space.send(rename(displayName))`. Fire-and-forget; the
       // (always-undefined) result is discarded. Per-platform support and

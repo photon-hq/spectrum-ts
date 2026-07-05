@@ -48,7 +48,10 @@ export { asRead } from "./content/read";
 export { asRichlink } from "./content/richlink";
 export { asText } from "./content/text";
 export { asVoice } from "./content/voice";
-export type { ProviderMessageRecord } from "./platform/types";
+export type {
+  ProviderMessageRecord,
+  ProviderUserRecord,
+} from "./platform/types";
 // Generic translation helpers (from `utils/`).
 export { ensureM4a } from "./utils/audio";
 // Outbound-HTTP tracing — wrap a provider's own fetch so its requests get a

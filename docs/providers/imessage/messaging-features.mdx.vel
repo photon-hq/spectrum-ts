@@ -77,7 +77,16 @@ await space.avatar("clear");
 await space.send(avatar("./icon.png"));
 ```
 
-Group avatars require cloud or dedicated mode and only work on group chats. In local mode or on a DM, `avatar()` throws an `UnsupportedError`.
+Read the current icon back with `space.getAvatar()` — it resolves `{ data, mimeType }` (or `undefined` when the group has no icon), and the result round-trips into the setter:
+
+```ts
+const icon = await space.getAvatar();
+if (icon) {
+  await otherGroup.avatar(icon.data, { mimeType: icon.mimeType });
+}
+```
+
+Group avatars require cloud or dedicated mode and only work on group chats. In local mode or on a DM, `avatar()` and `getAvatar()` throw an `UnsupportedError`.
 
 ## Group membership
 
@@ -100,7 +109,21 @@ await space.send(leaveSpace());
 
 Members are E.164 phone numbers or emails — the same handles `space.create` accepts.
 
-Membership management requires cloud or dedicated mode and only works on group chats. In local mode or on a DM it throws an `UnsupportedError` — a DM cannot be converted into a group, so to add someone to a 1:1 conversation, create a group with `space.create` instead.
+List the current roster with `space.getMembers()`. Each entry's `id` is the canonical address, so the results feed straight back into `add()` / `remove()` / `space.create()`; the agent's own number is excluded:
+
+```ts
+const members = await space.getMembers();
+await space.remove(members.filter((m) => m.id.endsWith("@example.com")));
+
+// Typed extras (address/country/service) via the narrowed instance
+const im = imessage(app);
+const detailed = await im.getMembers(space);
+for (const member of detailed) {
+  console.log(member.address, member.service);
+}
+```
+
+Membership management requires cloud or dedicated mode and only works on group chats. In local mode or on a DM it throws an `UnsupportedError` — a DM cannot be converted into a group, so to add someone to a 1:1 conversation, create a group with `space.create` instead. `getMembers()` has the same constraints: a DM has no roster to list.
 
 ## Chat backgrounds
 

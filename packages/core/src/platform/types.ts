@@ -1,5 +1,6 @@
 import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
+import type { AvatarData } from "../content/avatar";
 import type { Content } from "../content/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
@@ -16,7 +17,8 @@ import type { ManagedStream } from "../utils/stream";
  * side effect.
  *
  * Names that collide with reserved `Space` keys (`send`, `edit`, `unsend`,
- * `getMessage`, `startTyping`, `stopTyping`, `responding`, `id`,
+ * `read`, `getMessage`, `getMembers`, `getAvatar`, `rename`, `avatar`, `add`,
+ * `remove`, `leave`, `startTyping`, `stopTyping`, `responding`, `id`,
  * `__platform`) are skipped at runtime with a warning and excluded at the
  * type level via `Exclude<…, keyof Space>`.
  */
@@ -52,11 +54,12 @@ export type MessageActionFn = (
  *
  * Two tiers live in the same `actions?` slot:
  *
- * - **Platform-wise actions** — fixed framework-known names (currently just
- *   `getMessage`) whose signatures are defined by `PlatformWiseActions`. They
- *   power universal sugar (`space.getMessage(id)`) AND surface on the
- *   platform instance. If a provider omits one, the framework wires a
- *   default that throws `UnsupportedError`.
+ * - **Platform-wise actions** — fixed framework-known names (`getMessage`,
+ *   `getMembers`, `getAvatar`) whose signatures are defined by
+ *   `PlatformWiseActions`. They power universal sugar
+ *   (`space.getMessage(id)`, `space.getMembers()`, `space.getAvatar()`) AND
+ *   surface on the platform instance. If a provider omits one, the framework
+ *   wires a default that throws `UnsupportedError`.
  * - **Platform-specific actions** — free-form keys each platform declares
  *   for its own ergonomics (e.g. iMessage's `getAttachment`). Surface on
  *   the platform instance only.
@@ -80,9 +83,12 @@ export type InstanceActionFn = (
  * by declaring the key inside their `actions` slot, and platforms that omit
  * the key get a default that throws `UnsupportedError`.
  *
- * Add a new platform-wise capability by extending this record (and the
- * runtime list in `define.ts`); the corresponding instance method will be
- * surfaced on every `PlatformInstance` automatically.
+ * Add a new platform-wise capability by extending this record along with:
+ * `PlatformWiseInstanceMethods` (the public instance signature), the runtime
+ * list `PLATFORM_WISE_ACTION_KEYS` in `build.ts`, and — when the capability
+ * surfaces as universal `Space` sugar — the `Space` interface plus a
+ * `buildSpace` impl and `RESERVED_SPACE_KEYS` entry. The instance method is
+ * then surfaced on every `PlatformInstance` automatically.
  */
 export interface PlatformWiseActions<
   _ResolvedSpace extends { id: string },
@@ -90,6 +96,14 @@ export interface PlatformWiseActions<
   _Client,
   _Config,
 > {
+  getAvatar: (
+    ctx: { client: _Client; config: _Config; store: Store },
+    space: _ResolvedSpace & { id: string; __platform: string }
+  ) => Promise<AvatarData | undefined>;
+  getMembers: (
+    ctx: { client: _Client; config: _Config; store: Store },
+    space: _ResolvedSpace & { id: string; __platform: string }
+  ) => Promise<readonly ProviderUserRecord[]>;
   getMessage: (
     ctx: { client: _Client; config: _Config; store: Store },
     space: _ResolvedSpace & { id: string; __platform: string },
@@ -174,6 +188,16 @@ export type ProviderMessageRecord = {
   space: { id: string } & Record<string, unknown>;
   timestamp?: Date;
 } & Record<string, unknown>;
+
+/**
+ * A chat participant a provider returned from `actions.getMembers` — the raw
+ * record shape, mirroring `ProviderMessageRecord.sender`. `id` is the user's
+ * canonical platform identifier (the same handle format `space.create`
+ * accepts); platform extras (e.g. iMessage's `address`/`country`/`service`)
+ * ride along untyped. `space.getMembers()` tags each record with
+ * `__platform` before surfacing it as a `User`.
+ */
+export type ProviderUserRecord = { id: string } & Record<string, unknown>;
 
 type MergeSchema<
   TSchema extends z.ZodType | undefined,
@@ -283,13 +307,14 @@ export interface PlatformDef<
    *
    * Two tiers share this slot:
    *
-   * 1. **Platform-wise actions** (`getMessage`) — framework-recognized names
-   *    declared in `PlatformWiseActions`. Override by declaring the key here
-   *    with the matching signature. The framework injects `ctx = { client,
-   *    config, store }` as the first arg and surfaces the method on the
-   *    platform instance (`im.getMessage(space, id)`). If omitted, the
-   *    framework wires a default that throws `UnsupportedError`. Powers
-   *    universal sugar like `space.getMessage(id)`.
+   * 1. **Platform-wise actions** (`getMessage`, `getMembers`, `getAvatar`) —
+   *    framework-recognized names declared in `PlatformWiseActions`. Override
+   *    by declaring the key here with the matching signature. The framework
+   *    injects `ctx = { client, config, store }` as the first arg and
+   *    surfaces the method on the platform instance
+   *    (`im.getMessage(space, id)`). If omitted, the framework wires a
+   *    default that throws `UnsupportedError`. Powers universal sugar like
+   *    `space.getMessage(id)`.
    *
    * 2. **Platform-specific actions** — free-form keys like `getAttachment`.
    *    Each gets `ctx = { client, config, store }` as the first arg; the
@@ -444,9 +469,10 @@ export interface PlatformDef<
      * lives here for platform-specific surface area.
      *
      * Names that collide with reserved `Space` keys (`send`, `edit`,
-     * `unsend`, `getMessage`, `startTyping`, `stopTyping`, `responding`,
-     * `id`, `__platform`) are skipped at runtime with a warning and excluded
-     * at the type level.
+     * `unsend`, `read`, `getMessage`, `getMembers`, `getAvatar`, `rename`,
+     * `avatar`, `add`, `remove`, `leave`, `startTyping`, `stopTyping`,
+     * `responding`, `id`, `__platform`) are skipped at runtime with a
+     * warning and excluded at the type level.
      */
     actions?: _SpaceActions;
   };
@@ -767,7 +793,8 @@ type InstanceActionFns<Def extends AnyPlatformDef> = Def["actions"] extends
 // Reserved keys on `PlatformInstance` — same set the runtime guards. Includes
 // the base members (`user`, `space`, `messages`) plus every event name the
 // platform projects onto the instance, plus the platform-wise action keys
-// (`getMessage`) whose public signatures come from `PlatformWiseInstanceMethods`.
+// (`getMessage`, `getMembers`, `getAvatar`) whose public signatures come from
+// `PlatformWiseInstanceMethods`.
 type ReservedInstanceKeys<Def extends AnyPlatformDef> =
   | "user"
   | "space"
@@ -789,9 +816,14 @@ export type InstanceActionMethods<Def extends AnyPlatformDef> = {
 
 // Methods derived from `PlatformWiseActions` — always present on the
 // platform instance regardless of whether the provider overrides them.
-// Signatures use the platform's resolved Space/Message types so they
-// type-check against `space.getMessage`-style sugar.
+// Signatures use the platform's resolved Space/Message/User types so they
+// type-check against `space.getMessage`-style sugar. The instance path
+// returns the provider's records raw (no wrapping or `__platform` tagging —
+// same pass-through contract as `im.getMessage`); the `space.*` sugar is the
+// framework-normalized path.
 export interface PlatformWiseInstanceMethods<Def extends AnyPlatformDef> {
+  getAvatar: (space: PlatformSpace<Def>) => Promise<AvatarData | undefined>;
+  getMembers: (space: PlatformSpace<Def>) => Promise<PlatformUser<Def>[]>;
   getMessage: (
     space: PlatformSpace<Def>,
     messageId: string

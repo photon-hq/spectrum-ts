@@ -1,8 +1,9 @@
+import type { AvatarData } from "../content/avatar";
 import type { MemberInput } from "../content/membership";
 import type { Reaction, ReactionBuilder } from "../content/reaction";
 import type { ContentInput } from "../content/types";
 import type { Message } from "./message";
-import type { AgentSender } from "./user";
+import type { AgentSender, User } from "./user";
 
 export interface Space<_Def = unknown> {
   readonly __platform: string;
@@ -40,6 +41,30 @@ export interface Space<_Def = unknown> {
    * `send` results chain without narrowing; an undefined target throws.
    */
   edit(message: Message | undefined, newContent: ContentInput): Promise<void>;
+  /**
+   * Download the current chat avatar (group icon). Resolves `undefined` when
+   * the chat has none. The result round-trips into the setter:
+   * `space.avatar(res.data, { mimeType: res.mimeType })`.
+   *
+   * Universal API; per-platform constraints (e.g. iMessage: remote + group
+   * only — a DM throws) surface as `UnsupportedError`, as do platforms with
+   * no implementation.
+   */
+  getAvatar(): Promise<AvatarData | undefined>;
+  /**
+   * List the chat's current participants, excluding the agent's own account
+   * where the platform can identify it. Each entry is a `User` tagged with
+   * `__platform`; `id` is the user's canonical platform handle (the same
+   * format `space.create` accepts), so results feed straight back into
+   * `add()` / `remove()` / `space.create()`. Platform extras (e.g.
+   * iMessage's `address`/`country`/`service`) ride along untyped — use the
+   * platform instance's `getMembers(space)` for typed extras.
+   *
+   * Universal API; per-platform constraints (e.g. iMessage: remote + group
+   * only — a DM throws) surface as `UnsupportedError`, as do platforms with
+   * no implementation.
+   */
+  getMembers(): Promise<User[]>;
   /**
    * Look up a message in this space by its id. Returns `undefined` if the
    * platform has no way to resolve the id (e.g. cache miss with no by-id

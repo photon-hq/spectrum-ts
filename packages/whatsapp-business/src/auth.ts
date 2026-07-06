@@ -16,6 +16,8 @@ const EXPIRY_BUFFER_MS = 30_000;
 const RETRY_DELAY_MS = 30_000;
 const RESUBSCRIBE_BACKOFF_MS = 500;
 
+const ignoreCleanupError = () => undefined;
+
 interface CloudAuth {
   dispose: () => Promise<void>;
 }
@@ -47,6 +49,7 @@ export async function createCloudClients(
   let disposed = false;
   let renewalTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshFailures = 0;
+  let refreshInFlight: Promise<void> | undefined;
 
   const lines = new Map<string, LineState>();
 
@@ -109,6 +112,21 @@ export async function createCloudClients(
     }
   };
 
+  const refreshNow = async (): Promise<void> => {
+    await refreshTokens();
+    onRefreshSuccess();
+    scheduleRenewal();
+  };
+
+  const coalescedRefresh = (): Promise<void> => {
+    if (!refreshInFlight) {
+      refreshInFlight = refreshNow().finally(() => {
+        refreshInFlight = undefined;
+      });
+    }
+    return refreshInFlight;
+  };
+
   const scheduleRenewal = () => {
     if (disposed) {
       return;
@@ -117,18 +135,18 @@ export async function createCloudClients(
     const ttlMs = tokenData.expiresIn * 1000;
     const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
 
-    renewalTimer = setTimeout(async () => {
-      try {
-        await refreshTokens();
-        onRefreshSuccess();
-        scheduleRenewal();
-      } catch (err) {
+    const runScheduledRefresh = () => {
+      coalescedRefresh().catch((err) => {
         onRefreshFailure(err);
-        clearRenewalTimer();
-        renewalTimer = setTimeout(() => scheduleRenewal(), RETRY_DELAY_MS);
+        if (disposed) {
+          return;
+        }
+        renewalTimer = setTimeout(runScheduledRefresh, RETRY_DELAY_MS);
         renewalTimer?.unref?.();
-      }
-    }, renewInMs);
+      });
+    };
+
+    renewalTimer = setTimeout(runScheduledRefresh, renewInMs);
     renewalTimer?.unref?.();
   };
 
@@ -136,9 +154,7 @@ export async function createCloudClients(
     if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
       return;
     }
-    await refreshTokens();
-    onRefreshSuccess();
-    scheduleRenewal();
+    await coalescedRefresh();
   };
 
   scheduleRenewal();
@@ -236,19 +252,67 @@ const buildClientProxy = (
 interface ResubscribeContext {
   emit: (event: WhatsAppEvent) => Promise<void>;
   getCurrent: () => WhatsAppClient;
+  isClosed: () => boolean;
   options?: SubscribeOptions;
   setActive: (stream: TypedEventStream<WhatsAppEvent> | undefined) => void;
+  swapVersion: () => number;
+  waitForSwap: (version: number) => Promise<void>;
 }
 
-const pumpOnce = async (ctx: ResubscribeContext): Promise<boolean> => {
+type PumpResult = "closed" | "ended" | "error" | "swap";
+
+type NextResult =
+  | { type: "next"; result: IteratorResult<WhatsAppEvent> }
+  | { type: "error"; error: unknown };
+
+const settleNext = (
+  next: Promise<IteratorResult<WhatsAppEvent>>
+): Promise<NextResult> =>
+  next.then(
+    (result) => ({ type: "next", result }),
+    (error) => ({ type: "error", error })
+  );
+
+const closeStream = (stream: TypedEventStream<WhatsAppEvent>): void => {
+  stream.close().catch(ignoreCleanupError);
+};
+
+const returnIterator = (iterator: AsyncIterator<WhatsAppEvent>): void => {
+  iterator.return?.(undefined).catch(ignoreCleanupError);
+};
+
+const pumpOnce = async (ctx: ResubscribeContext): Promise<PumpResult> => {
   const sub = ctx.getCurrent().events.subscribe(ctx.options);
+  const iterator = sub[Symbol.asyncIterator]();
+  const swapVersion = ctx.swapVersion();
   ctx.setActive(sub);
   try {
-    for await (const event of sub) {
-      await ctx.emit(event);
+    while (!ctx.isClosed()) {
+      const result = await Promise.race([
+        settleNext(iterator.next()),
+        ctx.waitForSwap(swapVersion).then(() => ({ type: "swap" as const })),
+      ]);
+
+      if (result.type === "swap") {
+        closeStream(sub);
+        returnIterator(iterator);
+        return ctx.isClosed() ? "closed" : "swap";
+      }
+
+      if (result.type === "error") {
+        throw result.error;
+      }
+
+      if (result.result.done) {
+        return ctx.isClosed() ? "closed" : "ended";
+      }
+
+      await ctx.emit(result.result.value);
     }
-    return true;
+    return "closed";
   } catch (error) {
+    closeStream(sub);
+    returnIterator(iterator);
     streamLog.warn(
       "whatsapp event stream interrupted; resubscribing",
       {
@@ -257,7 +321,7 @@ const pumpOnce = async (ctx: ResubscribeContext): Promise<boolean> => {
       },
       error
     );
-    return false;
+    return ctx.isClosed() ? "closed" : "error";
   } finally {
     ctx.setActive(undefined);
   }
@@ -272,20 +336,43 @@ const resubscribableStream = (
 ): TypedEventStream<WhatsAppEvent> => {
   let closed = false;
   let active: TypedEventStream<WhatsAppEvent> | undefined;
+  let swapVersion = 0;
+  let wakeSwap: (() => void) | undefined;
+
+  const wake = () => {
+    wakeSwap?.();
+    wakeSwap = undefined;
+  };
+
+  const requestResubscribe = () => {
+    swapVersion += 1;
+    wake();
+    active?.close().catch(ignoreCleanupError);
+  };
 
   const source = stream<WhatsAppEvent>((emit, end) => {
     const ctx: ResubscribeContext = {
       emit,
       getCurrent: () => state.current,
+      isClosed: () => closed,
       options,
       setActive: (s) => {
         active = s;
       },
+      swapVersion: () => swapVersion,
+      waitForSwap: (version) => {
+        if (closed || swapVersion !== version) {
+          return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+          wakeSwap = resolve;
+        });
+      },
     };
     const pump = (async () => {
       while (!closed) {
-        await pumpOnce(ctx);
-        if (!closed) {
+        const result = await pumpOnce(ctx);
+        if (!closed && result !== "swap") {
           await new Promise((r) => setTimeout(r, RESUBSCRIBE_BACKOFF_MS));
         }
       }
@@ -294,7 +381,8 @@ const resubscribableStream = (
 
     return async () => {
       closed = true;
-      active?.close().catch(() => undefined);
+      wake();
+      active?.close().catch(ignoreCleanupError);
       active = undefined;
       state.subscriptions.delete(subscription);
       await pump;
@@ -304,18 +392,21 @@ const resubscribableStream = (
   const subscription: LineSubscription = {
     close: () => {
       closed = true;
-      active?.close().catch(() => undefined);
+      wake();
+      active?.close().catch(ignoreCleanupError);
     },
     swap: () => {
-      // Force the inner for-await to end; worker loop re-subscribes to state.current.
-      active?.close().catch(() => undefined);
+      // Force the worker loop to start a fresh RPC against state.current even
+      // if the SDK iterator is stuck waiting for its old stream to finish.
+      requestResubscribe();
     },
   };
   state.subscriptions.add(subscription);
 
   return new TypedEventStream<WhatsAppEvent>(source, async () => {
     closed = true;
-    active?.close().catch(() => undefined);
+    wake();
+    active?.close().catch(ignoreCleanupError);
     state.subscriptions.delete(subscription);
     await source.close();
   });

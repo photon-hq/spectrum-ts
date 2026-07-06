@@ -25,6 +25,13 @@ import { typingSchema } from "./typing";
 import { unsendSchema } from "./unsend";
 import { voiceSchema } from "./voice";
 
+// Content values describe state changes and are direction-agnostic — the same
+// discriminants serve `space.send(...)` and inbound Messages (e.g. `reaction`
+// is both sent by the agent and constructed by providers when a user reacts;
+// membership/rename/avatar likewise). The Message envelope carries `direction`
+// and the actor (`sender`); names stay flat and mood-neutral, not command- or
+// event-flavored.
+//
 // `baseContentSchema` is everything except `reply`, `edit`, `unsend`, and
 // `read`. It exists so the inner content of a `Reply` (and `Edit`) can be
 // typed against this non-circular union without `Content` referencing itself

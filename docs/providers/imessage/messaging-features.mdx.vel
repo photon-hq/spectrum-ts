@@ -125,6 +125,34 @@ for (const member of detailed) {
 
 Membership management requires cloud or dedicated mode and only works on group chats. In local mode or on a DM it throws an `UnsupportedError` — a DM cannot be converted into a group, so to add someone to a 1:1 conversation, create a group with `space.create` instead. `getMembers()` has the same constraints: a DM has no roster to list.
 
+## Inbound group events
+
+In cloud or dedicated mode, group changes made by other members arrive as inbound messages on `app.messages` carrying the same content types you send — local mode drops them:
+
+| Someone… | `content.type` | `message.sender` |
+|---|---|---|
+| adds a member | `"addMember"` (`members` = who was added) | who added them |
+| removes a member | `"removeMember"` (`members` = who was removed) | who removed them |
+| leaves the group | `"leaveSpace"` | the leaver |
+| renames the group | `"rename"` (`displayName`) | who renamed it |
+| changes the icon | `"avatar"` (`action.kind === "set"`, bytes behind `action.read()`) | who changed it |
+| clears the icon | `"avatar"` (`action.kind === "clear"`) | who cleared it |
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "addMember") {
+    console.log(`${message.sender?.id ?? "someone"} added ${message.content.members.join(", ")}`);
+  }
+}
+```
+
+Semantics to rely on:
+
+- `message.sender` may be `undefined` — Apple does not always record the actor. The affected member is always present (in `members`, or as the sender for `leaveSpace`).
+- The agent's own actions never echo back: `space.add(...)`, `space.rename(...)`, and friends are suppressed from the inbound stream, matching how self-sent messages behave.
+- Icon-change events carry a snapshot of the icon fetched at event time; an icon that was already replaced or removed by then is skipped (the follow-up event carries the current state).
+- Group events ride the same durable catch-up log as messages and polls, so changes that happen while the app is down are replayed on reconnect. After a cursor gap, reconcile with `space.getMembers()` / `space.getAvatar()`.
+
 ## Chat backgrounds
 
 Set or clear the chat background image. Import `background` from the iMessage provider and use the sugar method on a narrowed space:

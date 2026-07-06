@@ -25,3 +25,31 @@ await space.leave();
 `addMember()` and `removeMember()` accept a single `User` or id string, or an array of either. Ids use the same platform handle format `space.create` accepts (for iMessage: an E.164 phone number or email); they are passed to the provider verbatim, with no resolution step. The builders throw at construction time if the member list is empty.
 
 Per-platform constraints surface as `UnsupportedError` from the provider's send action. iMessage requires remote mode and a group chat — a DM cannot be converted into a group, so on a DM the error points you at creating a group via `space.create` instead.
+
+## Inbound membership events
+
+On platforms that report membership changes (iMessage remote mode today), the same content types arrive as inbound messages on `app.messages` — what you send is what you observe when someone else does it:
+
+```ts
+for await (const [space, message] of app.messages) {
+  switch (message.content.type) {
+    case "addMember":
+      console.log(`${message.sender?.id ?? "someone"} added ${message.content.members.join(", ")}`);
+      break;
+    case "removeMember":
+      console.log(`${message.sender?.id ?? "someone"} removed ${message.content.members.join(", ")}`);
+      break;
+    case "leaveSpace":
+      // leaveSpace carries no members — the sender IS the leaver
+      console.log(`${message.sender?.id} left`);
+      break;
+  }
+}
+```
+
+The envelope carries the event semantics:
+
+- `message.sender` is the acting user — who added or removed the members. It is `undefined` when the platform recorded no actor. A self-join surfaces with the joiner as both sender and member.
+- A voluntary leave and a removal are distinct types: `leaveSpace` (sender = the leaver) vs `removeMember` (sender = the remover, `members` = who was removed).
+- `members` are platform handles in the same format `space.create` accepts — compare them against `space.getMembers()` or feed them back into `space.add(...)`.
+- The agent's own actions are suppressed: `space.add(...)` does not echo back as an inbound event.

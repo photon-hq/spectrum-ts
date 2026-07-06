@@ -112,6 +112,9 @@ for await (const [space, message] of app.messages) {
     case "group":
       console.log(`group of ${message.content.items.length} items`);
       break;
+    case "addMember":
+      console.log(`${message.sender?.id ?? "someone"} added ${message.content.members.join(", ")}`);
+      break;
     case "custom":
       console.log(message.content.raw);
       break;
@@ -132,6 +135,11 @@ for await (const [space, message] of app.messages) {
   | `"poll"` | `title: string`, `options: { title: string }[]` |
   | `"poll_option"` | `option: { title }`, `poll: Poll`, `selected: boolean`, `title: string` — sent as a vote |
   | `"group"` | `items: Message[]` — bundled multi-message unit |
+  | `"rename"` | `displayName: string` — the chat was renamed |
+  | `"avatar"` | `action: { kind: "set", read(), mimeType } \| { kind: "clear" }` — group icon set or cleared |
+  | `"addMember"` | `members: string[]` — members added; `sender` is who added them |
+  | `"removeMember"` | `members: string[]` — members removed; `sender` is who removed them |
+  | `"leaveSpace"` | *(no fields)* — `sender` is the member who left |
   | `"reply"` | `content: Content`, `target: Message` — threaded reply wrapping inner content |
   | `"edit"` | `content: Content`, `target: Message` — rewrite of a previously-sent message |
   | `"unsend"` | `target: Message` — retraction of a previously-sent message |
@@ -141,6 +149,8 @@ for await (const [space, message] of app.messages) {
 </Accordion>
 
 Outgoing-only variants like `"effect"` (an iMessage screen effect wrapping inner content) appear on messages you sent and are echoed by the platform; see [iMessage](/spectrum-ts/providers/imessage) for the builder.
+
+Group-management events (`rename`, `avatar`, `addMember`, `removeMember`, `leaveSpace`) arrive with `message.sender` set to the acting user — or `undefined` when the platform recorded no actor — so narrow with `message.sender?.id`. The agent's own actions (e.g. `space.add(...)`) are not echoed back.
 
 ## Filtering out your own messages
 

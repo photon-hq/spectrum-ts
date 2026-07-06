@@ -1,6 +1,7 @@
 import {
   type AdvancedIMessage,
   type CatchUpEvent,
+  type GroupEvent,
   type MessageEvent,
   type PollEvent,
   ValidationError,
@@ -24,6 +25,11 @@ import {
   SHARED_PHONE,
 } from "../types";
 import { getContactShareTracker } from "./contact-share";
+import {
+  groupEventActor,
+  groupEventMessageId,
+  toGroupEventMessages,
+} from "./group-events";
 import { toInboundMessages } from "./inbound";
 import { cachePollEvent, toPollDeltaMessages } from "./polls";
 import { toReactionMessages } from "./reactions";
@@ -34,11 +40,14 @@ import { toReactionMessages } from "./reactions";
 const isCursorRejectedIMessageError = (error: unknown): boolean =>
   error instanceof ValidationError;
 
-const streamLabel = (kind: "messages" | "polls", phone: string): string =>
+const streamLabel = (
+  kind: "messages" | "polls" | "groups",
+  phone: string
+): string =>
   `imessage.${kind}:${phone === SHARED_PHONE ? phone : sanitizePhone(phone)}`;
 
 const isEventFromCurrentAccount = (
-  event: Pick<MessageEvent | PollEvent, "actor" | "isFromMe">,
+  event: Pick<MessageEvent | PollEvent | GroupEvent, "actor" | "isFromMe">,
   phone: string
 ): boolean =>
   event.isFromMe ||
@@ -126,6 +135,28 @@ const toPollItem = async (
   };
 };
 
+const toGroupItem = async (
+  client: AdvancedIMessage,
+  event: GroupEvent,
+  phone: string,
+  cursor: string
+): Promise<ResumableStreamItem<IMessageMessage>> => {
+  const id = groupEventMessageId(event);
+  // Self-check against the acting party — for a leave that is the leaver
+  // (`event.actor` is often absent there), so the agent's own departure via
+  // `space.leave()` doesn't echo back as an inbound event.
+  const actor = groupEventActor(event);
+  if (isEventFromCurrentAccount({ actor, isFromMe: event.isFromMe }, phone)) {
+    return { cursor, id, values: [] };
+  }
+
+  return {
+    cursor,
+    id,
+    values: await toGroupEventMessages(client, event, phone),
+  };
+};
+
 const toCatchUpCompleteItem = (
   event: Extract<CatchUpEvent, { type: "catchup.complete" }>
 ): ResumableStreamItem<IMessageMessage> => ({
@@ -137,6 +168,7 @@ const toCatchUpCompleteItem = (
 type CatchUpCompleteEvent = Extract<CatchUpEvent, { type: "catchup.complete" }>;
 type MessageCatchUpEvent = MessageEvent | CatchUpCompleteEvent;
 type PollCatchUpEvent = PollEvent | CatchUpCompleteEvent;
+type GroupCatchUpEvent = GroupEvent | CatchUpCompleteEvent;
 
 const isMessageEvent = (event: CatchUpEvent): event is MessageEvent =>
   event.type.startsWith("message.");
@@ -144,7 +176,10 @@ const isMessageEvent = (event: CatchUpEvent): event is MessageEvent =>
 const isPollEvent = (event: CatchUpEvent): event is PollEvent =>
   event.type === "poll.changed";
 
-async function* catchUpEvents<T extends MessageEvent | PollEvent>(
+const isGroupEvent = (event: CatchUpEvent): event is GroupEvent =>
+  event.type === "group.changed";
+
+async function* catchUpEvents<T extends MessageEvent | PollEvent | GroupEvent>(
   client: AdvancedIMessage,
   cursor: string,
   isWanted: (event: CatchUpEvent) => event is T
@@ -174,9 +209,9 @@ const toResumeAfter = (cursor: string | undefined): number | undefined => {
 };
 
 async function* afterCursor(
-  stream: CloseableAsyncIterable<MessageEvent | PollEvent>,
+  stream: CloseableAsyncIterable<MessageEvent | PollEvent | GroupEvent>,
   cursor?: string
-): AsyncGenerator<MessageEvent | PollEvent> {
+): AsyncGenerator<MessageEvent | PollEvent | GroupEvent> {
   const resumeAfter = toResumeAfter(cursor);
   try {
     for await (const event of stream) {
@@ -190,7 +225,7 @@ async function* afterCursor(
   }
 }
 
-const withClose = <T extends MessageEvent | PollEvent>(
+const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
   source: CloseableAsyncIterable<T>,
   cursor?: string
 ): CloseableAsyncIterable<T> =>
@@ -248,6 +283,26 @@ const pollStream = (
       withClose(client.polls.subscribeEvents(), cursor),
   });
 
+const groupStream = (
+  client: AdvancedIMessage,
+  phone: string,
+  recover?: () => Promise<void>
+): ManagedStream<IMessageMessage> =>
+  resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
+    fetchMissed: (cursor) => catchUpEvents(client, cursor, isGroupEvent),
+    isCursorRejectedError: isCursorRejectedIMessageError,
+    label: streamLabel("groups", phone),
+    recover,
+    processLive: (event) =>
+      toGroupItem(client, event, phone, String(event.sequence)),
+    processMissed: (event) =>
+      event.type === "catchup.complete"
+        ? Promise.resolve(toCatchUpCompleteItem(event))
+        : toGroupItem(client, event, phone, String(event.sequence)),
+    subscribeLive: (cursor) =>
+      withClose(client.groups.subscribeEvents(), cursor),
+  });
+
 const clientStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
@@ -258,6 +313,7 @@ const clientStream = (
   mergeStreams([
     messageStream(client, phone, onInbound, recover),
     pollStream(client, pollCache, phone, recover),
+    groupStream(client, phone, recover),
   ]);
 
 export const messages = (

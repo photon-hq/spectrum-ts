@@ -164,7 +164,10 @@ export type ProviderMessage<
 > = {
   id: string;
   content: Content;
-  sender: TSender;
+  // Optional so providers can surface system signals with no attributable
+  // author (e.g. a membership change whose platform recorded no actor) —
+  // mirrors `ProviderMessageRecord.sender` and `Message.sender | undefined`.
+  sender?: TSender;
   space: TSpace;
   timestamp?: Date;
 } & TExtra;

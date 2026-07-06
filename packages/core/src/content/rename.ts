@@ -9,6 +9,10 @@ import type { ContentBuilder } from "./types";
  * `space.send(rename("New Name"))` is the canonical form; `space.rename(...)`
  * is universal sugar that delegates here.
  *
+ * Bidirectional: providers also surface platform rename events as inbound
+ * `Message`s carrying this content; `message.sender` is the user who renamed
+ * the chat (may be `undefined` when the platform recorded no actor).
+ *
  * Throws at build time if `displayName` is empty. Per-platform constraints
  * (e.g. group-only, remote-only) surface as `UnsupportedError` from the
  * provider's `send` action so the canonical and sugar forms share one

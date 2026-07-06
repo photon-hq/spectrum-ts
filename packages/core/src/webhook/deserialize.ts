@@ -1,10 +1,17 @@
 import { asAttachment } from "../content/attachment";
+import { avatarSchema } from "../content/avatar";
 import {
   asContact,
   type ContactInput,
   type ContactPhone,
 } from "../content/contact";
 import { asCustom } from "../content/custom";
+import {
+  addMemberSchema,
+  leaveSpaceSchema,
+  removeMemberSchema,
+} from "../content/membership";
+import { renameSchema } from "../content/rename";
 import type { Content } from "../content/types";
 import type { ProviderMessageRecord } from "../platform/build";
 import { UnsupportedError } from "../utils/errors";
@@ -135,9 +142,69 @@ const mapContent = (
       return deserializeGroup(raw, platform, spaceRef, ctx);
     case "attachment":
       return deserializeAttachment(raw, platform, spaceRef, ctx);
+    case "addMember":
+      return addMemberSchema.parse({
+        type: "addMember",
+        members: memberStrings(raw.members),
+      });
+    case "removeMember":
+      return removeMemberSchema.parse({
+        type: "removeMember",
+        members: memberStrings(raw.members),
+      });
+    case "leaveSpace":
+      // The leaver rides on the envelope (`message.sender`), not the content.
+      return leaveSpaceSchema.parse({ type: "leaveSpace" });
+    case "rename":
+      // Empty displayName fails min(1) and degrades the delivery to `custom`.
+      return renameSchema.parse({
+        type: "rename",
+        displayName: asString(raw.displayName),
+      });
+    case "avatar":
+      return deserializeAvatar(raw, platform);
     default:
       return asCustom(content);
   }
+};
+
+// Non-string entries are dropped; an empty result fails the schema's min(1)
+// and the delivery degrades to `custom`.
+const memberStrings = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+const deserializeAvatar = (
+  raw: Record<string, unknown>,
+  platform: string
+): Content => {
+  const action = isRecord(raw.action) ? raw.action : {};
+  if (action.kind === "clear") {
+    return avatarSchema.parse({ type: "avatar", action: { kind: "clear" } });
+  }
+  if (action.kind !== "set") {
+    throw new Error(`unknown avatar action kind: ${String(action.kind)}`);
+  }
+  // The webhook delivers avatar metadata only — there is no per-avatar id to
+  // resolve bytes by (unlike attachments), so `read()` fails on use and
+  // points at `space.getAvatar()` for the current icon.
+  const unavailable = (): Promise<never> =>
+    Promise.reject(
+      UnsupportedError.action(
+        "getAvatar",
+        platform,
+        "avatar bytes are not delivered over the Spectrum webhook — fetch the current icon via space.getAvatar()"
+      )
+    );
+  return avatarSchema.parse({
+    type: "avatar",
+    action: {
+      kind: "set",
+      mimeType: asString(action.mimeType) || DEFAULT_MIME_TYPE,
+      read: unavailable,
+    },
+  });
 };
 
 const deserializeAttachment = (

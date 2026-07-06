@@ -20,6 +20,8 @@ await space.send(avatar("clear"));
 
 `space.avatar(...)` is sugar for `space.send(avatar(...))`. Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as `UnsupportedError` from the provider's send action.
 
+Avatar is bidirectional: on platforms that report it (iMessage remote mode today), someone else changing the icon arrives as an inbound message with `content.type === "avatar"` — `action.kind === "set"` carries the fetched icon behind `action.read()` with its `mimeType`, and `"clear"` mirrors icon removal. Over the Spectrum webhook, a `set` arrives metadata-only (its `read()` throws); fetch the current icon via `space.getAvatar()` instead. `message.sender` is the user who changed it, or `undefined` when the platform recorded no actor.
+
 <Note>
   The string `"clear"` is a reserved sentinel. If you have a file literally named `clear` with no extension, pass `"./clear"` or load it as a `Buffer`.
 </Note>

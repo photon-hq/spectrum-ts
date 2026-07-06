@@ -212,4 +212,101 @@ describe("deserializeSpectrumMessage", () => {
       raw: { type: "future-thing", foo: "bar" },
     });
   });
+
+  it("maps membership content and filters non-string members", () => {
+    const added = deserialize({
+      type: "addMember",
+      members: ["+15550100", 42, "+15550101"],
+    });
+    expect(added.record.content).toEqual({
+      type: "addMember",
+      members: ["+15550100", "+15550101"],
+    });
+
+    const removed = deserialize({
+      type: "removeMember",
+      members: ["+15550100"],
+    });
+    expect(removed.record.content).toEqual({
+      type: "removeMember",
+      members: ["+15550100"],
+    });
+  });
+
+  it("degrades membership content with no valid members to custom", () => {
+    const { record } = deserialize({ type: "addMember", members: [42] });
+    expect(record.content).toEqual({
+      type: "custom",
+      raw: { type: "addMember", members: [42] },
+    });
+  });
+
+  it("maps leaveSpace content", () => {
+    const { record } = deserialize({ type: "leaveSpace" });
+    expect(record.content).toEqual({ type: "leaveSpace" });
+  });
+
+  it("maps rename content and degrades an empty displayName to custom", () => {
+    const renamed = deserialize({ type: "rename", displayName: "Ski Trip" });
+    expect(renamed.record.content).toEqual({
+      type: "rename",
+      displayName: "Ski Trip",
+    });
+
+    const cleared = deserialize({ type: "rename", displayName: "" });
+    expect(cleared.record.content).toEqual({
+      type: "custom",
+      raw: { type: "rename", displayName: "" },
+    });
+  });
+
+  it("maps an avatar clear action", () => {
+    const { record } = deserialize({
+      type: "avatar",
+      action: { kind: "clear" },
+    });
+    expect(record.content).toEqual({
+      type: "avatar",
+      action: { kind: "clear" },
+    });
+  });
+
+  it("delivers an avatar set as metadata with a throwing read()", async () => {
+    const { record } = deserialize({
+      type: "avatar",
+      action: { kind: "set", mimeType: "image/png" },
+    });
+    const content = record.content as {
+      type: string;
+      action: { kind: string; mimeType: string; read: () => Promise<Buffer> };
+    };
+    expect(content.type).toBe("avatar");
+    expect(content.action.kind).toBe("set");
+    expect(content.action.mimeType).toBe("image/png");
+    await expect(content.action.read()).rejects.toThrow(
+      UNSUPPORTED_ATTACHMENT_ERROR
+    );
+  });
+
+  it("defaults a missing avatar set mimeType", () => {
+    const { record } = deserialize({
+      type: "avatar",
+      action: { kind: "set" },
+    });
+    const content = record.content as {
+      action: { mimeType: string };
+    };
+    expect(content.action.mimeType).toBe("application/octet-stream");
+  });
+
+  it("degrades an unknown avatar action kind to custom", () => {
+    const { record } = deserialize({
+      type: "avatar",
+      action: { kind: "rotate" },
+    });
+    expect(record.content).toEqual({
+      type: "custom",
+      raw: { type: "avatar", action: { kind: "rotate" } },
+    });
+  });
 });

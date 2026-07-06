@@ -13,6 +13,13 @@ import type { ContentBuilder } from "./types";
  * `space.remove(...)`, and `space.leave()` are universal sugar that
  * delegate here. All three are fire-and-forget — no `Message` is produced.
  *
+ * Bidirectional: providers also surface platform membership events as
+ * inbound `Message`s carrying this content. `message.sender` is the acting
+ * user — who added/removed the members — and may be `undefined` when the
+ * platform recorded no actor. For `leaveSpace` the sender is the leaver
+ * (the content carries no `members`). The agent's own actions are
+ * suppressed: `space.add(...)` does not echo back as an inbound event.
+ *
  * Members are id strings (or `User`s, normalized to their `id`) in the same
  * platform handle format `space.create` accepts. No async resolution happens
  * in the builder — ids reach the provider verbatim.

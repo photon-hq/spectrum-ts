@@ -739,16 +739,25 @@ export function buildSpace(params: BuildSpaceParams): Space {
         "spectrum.space.id": (spaceRef as { id?: string }).id,
       },
       async () => {
-        const raw = (await getMembers(
+        const raw: unknown = await getMembers(
           { client, config, store },
           spaceRef
-        )) as readonly ProviderUserRecord[];
+        );
+        // Guard the provider contract at the JS boundary — a nullish or
+        // non-array result would otherwise escape as a raw TypeError from
+        // `.map` below.
+        if (!Array.isArray(raw)) {
+          throw new Error(
+            `${definition.name} getMembers() must resolve an array of member records (got ${raw === null ? "null" : typeof raw})`
+          );
+        }
+        const records = raw as readonly ProviderUserRecord[];
         // Reads bypass `wrapProviderMessage`, so the platform tag is applied
         // here — mirrors `buildSenderWithPlatform` for message senders. The
         // `as object` spread drops the record's index signature so the
         // literal stays assignable to `User`; provider extras still ride
         // along at runtime.
-        return raw.map(
+        return records.map(
           (member): User => ({
             ...(member as object),
             id: member.id,

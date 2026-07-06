@@ -22,7 +22,7 @@ await space.remove("+15551234567");
 await space.leave();
 ```
 
-`addMember()` and `removeMember()` accept a single `User` or id string, or an array of either. Ids use the same platform handle format `space.create` accepts (for iMessage: an E.164 phone number or email); they are passed to the provider verbatim, with no resolution step. The builders throw at construction time if the member list is empty.
+`addMember()` and `removeMember()` accept a single `User` or id string, or an array of either. Ids use the same platform handle format `space.create` accepts (for iMessage: an E.164 phone number or email); they are passed to the provider verbatim, with no resolution step. Both return a `ContentBuilder` that validates when it builds — an empty member list rejects at `space.send(...)` time, not at construction.
 
 Per-platform constraints surface as `UnsupportedError` from the provider's send action. iMessage requires remote mode and a group chat — a DM cannot be converted into a group, so on a DM the error points you at creating a group via `space.create` instead.
 
@@ -41,7 +41,7 @@ for await (const [space, message] of app.messages) {
       break;
     case "leaveSpace":
       // leaveSpace carries no members — the sender IS the leaver
-      console.log(`${message.sender?.id} left`);
+      console.log(`${message.sender?.id ?? "someone"} left`);
       break;
   }
 }

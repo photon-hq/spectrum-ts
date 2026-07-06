@@ -42,7 +42,7 @@ Every message conforms to <TypeTooltip name="Message" type={`{{ message.signatur
     </tr>
     <tr>
       <td><code>sender</code></td>
-      <td>The <TypeTooltip name="User" type={`{{ symbol("ts:spectrum-ts#User").signature }}`} /> who sent the message.</td>
+      <td>The <TypeTooltip name="User" type={`{{ symbol("ts:spectrum-ts#User").signature }}`} /> who sent the message — <code>undefined</code> for events with no attributable author (e.g. a group-management event whose platform recorded no actor).</td>
     </tr>
     <tr>
       <td><code>space</code></td>
@@ -160,7 +160,7 @@ For unified logic, compare the sender to a known identity:
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.sender.id === myAccountId) continue;
+  if (message.sender?.id === myAccountId) continue;
   // handle incoming
 }
 ```

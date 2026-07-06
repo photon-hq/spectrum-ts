@@ -19,4 +19,4 @@ On iMessage, app cards open inside the [Spectrum Mini App](https://apps.apple.co
 
 The launcher keeps a library of every mini app a recipient has opened, so they can reopen those apps later or share them with friends.
 
-For customized iMessage app with layout control, see [Mini-app cards](/spectrum-ts/providers/imessage/messaging-features#mini-app-cards).
+To send a card that opens your own iMessage extension instead of the Spectrum Mini App, see [Mini-app cards](/spectrum-ts/providers/imessage/messaging-features#mini-app-cards).

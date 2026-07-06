@@ -1,30 +1,34 @@
+import type { MiniAppMessage } from "@photon-ai/advanced-imessage";
 import type { AppLayout } from "@spectrum-ts/core";
-import {
-  asCustomizedMiniApp,
-  type CustomizedMiniApp,
-} from "../content/customized-mini-app";
 
 /**
- * Fixed identity of Spectrum's own iMessage extension. The universal `app`
- * content renders through this extension, so callers never supply (or even see)
- * these constants — they pass only a URL and the card opens it inside the
- * Spectrum mini app on tap. Callers shipping their *own* extension use the
- * low-level `customizedMiniApp()` instead.
+ * Server-managed Spectrum mini-app card for universal `app` content. Callers
+ * supply only a URL; the advanced iMessage server owns the Spectrum extension
+ * identity and wraps the URL for the mini-app host. Callers shipping their own
+ * extension use the low-level `customizedMiniApp()` instead.
  */
-export const SPECTRUM_MINI_APP = {
-  appName: "Spectrum",
-  extensionBundleId: "codes.photon.Spectrum.MessagesExtension",
-  teamId: "P8XT6232SL",
-  appStoreId: 6_777_616_651,
-} as const;
+export type SpectrumMiniApp = MiniAppMessage;
+
+const previewTitle = (url: string, layout: AppLayout): string =>
+  layout.caption ?? layout.imageTitle ?? layout.summary ?? new URL(url).host;
 
 /**
- * Build the iMessage mini-app card for an `app` content: Spectrum's fixed
- * identity plus the per-message `url` and the `layout` already derived from the
- * URL's link metadata.
+ * Build the server-managed iMessage mini-app card for an `app` content: the
+ * per-message `url` plus the static preview already derived from link metadata.
  */
 export const toSpectrumMiniApp = (
   url: string,
   layout: AppLayout
-): CustomizedMiniApp =>
-  asCustomizedMiniApp({ ...SPECTRUM_MINI_APP, url, layout });
+): SpectrumMiniApp => ({
+  url,
+  preview: {
+    title: previewTitle(url, layout),
+    subtitle: layout.imageSubtitle,
+    body: layout.subcaption,
+    imageJpeg: layout.image,
+    caption: layout.caption,
+    footer: layout.trailingCaption,
+    detail: layout.trailingSubcaption,
+    summary: layout.summary ?? layout.caption ?? layout.imageTitle,
+  },
+});

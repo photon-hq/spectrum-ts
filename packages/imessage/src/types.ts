@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  MiniAppCardSession,
+} from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
@@ -66,7 +69,15 @@ export const spaceParamsSchema = z.object({
  * - `parentId`: guid of the parent message for a group sub-item. Undefined
  *   when the message itself is the parent.
  */
+const miniAppCardSessionSchema = z.object({
+  chatGuid: z.string(),
+  messageGuid: z.string(),
+  sessionId: z.string(),
+  targetMessageGuid: z.string(),
+});
+
 export const messageSchema = z.object({
+  miniAppCardSession: miniAppCardSessionSchema.optional(),
   partIndex: z.number().int().nonnegative().optional(),
   parentId: z.string().optional(),
 });
@@ -76,6 +87,7 @@ export type IMessageMessage = SchemaMessage<
   typeof spaceSchema
 > & {
   direction?: "inbound" | "outbound";
+  miniAppCardSession?: MiniAppCardSession;
   partIndex?: number;
   parentId?: string;
 };

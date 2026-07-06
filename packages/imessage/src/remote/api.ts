@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  MiniAppCardSession,
+} from "@photon-ai/advanced-imessage";
 import type {
   Avatar,
   Content,
@@ -11,11 +14,19 @@ import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { Background } from "../content/background";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";
 import type { IMessageMessage, RemoteClient } from "../types";
+import type { SpectrumMiniApp } from "./app";
 import { setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { shareContactCard as shareRemoteContactCard } from "./contact-card";
-import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
+import {
+  sendCustomizedMiniApp as sendRemoteCustomizedMiniApp,
+  updateCustomizedMiniApp as updateRemoteCustomizedMiniApp,
+} from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
+import {
+  sendMiniApp as sendRemoteMiniApp,
+  updateMiniApp as updateRemoteMiniApp,
+} from "./mini-app";
 import {
   reactToMessage as reactToRemoteMessage,
   unsendReaction as unsendRemoteReaction,
@@ -52,6 +63,31 @@ export const sendCustomizedMiniApp = async (
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> =>
   sendRemoteCustomizedMiniApp(remote, spaceId, content);
+
+export const sendMiniApp = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  content: SpectrumMiniApp,
+  recordContent: Content
+): Promise<ProviderMessageRecord> =>
+  sendRemoteMiniApp(remote, spaceId, content, recordContent);
+
+export const updateMiniApp = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  session: MiniAppCardSession,
+  content: SpectrumMiniApp,
+  recordContent: Content
+): Promise<ProviderMessageRecord> =>
+  updateRemoteMiniApp(remote, spaceId, session, content, recordContent);
+
+export const updateCustomizedMiniApp = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  session: MiniAppCardSession,
+  content: CustomizedMiniApp
+): Promise<ProviderMessageRecord> =>
+  updateRemoteCustomizedMiniApp(remote, spaceId, session, content);
 
 export const setDisplayName = async (
   remote: AdvancedIMessage,

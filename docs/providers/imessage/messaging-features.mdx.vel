@@ -134,7 +134,15 @@ Background UI may not appear in these cases:
 
 ## Mini-app cards
 
-Send a customized iMessage mini-app card: a remote-only rich bubble that shows app metadata, a deep link, and a visual layout. Import `customizedMiniApp` from the iMessage provider:
+Universal `app(url)` content renders as a server-managed Spectrum mini-app card in remote iMessage mode. You provide the URL; Spectrum derives the visible preview from link metadata and the Advanced iMessage server owns the Spectrum iMessage extension identity.
+
+```ts
+import { app } from "spectrum-ts";
+
+const sent = await space.send(app("https://example.com/deep-link"));
+```
+
+Use `customizedMiniApp(...)` only when you want the card to open your own iMessage extension instead of Spectrum's server-managed extension. It is a remote-only rich bubble that shows your app metadata, a deep link, and a visual layout:
 
 ```ts
 import { customizedMiniApp } from "spectrum-ts/providers/imessage";
@@ -153,7 +161,11 @@ const sent = await space.send(customizedMiniApp({
 
 `space.send(customizedMiniApp(...))` returns the sent message record. Unlike `background` and `read`, mini-app cards are real outbound messages.
 
+Mini-app card messages can be updated in place with the standard edit API, for example `await sent.edit(app("https://example.com/next"))` or `await sent.edit(customizedMiniApp(...))`.
+
 `appStoreId` is optional. Omit it to send a card whose extension isn't published on the App Store. When set, recipients without the extension are directed to its App Store entry.
+
+Both `app(...)` and `customizedMiniApp(...)` require cloud or dedicated mode for native iMessage cards. In local mode, `app(...)` degrades to a plain URL text message, while `customizedMiniApp(...)` throws an `UnsupportedError`.
 
 <AccordionGroup>
   <Accordion title="CustomizedMiniAppInput" description="Fields for building a mini-app card.">
@@ -181,10 +193,6 @@ const sent = await space.send(customizedMiniApp({
     At least one of `caption`, `subcaption`, `trailingCaption`, `trailingSubcaption`, or `image` must be set.
   </Accordion>
 </AccordionGroup>
-
-<Note>
-  Mini-app cards require cloud or dedicated mode. In local mode, `customizedMiniApp()` throws an `UnsupportedError`.
-</Note>
 
 ## Native contact card sharing
 

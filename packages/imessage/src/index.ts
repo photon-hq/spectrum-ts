@@ -2,6 +2,7 @@ import {
   type AdvancedIMessage,
   createClient,
   MessageEffect,
+  type MiniAppCardSession,
 } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { withSpan } from "@photon-ai/otel";
@@ -66,6 +67,7 @@ import {
   replyToMessage as remoteReplyToMessage,
   send as remoteSend,
   sendCustomizedMiniApp as remoteSendCustomizedMiniApp,
+  sendMiniApp as remoteSendMiniApp,
   sendStreamText as remoteSendStreamText,
   setBackground as remoteSetBackground,
   setDisplayName as remoteSetDisplayName,
@@ -75,6 +77,8 @@ import {
   stopTyping as remoteStopTyping,
   unsendMessage as remoteUnsendMessage,
   unsendReaction as remoteUnsendReaction,
+  updateCustomizedMiniApp as remoteUpdateCustomizedMiniApp,
+  updateMiniApp as remoteUpdateMiniApp,
 } from "./remote/api";
 import { toSpectrumMiniApp } from "./remote/app";
 import { getRemoteAttachment } from "./remote/attachments";
@@ -124,11 +128,72 @@ const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
 
 const handleEdit = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: { id: string; phone: string; type: "dm" | "group" },
   content: Edit
 ): Promise<void> => {
   if (isLocal(client)) {
     throw UnsupportedError.action("edit", "iMessage (local mode)");
+  }
+  const remote = clientForPhone(client, space.phone);
+  const miniAppCardSession = (
+    content.target as unknown as { miniAppCardSession?: MiniAppCardSession }
+  ).miniAppCardSession;
+  const updateMiniAppTargetSession = (
+    record: ProviderMessageRecord | undefined
+  ): void => {
+    const nextSession = record?.miniAppCardSession;
+    if (nextSession) {
+      (
+        content.target as unknown as {
+          miniAppCardSession?: MiniAppCardSession;
+        }
+      ).miniAppCardSession = nextSession as MiniAppCardSession;
+    }
+  };
+  if (content.content.type === "app") {
+    if (!miniAppCardSession) {
+      throw UnsupportedError.action(
+        "edit",
+        "iMessage",
+        "mini app card edits require a miniAppCardSession from the original send"
+      );
+    }
+    const url = await content.content.url();
+    const layout = await content.content.layout();
+    const record = cacheRemoteOutbound(
+      remote,
+      space,
+      await remoteUpdateMiniApp(
+        remote,
+        space.id,
+        miniAppCardSession,
+        toSpectrumMiniApp(url, layout),
+        content.content
+      )
+    );
+    updateMiniAppTargetSession(record);
+    return;
+  }
+  if (isCustomizedMiniApp(content.content)) {
+    if (!miniAppCardSession) {
+      throw UnsupportedError.action(
+        "edit",
+        "iMessage",
+        "customized mini app card edits require a miniAppCardSession from the original send"
+      );
+    }
+    const record = cacheRemoteOutbound(
+      remote,
+      space,
+      await remoteUpdateCustomizedMiniApp(
+        remote,
+        space.id,
+        miniAppCardSession,
+        content.content
+      )
+    );
+    updateMiniAppTargetSession(record);
+    return;
   }
   if (content.content.type !== "text") {
     // Mirrors `remoteEditMessage`'s own check — surface as an
@@ -139,7 +204,6 @@ const handleEdit = async (
       `only text content can be edited (got "${content.content.type}")`
     );
   }
-  const remote = clientForPhone(client, space.phone);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
 };
 
@@ -235,9 +299,9 @@ const handleCustomizedMiniApp = async (
 
 /**
  * Render the universal `app` content. On remote it becomes a native Spectrum
- * mini-app card (fixed `SPECTRUM_MINI_APP` identity + the URL + the layout
- * already parsed from the URL's link metadata). Local mode cannot send cards,
- * so it degrades to the bare URL as a text message.
+ * mini-app card with the server-managed Spectrum extension identity, the URL,
+ * and the layout already parsed from the URL's link metadata. Local mode cannot
+ * send cards, so it degrades to the bare URL as a text message.
  */
 const handleApp = async (
   client: IMessageClient,
@@ -253,10 +317,11 @@ const handleApp = async (
   return cacheRemoteOutbound(
     remote,
     space,
-    await remoteSendCustomizedMiniApp(
+    await remoteSendMiniApp(
       remote,
       space.id,
-      toSpectrumMiniApp(url, layout)
+      toSpectrumMiniApp(url, layout),
+      content
     )
   );
 };

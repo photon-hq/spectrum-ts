@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface FakeTokenResponse {
   auth: Record<string, string>;
@@ -27,6 +27,11 @@ interface FakeRawClient {
 
 const rawClients: FakeRawClient[] = [];
 let tokenIssueCount = 0;
+
+const WAIT_FOR_TIMEOUT_MS = 250;
+const WAIT_FOR_POLL_INTERVAL_MS = 1;
+const SCHEDULED_RENEWAL_DELAY_MS = 5000;
+const REFRESH_RETRY_DELAY_MS = 30_000;
 
 class FakeTypedEventStream<T> implements AsyncIterable<T> {
   private cancelResolve: (() => void) | undefined;
@@ -133,12 +138,14 @@ const waitFor = async (
   predicate: () => boolean,
   message: string
 ): Promise<void> => {
-  const deadline = Date.now() + 250;
+  const deadline = Date.now() + WAIT_FOR_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (predicate()) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 1));
+    await new Promise((resolve) =>
+      setTimeout(resolve, WAIT_FOR_POLL_INTERVAL_MS)
+    );
   }
   throw new Error(message);
 };
@@ -153,6 +160,10 @@ describe("whatsapp cloud auth stream renewal", () => {
       expiresIn: 0,
     }));
     createClient.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("opens a fresh subscription after token refresh even when the old SDK iterator does not return", async () => {
@@ -185,5 +196,76 @@ describe("whatsapp cloud auth stream renewal", () => {
     await eventStream.close();
     await disposeCloudAuth(clients);
     expect((await pendingNext).done).toBe(true);
+  });
+
+  it("coalesces concurrent near-expiry refresh requests", async () => {
+    let resolveRefresh:
+      | ((value: FakeTokenResponse | PromiseLike<FakeTokenResponse>) => void)
+      | undefined;
+
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-1" },
+      expiresIn: 0,
+    }));
+    issueWhatsappBusinessTokens.mockImplementationOnce(
+      () =>
+        new Promise<FakeTokenResponse>((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+
+    const clients = await createCloudClients("project-1", "secret-1");
+    const firstMarkRead = clients[0]?.messages.markRead("wamid.1");
+    const secondMarkRead = clients[0]?.messages.markRead("wamid.2");
+
+    await waitFor(
+      () => issueWhatsappBusinessTokens.mock.calls.length === 2,
+      "refresh did not start"
+    );
+
+    expect(issueWhatsappBusinessTokens).toHaveBeenCalledTimes(2);
+    resolveRefresh?.({ auth: { "phone-1": "token-2" }, expiresIn: 0 });
+
+    await Promise.all([firstMarkRead, secondMarkRead]);
+
+    expect(issueWhatsappBusinessTokens).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(rawClients[1]?.options.accessToken).toBe("token-2");
+    expect(rawClients[1]?.messages.markRead).toHaveBeenCalledTimes(2);
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("retries a failed scheduled refresh after the retry delay", async () => {
+    vi.useFakeTimers();
+
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-1" },
+      expiresIn: 0,
+    }));
+    issueWhatsappBusinessTokens.mockImplementationOnce(() =>
+      Promise.reject(new Error("refresh failed"))
+    );
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-2" },
+      expiresIn: 0,
+    }));
+
+    const clients = await createCloudClients("project-1", "secret-1");
+
+    await vi.advanceTimersByTimeAsync(SCHEDULED_RENEWAL_DELAY_MS);
+    expect(issueWhatsappBusinessTokens).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(REFRESH_RETRY_DELAY_MS - 1);
+    expect(issueWhatsappBusinessTokens).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(issueWhatsappBusinessTokens).toHaveBeenCalledTimes(3);
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(rawClients[0]?.close).toHaveBeenCalledTimes(1);
+    expect(rawClients[1]?.options.accessToken).toBe("token-2");
+
+    await disposeCloudAuth(clients);
   });
 });

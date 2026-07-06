@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
 import { createHmac } from "node:crypto";
+import { describe, expect, it } from "vitest";
 import { verifySpectrumSignature } from "@/webhook/verify";
 
 const SECRET = "whsec_unit_test_secret";

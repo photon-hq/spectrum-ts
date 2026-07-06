@@ -1,7 +1,7 @@
-import { describe, expect, it, mock } from "bun:test";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Space } from "@spectrum-ts/core";
+import { describe, expect, it, vi } from "vitest";
 import { isContactCard } from "@/content/contact-card";
 import { imessage, nativeContactCard } from "@/index";
 import { shareContactCard as remoteShareContactCard } from "@/remote/contact-card";
@@ -48,7 +48,7 @@ describe("nativeContactCard content", () => {
 
 describe("iMessage remote shareContactCard", () => {
   it("forwards the chat guid to chats.shareContactInfo", async () => {
-    const shareContactInfo = mock((_: string) => Promise.resolve());
+    const shareContactInfo = vi.fn((_: string) => Promise.resolve());
     const remote = {
       chats: { shareContactInfo },
     } as unknown as AdvancedIMessage;
@@ -62,7 +62,7 @@ describe("iMessage remote shareContactCard", () => {
 
 describe("iMessage send: contactCard dispatch", () => {
   it("routes the signal to chats.shareContactInfo and is fire-and-forget", async () => {
-    const shareContactInfo = mock((_: string) => Promise.resolve());
+    const shareContactInfo = vi.fn((_: string) => Promise.resolve());
 
     const result = await def.send({
       ...ctx,
@@ -91,7 +91,7 @@ describe("iMessage send: contactCard dispatch", () => {
 
 describe("space.shareContactCard sugar", () => {
   it("dispatches the contact-card content through space.send", async () => {
-    const send = mock((_: unknown) => Promise.resolve(undefined));
+    const send = vi.fn((_: unknown) => Promise.resolve(undefined));
     const action = def.space.actions?.shareContactCard;
     expect(action).toBeDefined();
 

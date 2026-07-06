@@ -10,10 +10,12 @@ import {
   asAttachment,
   asContact,
   asCustom,
+  asReply,
   asText,
   createLogger,
   errorAttrs,
   groupSchema,
+  type ProviderMessageRecord,
 } from "@spectrum-ts/core/authoring";
 import { getMessageCache, type MessageCache } from "../cache";
 import { type OrderedPart, toOrderedParts } from "../shared/inbound-parts";
@@ -73,6 +75,11 @@ export const toSenderRef = (
 });
 
 type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
+interface BuildContentOptions {
+  cache?: MessageCache;
+  phone: string;
+  visitedReplyGuids?: ReadonlySet<string>;
+}
 
 export const isIMessageMessage = (value: unknown): value is IMessageMessage => {
   if (typeof value !== "object" || value === null) {
@@ -91,6 +98,15 @@ export const isIMessageMessage = (value: unknown): value is IMessageMessage => {
 
 const asProviderGroup = (items: readonly RawProviderMessage[]): Group =>
   groupSchema.parse({ type: "group", items });
+
+const asProviderReply = (
+  content: Content,
+  target: RawProviderMessage
+): Content =>
+  asReply({
+    content: content as Parameters<typeof asReply>[0]["content"],
+    target: target as unknown as Parameters<typeof asReply>[0]["target"],
+  });
 
 export const buildMessageBase = (
   message: AppleMessage,
@@ -203,7 +219,7 @@ const buildOrderedPartMessage = async (
         parentId
       );
 
-const buildContentMessage = async (
+const buildUnwrappedContentMessage = async (
   client: AdvancedIMessage,
   base: RemoteMessageBase,
   message: AppleMessage,
@@ -263,16 +279,128 @@ const buildContentMessage = async (
   };
 };
 
+const replyTargetGuid = (message: AppleMessage): string | undefined =>
+  message.replyTargetGuid ?? message.threadOriginatorGuid;
+
+const stubReplyTarget = (
+  base: RemoteMessageBase,
+  targetGuid: string
+): ProviderMessageRecord => ({
+  id: targetGuid,
+  content: asCustom({ imessage_type: "reply-target", stub: true }),
+  space: base.space,
+});
+
+const resolveReplyTarget = async (
+  client: AdvancedIMessage,
+  base: RemoteMessageBase,
+  targetGuid: string,
+  currentGuid: string,
+  options: BuildContentOptions
+): Promise<RawProviderMessage> => {
+  if (
+    targetGuid === currentGuid ||
+    options.visitedReplyGuids?.has(targetGuid)
+  ) {
+    return stubReplyTarget(base, targetGuid);
+  }
+
+  const cached = options.cache?.get(targetGuid);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const visitedReplyGuids = new Set(options.visitedReplyGuids);
+    visitedReplyGuids.add(currentGuid);
+    const fetched = await client.messages.get(toMessageGuid(targetGuid));
+    const rebuilt = await rebuildFromAppleMessage(
+      client,
+      fetched,
+      options.phone,
+      base.space.id,
+      options.cache,
+      visitedReplyGuids
+    );
+    if (options.cache) {
+      cacheMessage(options.cache, rebuilt);
+    }
+    return rebuilt;
+  } catch (err) {
+    if (!(err instanceof NotFoundError)) {
+      log.warn(
+        "failed to resolve iMessage reply target; falling back to stub target",
+        {
+          "spectrum.imessage.message.guid": currentGuid,
+          "spectrum.imessage.reply.target_guid": targetGuid,
+          ...errorAttrs(err),
+        },
+        err
+      );
+    }
+    return stubReplyTarget(base, targetGuid);
+  }
+};
+
+const buildContentMessage = async (
+  client: AdvancedIMessage,
+  base: RemoteMessageBase,
+  message: AppleMessage,
+  messageGuidStr: string,
+  options: BuildContentOptions
+): Promise<IMessageMessage> => {
+  const msg = await buildUnwrappedContentMessage(
+    client,
+    base,
+    message,
+    messageGuidStr
+  );
+  const targetGuid = replyTargetGuid(message);
+  if (!targetGuid) {
+    return msg;
+  }
+  const target = await resolveReplyTarget(
+    client,
+    base,
+    targetGuid,
+    messageGuidStr,
+    options
+  );
+  return {
+    ...msg,
+    content: asProviderReply(msg.content, target),
+  };
+};
+
+const messageGroupContent = (message: IMessageMessage): Group | undefined => {
+  if (message.content.type === "group") {
+    return message.content;
+  }
+  if (
+    message.content.type === "reply" &&
+    message.content.content.type === "group"
+  ) {
+    return message.content.content;
+  }
+  return;
+};
+
 export const rebuildFromAppleMessage = async (
   client: AdvancedIMessage,
   message: AppleMessage,
   phone: string,
-  chatGuidHint?: string
+  chatGuidHint?: string,
+  cache?: MessageCache,
+  visitedReplyGuids?: ReadonlySet<string>
 ): Promise<IMessageMessage> => {
   const messageGuidStr = message.guid as string;
   const timestamp = message.dateCreated ?? new Date();
   const base = buildMessageBase(message, chatGuidHint, timestamp, phone);
-  return buildContentMessage(client, base, message, messageGuidStr);
+  return buildContentMessage(client, base, message, messageGuidStr, {
+    cache,
+    phone,
+    visitedReplyGuids,
+  });
 };
 
 export const cacheMessage = (
@@ -280,8 +408,9 @@ export const cacheMessage = (
   message: IMessageMessage
 ): void => {
   cache.set(message.id, message);
-  if (message.content.type === "group") {
-    for (const item of message.content.items) {
+  const group = messageGroupContent(message);
+  if (group) {
+    for (const item of group.items) {
       if (isIMessageMessage(item)) {
         cache.set(item.id, item);
       }
@@ -306,7 +435,8 @@ export const toInboundMessages = async (
     client,
     base,
     event.message,
-    messageGuidStr
+    messageGuidStr,
+    { cache, phone }
   );
   cacheMessage(cache, msg);
   return [msg];
@@ -334,13 +464,15 @@ export const getMessage = async (
         remote,
         fetched,
         phone,
-        spaceId
+        spaceId,
+        cache
       );
       cacheMessage(cache, parent);
-      if (parent.content.type !== "group") {
+      const group = messageGroupContent(parent);
+      if (!group) {
         return;
       }
-      const item = parent.content.items[childRef.partIndex];
+      const item = group.items[childRef.partIndex];
       return isIMessageMessage(item) ? item : undefined;
     } catch (err) {
       if (err instanceof NotFoundError) {
@@ -356,7 +488,8 @@ export const getMessage = async (
       remote,
       fetched,
       phone,
-      spaceId
+      spaceId,
+      cache
     );
     cacheMessage(cache, rebuilt);
     return rebuilt;

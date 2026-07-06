@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { edit } from "@/content/edit";
 import { type Read, read } from "@/content/read";
 import { reply } from "@/content/reply";

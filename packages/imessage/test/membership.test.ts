@@ -1,7 +1,7 @@
-import { describe, expect, it, mock } from "bun:test";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { addMember, leaveSpace, removeMember } from "@spectrum-ts/core";
+import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
 import {
   addParticipants as remoteAddParticipants,
@@ -37,7 +37,7 @@ const clientWithGroups = (phone: string, groups: GroupsMock): RemoteClient => ({
 
 describe("iMessage remote members wrappers", () => {
   it("addParticipants forwards guid and members to groups.addParticipants", async () => {
-    const addParticipants = mock((_chat: string, _addresses: string[]) =>
+    const addParticipants = vi.fn((_chat: string, _addresses: string[]) =>
       Promise.resolve({ guid: GROUP_GUID })
     );
     const remote = {
@@ -57,7 +57,7 @@ describe("iMessage remote members wrappers", () => {
   });
 
   it("removeParticipants forwards guid and members to groups.removeParticipants", async () => {
-    const removeParticipants = mock((_chat: string, _addresses: string[]) =>
+    const removeParticipants = vi.fn((_chat: string, _addresses: string[]) =>
       Promise.resolve({ guid: GROUP_GUID })
     );
     const remote = {
@@ -73,7 +73,7 @@ describe("iMessage remote members wrappers", () => {
   });
 
   it("leaveGroup forwards the guid to groups.leave", async () => {
-    const leave = mock((_chat: string) => Promise.resolve());
+    const leave = vi.fn((_chat: string) => Promise.resolve());
     const remote = { groups: { leave } } as unknown as AdvancedIMessage;
 
     await remoteLeaveGroup(remote, GROUP_GUID);
@@ -84,7 +84,7 @@ describe("iMessage remote members wrappers", () => {
 
 describe("iMessage send: membership dispatch", () => {
   it("routes addMember to groups.addParticipants and is fire-and-forget", async () => {
-    const addParticipants = mock((_chat: string, _addresses: string[]) =>
+    const addParticipants = vi.fn((_chat: string, _addresses: string[]) =>
       Promise.resolve({ guid: GROUP_GUID })
     );
 
@@ -100,7 +100,7 @@ describe("iMessage send: membership dispatch", () => {
   });
 
   it("routes removeMember to groups.removeParticipants and is fire-and-forget", async () => {
-    const removeParticipants = mock((_chat: string, _addresses: string[]) =>
+    const removeParticipants = vi.fn((_chat: string, _addresses: string[]) =>
       Promise.resolve({ guid: GROUP_GUID })
     );
 
@@ -116,7 +116,7 @@ describe("iMessage send: membership dispatch", () => {
   });
 
   it("routes leaveSpace to groups.leave and is fire-and-forget", async () => {
-    const leave = mock((_chat: string) => Promise.resolve());
+    const leave = vi.fn((_chat: string) => Promise.resolve());
 
     const result = await def.send({
       ...ctx,
@@ -174,10 +174,10 @@ describe("iMessage send: membership dispatch", () => {
   });
 
   it("routes by space.phone across multiple clients", async () => {
-    const wrongAdd = mock((_chat: string, _addresses: string[]) =>
+    const wrongAdd = vi.fn((_chat: string, _addresses: string[]) =>
       Promise.resolve({ guid: GROUP_GUID })
     );
-    const rightAdd = mock((_chat: string, _addresses: string[]) =>
+    const rightAdd = vi.fn((_chat: string, _addresses: string[]) =>
       Promise.resolve({ guid: GROUP_GUID })
     );
 

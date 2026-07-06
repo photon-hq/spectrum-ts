@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/whatsapp-business",
-  "version": "8.1.1",
+  "version": "8.2.2",
   "description": "WhatsApp Business provider for spectrum-ts.",
   "repository": {
     "type": "git",
@@ -40,11 +40,12 @@
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
-    "test": "bun test",
+    "test:bun": "bun --bun vitest run",
+    "test:node": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@photon-ai/whatsapp-business": "^0.1.1",
+    "@photon-ai/whatsapp-business": "^0.2.0",
     "mime-types": "^3.0.1",
     "zod": "^4.2.1"
   },
@@ -54,9 +55,11 @@
   },
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
+    "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
-    "tsdown": "^0.22.2"
+    "tsdown": "^0.22.2",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }

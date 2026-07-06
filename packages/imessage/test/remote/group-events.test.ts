@@ -1,4 +1,3 @@
-import { describe, expect, it, mock } from "bun:test";
 import type {
   AdvancedIMessage,
   GroupChange,
@@ -6,6 +5,7 @@ import type {
   GroupIcon,
 } from "@photon-ai/advanced-imessage";
 import { NotFoundError } from "@photon-ai/advanced-imessage";
+import { describe, expect, it, vi } from "vitest";
 import { toGroupEventMessages } from "@/remote/group-events";
 
 const OCCURRED_AT = new Date(1_700_000_000_000);
@@ -31,7 +31,7 @@ const groupEvent = (
   }) as unknown as GroupEvent;
 
 const clientWithIcon = (getIcon: (chat: string) => Promise<GroupIcon>) => {
-  const getIconMock = mock(getIcon);
+  const getIconMock = vi.fn(getIcon);
   const client = {
     groups: { getIcon: getIconMock },
   } as unknown as AdvancedIMessage;

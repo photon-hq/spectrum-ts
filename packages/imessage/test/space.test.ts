@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
+import { describe, expect, it } from "vitest";
 import { imessage } from "@/index";
 import type { RemoteClient } from "@/types";
 import { SHARED_PHONE } from "@/types";

@@ -26,6 +26,7 @@ import {
   asPollOption,
   asReaction,
   asText,
+  createLogger,
   type ProviderMessageRecord,
   tracedFetch,
 } from "@spectrum-ts/core/authoring";
@@ -483,11 +484,27 @@ const contactToWa = (contact: Contact): ContactCardInput => {
   return card;
 };
 
+const streamLog = createLogger("spectrum.whatsapp.stream");
+
 const clientStream = (
   client: WhatsAppClient
 ): ManagedStream<WhatsAppMessage> => {
   const eventStream = client.events
-    .subscribe()
+    .subscribe({
+      // The client heals disconnects AND silently stalled streams on its own
+      // (its stallTimeoutMs converts missed heartbeats into a reconnect with
+      // cursor gap-fill). That recovery is invisible from out here, so
+      // surface each attempt for operators — without this a stalled stream
+      // heals with zero log evidence and a flapping upstream is
+      // indistinguishable from a healthy one.
+      reconnect: {
+        onReconnect: (attempt) => {
+          streamLog.warn("whatsapp live stream reconnecting", {
+            "spectrum.whatsapp.reconnect_attempt": attempt,
+          });
+        },
+      },
+    })
     .filter(
       (e): e is Extract<typeof e, { type: "message" }> => e.type === "message"
     );

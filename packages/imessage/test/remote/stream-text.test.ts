@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, it, mock, setSystemTime } from "bun:test";
 import type {
   AdvancedIMessage,
   Message as SDKMessage,
@@ -10,6 +9,8 @@ import {
   text,
   UnsupportedError,
 } from "@spectrum-ts/core";
+import { setSystemTime } from "@spectrum-ts/test-support/time";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
 import { sendStreamText } from "@/remote/stream-text";
 
@@ -30,10 +31,10 @@ const makeRemote = () => {
     dateCreated: SENT_DATE,
   } as unknown as SDKMessage;
   const editTimes: number[] = [];
-  const sendText = mock((_chat: string, _text: string) =>
+  const sendText = vi.fn((_chat: string, _text: string) =>
     Promise.resolve(reply)
   );
-  const edit = mock((_chat: string, _guid: string, _text: string) => {
+  const edit = vi.fn((_chat: string, _guid: string, _text: string) => {
     editTimes.push(Date.now());
     return Promise.resolve(reply);
   });

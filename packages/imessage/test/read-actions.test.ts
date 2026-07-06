@@ -1,10 +1,10 @@
-import { describe, expect, it, mock } from "bun:test";
 import {
   type AdvancedIMessage,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { AvatarData } from "@spectrum-ts/core";
+import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
 import { getIcon as remoteGetIcon } from "@/remote/avatar";
 import {
@@ -75,7 +75,7 @@ const clientWith = (phone: string, resources: ResourcesMock): RemoteClient => ({
 
 describe("iMessage remote read wrappers", () => {
   it("listParticipants forwards the guid and filters the agent's own handle", async () => {
-    const get = mock((_chat: string) =>
+    const get = vi.fn((_chat: string) =>
       Promise.resolve({ participants: PARTICIPANTS })
     );
     const remote = { chats: { get } } as unknown as AdvancedIMessage;
@@ -99,7 +99,7 @@ describe("iMessage remote read wrappers", () => {
   });
 
   it("getIcon copies bytes into a Buffer and maps groupIconNotFound to undefined", async () => {
-    const getIcon = mock((_chat: string) =>
+    const getIcon = vi.fn((_chat: string) =>
       Promise.resolve({
         data: new Uint8Array([1, 2, 3]),
         mimeType: "image/png",
@@ -123,7 +123,7 @@ describe("iMessage remote read wrappers", () => {
 
 describe("iMessage actions.getMembers", () => {
   it("lists group participants, excluding the agent's own number", async () => {
-    const get = mock((_chat: string) =>
+    const get = vi.fn((_chat: string) =>
       Promise.resolve({ participants: PARTICIPANTS })
     );
     const client = [clientWith(SELF_PHONE, { chats: { get } })];
@@ -144,7 +144,7 @@ describe("iMessage actions.getMembers", () => {
   });
 
   it("returns the full roster in shared mode (sentinel never matches)", async () => {
-    const get = mock((_chat: string) =>
+    const get = vi.fn((_chat: string) =>
       Promise.resolve({ participants: PARTICIPANTS })
     );
     const client = [clientWith(SHARED_PHONE, { chats: { get } })];
@@ -189,10 +189,10 @@ describe("iMessage actions.getMembers", () => {
   });
 
   it("routes by space.phone across multiple clients", async () => {
-    const wrongGet = mock((_chat: string) =>
+    const wrongGet = vi.fn((_chat: string) =>
       Promise.resolve({ participants: [] })
     );
-    const rightGet = mock((_chat: string) =>
+    const rightGet = vi.fn((_chat: string) =>
       Promise.resolve({ participants: PARTICIPANTS })
     );
     const space = {
@@ -217,7 +217,7 @@ describe("iMessage actions.getMembers", () => {
 
 describe("iMessage actions.getAvatar", () => {
   it("downloads the group icon as Buffer + mimeType", async () => {
-    const getIcon = mock((_chat: string) =>
+    const getIcon = vi.fn((_chat: string) =>
       Promise.resolve({ data: new Uint8Array([9, 8]), mimeType: "image/heic" })
     );
     const client = [clientWith(SELF_PHONE, { groups: { getIcon } })];

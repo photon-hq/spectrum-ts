@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { configSchema } from "@/config";
 import type { TelegramPayload } from "@/types";
 import { verify } from "@/verify";

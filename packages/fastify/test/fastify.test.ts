@@ -1,4 +1,3 @@
-import { describe, expect, it } from "bun:test";
 import { type Message, Spectrum } from "@spectrum-ts/core";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
@@ -13,6 +12,7 @@ import {
   textEnvelope,
 } from "@spectrum-ts/test-support/webhook";
 import Fastify from "fastify";
+import { describe, expect, it } from "vitest";
 import { spectrum } from "@/index";
 
 stubCloud();

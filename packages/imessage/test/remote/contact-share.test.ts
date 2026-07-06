@@ -1,6 +1,6 @@
-import { describe, expect, it, mock } from "bun:test";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
 import { flush } from "@spectrum-ts/test-support/timing";
+import { describe, expect, it, vi } from "vitest";
 import {
   ContactShareTracker,
   getContactShareTracker,
@@ -15,7 +15,7 @@ const makeClient = (
 
 describe("ContactShareTracker", () => {
   it("shares once per chat across repeated inbound messages", async () => {
-    const share = mock((_: string) => Promise.resolve());
+    const share = vi.fn((_: string) => Promise.resolve());
     const client = makeClient(share);
     const tracker = new ContactShareTracker(client);
 
@@ -33,7 +33,7 @@ describe("ContactShareTracker", () => {
     const sharePromise = new Promise<void>((r) => {
       resolveShare = r;
     });
-    const share = mock((_: string) => sharePromise);
+    const share = vi.fn((_: string) => sharePromise);
     const client = makeClient(share);
     const tracker = new ContactShareTracker(client);
 
@@ -51,7 +51,7 @@ describe("ContactShareTracker", () => {
   });
 
   it("shares for distinct chats independently", async () => {
-    const share = mock((_: string) => Promise.resolve());
+    const share = vi.fn((_: string) => Promise.resolve());
     const client = makeClient(share);
     const tracker = new ContactShareTracker(client);
 
@@ -69,7 +69,7 @@ describe("ContactShareTracker", () => {
 
   it("retries on the next inbound when a share fails", async () => {
     let attempt = 0;
-    const share = mock((_: string) => {
+    const share = vi.fn((_: string) => {
       attempt += 1;
       return attempt === 1
         ? Promise.reject(new Error("transient"))
@@ -95,7 +95,7 @@ describe("ContactShareTracker", () => {
   });
 
   it("never throws synchronously even when shareContactInfo rejects", async () => {
-    const share = mock((_: string) => Promise.reject(new Error("boom")));
+    const share = vi.fn((_: string) => Promise.reject(new Error("boom")));
     const client = makeClient(share);
     const tracker = new ContactShareTracker(client);
 
@@ -122,8 +122,8 @@ describe("getContactShareTracker", () => {
   });
 
   it("shares per line — distinct clients dedupe the same chat independently", async () => {
-    const shareA = mock((_: string) => Promise.resolve());
-    const shareB = mock((_: string) => Promise.resolve());
+    const shareA = vi.fn((_: string) => Promise.resolve());
+    const shareB = vi.fn((_: string) => Promise.resolve());
     const trackerA = getContactShareTracker(makeClient(shareA));
     const trackerB = getContactShareTracker(makeClient(shareB));
 

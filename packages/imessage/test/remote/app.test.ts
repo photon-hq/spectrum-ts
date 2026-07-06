@@ -1,10 +1,10 @@
-import { describe, expect, it, mock } from "bun:test";
 import type {
   AdvancedIMessage,
   Message as SDKMessage,
 } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content } from "@spectrum-ts/core";
+import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
 import { SPECTRUM_MINI_APP, toSpectrumMiniApp } from "@/remote/app";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
@@ -52,7 +52,7 @@ describe("toSpectrumMiniApp", () => {
 
 describe("iMessage send: app dispatch", () => {
   it("renders a Spectrum mini-app card on remote", async () => {
-    const sendCustomizedMiniApp = mock((_chat: string, _content: unknown) =>
+    const sendCustomizedMiniApp = vi.fn((_chat: string, _content: unknown) =>
       Promise.resolve({
         guid: "card-guid",
         dateCreated: SENT_DATE,
@@ -79,7 +79,7 @@ describe("iMessage send: app dispatch", () => {
   });
 
   it("degrades to a bare-url text message in local mode", async () => {
-    const send = mock((_: unknown) => Promise.resolve());
+    const send = vi.fn((_: unknown) => Promise.resolve());
     const localClient = Object.assign(Object.create(IMessageSDK.prototype), {
       send,
     }) as IMessageSDK;

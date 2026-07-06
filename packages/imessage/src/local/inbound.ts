@@ -3,8 +3,13 @@ import type {
   IMessageSDK,
   Message as LocalIMessage,
 } from "@photon-ai/imessage-kit";
-import { type ManagedStream, stream } from "@spectrum-ts/core";
-import { asText } from "@spectrum-ts/core/authoring";
+import { type Content, type ManagedStream, stream } from "@spectrum-ts/core";
+import {
+  asCustom,
+  asReply,
+  asText,
+  type ProviderMessageRecord,
+} from "@spectrum-ts/core/authoring";
 import {
   ATTACHMENT_PLACEHOLDER,
   hasUsableTextPart,
@@ -23,6 +28,43 @@ const hasAttachmentPlaceholder = (message: LocalIMessage): boolean =>
 const isPendingAttachmentJoin = (message: LocalIMessage): boolean =>
   message.attachments.length === 0 &&
   (message.hasAttachments || hasAttachmentPlaceholder(message));
+
+const replyTargetId = (message: LocalIMessage): string | undefined =>
+  message.threadRootMessageId ?? undefined;
+
+const stubReplyTarget = (
+  space: IMessageMessage["space"],
+  targetId: string
+): ProviderMessageRecord => ({
+  id: targetId,
+  content: asCustom({ imessage_type: "reply-target", stub: true }),
+  space,
+});
+
+const asProviderReply = (
+  content: Content,
+  target: ProviderMessageRecord
+): Content =>
+  asReply({
+    content: content as Parameters<typeof asReply>[0]["content"],
+    target: target as unknown as Parameters<typeof asReply>[0]["target"],
+  });
+
+const wrapReply = (
+  messages: IMessageMessage[],
+  targetId: string | undefined
+): IMessageMessage[] => {
+  if (!targetId) {
+    return messages;
+  }
+  return messages.map((message) => ({
+    ...message,
+    content: asProviderReply(
+      message.content,
+      stubReplyTarget(message.space, targetId)
+    ),
+  }));
+};
 
 const refetchUntilAttachmentsSettle = async (
   client: IMessageSDK,
@@ -90,16 +132,18 @@ export const toMessages = async (
     },
     timestamp: message.createdAt,
   };
+  const targetId = replyTargetId(message);
 
   if (message.attachments.length > 0) {
     if (!hasUsableTextPart(message.text)) {
-      return Promise.all(
+      const messages = await Promise.all(
         message.attachments.map(async (att) => ({
           ...base,
           id: `${message.id}:${att.id}`,
           content: await localAttachmentContent(att),
         }))
       );
+      return wrapReply(messages, targetId);
     }
 
     const parts = toOrderedParts(message.text, message.attachments);
@@ -128,16 +172,19 @@ export const toMessages = async (
       );
     }
 
-    return messages;
+    return wrapReply(messages, targetId);
   }
 
-  return [
-    {
-      ...base,
-      id: message.id,
-      content: { type: "text", text: message.text ?? "" },
-    },
-  ];
+  return wrapReply(
+    [
+      {
+        ...base,
+        id: message.id,
+        content: { type: "text", text: message.text ?? "" },
+      },
+    ],
+    targetId
+  );
 };
 
 export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>

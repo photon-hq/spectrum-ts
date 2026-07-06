@@ -1,4 +1,3 @@
-import { describe, expect, it, mock } from "bun:test";
 import type {
   AdvancedIMessage,
   MessageEvent,
@@ -6,6 +5,7 @@ import type {
   SettableMessageReaction,
 } from "@photon-ai/advanced-imessage";
 import { text } from "@spectrum-ts/core";
+import { describe, expect, it, vi } from "vitest";
 import { getMessageCache, MessageCache } from "@/cache";
 import { imessage } from "@/index";
 import { reactToMessage, toReactionMessages } from "@/remote/reactions";
@@ -18,7 +18,7 @@ const makeRemote = () => {
     guid: "tapback-1",
     dateCreated: SENT_DATE,
   } as unknown as SDKMessage;
-  const setReaction = mock(
+  const setReaction = vi.fn(
     (
       _chat: string,
       _message: string,
@@ -142,7 +142,7 @@ describe("iMessage remote reactToMessage", () => {
 
 describe("iMessage remote toReactionMessages", () => {
   it("marks a fetched self-authored reaction target as outbound", async () => {
-    const get = mock((_message: string) => Promise.resolve(sdkMessage()));
+    const get = vi.fn((_message: string) => Promise.resolve(sdkMessage()));
     const remote = {
       messages: { get },
     } as unknown as AdvancedIMessage;
@@ -164,7 +164,7 @@ describe("iMessage remote toReactionMessages", () => {
   });
 
   it("carries the actor's address, country, and service onto the reaction sender", async () => {
-    const get = mock((_message: string) => Promise.resolve(sdkMessage()));
+    const get = vi.fn((_message: string) => Promise.resolve(sdkMessage()));
     const remote = {
       messages: { get },
     } as unknown as AdvancedIMessage;
@@ -192,13 +192,13 @@ describe("iMessage remote toReactionMessages", () => {
 
   it("resolves tapbacks on a just-sent streamText message from the outbound cache", async () => {
     const sent = sdkMessage({ guid: "outbound-stream-guid" });
-    const sendText = mock((_chat: string, _text: string) =>
+    const sendText = vi.fn((_chat: string, _text: string) =>
       Promise.resolve(sent)
     );
-    const edit = mock((_chat: string, _guid: string, _text: string) =>
+    const edit = vi.fn((_chat: string, _guid: string, _text: string) =>
       Promise.resolve(sent)
     );
-    const get = mock((_message: string) =>
+    const get = vi.fn((_message: string) =>
       Promise.reject(new Error("message API has not caught up"))
     );
     const remote = {
@@ -242,7 +242,7 @@ describe("iMessage remote toReactionMessages", () => {
   });
 
   it("resolves tapbacks to the ordered part inside an interleaved message", async () => {
-    const get = mock((_message: string) =>
+    const get = vi.fn((_message: string) =>
       Promise.resolve(
         sdkMessage({
           content: {

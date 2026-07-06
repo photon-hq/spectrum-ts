@@ -1,16 +1,16 @@
-import { describe, expect, it, mock } from "bun:test";
 import type {
   AdvancedIMessage,
   Message as SDKMessage,
   SettableMessageReaction,
 } from "@photon-ai/advanced-imessage";
+import { describe, expect, it, vi } from "vitest";
 import { formatChildId } from "@/remote/ids";
 import { unsendReaction } from "@/remote/reactions";
 import { unsendMessage } from "@/remote/send";
 import type { IMessageMessage } from "@/types";
 
 const makeRemote = () => {
-  const unsend = mock(
+  const unsend = vi.fn(
     (_chat: string, _message: string, _options?: { partIndex?: number }) =>
       Promise.resolve()
   );
@@ -18,7 +18,7 @@ const makeRemote = () => {
     guid: "tapback-1",
     dateCreated: new Date(0),
   } as unknown as SDKMessage;
-  const setReaction = mock(
+  const setReaction = vi.fn(
     (
       _chat: string,
       _message: string,
@@ -65,7 +65,7 @@ describe("iMessage remote unsendMessage", () => {
   });
 
   it("propagates SDK rejections (expired window, double unsend)", async () => {
-    const unsend = mock(() =>
+    const unsend = vi.fn(() =>
       Promise.reject(new Error("unsend window expired"))
     );
     const remote = { messages: { unsend } } as unknown as AdvancedIMessage;

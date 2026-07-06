@@ -1,4 +1,3 @@
-import { describe, expect, it } from "bun:test";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import { encodeEvent, makeSlack } from "@spectrum-ts/test-support/fusor";
 import {
@@ -11,6 +10,7 @@ import {
   signSpectrum,
   textEnvelope,
 } from "@spectrum-ts/test-support/webhook";
+import { describe, expect, it } from "vitest";
 import { Spectrum } from "@/spectrum";
 import type { Message } from "@/types/message";
 

@@ -73,9 +73,9 @@ const asOptionalDate = (value: unknown): Date | undefined =>
  * message with no resolvable platform) — the caller acknowledges it (200)
  * rather than failing, since neither is fixed by a retry.
  *
- * Reaction targets and group items are emitted as **raw nested records**; the
- * `wrapProviderMessage`/`wrapNestedContent` pipeline turns them into fully-built
- * Messages, exactly as a provider's own `messages` handler would.
+ * Reaction/reply targets and group items are emitted as **raw nested records**;
+ * the `wrapProviderMessage`/`wrapNestedContent` pipeline turns them into
+ * fully-built Messages, exactly as a provider's own `messages` handler would.
  */
 export function deserializeSpectrumMessage(
   envelope: SlimEnvelope,
@@ -138,6 +138,8 @@ const mapContent = (
       return deserializeContact(raw);
     case "reaction":
       return deserializeReaction(raw, spaceRef);
+    case "reply":
+      return deserializeReply(raw, platform, spaceRef, ctx);
     case "group":
       return deserializeGroup(raw, platform, spaceRef, ctx);
     case "attachment":
@@ -241,6 +243,20 @@ const deserializeReaction = (
   ({
     type: "reaction",
     emoji: asString(raw.emoji),
+    target: buildTargetRecord(raw.target, spaceRef),
+  }) as unknown as Content;
+
+const deserializeReply = (
+  raw: Record<string, unknown>,
+  platform: string,
+  spaceRef: SpaceRef,
+  ctx: DeserializeContext
+): Content =>
+  ({
+    type: "reply",
+    content: isRecord(raw.content)
+      ? deserializeContent(raw.content as SlimContent, platform, spaceRef, ctx)
+      : asCustom(raw.content),
     target: buildTargetRecord(raw.target, spaceRef),
   }) as unknown as Content;
 

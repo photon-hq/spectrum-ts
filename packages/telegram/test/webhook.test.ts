@@ -1,12 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configSchema } from "@/config";
 import { ensureWebhook, webhookUrl } from "@/webhook";
 
@@ -71,7 +63,7 @@ beforeEach(() => {
       return Response.json({ ok: true, result: true });
     })();
   };
-  spyOn(globalThis, "fetch").mockImplementation(
+  vi.spyOn(globalThis, "fetch").mockImplementation(
     impl as unknown as typeof fetch
   );
 });
@@ -82,7 +74,7 @@ afterEach(() => {
   } else {
     process.env.SPECTRUM_SUPER_WEBHOOK = originalSuperWebhook;
   }
-  mock.restore();
+  vi.restoreAllMocks();
 });
 
 describe("webhookUrl", () => {

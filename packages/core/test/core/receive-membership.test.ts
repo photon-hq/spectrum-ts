@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import { baseConfig, makeQueue } from "@spectrum-ts/test-support/platform";
+import { describe, expect, it } from "vitest";
 import z from "zod";
 import { definePlatform } from "@/platform/define";
 import type { ProviderMessage } from "@/platform/types";

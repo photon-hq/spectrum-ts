@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/core",
-  "version": "8.1.1",
+  "version": "8.2.2",
   "description": "The spectrum-ts runtime — Spectrum, content builders, fusor, and the provider authoring API.",
   "repository": {
     "type": "git",
@@ -47,9 +47,10 @@
     "build": "bun scripts/prepare-package.ts && tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
     "generate:emoji": "bun scripts/generate-emoji.ts",
-    "test": "bun test",
-    "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage",
+    "test:bun": "bun --bun vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:node": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -63,12 +64,17 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
+    "@types/ws": "^8",
+    "@vitest/coverage-v8": "^4.1.9",
     "hotscript": "^1.0.13",
     "tsdown": "^0.22.2",
-    "unicode-emoji-json": "^0.9.0"
+    "unicode-emoji-json": "^0.9.0",
+    "vitest": "^4.1.9",
+    "ws": "^8.21.0"
   },
   "peerDependencies": {
     "ffmpeg-static": "^5",

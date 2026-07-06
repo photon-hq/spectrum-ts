@@ -52,6 +52,7 @@ export { asPoll, asPollOption } from "./content/poll";
 export { asReaction, reactionSchema } from "./content/reaction";
 export { asRead } from "./content/read";
 export { renameSchema } from "./content/rename";
+export { asReply, replySchema } from "./content/reply";
 export { asRichlink } from "./content/richlink";
 export { asText } from "./content/text";
 export { asVoice } from "./content/voice";

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { edit } from "@/content/edit";
 import { group } from "@/content/group";
 import { markdown } from "@/content/markdown";

@@ -126,9 +126,9 @@ Most formatting and common issues are automatically fixed by Biome. Run `bun x u
 
 ## Cursor Cloud specific instructions
 
-This is a **Bun workspaces + Turbo monorepo** that publishes the `spectrum-ts` SDK and its provider packages. It is a **library, not a deployable service** — there are no servers, databases, or background daemons to run. The full validation loop is in-process. Standard commands live in `CONTRIBUTING.md` (`bun run check` / `typecheck` / `test` / `build`) and `package.json` scripts; use those rather than reinventing them.
+This is a **Bun workspaces + Turbo monorepo** that publishes the `spectrum-ts` SDK and its provider packages. It is a **library, not a deployable service** — there are no servers, databases, or background daemons to run. The full validation loop is in-process. Standard commands live in `CONTRIBUTING.md` (`bun run check` / `typecheck` / `test` / `test:node` / `test:bun` / `build`) and `package.json` scripts; use those rather than reinventing them.
 
-Runtime: Bun (pinned to `.bun-version`, currently 1.3.14) is the package manager and test runner. Node 24 is also installed and made the default `node` (see build gotcha below).
+Runtime: Bun (pinned to `.bun-version`, currently 1.3.14) is the package manager. Tests use Vitest and run under BOTH runtimes — `bun run test:node` (Node 24) and `bun run test:bun` (`bun --bun vitest run`); `bun run test` runs both. Node 24 is also installed and made the default `node` (see build gotcha below).
 
 Non-obvious gotchas:
 

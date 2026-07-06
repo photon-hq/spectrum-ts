@@ -1,9 +1,12 @@
 // FusorCore streaming: drives the real `fusor.v1.json` protocol
-// against an in-process Bun.serve websocket server.
+// against an in-process `ws` websocket server (runs under Node and Bun).
 
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import { NO_MESSAGE_WAIT_MS } from "@spectrum-ts/test-support/timing";
-import { serve, sleep } from "bun";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocketServer } from "ws";
 import { FusorCore, type RegisteredFusorHandler } from "@/fusor/core";
 import type { FusorMessagesReturn } from "@/fusor/types";
 import { cloud } from "@/utils/cloud";
@@ -31,52 +34,50 @@ interface WsServerScript {
   onInit: (init: Frame, connection: number) => Frame[];
 }
 
-function makeFusorWsServer(script: WsServerScript) {
+async function makeFusorWsServer(script: WsServerScript) {
   const inits: Frame[] = [];
   const replies: Frame[] = [];
   let connections = 0;
-  const server = serve<{ connection: number }, never>({
+  const wss = new WebSocketServer({
     port: 0,
-    fetch(req, srv) {
-      connections += 1;
-      const upgraded = srv.upgrade(req, {
-        headers: { "Sec-WebSocket-Protocol": "fusor.v1.json" },
-        data: { connection: connections },
-      });
-      if (upgraded) {
-        return undefined as unknown as Response;
-      }
-      return new Response("not a websocket", { status: 400 });
-    },
-    websocket: {
-      message(ws, raw) {
-        const frame = JSON.parse(String(raw)) as Frame;
-        if (frame.type === "init") {
-          inits.push(frame);
-          for (const out of script.onInit(frame, ws.data.connection)) {
-            ws.send(JSON.stringify(out));
-          }
-          const close = script.closeAfterInit?.(ws.data.connection);
-          if (close) {
-            ws.close(close.code, close.reason);
-          }
-          return;
-        }
-        if (frame.type === "reply") {
-          replies.push(frame);
-        }
-      },
-    },
+    handleProtocols: () => "fusor.v1.json",
   });
+  wss.on("connection", (ws) => {
+    connections += 1;
+    const connection = connections;
+    ws.on("message", (raw) => {
+      const frame = JSON.parse(String(raw)) as Frame;
+      if (frame.type === "init") {
+        inits.push(frame);
+        for (const out of script.onInit(frame, connection)) {
+          ws.send(JSON.stringify(out));
+        }
+        const close = script.closeAfterInit?.(connection);
+        if (close) {
+          ws.close(close.code, close.reason);
+        }
+        return;
+      }
+      if (frame.type === "reply") {
+        replies.push(frame);
+      }
+    });
+  });
+  await once(wss, "listening");
+  const { port } = wss.address() as AddressInfo;
   return {
-    url: `ws://localhost:${server.port}/v1/subscribe`,
+    url: `ws://localhost:${port}/v1/subscribe`,
     inits,
     replies,
     connectionCount: () => connections,
+    // Fire-and-forget, matching the old Bun.serve stop(true): under Bun's ws
+    // shim the close callback never fires once clients were terminated
+    // server-side, so awaiting it would deadlock the afterEach cleanup.
     stop: () => {
-      server.stop(true).catch(() => {
-        // stop(true) can hang/reject with in-process clients; ignored.
-      });
+      for (const client of wss.clients) {
+        client.terminate();
+      }
+      wss.close();
     },
   };
 }
@@ -139,13 +140,13 @@ afterEach(async () => {
 
 describe("fusor websocket streaming", () => {
   it("streams events and replies only when asked", async () => {
-    const tokenSpy = spyOn(cloud, "issueFusorToken").mockResolvedValue({
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
       token: "t1",
       expiresIn: 900,
     });
     cleanups.push(() => tokenSpy.mockRestore());
 
-    const server = makeFusorWsServer({
+    const server = await makeFusorWsServer({
       onInit: () => [
         { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
         eventFrame("evt-1", '{"text":"hello"}', true, 1),
@@ -189,15 +190,15 @@ describe("fusor websocket streaming", () => {
 
   it("invalidates the token on a 4401 close and reconnects with a fresh one", async () => {
     let minted = 0;
-    const tokenSpy = spyOn(cloud, "issueFusorToken").mockImplementation(
-      async () => {
+    const tokenSpy = vi
+      .spyOn(cloud, "issueFusorToken")
+      .mockImplementation(async () => {
         minted += 1;
         return { token: `t${minted}`, expiresIn: 900 };
-      }
-    );
+      });
     cleanups.push(() => tokenSpy.mockRestore());
 
-    const server = makeFusorWsServer({
+    const server = await makeFusorWsServer({
       onInit: (_init, connection) =>
         connection === 1
           ? [
@@ -235,13 +236,13 @@ describe("fusor websocket streaming", () => {
   });
 
   it("close() tears down an active websocket session promptly", async () => {
-    const tokenSpy = spyOn(cloud, "issueFusorToken").mockResolvedValue({
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
       token: "t1",
       expiresIn: 900,
     });
     cleanups.push(() => tokenSpy.mockRestore());
 
-    const server = makeFusorWsServer({
+    const server = await makeFusorWsServer({
       onInit: () => [
         { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
       ],

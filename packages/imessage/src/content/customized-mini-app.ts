@@ -36,6 +36,8 @@ export const customizedMiniAppSchema = z.object({
   extensionBundleId: z.string().nonempty(),
   // Visible card layout.
   layout: layoutSchema,
+  // Render with the installed extension's live UI when available.
+  live: z.boolean().optional(),
   // 10-character uppercase alphanumeric Apple Team ID.
   teamId: z.string(),
   // Absolute URL delivered to the installed extension on tap.
@@ -70,7 +72,8 @@ export const asCustomizedMiniApp = (
  * the recipient taps the card; the server constructs the matching
  * `MSMessageExtensionBalloonPlugin` plugin id from these values. `appStoreId`
  * is optional and only points recipients without the extension at its App
- * Store entry.
+ * Store entry. `live` is optional; when omitted, the remote server keeps the
+ * static layout preview visible.
  *
  * `space.send(customizedMiniApp(...))` is the canonical form.
  *

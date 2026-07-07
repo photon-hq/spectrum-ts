@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  MiniAppCardSession,
+} from "@photon-ai/advanced-imessage";
 import type {
   AddMember,
   Avatar,
@@ -17,7 +20,10 @@ import type { IMessageMessage, RemoteClient } from "../types";
 import { getIcon as getRemoteIcon, setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { shareContactCard as shareRemoteContactCard } from "./contact-card";
-import { sendCustomizedMiniApp as sendRemoteCustomizedMiniApp } from "./customized-mini-app";
+import {
+  sendCustomizedMiniApp as sendRemoteCustomizedMiniApp,
+  updateCustomizedMiniApp as updateRemoteCustomizedMiniApp,
+} from "./customized-mini-app";
 import { getMessage as getRemoteMessage } from "./inbound";
 import {
   addParticipants as addRemoteParticipants,
@@ -62,6 +68,14 @@ export const sendCustomizedMiniApp = async (
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> =>
   sendRemoteCustomizedMiniApp(remote, spaceId, content);
+
+export const updateCustomizedMiniApp = async (
+  remote: AdvancedIMessage,
+  spaceId: string,
+  session: MiniAppCardSession,
+  content: CustomizedMiniApp
+): Promise<ProviderMessageRecord> =>
+  updateRemoteCustomizedMiniApp(remote, spaceId, session, content);
 
 export const setDisplayName = async (
   remote: AdvancedIMessage,

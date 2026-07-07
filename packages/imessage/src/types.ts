@@ -58,6 +58,13 @@ export const spaceParamsSchema = z.object({
   phone: z.string().optional(),
 });
 
+const miniAppCardSessionSchema = z.object({
+  chatGuid: z.string(),
+  messageGuid: z.string(),
+  sessionId: z.string(),
+  targetMessageGuid: z.string(),
+});
+
 /**
  * iMessage-specific per-message metadata surfaced on `IMessageMessage`.
  * - `partIndex`: ordered part index within a multi-part message. Text and
@@ -65,8 +72,11 @@ export const spaceParamsSchema = z.object({
  *   messages; 0..N-1 for a group's sub-items).
  * - `parentId`: guid of the parent message for a group sub-item. Undefined
  *   when the message itself is the parent.
+ * - `miniAppCardSession`: stable handle returned by mini-app card sends and
+ *   updates. It is required to update the card in place later.
  */
 export const messageSchema = z.object({
+  miniAppCardSession: miniAppCardSessionSchema.optional(),
   partIndex: z.number().int().nonnegative().optional(),
   parentId: z.string().optional(),
 });
@@ -76,6 +86,7 @@ export type IMessageMessage = SchemaMessage<
   typeof spaceSchema
 > & {
   direction?: "inbound" | "outbound";
+  miniAppCardSession?: z.infer<typeof miniAppCardSessionSchema>;
   partIndex?: number;
   parentId?: string;
 };

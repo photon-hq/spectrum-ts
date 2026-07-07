@@ -2,6 +2,7 @@ import {
   type AdvancedIMessage,
   createClient,
   MessageEffect,
+  type MiniAppCardSession,
 } from "@photon-ai/advanced-imessage";
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { withSpan } from "@photon-ai/otel";
@@ -82,6 +83,7 @@ import {
   stopTyping as remoteStopTyping,
   unsendMessage as remoteUnsendMessage,
   unsendReaction as remoteUnsendReaction,
+  updateCustomizedMiniApp as remoteUpdateCustomizedMiniApp,
 } from "./remote/api";
 import { toSpectrumMiniApp } from "./remote/app";
 import { getRemoteAttachment } from "./remote/attachments";
@@ -131,11 +133,72 @@ const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
 
 const handleEdit = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: { id: string; phone: string; type: "dm" | "group" },
   content: Edit
 ): Promise<void> => {
   if (isLocal(client)) {
     throw UnsupportedError.action("edit", "iMessage (local mode)");
+  }
+  const miniAppCardSession = (
+    content.target as unknown as { miniAppCardSession?: MiniAppCardSession }
+  ).miniAppCardSession;
+  const updateMiniAppCardSession = (
+    record: ProviderMessageRecord | undefined
+  ): void => {
+    const nextSession = record?.miniAppCardSession;
+    if (nextSession) {
+      (
+        content.target as unknown as {
+          miniAppCardSession?: MiniAppCardSession;
+        }
+      ).miniAppCardSession = nextSession as MiniAppCardSession;
+    }
+  };
+  if (content.content.type === "app") {
+    if (!miniAppCardSession) {
+      throw UnsupportedError.content(
+        "edit",
+        "iMessage",
+        "mini app card edits require a miniAppCardSession from the original send"
+      );
+    }
+    const url = await content.content.url();
+    const layout = await content.content.layout();
+    const remote = clientForPhone(client, space.phone);
+    const record = cacheRemoteOutbound(
+      remote,
+      space,
+      await remoteUpdateCustomizedMiniApp(
+        remote,
+        space.id,
+        miniAppCardSession,
+        toSpectrumMiniApp(url, layout)
+      )
+    );
+    updateMiniAppCardSession(record);
+    return;
+  }
+  if (isCustomizedMiniApp(content.content)) {
+    if (!miniAppCardSession) {
+      throw UnsupportedError.content(
+        "edit",
+        "iMessage",
+        "customized mini app card edits require a miniAppCardSession from the original send"
+      );
+    }
+    const remote = clientForPhone(client, space.phone);
+    const record = cacheRemoteOutbound(
+      remote,
+      space,
+      await remoteUpdateCustomizedMiniApp(
+        remote,
+        space.id,
+        miniAppCardSession,
+        content.content
+      )
+    );
+    updateMiniAppCardSession(record);
+    return;
   }
   if (content.content.type !== "text") {
     // Mirrors `remoteEditMessage`'s own check — surface as an

@@ -1,4 +1,5 @@
 import { definePlatform, type FusorClient, fusor } from "@spectrum-ts/core";
+import { getChatDisplayName } from "./client";
 import { configSchema, TELEGRAM_PLATFORM } from "./config";
 import { handleMessages } from "./inbound/messages";
 import { send } from "./outbound/send";
@@ -42,6 +43,10 @@ export const telegram = definePlatform(TELEGRAM_PLATFORM, {
   },
   user: { resolve: resolveUser },
   space: { create: createSpace },
+  actions: {
+    getDisplayName: async ({ config }, space) =>
+      await getChatDisplayName(config, space.id),
+  },
   messages: handleMessages,
   send,
 });

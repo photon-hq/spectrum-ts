@@ -133,3 +133,26 @@ export const downloadFile = async (
   }
   return Buffer.from(await res.arrayBuffer());
 };
+
+interface ChatEnvelope {
+  result?: { title?: string };
+}
+
+/**
+ * A chat's `title` via `getChat`. Only groups/supergroups/channels have one;
+ * private chats return a name instead, so those resolve `undefined`. Uses the
+ * low-level `client.post` (like `executeSpec`) to skip photon's strict
+ * `ChatFullInfo` validation — we only read `title`.
+ */
+export const getChatDisplayName = async (
+  config: TelegramConfig,
+  chatId: string
+): Promise<string | undefined> => {
+  const client = telegramClient(config);
+  const res = await client.post({
+    body: { chat_id: chatId },
+    throwOnError: true,
+    url: "/getChat",
+  });
+  return (res.data as ChatEnvelope).result?.title ?? undefined;
+};

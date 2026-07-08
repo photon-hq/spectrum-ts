@@ -11,6 +11,7 @@ import {
   type IMessageParticipant,
   listParticipants as remoteListParticipants,
 } from "@/remote/members";
+import { getDisplayName as remoteGetDisplayName } from "@/remote/rename";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
 
 const LOCAL_MODE_ERROR = /local mode/;
@@ -36,8 +37,11 @@ const noIconError = () =>
 const def = imessage.config({}).__definition;
 const getMembersAction = def.actions?.getMembers;
 const getAvatarAction = def.actions?.getAvatar;
-if (!(getMembersAction && getAvatarAction)) {
-  throw new Error("iMessage must declare the getMembers/getAvatar actions");
+const getDisplayNameAction = def.actions?.getDisplayName;
+if (!(getMembersAction && getAvatarAction && getDisplayNameAction)) {
+  throw new Error(
+    "iMessage must declare the getMembers/getAvatar/getDisplayName actions"
+  );
 }
 
 const ctx = {
@@ -62,6 +66,11 @@ const callGetMembers = (client: unknown, space: TestSpace) =>
 
 const callGetAvatar = (client: unknown, space: TestSpace) =>
   getAvatarAction({ ...ctx, client }, space) as Promise<AvatarData | undefined>;
+
+const callGetDisplayName = (client: unknown, space: TestSpace) =>
+  getDisplayNameAction({ ...ctx, client }, space) as Promise<
+    string | undefined
+  >;
 
 interface ResourcesMock {
   chats?: { get?: (chat: string) => Promise<unknown> };
@@ -118,6 +127,21 @@ describe("iMessage remote read wrappers", () => {
       groups: { getIcon: () => Promise.reject(noIconError()) },
     } as unknown as AdvancedIMessage;
     expect(await remoteGetIcon(missing, GROUP_GUID)).toBeUndefined();
+  });
+
+  it("getDisplayName forwards the guid and normalizes an empty name to undefined", async () => {
+    const get = vi.fn((_chat: string) =>
+      Promise.resolve({ displayName: "Team Chat", participants: PARTICIPANTS })
+    );
+    const remote = { chats: { get } } as unknown as AdvancedIMessage;
+
+    expect(await remoteGetDisplayName(remote, GROUP_GUID)).toBe("Team Chat");
+    expect(get).toHaveBeenCalledWith(GROUP_GUID);
+
+    const unnamed = {
+      chats: { get: () => Promise.resolve({ displayName: "" }) },
+    } as unknown as AdvancedIMessage;
+    expect(await remoteGetDisplayName(unnamed, GROUP_GUID)).toBeUndefined();
   });
 });
 
@@ -303,5 +327,69 @@ describe("iMessage actions.getAvatar", () => {
     await expect(callGetAvatar(client, space)).rejects.toThrow(
       GROUP_ONLY_ERROR
     );
+  });
+});
+
+describe("iMessage actions.getDisplayName", () => {
+  it("returns the group's current display name", async () => {
+    const get = vi.fn((_chat: string) =>
+      Promise.resolve({ displayName: "Team Chat", participants: PARTICIPANTS })
+    );
+    const client = [clientWith(SELF_PHONE, { chats: { get } })];
+    const space = {
+      id: GROUP_GUID,
+      type: "group",
+      phone: SELF_PHONE,
+      __platform: "iMessage",
+    } as const;
+
+    expect(await callGetDisplayName(client, space)).toBe("Team Chat");
+    expect(get).toHaveBeenCalledWith(GROUP_GUID);
+  });
+
+  it("resolves undefined for an unnamed group", async () => {
+    const client = [
+      clientWith(SELF_PHONE, {
+        chats: { get: () => Promise.resolve({ displayName: "" }) },
+      }),
+    ];
+    const space = {
+      id: GROUP_GUID,
+      type: "group",
+      phone: SELF_PHONE,
+      __platform: "iMessage",
+    } as const;
+
+    expect(await callGetDisplayName(client, space)).toBeUndefined();
+  });
+
+  it("is unsupported in local mode", async () => {
+    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
+    const space = {
+      id: GROUP_GUID,
+      type: "group",
+      phone: SHARED_PHONE,
+      __platform: "iMessage",
+    } as const;
+
+    await expect(callGetDisplayName(localClient, space)).rejects.toThrow(
+      LOCAL_MODE_ERROR
+    );
+  });
+
+  it("works for a 1:1 chat (unlike the group-only reads), resolving undefined when the DM has no title", async () => {
+    const get = vi.fn((_chat: string) =>
+      Promise.resolve({ displayName: "", participants: [] })
+    );
+    const client = [clientWith(SELF_PHONE, { chats: { get } })];
+    const space = {
+      id: DM_GUID,
+      type: "dm",
+      phone: SELF_PHONE,
+      __platform: "iMessage",
+    } as const;
+
+    expect(await callGetDisplayName(client, space)).toBeUndefined();
+    expect(get).toHaveBeenCalledWith(DM_GUID);
   });
 });

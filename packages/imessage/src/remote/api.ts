@@ -31,7 +31,10 @@ import {
   unsendReaction as unsendRemoteReaction,
 } from "./reactions";
 import { markRead as markRemoteRead } from "./read";
-import { setDisplayName as setRemoteDisplayName } from "./rename";
+import {
+  getDisplayName as getRemoteDisplayName,
+  setDisplayName as setRemoteDisplayName,
+} from "./rename";
 import {
   editMessage as editRemoteMessage,
   replyToMessage as replyToRemoteMessage,
@@ -68,6 +71,11 @@ export const setDisplayName = async (
   spaceId: string,
   content: Rename
 ): Promise<void> => setRemoteDisplayName(remote, spaceId, content);
+
+export const getDisplayName = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<string | undefined> => getRemoteDisplayName(remote, spaceId);
 
 export const addParticipants = async (
   remote: AdvancedIMessage,

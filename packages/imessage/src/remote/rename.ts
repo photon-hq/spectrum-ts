@@ -13,3 +13,16 @@ export const setDisplayName = async (
 ): Promise<void> => {
   await remote.groups.setDisplayName(toChatGuid(spaceId), content.displayName);
 };
+
+/**
+ * Read a remote iMessage chat's title. The SDK returns an empty
+ * `Chat.displayName` for an unnamed group or a 1:1 chat; normalized to
+ * `undefined`. Works for groups and DMs alike.
+ */
+export const getDisplayName = async (
+  remote: AdvancedIMessage,
+  spaceId: string
+): Promise<string | undefined> => {
+  const { displayName } = await remote.chats.get(toChatGuid(spaceId));
+  return displayName || undefined;
+};

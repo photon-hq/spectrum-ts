@@ -62,6 +62,7 @@ import {
 import {
   addParticipants as remoteAddParticipants,
   editMessage as remoteEditMessage,
+  getDisplayName as remoteGetDisplayName,
   getIcon as remoteGetIcon,
   getMessage as remoteGetMessage,
   leaveGroup as remoteLeaveGroup,
@@ -786,6 +787,19 @@ export const imessage = definePlatform("iMessage", {
         local: "fetching group avatars requires remote iMessage",
       });
       return await remoteGetIcon(remote, space.id);
+    },
+    // Read a chat's title; works for DMs too (unlike the group-only `rename`
+    // setter), which just resolve `undefined`. Remote only.
+    getDisplayName: async ({ client }, space) => {
+      if (isLocal(client)) {
+        throw UnsupportedError.action(
+          "getDisplayName",
+          "iMessage (local mode)",
+          "reading chat display names requires remote iMessage"
+        );
+      }
+      const remote = clientForPhone(client, space.phone);
+      return await remoteGetDisplayName(remote, space.id);
     },
     // Fetch an attachment by GUID. Returns a spectrum `Attachment` whose
     // `.read()` / `.stream()` lazily download the bytes — calling both

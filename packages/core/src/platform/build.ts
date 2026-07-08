@@ -84,6 +84,7 @@ const RESERVED_SPACE_KEYS: ReadonlySet<string> = new Set([
   "getMessage",
   "getMembers",
   "getAvatar",
+  "getDisplayName",
   "rename",
   "avatar",
   "add",
@@ -106,6 +107,7 @@ export const PLATFORM_WISE_ACTION_KEYS: ReadonlySet<PlatformWiseActionKey> =
     "getMessage",
     "getMembers",
     "getAvatar",
+    "getDisplayName",
   ] satisfies readonly PlatformWiseActionKey[]);
 
 // Reserved keys on `Message` — platform-defined `message.actions` entries
@@ -789,6 +791,28 @@ export function buildSpace(params: BuildSpaceParams): Space {
     );
   }
 
+  async function getDisplayNameImpl(): Promise<string | undefined> {
+    const getDisplayName = definition.actions?.getDisplayName;
+    if (!getDisplayName) {
+      // Default behavior when the provider hasn't implemented the
+      // platform-wise `getDisplayName` action: throw `UnsupportedError`.
+      // Mirrors the same default the `PlatformInstance` wires for
+      // `im.getDisplayName`.
+      throw UnsupportedError.action("getDisplayName", definition.name);
+    }
+    return withSpan(
+      "spectrum.space.displayName.get",
+      {
+        "spectrum.provider": definition.name,
+        "spectrum.space.id": (spaceRef as { id?: string }).id,
+      },
+      async () =>
+        (await getDisplayName({ client, config, store }, spaceRef)) as
+          | string
+          | undefined
+    );
+  }
+
   // Platform-defined sugar methods declared via `PlatformDef.space.actions`.
   // Each factory becomes `space.<name>(...args) = space.send(factory(...args))`.
   // Spread order is load-bearing: actions go *after* `extras`/`spaceRef`
@@ -850,6 +874,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     getMessage: getMessageImpl,
     getMembers: getMembersImpl,
     getAvatar: getAvatarImpl,
+    getDisplayName: getDisplayNameImpl,
     rename: async (displayName: string): Promise<void> => {
       // Sugar for `space.send(rename(displayName))`. Fire-and-forget; the
       // (always-undefined) result is discarded. Per-platform support and

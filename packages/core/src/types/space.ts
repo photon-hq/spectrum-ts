@@ -52,6 +52,16 @@ export interface Space<_Def = unknown> {
    */
   getAvatar(): Promise<AvatarData | undefined>;
   /**
+   * Read the current chat's display name (group/chat title). Resolves
+   * `undefined` when the chat has none — an unnamed group, or a 1:1 chat on a
+   * platform that stores no title for DMs. Round-trips into `space.rename()`.
+   *
+   * Universal API; unlike `rename` the read is not group-only. Per-platform
+   * constraints (e.g. iMessage: remote only) surface as `UnsupportedError`, as
+   * do platforms with no implementation.
+   */
+  getDisplayName(): Promise<string | undefined>;
+  /**
    * List the chat's current participants, excluding the agent's own account
    * where the platform can identify it. Each entry is a `User` tagged with
    * `__platform`; `id` is the user's canonical platform handle (the same

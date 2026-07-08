@@ -100,6 +100,10 @@ export interface PlatformWiseActions<
     ctx: { client: _Client; config: _Config; store: Store },
     space: _ResolvedSpace & { id: string; __platform: string }
   ) => Promise<AvatarData | undefined>;
+  getDisplayName: (
+    ctx: { client: _Client; config: _Config; store: Store },
+    space: _ResolvedSpace & { id: string; __platform: string }
+  ) => Promise<string | undefined>;
   getMembers: (
     ctx: { client: _Client; config: _Config; store: Store },
     space: _ResolvedSpace & { id: string; __platform: string }
@@ -826,6 +830,7 @@ export type InstanceActionMethods<Def extends AnyPlatformDef> = {
 // framework-normalized path.
 export interface PlatformWiseInstanceMethods<Def extends AnyPlatformDef> {
   getAvatar: (space: PlatformSpace<Def>) => Promise<AvatarData | undefined>;
+  getDisplayName: (space: PlatformSpace<Def>) => Promise<string | undefined>;
   getMembers: (space: PlatformSpace<Def>) => Promise<PlatformUser<Def>[]>;
   getMessage: (
     space: PlatformSpace<Def>,

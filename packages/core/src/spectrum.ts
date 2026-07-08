@@ -35,6 +35,7 @@ import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
 import { cloud, type ProjectData } from "./utils/cloud";
+import { envFor } from "./utils/env";
 import {
   normalizePlatformKey,
   officialProviderInstallHint,
@@ -234,6 +235,20 @@ function applyLogLevel(level: LogLevel | undefined): void {
   }
 }
 
+// Resolve project credentials, falling back to env vars when an option is
+// omitted (an explicit option always wins). Kept out of Spectrum() to hold the
+// factory under the cognitive-complexity cap.
+function resolveProjectCredentials(options: {
+  projectId?: string;
+  projectSecret?: string;
+}): { projectId: string | undefined; projectSecret: string | undefined } {
+  return {
+    projectId: options.projectId ?? process.env[envFor("PROJECT", "ID")],
+    projectSecret:
+      options.projectSecret ?? process.env[envFor("PROJECT", "SECRET")],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Spectrum() factory
 // ---------------------------------------------------------------------------
@@ -279,11 +294,11 @@ export async function Spectrum<
         webhookSecret?: string;
       }
 ): Promise<SpectrumInstance<Providers>> {
-  spectrumConfigSchema.parse(options);
+
+  const { projectId, projectSecret } = resolveProjectCredentials(options);
+  spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
 
   const {
-    projectId,
-    projectSecret,
     providers,
     options: runtimeOptions,
     telemetry,
@@ -297,7 +312,7 @@ export async function Spectrum<
   // The per-webhook signing secret for native Spectrum webhooks. Explicit option
   // wins; otherwise fall back to the env var so deployments can inject it.
   const resolvedWebhookSecret =
-    webhookSecret ?? process.env.SPECTRUM_WEBHOOK_SECRET;
+    webhookSecret ?? process.env[envFor("WEBHOOK", "SECRET")];
 
   const otelHandle = telemetry
     ? bootstrapTelemetry({ projectId, projectSecret })

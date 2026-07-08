@@ -140,9 +140,7 @@ interface ChatEnvelope {
 
 /**
  * A chat's `title` via `getChat`. Only groups/supergroups/channels have one;
- * private chats return a name instead, so those resolve `undefined`. Uses the
- * low-level `client.post` (like `executeSpec`) to skip photon's strict
- * `ChatFullInfo` validation — we only read `title`.
+ * private chats return a name instead, so those resolve `undefined`.
  */
 export const getChatDisplayName = async (
   config: TelegramConfig,

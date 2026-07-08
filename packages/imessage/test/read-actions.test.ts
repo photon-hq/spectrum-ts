@@ -377,7 +377,7 @@ describe("iMessage actions.getDisplayName", () => {
     );
   });
 
-  it("works for a 1:1 chat (unlike the group-only reads), resolving undefined when the DM has no title", async () => {
+  it("is unsupported for a 1:1 chat (group-only, like the other group reads)", async () => {
     const get = vi.fn((_chat: string) =>
       Promise.resolve({ displayName: "", participants: [] })
     );
@@ -389,7 +389,9 @@ describe("iMessage actions.getDisplayName", () => {
       __platform: "iMessage",
     } as const;
 
-    expect(await callGetDisplayName(client, space)).toBeUndefined();
-    expect(get).toHaveBeenCalledWith(DM_GUID);
+    await expect(callGetDisplayName(client, space)).rejects.toThrow(
+      GROUP_ONLY_ERROR
+    );
+    expect(get).not.toHaveBeenCalled();
   });
 });

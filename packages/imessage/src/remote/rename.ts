@@ -15,9 +15,9 @@ export const setDisplayName = async (
 };
 
 /**
- * Read a remote iMessage chat's title. The SDK returns an empty
- * `Chat.displayName` for an unnamed group or a 1:1 chat; normalized to
- * `undefined`. Works for groups and DMs alike.
+ * Read a remote iMessage group chat's title. The SDK returns an empty
+ * `Chat.displayName` for an unnamed group; normalized to `undefined`. The
+ * group-only guard lives at the action layer (see `remoteGroupClient`).
  */
 export const getDisplayName = async (
   remote: AdvancedIMessage,

@@ -1,6 +1,14 @@
 import type { SlackClient } from "@photon-ai/slack";
 import type { SchemaMessage } from "@spectrum-ts/core";
+import { envFor, fromEnv } from "@spectrum-ts/core/authoring";
 import z from "zod";
+
+/**
+ * Scoped env-var fallback for a Slack config field. Each field falls back to
+ * `SPECTRUM_SLACK_<KEY>` when omitted (an explicit config value always wins).
+ */
+const env = <T extends z.ZodType>(key: string, schema: T) =>
+  fromEnv(envFor("SLACK", key), schema);
 
 const teamMetadataSchema = z.object({
   appId: z.string(),
@@ -10,7 +18,10 @@ const teamMetadataSchema = z.object({
 });
 
 const directConfig = z.object({
-  endpoint: z.string().optional(),
+  // Falls back to `SPECTRUM_SLACK_ENDPOINT` when omitted (explicit config wins).
+  // `tokens` is a record, so it stays code-only — direct mode still requires it,
+  // which means an env endpoint alone never flips the union into direct mode.
+  endpoint: env("ENDPOINT", z.string().optional()),
   teams: z.record(z.string(), teamMetadataSchema).optional(),
   tokens: z
     .record(z.string(), z.string().min(1))

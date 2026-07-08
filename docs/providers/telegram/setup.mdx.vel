@@ -14,10 +14,12 @@ telegram.config({
 });
 ```
 
-| Option | Description |
-|---|---|
-| `botToken` | Bot token from [@BotFather](https://t.me/BotFather). |
-| `webhookSecret` | Optional secret token for verifying webhook payloads. |
+| Option | Description | Env fallback |
+|---|---|---|
+| `botToken` | Bot token from [@BotFather](https://t.me/BotFather). | `SPECTRUM_TELEGRAM_BOT_TOKEN` |
+| `webhookSecret` | Optional secret token for verifying webhook payloads. | `SPECTRUM_TELEGRAM_WEBHOOK_SECRET` |
+| `baseUrl` | Optional Bot API base URL. Defaults to `https://api.telegram.org`. | `SPECTRUM_TELEGRAM_BASE_URL` |
+
 
 ## Example
 

@@ -44,11 +44,16 @@ Use `slack.config(...)` to register one or more Slack workspaces.
   </Tab>
 </Tabs>
 
-| Option | Description |
-|---|---|
-| `tokens` | A map of team ID to bot token (`xoxb-...`). At least one entry is required. |
-| `teams` | Optional metadata per team: app ID, bot user ID, granted scopes, and display name. |
-| `endpoint` | Optional custom Slack API base URL. |
+| Option | Description | Env fallback |
+|---|---|---|
+| `tokens` | A map of team ID to bot token (`xoxb-...`). At least one entry is required. | — (record, code-only) |
+| `teams` | Optional metadata per team: app ID, bot user ID, granted scopes, and display name. | — (record, code-only) |
+| `endpoint` | Optional custom Slack API base URL. | `SPECTRUM_SLACK_ENDPOINT` |
+
+`endpoint` falls back to `SPECTRUM_SLACK_ENDPOINT` when omitted (an explicit
+value wins). `tokens` and `teams` are maps, so they stay in code — for a fully
+environment-driven setup, use cloud mode (an empty `slack.config({})`) with
+`projectId`/`projectSecret`.
 
 ## Example
 

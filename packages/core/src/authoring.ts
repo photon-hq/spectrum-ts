@@ -62,6 +62,10 @@ export type {
 } from "./platform/types";
 // Generic translation helpers (from `utils/`).
 export { ensureM4a } from "./utils/audio";
+// Config env-var fallback — wrap a config-field schema so an omitted field
+// falls back to `process.env[envKey]` (explicit value always wins). `envFor`
+// builds the `SPECTRUM_<CHANNEL>_<KEY>` name from its parts.
+export { envFor, fromEnv } from "./utils/env";
 // Outbound-HTTP tracing — wrap a provider's own fetch so its requests get a
 // CLIENT span tagged `peer.service`, without ever touching globalThis.fetch.
 // Pair `redactUrl` with `sanitizeUrl` to strip secrets from the recorded URL.

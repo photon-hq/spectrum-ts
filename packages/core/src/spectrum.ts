@@ -236,16 +236,24 @@ function applyLogLevel(level: LogLevel | undefined): void {
 }
 
 // Resolve project credentials, falling back to env vars when an option is
-// omitted (an explicit option always wins). Kept out of Spectrum() to hold the
-// factory under the cognitive-complexity cap.
+// omitted (an explicit option always wins). Precedence is
+// explicit option > `SPECTRUM_PROJECT_ID` > `PROJECT_ID`: the canonical
+// `SPECTRUM_`-prefixed name is preferred, but the unprefixed `PROJECT_ID` /
+// `PROJECT_SECRET` are still honored for backwards compatibility with the
+// dashboard's `.env` snippet and existing projects that already set them.
 function resolveProjectCredentials(options: {
   projectId?: string;
   projectSecret?: string;
 }): { projectId: string | undefined; projectSecret: string | undefined } {
   return {
-    projectId: options.projectId ?? process.env[envFor("PROJECT", "ID")],
+    projectId:
+      options.projectId ??
+      process.env[envFor("PROJECT", "ID")] ??
+      process.env.PROJECT_ID,
     projectSecret:
-      options.projectSecret ?? process.env[envFor("PROJECT", "SECRET")],
+      options.projectSecret ??
+      process.env[envFor("PROJECT", "SECRET")] ??
+      process.env.PROJECT_SECRET,
   };
 }
 
@@ -294,7 +302,6 @@ export async function Spectrum<
         webhookSecret?: string;
       }
 ): Promise<SpectrumInstance<Providers>> {
-
   const { projectId, projectSecret } = resolveProjectCredentials(options);
   spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
 

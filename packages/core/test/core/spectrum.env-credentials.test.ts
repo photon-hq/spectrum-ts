@@ -111,4 +111,26 @@ describe("Spectrum() project credential env fallback", () => {
 
     await expect(Spectrum({ providers: [provider()] })).rejects.toThrow();
   });
+
+  it("treats empty-string env vars as unset (no credentials)", async () => {
+    // A CI template that injects the var name without a value leaves it "".
+    // That must fall through to the "no credentials" branch, not throw.
+    process.env[PROJECT_ID] = "";
+    process.env[PROJECT_SECRET] = "";
+
+    const app = await Spectrum({ providers: [provider()] });
+    expect(getProject).not.toHaveBeenCalled();
+    await app.stop();
+  });
+
+  it("falls through an empty prefixed env var to the legacy name", async () => {
+    process.env[PROJECT_ID] = "";
+    process.env[PROJECT_SECRET] = "";
+    process.env[LEGACY_PROJECT_ID] = "legacy-id";
+    process.env[LEGACY_PROJECT_SECRET] = "legacy-secret";
+
+    const app = await Spectrum({ providers: [provider()] });
+    expect(getProject).toHaveBeenCalledWith("legacy-id", "legacy-secret");
+    await app.stop();
+  });
 });

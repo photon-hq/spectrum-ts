@@ -235,6 +235,11 @@ function applyLogLevel(level: LogLevel | undefined): void {
   }
 }
 
+function envValue(key: string): string | undefined {
+  const value = process.env[key];
+  return value === "" ? undefined : value;
+}
+
 // Resolve project credentials, falling back to env vars when an option is
 // omitted (an explicit option always wins). Precedence is
 // explicit option > `SPECTRUM_PROJECT_ID` > `PROJECT_ID`: the canonical
@@ -248,12 +253,12 @@ function resolveProjectCredentials(options: {
   return {
     projectId:
       options.projectId ??
-      process.env[envFor("PROJECT", "ID")] ??
-      process.env.PROJECT_ID,
+      envValue(envFor("PROJECT", "ID")) ??
+      envValue("PROJECT_ID"),
     projectSecret:
       options.projectSecret ??
-      process.env[envFor("PROJECT", "SECRET")] ??
-      process.env.PROJECT_SECRET,
+      envValue(envFor("PROJECT", "SECRET")) ??
+      envValue("PROJECT_SECRET"),
   };
 }
 

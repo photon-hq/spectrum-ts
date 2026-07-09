@@ -924,11 +924,23 @@ export interface SpectrumLike<
 // Platform — the callable returned by definePlatform()
 // ---------------------------------------------------------------------------
 
+// Every string-leaf config field falls back to `SPECTRUM_<PLATFORM>_<KEY>` at
+// runtime (see `envAwareConfig`), so any declared field may be omitted and
+// supplied by the environment instead. `ConfigInput` reflects that by making the
+// top-level input keys optional. The conditional distributes over unions so a
+// `direct | cloud` config input isn't collapsed to its shared keys.
+type ConfigInput<Def extends AnyPlatformDef> =
+  z.input<Def["config"]> extends infer Input
+    ? Input extends unknown
+      ? { [K in keyof Input]?: Input[K] }
+      : never
+    : never;
+
 export interface Platform<Def extends AnyPlatformDef> {
   config(
-    ...args: Record<string, never> extends z.input<Def["config"]>
-      ? [config?: z.input<Def["config"]>]
-      : [config: z.input<Def["config"]>]
+    ...args: Record<string, never> extends ConfigInput<Def>
+      ? [config?: ConfigInput<Def>]
+      : [config: ConfigInput<Def>]
   ): PlatformProviderConfig<Def>;
   is(input: Message): input is PlatformMessage<Def>;
   is(input: Space): input is PlatformSpace<Def>;

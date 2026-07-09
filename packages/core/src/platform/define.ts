@@ -4,6 +4,7 @@ import type { FusorClient, FusorMessages } from "../fusor/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { ProjectData } from "../utils/cloud";
+import { envAwareConfig } from "../utils/env";
 import { UnsupportedError } from "../utils/errors";
 import { classifyIdentifier as classifySingle } from "../utils/identifier";
 import type { Store } from "../utils/store";
@@ -506,7 +507,8 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
   };
   type Def = AnyPlatformDef;
 
-  const fullDef = { ...def, name };
+  // Every string-leaf config field falls back to `SPECTRUM_<PLATFORM>_<KEY>`
+  const fullDef = { ...def, name, config: envAwareConfig(name, def.config) };
 
   const platformCache = new WeakMap<SpectrumLike, PlatformInstance<Def>>();
 

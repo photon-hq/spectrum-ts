@@ -61,7 +61,16 @@ Find your `PROJECT_ID` and `SECRET_KEY` in your project **Settings** on the [das
 You can pass these to `Spectrum(...)` directly, or omit them and let Spectrum
 read `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET` from the environment.
 The same explicit-wins-over-env fallback applies to `webhookSecret` (`SPECTRUM_WEBHOOK_SECRET`)
-and to each provider's credentials — see the provider setup pages for the per-field env var names.
+and to every provider's config.
+
+Provider config fallbacks are automatic and convention-based: any text config
+field can be supplied through the environment as `SPECTRUM_<PLATFORM>_<FIELD>`,
+where `<PLATFORM>` is the provider's id upper-cased (spaces and punctuation become
+`_`) and `<FIELD>` is the config key in `UPPER_SNAKE_CASE`. For example
+Telegram's `botToken` reads from `SPECTRUM_TELEGRAM_BOT_TOKEN`, and WhatsApp
+Business's `phoneNumberId` reads from `SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID`.
+Explicit config always wins over the environment — see the provider setup pages
+for each field's env var name.
 
 ### Run your first app
 

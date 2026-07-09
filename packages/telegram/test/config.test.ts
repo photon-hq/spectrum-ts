@@ -1,5 +1,14 @@
+import { envAwareConfig } from "@spectrum-ts/core/authoring";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { configSchema, DEFAULT_BASE_URL } from "@/config";
+import {
+  DEFAULT_BASE_URL,
+  configSchema as rawConfigSchema,
+  TELEGRAM_PLATFORM,
+} from "@/config";
+
+// `definePlatform` applies the env fallback from the platform id; mirror that
+// here so the test exercises the same `SPECTRUM_TELEGRAM_*` resolution.
+const configSchema = envAwareConfig(TELEGRAM_PLATFORM, rawConfigSchema);
 
 const BOT_TOKEN = "SPECTRUM_TELEGRAM_BOT_TOKEN";
 const WEBHOOK_SECRET = "SPECTRUM_TELEGRAM_WEBHOOK_SECRET";

@@ -1,12 +1,4 @@
-import { envFor, fromEnv } from "@spectrum-ts/core/authoring";
 import z from "zod";
-
-/**
- * Scoped env-var fallback for a Telegram config field. Each field falls back to
- * `SPECTRUM_TELEGRAM_<KEY>` when omitted (an explicit config value always wins).
- */
-const env = <T extends z.ZodType>(key: string, schema: T) =>
-  fromEnv(envFor("TELEGRAM", key), schema);
 
 /**
  * The platform identifier — used for ALL THREE of:
@@ -45,12 +37,9 @@ export const configSchema = z.object({
    * Bot token from @BotFather (outbound API calls + media downloads). Falls back
    * to `SPECTRUM_TELEGRAM_BOT_TOKEN` when omitted (explicit config wins).
    */
-  botToken: env(
-    "BOT_TOKEN",
-    z
-      .string()
-      .regex(BOT_TOKEN_PATTERN, "botToken must be in the form '<id>:<token>'")
-  ),
+  botToken: z
+    .string()
+    .regex(BOT_TOKEN_PATTERN, "botToken must be in the form '<id>:<token>'"),
   /**
    * The `secret_token` passed to `setWebhook`. When present, inbound webhooks
    * are verified against the `X-Telegram-Bot-Api-Secret-Token` header; when
@@ -58,15 +47,12 @@ export const configSchema = z.object({
    * this shared token is the only inbound authentication. Falls back to
    * `SPECTRUM_TELEGRAM_WEBHOOK_SECRET` when omitted.
    */
-  webhookSecret: env(
-    "WEBHOOK_SECRET",
-    z.string().regex(SECRET_TOKEN_PATTERN).optional()
-  ),
+  webhookSecret: z.string().regex(SECRET_TOKEN_PATTERN).optional(),
   /**
    * Override the Bot API base URL. Precedence is explicit config >
    * `SPECTRUM_TELEGRAM_BASE_URL` > the `https://api.telegram.org` default.
    */
-  baseUrl: env("BASE_URL", z.url().default(DEFAULT_BASE_URL)),
+  baseUrl: z.url().default(DEFAULT_BASE_URL),
 });
 
 export type TelegramConfig = z.infer<typeof configSchema>;

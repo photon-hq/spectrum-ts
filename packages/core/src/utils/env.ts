@@ -51,11 +51,10 @@ export const fromEnv = <T extends z.ZodType>(envKey: string, schema: T) =>
  * the adapters used by hand — `"telegram"` → `TELEGRAM`,
  * `"WhatsApp Business"` → `WHATSAPP_BUSINESS`, `"Slack"` → `SLACK`.
  */
+const NON_ALPHANUMERIC_RUN = /[^A-Z0-9]+/;
+
 export const normalizePlatformName = (name: string): string =>
-  name
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+  name.toUpperCase().split(NON_ALPHANUMERIC_RUN).filter(Boolean).join("_");
 
 // Split camelCase (and digit boundaries) so a config key becomes its
 // UPPER_SNAKE env suffix i.e `botToken` → `BOT_TOKEN`, `phoneNumberId` →

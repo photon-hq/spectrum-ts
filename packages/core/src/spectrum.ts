@@ -241,24 +241,16 @@ function envValue(key: string): string | undefined {
 }
 
 // Resolve project credentials, falling back to env vars when an option is
-// omitted (an explicit option always wins). Precedence is
-// explicit option > `SPECTRUM_PROJECT_ID` > `PROJECT_ID`: the canonical
-// `SPECTRUM_`-prefixed name is preferred, but the unprefixed `PROJECT_ID` /
-// `PROJECT_SECRET` are still honored for backwards compatibility with the
-// dashboard's `.env` snippet and existing projects that already set them.
+// omitted (an explicit option always wins). Kept out of Spectrum() to hold the
+// factory under the cognitive-complexity cap.
 function resolveProjectCredentials(options: {
   projectId?: string;
   projectSecret?: string;
 }): { projectId: string | undefined; projectSecret: string | undefined } {
   return {
-    projectId:
-      options.projectId ??
-      envValue(envFor("PROJECT", "ID")) ??
-      envValue("PROJECT_ID"),
+    projectId: options.projectId ?? envValue(envFor("PROJECT", "ID")),
     projectSecret:
-      options.projectSecret ??
-      envValue(envFor("PROJECT", "SECRET")) ??
-      envValue("PROJECT_SECRET"),
+      options.projectSecret ?? envValue(envFor("PROJECT", "SECRET")),
   };
 }
 

@@ -5,16 +5,7 @@ import { Spectrum } from "@/spectrum";
 
 const PROJECT_ID = "SPECTRUM_PROJECT_ID";
 const PROJECT_SECRET = "SPECTRUM_PROJECT_SECRET";
-// Legacy unprefixed names emitted by the dashboard's `.env` snippet — still
-// honored for backwards compatibility.
-const LEGACY_PROJECT_ID = "PROJECT_ID";
-const LEGACY_PROJECT_SECRET = "PROJECT_SECRET";
-const ENV_KEYS = [
-  PROJECT_ID,
-  PROJECT_SECRET,
-  LEGACY_PROJECT_ID,
-  LEGACY_PROJECT_SECRET,
-];
+const ENV_KEYS = [PROJECT_ID, PROJECT_SECRET];
 
 const getProject = stubCloud();
 
@@ -48,26 +39,6 @@ describe("Spectrum() project credential env fallback", () => {
 
     const app = await Spectrum({ providers: [provider()] });
     expect(getProject).toHaveBeenCalledWith("env-id", "env-secret");
-    await app.stop();
-  });
-
-  it("resolves credentials from the legacy unprefixed env vars", async () => {
-    process.env[LEGACY_PROJECT_ID] = "legacy-id";
-    process.env[LEGACY_PROJECT_SECRET] = "legacy-secret";
-
-    const app = await Spectrum({ providers: [provider()] });
-    expect(getProject).toHaveBeenCalledWith("legacy-id", "legacy-secret");
-    await app.stop();
-  });
-
-  it("prefers the SPECTRUM_-prefixed env vars over the legacy names", async () => {
-    process.env[PROJECT_ID] = "prefixed-id";
-    process.env[PROJECT_SECRET] = "prefixed-secret";
-    process.env[LEGACY_PROJECT_ID] = "legacy-id";
-    process.env[LEGACY_PROJECT_SECRET] = "legacy-secret";
-
-    const app = await Spectrum({ providers: [provider()] });
-    expect(getProject).toHaveBeenCalledWith("prefixed-id", "prefixed-secret");
     await app.stop();
   });
 
@@ -120,17 +91,6 @@ describe("Spectrum() project credential env fallback", () => {
 
     const app = await Spectrum({ providers: [provider()] });
     expect(getProject).not.toHaveBeenCalled();
-    await app.stop();
-  });
-
-  it("falls through an empty prefixed env var to the legacy name", async () => {
-    process.env[PROJECT_ID] = "";
-    process.env[PROJECT_SECRET] = "";
-    process.env[LEGACY_PROJECT_ID] = "legacy-id";
-    process.env[LEGACY_PROJECT_SECRET] = "legacy-secret";
-
-    const app = await Spectrum({ providers: [provider()] });
-    expect(getProject).toHaveBeenCalledWith("legacy-id", "legacy-secret");
     await app.stop();
   });
 });

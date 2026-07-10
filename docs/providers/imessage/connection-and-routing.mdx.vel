@@ -16,7 +16,7 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
     imessage.config();
     ```
 
-    Tokens are renewed automatically at 80% of their TTL. Requires `projectId` and `projectSecret` on the `Spectrum()` call:
+    With automatic discovery, tokens are renewed at 80% of their TTL. This requires `projectId` and `projectSecret` on the `Spectrum()` call:
 
     ```ts
     const app = await Spectrum({
@@ -25,6 +25,18 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
       providers: [imessage.config()],
     });
     ```
+
+    Spectrum discovers all cloud lines owned by the project and renews their tokens automatically. For advanced routing, you can instead provide a subset of the project's cloud clients:
+
+    ```ts
+    imessage.config({
+      clients: [
+        { address: "line-1.imsg.photon.codes:443", token: "your-token", phone: "+15551111111" },
+      ],
+    });
+    ```
+
+    Explicit clients let you control which cloud-owned lines this SDK instance subscribes to. They are still cloud mode. Their tokens are not renewed by the SDK, so you are responsible for keeping them current; most applications should use automatic discovery.
   </Tab>
   <Tab title="Local">
     Reads the macOS Messages SQLite database directly. No network. Good for development on your own Mac.
@@ -37,20 +49,6 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
       Local mode only supports sending text and attachments. Reactions, typing indicators, threaded replies, group creation, chat backgrounds, chat renaming, group avatars (setting and reading), and group membership (management and listing) are not available.
     </Note>
   </Tab>
-  <Tab title="Dedicated">
-    Connect directly to one or more iMessage gRPC endpoints with your own tokens. Use this when you're running your own iMessage relay and want to skip cloud auth. Each entry must include the `phone` number the instance serves, so Spectrum can route messages through the right number:
-
-    ```ts
-    imessage.config({
-      clients: [
-        { address: "instance-1.example.com:443", token: "your-token", phone: "+15551111111" },
-        { address: "instance-2.example.com:443", token: "your-token", phone: "+15552222222" },
-      ],
-    });
-    ```
-
-    Multiple clients route messages based on the phone number associated with each space.
-  </Tab>
 </Tabs>
 
 ## Line model
@@ -62,10 +60,10 @@ Cloud mode routes your messages through phone numbers, also called lines, provis
 | **Free / Pro** | **Shared pool.** Each end user is routed through a number from a shared pool. | A normal iMessage from a number that may differ across recipients. | No group creation or inbound group-change events. |
 | **Business** | **Dedicated.** All end users text the same number, which belongs to your project. | A normal iMessage, always from the same number. | Group creation and inbound group-change events are supported. |
 
-DM delivery is identical in both modes. The developer-facing differences are sender-number allocation and group support.
+DM delivery is identical across both cloud line models. The developer-facing differences are sender-number allocation and group support.
 
 <Warning>
-  Shared-pool mode does not create group chats and does not subscribe to iMessage's group-event stream. Changes such as adding or removing a member, leaving, renaming the chat, or changing its avatar will not appear on `app.messages`. Use a Business dedicated line or your own dedicated relay when your integration depends on group workflows.
+  Shared-pool mode does not create group chats and does not subscribe to iMessage's group-event stream. Changes such as adding or removing a member, leaving, renaming the chat, or changing its avatar will not appear on `app.messages`. Use a Business dedicated line when your integration depends on group workflows.
 </Warning>
 
 ### Auto-scale
@@ -73,7 +71,7 @@ DM delivery is identical in both modes. The developer-facing differences are sen
 When traffic to a dedicated line approaches its per-line capacity, Spectrum can automatically provision an additional line so deliverability isn't affected. Auto-scale is an opt-in feature on the Business plan. Enable it in your project settings if you'd rather not get paged when a line saturates.
 
 <Note>
-  These are managed Spectrum Cloud features. If you're on the open-source path (`imessage.config({ local: true })` or your own dedicated relay), you provide your own iCloud account and managed-line concepts don't apply.
+  These are Spectrum Cloud features. In local mode (`imessage.config({ local: true })`), you provide your own iCloud account and managed-line concepts do not apply.
 </Note>
 
 ## Quotas
@@ -150,7 +148,7 @@ To look up an existing conversation by its chat GUID, use `space.get(id)`:
 const existing = await im.space.get("any;-;+15551111111");
 ```
 
-DM creation works in cloud and dedicated modes. Local mode can construct a deterministic DM reference, but it cannot create a group because the local Messages database does not expose chat creation.
+DM creation works in cloud mode. Local mode can construct a deterministic DM reference, but it cannot create a group because the local Messages database does not expose chat creation.
 
 Group creation requires a dedicated line. In shared-pool mode, passing multiple users to `space.create()` throws an `UnsupportedError`. You can use `space.get(chatGuid)` to reference an existing group, but shared mode still does not receive membership or metadata changes from the group-event stream.
 

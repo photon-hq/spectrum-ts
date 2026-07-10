@@ -9,7 +9,7 @@ Providers plug into Spectrum's type system and runtime. Each provider exports a 
 
 <CardGroup cols={2}>
   <Card title="iMessage" icon="comment" href="/spectrum-ts/providers/imessage">
-    Connect through local, cloud, or dedicated modes. Use tapbacks, typing indicators, threaded replies, DMs, and groups.
+    Connect through cloud or local mode. Use tapbacks, typing indicators, threaded replies, DMs, and groups.
   </Card>
   <Card title="Terminal" icon="terminal" href="/spectrum-ts/providers/terminal">
     Run a local chat interface for development, testing, and CLI-style agents.

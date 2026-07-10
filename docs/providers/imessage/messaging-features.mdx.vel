@@ -58,7 +58,7 @@ await space.rename("Book Club");
 await space.send(rename("Book Club"));
 ```
 
-Renaming requires cloud or dedicated mode and only works on group chats. In local mode or on a DM, `rename()` throws an `UnsupportedError`.
+Renaming requires cloud mode and only works on group chats. In local mode or on a DM, `rename()` throws an `UnsupportedError`.
 
 ## Group avatars
 
@@ -86,7 +86,7 @@ if (icon) {
 }
 ```
 
-Group avatars require cloud or dedicated mode and only work on group chats. In local mode or on a DM, `avatar()` and `getAvatar()` throw an `UnsupportedError`.
+Group avatars require cloud mode and only work on group chats. In local mode or on a DM, `avatar()` and `getAvatar()` throw an `UnsupportedError`.
 
 ## Group membership
 
@@ -123,11 +123,11 @@ for (const member of detailed) {
 }
 ```
 
-Membership management requires cloud or dedicated mode and only works on group chats. In local mode or on a DM it throws an `UnsupportedError` — a DM cannot be converted into a group, so to add someone to a 1:1 conversation, create a group with `space.create` instead. `getMembers()` has the same constraints: a DM has no roster to list.
+Membership management requires cloud mode and only works on group chats. In local mode or on a DM it throws an `UnsupportedError` — a DM cannot be converted into a group, so to add someone to a 1:1 conversation, create a group with `space.create` instead. `getMembers()` has the same constraints: a DM has no roster to list.
 
 ## Inbound group events
 
-Inbound group events require a dedicated line: either a Business line managed by Spectrum Cloud or a client configured with your own dedicated relay. Group changes made by other members then arrive as inbound messages on `app.messages`, carrying the same content types you send:
+Inbound group events require a dedicated cloud line, available on the Business plan. Group changes made by other members then arrive as inbound messages on `app.messages`, carrying the same content types you send:
 
 <Warning>
   Shared-pool and local modes do not subscribe to the group-event stream. Your app will not receive membership or group-metadata changes through `app.messages` in either mode. If you use `space.get(chatGuid)` to reference an existing group in shared mode, that reference does not enable group events.
@@ -203,7 +203,7 @@ Background UI may not appear in these cases:
 </Note>
 
 <Note>
-  Chat backgrounds require cloud or dedicated mode. In local mode, `background()` throws an `UnsupportedError`.
+  Chat backgrounds require cloud mode. In local mode, `background()` throws an `UnsupportedError`.
 </Note>
 
 <Note>
@@ -261,7 +261,7 @@ const sent = await space.send(customizedMiniApp({
 </AccordionGroup>
 
 <Note>
-  Mini-app cards require cloud or dedicated mode. In local mode, `customizedMiniApp()` throws an `UnsupportedError`.
+  Mini-app cards require cloud mode. In local mode, `customizedMiniApp()` throws an `UnsupportedError`.
 </Note>
 
 ## Native contact card sharing
@@ -289,7 +289,7 @@ Share the bot account's own iMessage contact card directly in a chat. Use `nativ
 This shares the bot's own contact card as it appears in iMessage. Recipients can tap it to save the contact. Use it in onboarding flows where you want users to add your bot to their contacts.
 
 <Note>
-  Native contact card sharing requires cloud or dedicated mode. In local mode, `nativeContactCard()` throws an `UnsupportedError`.
+  Native contact card sharing requires cloud mode. In local mode, `nativeContactCard()` throws an `UnsupportedError`.
 </Note>
 
 ## Fetching attachments
@@ -317,7 +317,7 @@ const att = await im.getAttachment("p:0/GUID", "+15559999999");
 When only one phone is configured, or in shared-pool mode, the phone parameter is optional.
 
 <Note>
-  `getAttachment` requires cloud or dedicated mode. In local mode it throws an `UnsupportedError`.
+  `getAttachment` requires cloud mode. In local mode it throws an `UnsupportedError`.
 </Note>
 
 ## Tapback constants

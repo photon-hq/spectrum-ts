@@ -127,7 +127,11 @@ Membership management requires cloud or dedicated mode and only works on group c
 
 ## Inbound group events
 
-In cloud or dedicated mode, group changes made by other members arrive as inbound messages on `app.messages` carrying the same content types you send — local mode drops them:
+Inbound group events require a dedicated line: either a Business line managed by Spectrum Cloud or a client configured with your own dedicated relay. Group changes made by other members then arrive as inbound messages on `app.messages`, carrying the same content types you send:
+
+<Warning>
+  Shared-pool and local modes do not subscribe to the group-event stream. Your app will not receive membership or group-metadata changes through `app.messages` in either mode. If you use `space.get(chatGuid)` to reference an existing group in shared mode, that reference does not enable group events.
+</Warning>
 
 | Someone… | `content.type` | `message.sender` |
 |---|---|---|
@@ -151,7 +155,7 @@ Semantics to rely on:
 - `message.sender` may be `undefined` — Apple does not always record the actor. The affected member is always present (in `members`, or as the sender for `leaveSpace`).
 - The agent's own actions never echo back: `space.add(...)`, `space.rename(...)`, and friends are suppressed from the inbound stream, matching how self-sent messages behave.
 - Icon-change events carry a snapshot of the icon fetched at event time; an icon that was already replaced or removed by then is skipped (the follow-up event carries the current state).
-- Group events ride the same durable catch-up log as messages and polls, so changes that happen while the app is down are replayed on reconnect. After a cursor gap, reconcile with `space.getMembers()` / `space.getAvatar()`.
+- On dedicated lines, group events ride the same durable catch-up log as messages and polls, so changes that happen while the app is down are replayed on reconnect. After a cursor gap, reconcile with `space.getMembers()` / `space.getAvatar()`.
 
 ## Chat backgrounds
 

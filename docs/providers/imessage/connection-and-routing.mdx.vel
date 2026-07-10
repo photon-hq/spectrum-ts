@@ -10,7 +10,7 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
 
 <Tabs>
   <Tab title="Cloud (default)">
-    Authenticates with Spectrum Cloud and connects to managed iMessage infrastructure via gRPC. Full feature set: send, receive, typing, reactions, replies, and group creation.
+    Authenticates with Spectrum Cloud and connects to managed iMessage infrastructure via gRPC. Supports sending, receiving, typing indicators, reactions, and replies. Group creation and inbound group-change events require a dedicated line.
 
     ```ts
     imessage.config();
@@ -57,12 +57,16 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
 
 Cloud mode routes your messages through phone numbers, also called lines, provisioned by Spectrum. Which lines you get depends on your plan, and the difference is mostly invisible to end users.
 
-| Plan | Line allocation | What end users see |
-|---|---|---|
-| **Free / Pro** | **Shared pool.** Each of your end users is routed through a different number from a shared pool. | A normal iMessage from a number that may differ across recipients. |
-| **Business** | **Dedicated.** All of your end users text the same number, which belongs to your project. | A normal iMessage, always from the same number. |
+| Plan | Line allocation | What end users see | Group support |
+|---|---|---|---|
+| **Free / Pro** | **Shared pool.** Each end user is routed through a number from a shared pool. | A normal iMessage from a number that may differ across recipients. | No group creation or inbound group-change events. |
+| **Business** | **Dedicated.** All end users text the same number, which belongs to your project. | A normal iMessage, always from the same number. | Group creation and inbound group-change events are supported. |
 
-End-user delivery is identical in both modes. The distinction is which number sends.
+DM delivery is identical in both modes. The developer-facing differences are sender-number allocation and group support.
+
+<Warning>
+  Shared-pool mode does not create group chats and does not subscribe to iMessage's group-event stream. Changes such as adding or removing a member, leaving, renaming the chat, or changing its avatar will not appear on `app.messages`. Use a Business dedicated line or your own dedicated relay when your integration depends on group workflows.
+</Warning>
 
 ### Auto-scale
 
@@ -135,7 +139,7 @@ const bob = await im.user("+15552222222");
 const dm = await im.space.create(alice);
 await dm.send("Hi Alice");
 
-// Group
+// Group (dedicated lines only)
 const group = await im.space.create([alice, bob]);
 await group.send("Welcome to the group.");
 ```
@@ -146,7 +150,9 @@ To look up an existing conversation by its chat GUID, use `space.get(id)`:
 const existing = await im.space.get("any;-;+15551111111");
 ```
 
-Space creation requires cloud or dedicated mode. In local mode `space.create()` throws because the local Messages database doesn't expose chat creation. Shared mode cannot create group chats. Use a dedicated number, or `space.get(chatGuid)` for an existing group.
+DM creation works in cloud and dedicated modes. Local mode can construct a deterministic DM reference, but it cannot create a group because the local Messages database does not expose chat creation.
+
+Group creation requires a dedicated line. In shared-pool mode, passing multiple users to `space.create()` throws an `UnsupportedError`. You can use `space.get(chatGuid)` to reference an existing group, but shared mode still does not receive membership or metadata changes from the group-event stream.
 
 ### Per-phone routing
 

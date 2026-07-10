@@ -24,6 +24,7 @@ import {
   type RemoteClient,
   SHARED_PHONE,
 } from "../types";
+import { isSharedMode } from "./client";
 import { getContactShareTracker } from "./contact-share";
 import {
   groupEventActor,
@@ -307,14 +308,21 @@ const clientStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
   phone: string,
+  includeGroupEvents: boolean,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
-): ManagedStream<IMessageMessage> =>
-  mergeStreams([
+): ManagedStream<IMessageMessage> => {
+  const streams: ManagedStream<IMessageMessage>[] = [
     messageStream(client, phone, onInbound, recover),
     pollStream(client, pollCache, phone, recover),
-    groupStream(client, phone, recover),
-  ]);
+  ];
+
+  if (includeGroupEvents) {
+    streams.push(groupStream(client, phone, recover));
+  }
+
+  return mergeStreams(streams);
+};
 
 export const messages = (
   clients: RemoteClient[],
@@ -331,6 +339,7 @@ export const messages = (
   // return undefined (nothing to refresh). Shared across this client array's
   // streams so the message + poll loops coalesce onto one re-mint.
   const recover = getCloudRecover(clients);
+  const includeGroupEvents = !isSharedMode(clients);
   return mergeStreams(
     clients.map((entry) => {
       const tracker = shareEnabled
@@ -340,6 +349,7 @@ export const messages = (
         entry.client,
         pollCache,
         entry.phone,
+        includeGroupEvents,
         tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
         recover
       );

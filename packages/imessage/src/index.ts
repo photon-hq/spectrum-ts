@@ -172,7 +172,7 @@ const handleEdit = async (
         remote,
         space.id,
         miniAppCardSession,
-        toSpectrumMiniApp(url, layout)
+        toSpectrumMiniApp(url, layout, content.content.live)
       )
     );
     updateMiniAppCardSession(record);
@@ -326,7 +326,7 @@ const handleApp = async (
     await remoteSendCustomizedMiniApp(
       remote,
       space.id,
-      toSpectrumMiniApp(url, layout)
+      toSpectrumMiniApp(url, layout, content.live)
     )
   );
 };

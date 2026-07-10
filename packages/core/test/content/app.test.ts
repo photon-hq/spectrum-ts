@@ -25,8 +25,11 @@ vi.doMock("@/utils/link-metadata", () => ({ fetchLinkMetadata, fetchImage }));
 
 const { app } = await import("@/content/app");
 
-const buildApp = async (url: Parameters<typeof app>[0]) => {
-  const content = await app(url).build();
+const buildApp = async (
+  url: Parameters<typeof app>[0],
+  options?: Parameters<typeof app>[1]
+) => {
+  const content = await app(url, options).build();
   if (content.type !== "app") {
     throw new Error(`expected app content, got ${content.type}`);
   }
@@ -51,6 +54,16 @@ describe("app content — consumable url", () => {
     expect(await content.url()).toBe("https://example.com/x");
     expect(await content.url()).toBe("https://example.com/x");
     expect(thunk).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports an optional live rendering hint", async () => {
+    const liveContent = await buildApp("https://example.com/live", {
+      live: true,
+    });
+    const defaultContent = await buildApp("https://example.com/default");
+
+    expect(liveContent.live).toBe(true);
+    expect(defaultContent).not.toHaveProperty("live");
   });
 });
 

@@ -23,12 +23,14 @@ const MINI_APP_SESSION: MiniAppCardSession = {
 // network (the real `app()` would parse the layout from the URL).
 const appContent = (
   url: string,
-  layout: Record<string, unknown> = { caption: "Store", subcaption: "Hi" }
+  layout: Record<string, unknown> = { caption: "Store", subcaption: "Hi" },
+  live?: boolean
 ): Content =>
   ({
     type: "app",
     url: () => Promise.resolve(url),
     layout: () => Promise.resolve(layout),
+    ...(live === undefined ? {} : { live }),
   }) as unknown as Content;
 
 const def = imessage.config({}).__definition;
@@ -93,6 +95,27 @@ describe("iMessage send: app dispatch", () => {
     expect(record?.timestamp).toEqual(SENT_DATE);
   });
 
+  it("renders a live Spectrum mini-app card when requested", async () => {
+    const sendCustomizedMiniApp = vi.fn((_chat: string, _content: unknown) =>
+      Promise.resolve(miniAppResult())
+    );
+
+    await def.send({
+      ...ctx,
+      client: remoteClient({ sendCustomizedMiniApp }),
+      space: { id: "any;-;+15550123", type: "dm", phone: SHARED_PHONE },
+      content: appContent("https://x.example/live", { caption: "Live" }, true),
+    });
+
+    const [, sent] = sendCustomizedMiniApp.mock.calls[0] ?? [];
+    expect(sent).toMatchObject({
+      ...SPECTRUM_MINI_APP,
+      url: "https://x.example/live",
+      layout: { caption: "Live" },
+      live: true,
+    });
+  });
+
   it("updates a Spectrum mini-app card via edit(app(...), message)", async () => {
     const updatedSession = { ...MINI_APP_SESSION, sessionId: "session-2" };
     const updateCustomizedMiniApp = vi.fn(
@@ -114,7 +137,7 @@ describe("iMessage send: app dispatch", () => {
       content: {
         type: "edit",
         target: target as never,
-        content: appContent("https://x.example/2", { caption: "New" }),
+        content: appContent("https://x.example/2", { caption: "New" }, true),
       } as never,
     });
 
@@ -125,8 +148,8 @@ describe("iMessage send: app dispatch", () => {
       ...SPECTRUM_MINI_APP,
       url: "https://x.example/2",
       layout: { caption: "New" },
+      live: true,
     });
-    expect(sent).not.toHaveProperty("live");
     expect(target.miniAppCardSession).toEqual(updatedSession);
   });
 

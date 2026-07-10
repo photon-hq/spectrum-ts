@@ -20,11 +20,17 @@ export const SPECTRUM_MINI_APP = {
 
 /**
  * Build the iMessage mini-app card for an `app` content: Spectrum's fixed
- * identity plus the per-message `url` and the `layout` already derived from the
- * URL's link metadata.
+ * identity plus the per-message `url`, optional live-rendering hint, and the
+ * `layout` already derived from the URL's link metadata.
  */
 export const toSpectrumMiniApp = (
   url: string,
-  layout: AppLayout
+  layout: AppLayout,
+  live?: boolean
 ): CustomizedMiniApp =>
-  asCustomizedMiniApp({ ...SPECTRUM_MINI_APP, url, layout });
+  asCustomizedMiniApp({
+    ...SPECTRUM_MINI_APP,
+    url,
+    layout,
+    ...(live === undefined ? {} : { live }),
+  });

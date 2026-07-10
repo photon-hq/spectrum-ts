@@ -1,6 +1,7 @@
 export {
   type App,
   type AppLayout,
+  type AppOptions,
   type AppUrl,
   app,
   appLayoutSchema,

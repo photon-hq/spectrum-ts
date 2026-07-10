@@ -70,6 +70,9 @@ export const appSchema = z.object({
   type: z.literal("app"),
   url: urlAccessor,
   layout: layoutAccessor,
+  // Rendering hint for platforms with an installed app extension. Platforms
+  // without a live app surface ignore it and keep their existing URL fallback.
+  live: z.boolean().optional(),
 });
 
 export type App = z.infer<typeof appSchema>;
@@ -83,6 +86,12 @@ export type AppUrl =
   | string
   | Promise<string>
   | (() => string | Promise<string>);
+
+/** Optional rendering behavior for an app card. */
+export interface AppOptions {
+  /** Render the installed app extension's live UI when the platform supports it. */
+  live?: boolean;
+}
 
 const memoize = <T>(factory: () => Promise<T>): (() => Promise<T>) => {
   let cached: Promise<T> | undefined;
@@ -157,7 +166,7 @@ const buildLayout = (
  * across `url()` / `layout()`; fetch / parse failures resolve to a host-only
  * caption (no throw, no retry).
  */
-export const asApp = (url: AppUrl): App => {
+export const asApp = (url: AppUrl, options: AppOptions = {}): App => {
   const getUrl = resolveUrl(url);
   const getMetadata = memoize(async () => fetchLinkMetadata(await getUrl()));
   const getLayout = memoize(async (): Promise<AppLayout> => {
@@ -175,11 +184,22 @@ export const asApp = (url: AppUrl): App => {
     return buildLayout(metadata, resolvedUrl, image);
   });
 
-  return appSchema.parse({ type: "app", url: getUrl, layout: getLayout });
+  return appSchema.parse({
+    type: "app",
+    url: getUrl,
+    layout: getLayout,
+    ...options,
+  });
 };
 
-export function app(url: AppUrl): ContentBuilder {
+/**
+ * Construct an app card from a URL.
+ *
+ * Pass `{ live: true }` to ask supported platforms to render the installed
+ * app extension's live UI. Other platforms retain their normal URL fallback.
+ */
+export function app(url: AppUrl, options: AppOptions = {}): ContentBuilder {
   return {
-    build: async () => asApp(url),
+    build: async () => asApp(url, options),
   };
 }

@@ -17,14 +17,16 @@
  * Requires `bun run build` to have run first (dist/ must exist).
  */
 
-import { readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "bun";
 import { CORE_NAME, META_NAME, publishablePackages } from "./packages";
 
 const TEMP = ".clean-publish-tmp";
+const PACKED_IMPORT_TEMP = ".packed-import-tmp";
 const errors: string[] = [];
 const CLOUD_IMESSAGE_NAME = "@spectrum-ts/imessage";
+const LOCAL_IMESSAGE_NAME = "@spectrum-ts/imessage-local";
 const FORBIDDEN_CLOUD_IMESSAGE_IMPORTS = [
   "@photon-ai/imessage-kit",
   "better-sqlite3",
@@ -80,7 +82,9 @@ const pkgs = await publishablePackages();
 for (const pkg of pkgs) {
   const name = pkg.json.name;
   const cleanedDir = join(pkg.dir, TEMP);
+  const packedImportDir = join(pkg.dir, PACKED_IMPORT_TEMP);
   await rm(cleanedDir, { recursive: true, force: true });
+  await rm(packedImportDir, { recursive: true, force: true });
   try {
     await run(
       [
@@ -114,11 +118,25 @@ for (const pkg of pkgs) {
       ["bunx", "@arethetypeswrong/cli", "--pack", ".", "--profile", "esm-only"],
       cleanedDir
     );
+
+    if (name === LOCAL_IMESSAGE_NAME) {
+      const scopeDir = join(packedImportDir, "node_modules", "@spectrum-ts");
+      await mkdir(scopeDir, { recursive: true });
+      await symlink(cleanedDir, join(scopeDir, "imessage-local"), "dir");
+      const importExpression = `await import("${LOCAL_IMESSAGE_NAME}")`;
+      await run(
+        ["node", "--input-type=module", "--eval", importExpression],
+        packedImportDir
+      );
+      await run(["bun", "--eval", importExpression], packedImportDir);
+      console.log(`✓ ${name}: packaged exports import under Node + Bun`);
+    }
     console.log(`✓ ${name}: clean-publish output passes publint + attw`);
   } catch (error) {
     errors.push(`${name}: ${error instanceof Error ? error.message : error}`);
   } finally {
     await rm(cleanedDir, { recursive: true, force: true });
+    await rm(packedImportDir, { recursive: true, force: true });
   }
 
   if (name === CORE_NAME && process.env.SPECTRUM_PUBLISH === "1") {

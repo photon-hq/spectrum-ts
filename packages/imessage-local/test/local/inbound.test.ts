@@ -4,12 +4,13 @@ import { toMessages } from "@/local/inbound";
 
 const CREATED_AT = new Date(1_700_000_000_000);
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
+const DEFAULT_ATTACHMENT_SIZE_BYTES = 123;
 
 const attachment = (
   id: string,
   fileName: string,
   mimeType: string,
-  sizeBytes = 123
+  sizeBytes = DEFAULT_ATTACHMENT_SIZE_BYTES
 ): LocalIMessage["attachments"][number] =>
   ({
     fileName,
@@ -50,14 +51,14 @@ const summarize = (message: Awaited<ReturnType<typeof toMessages>>[number]) => {
         type: message.content.type,
       },
       id: message.id,
-      partIndex: (message as { partIndex?: number }).partIndex,
+      partIndex: message.partIndex,
     };
   }
 
   return {
     content: message.content,
     id: message.id,
-    partIndex: (message as { partIndex?: number }).partIndex,
+    partIndex: message.partIndex,
   };
 };
 

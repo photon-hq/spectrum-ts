@@ -22,7 +22,7 @@ const clientEntry = z.object({
   phone: z.string(),
 });
 
-export const configSchema = z.object({
+export const configSchema = z.strictObject({
   clients: clientEntry.or(z.array(clientEntry)).optional(),
 });
 

@@ -11,13 +11,13 @@ import {
 export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
   localMessages(client);
 
-export const send = async (
+export const send = (
   client: IMessageSDK,
   spaceId: string,
   content: Content
 ): Promise<ProviderMessageRecord> => sendLocalMessage(client, spaceId, content);
 
-export const getMessage = async (
+export const getMessage = (
   client: IMessageSDK,
   id: string
 ): Promise<IMessageMessage | undefined> => getLocalMessage(client, id);

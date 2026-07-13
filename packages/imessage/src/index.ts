@@ -493,7 +493,7 @@ export const imessage = definePlatform("iMessage", {
 
       if (!(projectId && projectSecret)) {
         throw new Error(
-          "iMessage requires projectId and projectSecret. Either pass credentials to Spectrum() or provide explicit client config: imessage.config({ clients: [...] })"
+          "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use its imessage.config()."
         );
       }
 

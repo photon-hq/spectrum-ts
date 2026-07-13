@@ -31,6 +31,7 @@ describe("iMessage package boundary", () => {
     const manifest = await readManifest("imessage");
 
     expect(manifest.dependencies).not.toHaveProperty("@photon-ai/imessage-kit");
+    expect(manifest.dependencies).not.toHaveProperty("better-sqlite3");
   });
 
   it("installs imessage-kit only with the explicit local provider", async () => {

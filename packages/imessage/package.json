@@ -1,7 +1,7 @@
 {
   "name": "@spectrum-ts/imessage",
   "version": "9.3.1",
-  "description": "Cloud iMessage provider for spectrum-ts.",
+  "description": "iMessage provider for spectrum-ts.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",

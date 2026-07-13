@@ -1,6 +1,6 @@
 # @spectrum-ts/imessage
 
-Cloud iMessage provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts), including tapbacks, special effects, polls, and mini-apps.
+iMessage provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts), including tapbacks, special effects, polls, and mini-apps.
 
 ## Install
 

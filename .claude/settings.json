@@ -86,8 +86,6 @@
     ]
   },
   "permissions": {
-    "deny": [
-      "Read(./.entire/metadata/**)"
-    ]
+    "deny": ["Read(./.entire/metadata/**)"]
   }
 }

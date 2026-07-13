@@ -27,7 +27,7 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
 
 1. Sign up at **[app.photon.codes](https://app.photon.codes)** to get your project ID and secret.
 2. Install the SDK (`spectrum-ts` is batteries-included — the runtime plus
-   every official provider):
+   the standard provider set):
 
    ```bash
    bun add spectrum-ts
@@ -42,7 +42,7 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
    const app = await Spectrum({
      projectId: process.env.PROJECT_ID,
      projectSecret: process.env.PROJECT_SECRET,
-     providers: [imessage.config()],
+     platforms: [imessage.config()],
    });
 
    for await (const [space, message] of app.messages) {
@@ -52,7 +52,7 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
    }
    ```
 
-Spectrum also runs fully standalone — you can connect to a local iMessage database, bring your own gRPC endpoints, or build your own platform provider. See the [docs](https://docs.photon.codes) for self-hosted setups.
+Spectrum also runs fully standalone — you can connect to a local iMessage database with the separate [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) package, bring your own gRPC endpoints, or build your own platform provider. See the [docs](https://docs.photon.codes) for self-hosted setups.
 
 ## Documentation
 
@@ -63,13 +63,14 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 | Platform | Package |
 |----------|---------|
 | iMessage | [`@spectrum-ts/imessage`](https://npmjs.com/package/@spectrum-ts/imessage) |
+| Local iMessage | [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) (explicit install only) |
 | WhatsApp Business | [`@spectrum-ts/whatsapp-business`](https://npmjs.com/package/@spectrum-ts/whatsapp-business) |
 | Telegram | [`@spectrum-ts/telegram`](https://npmjs.com/package/@spectrum-ts/telegram) |
 | Slack | [`@spectrum-ts/slack`](https://npmjs.com/package/@spectrum-ts/slack) |
 | Terminal | [`@spectrum-ts/terminal`](https://npmjs.com/package/@spectrum-ts/terminal) |
 | Custom   | `definePlatform` from `spectrum-ts` |
 
-`bun add spectrum-ts` is batteries-included (all providers). For a smaller install, depend on the runtime plus only the providers you use — `bun add @spectrum-ts/core @spectrum-ts/telegram` — and import from the scoped packages directly. Either way the `spectrum-ts/providers/<platform>` import paths work as long as the matching provider package is installed; if it isn't, the import fails at build/startup naming the exact package to add.
+`bun add spectrum-ts` is batteries-included (the standard provider set; local iMessage is an explicit install). For a smaller install, depend on the runtime plus only the providers you use — `bun add @spectrum-ts/core @spectrum-ts/telegram` — and import from the scoped packages directly. Either way the `spectrum-ts/providers/<platform>` import paths work as long as the matching provider package is installed; if it isn't, the import fails at build/startup naming the exact package to add.
 
 ## Issues
 

@@ -12,7 +12,7 @@ bun add spectrum-ts
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { telegram } from "spectrum-ts/providers/imessage";
+import { imessage } from "spectrum-ts/providers/imessage";
 
 const app = await Spectrum({
   platforms: [imessage.config()],
@@ -30,7 +30,7 @@ bun add @spectrum-ts/core @spectrum-ts/imessage
 
 ```ts
 import { Spectrum } from "@spectrum-ts/core";
-import { telegram } from "@spectrum-ts/imessage";
+import { imessage } from "@spectrum-ts/imessage";
 ```
 
 | Platform | Package |

@@ -42,6 +42,12 @@ describe("Spectrum() project credential env fallback", () => {
     await app.stop();
   });
 
+  it("accepts configured providers through the platforms option", async () => {
+    const app = await Spectrum({ platforms: [provider()] });
+    expect(app.__providers).toHaveLength(1);
+    await app.stop();
+  });
+
   it("lets explicit credentials win over env", async () => {
     process.env[PROJECT_ID] = "env-id";
     process.env[PROJECT_SECRET] = "env-secret";

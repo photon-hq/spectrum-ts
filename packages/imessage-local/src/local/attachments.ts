@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import type { Message as LocalIMessage } from "@photon-ai/imessage-kit";
 import { type Content, fromVCard } from "@spectrum-ts/core";
 import { asAttachment, asContact } from "@spectrum-ts/core/authoring";
-import { isVCardAttachment } from "../shared/vcard";
+import { isVCardAttachment } from "../../../imessage/src/shared/vcard";
 
 export const DEFAULT_ATTACHMENT_NAME = "attachment";
 

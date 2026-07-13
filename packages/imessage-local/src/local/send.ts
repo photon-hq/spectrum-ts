@@ -4,8 +4,8 @@ import { basename, join } from "node:path";
 import type { IMessageSDK } from "@photon-ai/imessage-kit";
 import { type Content, toVCard } from "@spectrum-ts/core";
 import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
-import { unsupportedLocalContent } from "../shared/errors";
-import { vcardFileName } from "../shared/vcard";
+import { unsupportedLocalContent } from "../../../imessage/src/shared/errors";
+import { vcardFileName } from "../../../imessage/src/shared/vcard";
 import type { IMessageMessage } from "../types";
 import { DEFAULT_ATTACHMENT_NAME } from "./attachments";
 

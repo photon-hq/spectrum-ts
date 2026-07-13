@@ -44,5 +44,5 @@ export const officialProviderInstallHint = (
   if (!pkg) {
     return;
   }
-  return `the "${platform}" platform is provided by the optional package ${pkg} — install it (\`${installCommand(pkg)}\`) and pass it to Spectrum({ providers: [...] })`;
+  return `the "${platform}" platform is provided by the optional package ${pkg} — install it (\`${installCommand(pkg)}\`) and pass it to Spectrum({ platforms: [...] })`;
 };

@@ -1,5 +1,4 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { addMember, leaveSpace, removeMember } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
@@ -10,7 +9,6 @@ import {
 } from "@/remote/members";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
 
-const LOCAL_MODE_ERROR = /local mode/;
 const GROUP_ONLY_ERROR = /only group chats/;
 const CREATE_GROUP_HINT = /space\.create/;
 
@@ -127,21 +125,6 @@ describe("iMessage send: membership dispatch", () => {
 
     expect(result).toBeUndefined();
     expect(leave).toHaveBeenCalledWith(GROUP_GUID);
-  });
-
-  it("is unsupported in local mode for all three ops", async () => {
-    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
-    const space = { id: DM_GUID, type: "dm", phone: SHARED_PHONE } as const;
-
-    for (const content of [
-      await addMember("+15550111").build(),
-      await removeMember("+15550111").build(),
-      await leaveSpace().build(),
-    ]) {
-      await expect(
-        def.send({ ...ctx, client: localClient, space, content })
-      ).rejects.toThrow(LOCAL_MODE_ERROR);
-    }
   });
 
   it("rejects DMs for all three ops", async () => {

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": [
+    "src",
+    "test",
+    "../imessage/src/content",
+    "../imessage/src/shared"
+  ],
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}

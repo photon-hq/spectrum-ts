@@ -3,7 +3,6 @@ import type {
   MiniAppCardSession,
   MiniAppMessageResult,
 } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { asCustomizedMiniApp } from "@/content/customized-mini-app";
@@ -220,25 +219,5 @@ describe("iMessage send: app dispatch", () => {
     expect(sent).toEqual(card);
     expect(sent).toMatchObject({ live: true });
     expect(record?.miniAppCardSession).toEqual(MINI_APP_SESSION);
-  });
-
-  it("degrades to a bare-url text message in local mode", async () => {
-    const send = vi.fn((_: unknown) => Promise.resolve());
-    const localClient = Object.assign(Object.create(IMessageSDK.prototype), {
-      send,
-    }) as IMessageSDK;
-
-    await def.send({
-      ...ctx,
-      client: localClient,
-      space: { id: "any;-;x", type: "dm", phone: SHARED_PHONE },
-      content: appContent("https://x.example/2"),
-    });
-
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]?.[0]).toMatchObject({
-      to: "any;-;x",
-      text: "https://x.example/2",
-    });
   });
 });

@@ -24,6 +24,11 @@ import { CORE_NAME, META_NAME, publishablePackages } from "./packages";
 
 const TEMP = ".clean-publish-tmp";
 const errors: string[] = [];
+const CLOUD_IMESSAGE_NAME = "@spectrum-ts/imessage";
+const FORBIDDEN_CLOUD_IMESSAGE_IMPORTS = [
+  "@photon-ai/imessage-kit",
+  "better-sqlite3",
+] as const;
 
 // Recursively list every .js file under a directory. The core build emits
 // nested output (dist/providers/<key>/index.js, chunk files), so a top-level
@@ -36,6 +41,22 @@ async function listJsFiles(root: string): Promise<string[]> {
     if (entry.isDirectory()) {
       out.push(...(await listJsFiles(full)));
     } else if (entry.isFile() && entry.name.endsWith(".js")) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+async function listPublishedCodeFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const full = join(root, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...(await listPublishedCodeFiles(full)));
+    } else if (
+      entry.isFile() &&
+      (entry.name.endsWith(".js") || entry.name.endsWith(".d.ts"))
+    ) {
       out.push(full);
     }
   }
@@ -108,6 +129,20 @@ for (const pkg of pkgs) {
         errors.push(
           `${name}: ${file.replace(`${pkg.dir}/`, "")} ships the development build-env ("local") in a publish build`
         );
+      }
+    }
+  }
+
+  if (name === CLOUD_IMESSAGE_NAME) {
+    const dist = join(pkg.dir, "dist");
+    for (const file of await listPublishedCodeFiles(dist)) {
+      const content = await readFile(file, "utf8");
+      for (const forbiddenImport of FORBIDDEN_CLOUD_IMESSAGE_IMPORTS) {
+        if (content.includes(forbiddenImport)) {
+          errors.push(
+            `${name}: ${file.replace(`${pkg.dir}/`, "")} contains forbidden local dependency ${forbiddenImport}`
+          );
+        }
       }
     }
   }

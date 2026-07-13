@@ -132,10 +132,28 @@
       "version": "9.3.1",
       "dependencies": {
         "@photon-ai/advanced-imessage": "^1.0.0",
-        "@photon-ai/imessage-kit": "^3.0.0",
         "@photon-ai/otel": "^3.1.0",
         "lru-cache": "^11.0.0",
         "marked": "^18.0.5",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@spectrum-ts/test-support": "workspace:*",
+        "@types/bun": "latest",
+        "tsdown": "^0.22.2",
+        "vitest": "^4.1.9",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^9.0.0",
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
+    "packages/imessage-local": {
+      "name": "@spectrum-ts/imessage-local",
+      "version": "9.3.1",
+      "dependencies": {
+        "@photon-ai/imessage-kit": "^3.0.0",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -527,6 +545,8 @@
     "@spectrum-ts/hono": ["@spectrum-ts/hono@workspace:packages/hono"],
 
     "@spectrum-ts/imessage": ["@spectrum-ts/imessage@workspace:packages/imessage"],
+
+    "@spectrum-ts/imessage-local": ["@spectrum-ts/imessage-local@workspace:packages/imessage-local"],
 
     "@spectrum-ts/slack": ["@spectrum-ts/slack@workspace:packages/slack"],
 

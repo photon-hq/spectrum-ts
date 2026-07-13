@@ -14,7 +14,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 // The runtime publishes first (every provider peer-deps it); the `spectrum-ts`
-// metapackage publishes last (it depends on the runtime and all providers).
+// metapackage publishes last (it depends on the runtime and its standard
+// batteries-included provider set).
 export const CORE_NAME = "@spectrum-ts/core";
 export const META_NAME = "spectrum-ts";
 

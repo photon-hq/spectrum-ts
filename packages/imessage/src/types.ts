@@ -1,5 +1,4 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
@@ -8,7 +7,7 @@ export interface RemoteClient {
   phone: string;
 }
 
-export type IMessageClient = IMessageSDK | RemoteClient[];
+export type IMessageClient = RemoteClient[];
 
 /**
  * Sentinel phone for shared-token mode. The single shared client serves an
@@ -17,28 +16,21 @@ export type IMessageClient = IMessageSDK | RemoteClient[];
  */
 export const SHARED_PHONE = "shared";
 
-export const isLocal = (client: IMessageClient): client is IMessageSDK =>
-  client instanceof IMessageSDK;
-
 const clientEntry = z.object({
   address: z.string(),
   token: z.string(),
   phone: z.string(),
 });
 
-export const configSchema = z.union([
-  z.object({ local: z.literal(true) }),
-  z.object({
-    local: z.literal(false).optional().default(false),
-    clients: clientEntry.or(z.array(clientEntry)).optional(),
-  }),
-]);
+export const configSchema = z.object({
+  clients: clientEntry.or(z.array(clientEntry)).optional(),
+});
 
 /**
  * iMessage sender identity. `id` is the cross-provider key (the address);
  * `address`/`country`/`service` mirror the SDK's `SingleServiceAddressInfo`,
- * letting apps tell iMessage from SMS/RCS. All optional — local mode and
- * actor-less events can't always supply them.
+ * letting apps tell iMessage from SMS/RCS. All optional because actor-less
+ * events cannot always supply them.
  */
 const SERVICE_VALUES = ["iMessage", "SMS", "RCS", "unknown"] as const;
 

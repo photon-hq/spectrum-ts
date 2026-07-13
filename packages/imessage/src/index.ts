@@ -1,10 +1,8 @@
 import {
   type AdvancedIMessage,
   createClient,
-  MessageEffect,
   type MiniAppCardSession,
 } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import { withSpan } from "@photon-ai/otel";
 import {
   type AddMember,
@@ -18,7 +16,6 @@ import {
   type Rename,
   type Space,
   type StreamText,
-  text,
   type Unsend,
   UnsupportedError,
 } from "@spectrum-ts/core";
@@ -55,11 +52,7 @@ import {
   type CustomizedMiniApp,
   isCustomizedMiniApp,
 } from "./content/customized-mini-app";
-import {
-  getMessage as localGetMessage,
-  messages as localMessages,
-  send as localSend,
-} from "./local/api";
+import { messageEffects } from "./content/effect";
 import {
   addParticipants as remoteAddParticipants,
   editMessage as remoteEditMessage,
@@ -100,7 +93,6 @@ import {
   configSchema,
   type IMessageClient,
   type IMessageMessage,
-  isLocal,
   messageSchema,
   SHARED_PHONE,
   spaceParamsSchema,
@@ -137,9 +129,6 @@ const handleEdit = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: Edit
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action("edit", "iMessage (local mode)");
-  }
   const miniAppCardSession = (
     content.target as unknown as { miniAppCardSession?: MiniAppCardSession }
   ).miniAppCardSession;
@@ -219,9 +208,6 @@ const handleUnsend = async (
   space: { id: string; phone: string },
   content: Unsend
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action("unsend", "iMessage (local mode)");
-  }
   if (isPollContent(content.target.content)) {
     // The SDK has no poll delete; mirrors the reply/react poll guards.
     throw UnsupportedError.action(
@@ -253,13 +239,6 @@ const handleStreamText = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "streamText",
-      "iMessage (local mode)",
-      "streaming text responses require remote iMessage"
-    );
-  }
   const remote = clientForPhone(client, space.phone);
   return cacheRemoteOutbound(
     remote,
@@ -273,13 +252,6 @@ const handleBackground = async (
   space: { id: string; phone: string },
   content: Background
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "background",
-      "iMessage (local mode)",
-      "chat backgrounds require remote iMessage"
-    );
-  }
   const remote = clientForPhone(client, space.phone);
   await remoteSetBackground(remote, space.id, content);
 };
@@ -289,13 +261,6 @@ const handleCustomizedMiniApp = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "customized-mini-app",
-      "iMessage (local mode)",
-      "mini app cards require remote iMessage"
-    );
-  }
   const remote = clientForPhone(client, space.phone);
   return cacheRemoteOutbound(
     remote,
@@ -307,8 +272,7 @@ const handleCustomizedMiniApp = async (
 /**
  * Render the universal `app` content. On remote it becomes a native Spectrum
  * mini-app card (fixed `SPECTRUM_MINI_APP` identity + the URL + the layout
- * already parsed from the URL's link metadata). Local mode cannot send cards,
- * so it degrades to the bare URL as a text message.
+ * already parsed from the URL's link metadata).
  */
 const handleApp = async (
   client: IMessageClient,
@@ -316,9 +280,6 @@ const handleApp = async (
   content: App
 ): Promise<ProviderMessageRecord> => {
   const url = await content.url();
-  if (isLocal(client)) {
-    return await localSend(client, space.id, await text(url).build());
-  }
   const layout = await content.layout();
   const remote = clientForPhone(client, space.phone);
   return cacheRemoteOutbound(
@@ -336,13 +297,6 @@ const handleRead = async (
   client: IMessageClient,
   space: { id: string; phone: string }
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "read",
-      "iMessage (local mode)",
-      "marking chats as read requires remote iMessage"
-    );
-  }
   const remote = clientForPhone(client, space.phone);
   await remoteMarkRead(remote, space.id);
 };
@@ -351,13 +305,6 @@ const handleShareContactCard = async (
   client: IMessageClient,
   space: { id: string; phone: string }
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "shareContactCard",
-      "iMessage (local mode)",
-      "sharing the contact card requires remote iMessage"
-    );
-  }
   const remote = clientForPhone(client, space.phone);
   await remoteShareContactCard(remote, space.id);
 };
@@ -367,11 +314,6 @@ const handleTyping = async (
   space: { id: string; phone: string },
   state: "start" | "stop"
 ): Promise<void> => {
-  // Local mode has no typing API — silently no-op so callers can use
-  // `space.startTyping()` uniformly across modes.
-  if (isLocal(client)) {
-    return;
-  }
   const remote = clientForPhone(client, space.phone);
   if (state === "start") {
     await remoteStartTyping(remote, space.id);
@@ -385,13 +327,6 @@ const handleRename = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: Rename
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "rename",
-      "iMessage (local mode)",
-      "renaming chats requires remote iMessage"
-    );
-  }
   if (space.type !== "group") {
     throw UnsupportedError.action(
       "rename",
@@ -408,13 +343,6 @@ const handleAvatar = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: Avatar
 ): Promise<void> => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      "avatar",
-      "iMessage (local mode)",
-      "setting group avatars requires remote iMessage"
-    );
-  }
   if (space.type !== "group") {
     throw UnsupportedError.action(
       "avatar",
@@ -435,17 +363,10 @@ const remoteGroupClient = (
   client: IMessageClient,
   space: { id: string; phone: string; type: "dm" | "group" },
   action: string,
-  detail: { dm: string; local: string }
+  detail: string
 ): AdvancedIMessage => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(
-      action,
-      "iMessage (local mode)",
-      detail.local
-    );
-  }
   if (space.type !== "group") {
-    throw UnsupportedError.action(action, "iMessage", detail.dm);
+    throw UnsupportedError.action(action, "iMessage", detail);
   }
   return clientForPhone(client, space.phone);
 };
@@ -455,10 +376,12 @@ const handleAddMember = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: AddMember
 ): Promise<void> => {
-  const remote = remoteGroupClient(client, space, "addMember", {
-    dm: "only group chats can add members (this space is a DM — iMessage cannot convert a DM into a group; create a group via space.create instead)",
-    local: "adding members requires remote iMessage",
-  });
+  const remote = remoteGroupClient(
+    client,
+    space,
+    "addMember",
+    "only group chats can add members (this space is a DM — iMessage cannot convert a DM into a group; create a group via space.create instead)"
+  );
   await remoteAddParticipants(remote, space.id, content);
 };
 
@@ -467,10 +390,12 @@ const handleRemoveMember = async (
   space: { id: string; phone: string; type: "dm" | "group" },
   content: RemoveMember
 ): Promise<void> => {
-  const remote = remoteGroupClient(client, space, "removeMember", {
-    dm: "only group chats can remove members (this space is a DM — iMessage cannot convert a DM into a group; create a group via space.create instead)",
-    local: "removing members requires remote iMessage",
-  });
+  const remote = remoteGroupClient(
+    client,
+    space,
+    "removeMember",
+    "only group chats can remove members (this space is a DM — iMessage cannot convert a DM into a group; create a group via space.create instead)"
+  );
   await remoteRemoveParticipants(remote, space.id, content);
 };
 
@@ -478,10 +403,12 @@ const handleLeaveSpace = async (
   client: IMessageClient,
   space: { id: string; phone: string; type: "dm" | "group" }
 ): Promise<void> => {
-  const remote = remoteGroupClient(client, space, "leaveSpace", {
-    dm: "only group chats can be left (this space is a DM)",
-    local: "leaving chats requires remote iMessage",
-  });
+  const remote = remoteGroupClient(
+    client,
+    space,
+    "leaveSpace",
+    "only group chats can be left (this space is a DM)"
+  );
   await remoteLeaveGroup(remote, space.id);
 };
 
@@ -510,9 +437,8 @@ const handleProviderControlSignal = async (
 
 /**
  * Resolve the remote client for a `reply` / `reaction` whose target is another
- * message. Both reject local mode and poll targets identically, so the guard
- * lives here to keep the `send` dispatch flat. `action` labels the error and
- * `pollNoun` is the plural used in the poll-unsupported message.
+ * message. `action` labels the error and `pollNoun` is the plural used in the
+ * poll-unsupported message.
  */
 const remoteForMessageTarget = (
   client: IMessageClient,
@@ -521,9 +447,6 @@ const remoteForMessageTarget = (
   action: string,
   pollNoun: string
 ): AdvancedIMessage => {
-  if (isLocal(client)) {
-    throw UnsupportedError.action(action, "iMessage (local mode)");
-  }
   if (isPollContent(target.content)) {
     throw UnsupportedError.action(
       action,
@@ -539,7 +462,7 @@ export const imessage = definePlatform("iMessage", {
 
   static: {
     effect: {
-      message: MessageEffect,
+      message: messageEffects,
     },
   },
 
@@ -549,10 +472,6 @@ export const imessage = definePlatform("iMessage", {
       projectId,
       projectSecret,
     }): Promise<IMessageClient> => {
-      if (config.local) {
-        return new IMessageSDK();
-      }
-
       if (config.clients) {
         const entries = Array.isArray(config.clients)
           ? config.clients
@@ -574,7 +493,7 @@ export const imessage = definePlatform("iMessage", {
 
       if (!(projectId && projectSecret)) {
         throw new Error(
-          "iMessage requires projectId and projectSecret. Either pass credentials to Spectrum(), use local mode: imessage.config({ local: true }), or provide explicit client config: imessage.config({ clients: [...] })"
+          "iMessage requires projectId and projectSecret. Either pass credentials to Spectrum() or provide explicit client config: imessage.config({ clients: [...] })"
         );
       }
 
@@ -582,10 +501,6 @@ export const imessage = definePlatform("iMessage", {
     },
 
     destroyClient: async ({ client }) => {
-      if (isLocal(client)) {
-        await client.close();
-        return;
-      }
       await disposeCloudAuth(client);
       await Promise.all(client.map((entry) => entry.client.close()));
     },
@@ -602,21 +517,6 @@ export const imessage = definePlatform("iMessage", {
     create: async ({ input, client }) => {
       if (input.users.length === 0) {
         throw new Error("iMessage space creation requires at least one user");
-      }
-
-      if (isLocal(client)) {
-        if (input.users.length > 1) {
-          throw UnsupportedError.action(
-            "space.create",
-            "iMessage (local mode)",
-            "local mode cannot create group chats — use space.get(chatGuid) for an existing group"
-          );
-        }
-        return {
-          id: dmChatGuid(input.users[0]?.id ?? ""),
-          type: "dm" as const,
-          phone: "",
-        };
       }
 
       if (client.length === 0) {
@@ -655,14 +555,6 @@ export const imessage = definePlatform("iMessage", {
       };
     },
     get: async ({ input, client }) => {
-      if (isLocal(client)) {
-        return {
-          id: input.id,
-          type: chatTypeFromGuid(input.id),
-          phone: "",
-        };
-      }
-
       if (client.length === 0) {
         throw new Error("No iMessage clients configured");
       }
@@ -687,8 +579,7 @@ export const imessage = definePlatform("iMessage", {
     actions: {
       // Sugar: `space.background(input, opts?)` →
       // `space.send(background(input, opts?))`. Routed through the universal
-      // send pipeline so the unsupported-content + warn-and-skip path on
-      // local-mode iMessage is identical to the canonical form.
+      // send pipeline so the canonical and sugar forms share behavior.
       background: async (
         space: Space,
         input: BackgroundInput,
@@ -697,9 +588,8 @@ export const imessage = definePlatform("iMessage", {
         await space.send(backgroundContent(input as never, opts));
       },
       // Sugar: `space.shareContactCard()` → `space.send(nativeContactCard())`.
-      // Routed through the universal send pipeline so the unsupported-content +
-      // warn-and-skip path on local-mode iMessage is identical to the
-      // canonical form. Shares the bot account's native contact card.
+      // Routed through the universal send pipeline so the canonical and sugar
+      // forms share behavior. Shares the bot account's native contact card.
       shareContactCard: async (space: Space) => {
         await space.send(nativeContactCardContent());
       },
@@ -711,9 +601,7 @@ export const imessage = definePlatform("iMessage", {
   },
 
   messages: ({ client, projectConfig }) =>
-    isLocal(client)
-      ? localMessages(client)
-      : remoteMessages(client, projectConfig),
+    remoteMessages(client, projectConfig),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {
@@ -812,9 +700,6 @@ export const imessage = definePlatform("iMessage", {
     if (isCustomizedMiniApp(content)) {
       return await handleCustomizedMiniApp(client, space, content);
     }
-    if (isLocal(client)) {
-      return await localSend(client, space.id, content);
-    }
     const remote = clientForPhone(client, space.phone);
     return cacheRemoteOutbound(
       remote,
@@ -825,9 +710,6 @@ export const imessage = definePlatform("iMessage", {
 
   actions: {
     getMessage: async ({ client }, space, messageId) => {
-      if (isLocal(client)) {
-        return localGetMessage(client, messageId);
-      }
       const remote = clientForPhone(client, space.phone);
       return remoteGetMessage(remote, space.id, messageId, space.phone);
     },
@@ -836,47 +718,46 @@ export const imessage = definePlatform("iMessage", {
     // (E.164 phone or email); `address`/`country`/`service` ride along per
     // `userSchema`.
     getMembers: async ({ client }, space) => {
-      const remote = remoteGroupClient(client, space, "getMembers", {
-        dm: "only group chats support listing members (this space is a DM)",
-        local: "listing members requires remote iMessage",
-      });
+      const remote = remoteGroupClient(
+        client,
+        space,
+        "getMembers",
+        "only group chats support listing members (this space is a DM)"
+      );
       return await remoteListParticipants(remote, space.id, space.phone);
     },
     // Download the group chat's current icon; `undefined` when none is set.
     // Remote + group only — mirrors the avatar setter's guards.
     getAvatar: async ({ client }, space) => {
-      const remote = remoteGroupClient(client, space, "getAvatar", {
-        dm: "only group chats have avatars (this space is a DM)",
-        local: "fetching group avatars requires remote iMessage",
-      });
+      const remote = remoteGroupClient(
+        client,
+        space,
+        "getAvatar",
+        "only group chats have avatars (this space is a DM)"
+      );
       return await remoteGetIcon(remote, space.id);
     },
     // Read a group chat's title. Group-only, remote only — mirrors the other
     // group reads (`getAvatar`, `getMembers`) via `remoteGroupClient`.
     getDisplayName: async ({ client }, space) => {
-      const remote = remoteGroupClient(client, space, "getDisplayName", {
-        dm: "only group chats have display names (this space is a DM)",
-        local: "reading chat display names requires remote iMessage",
-      });
+      const remote = remoteGroupClient(
+        client,
+        space,
+        "getDisplayName",
+        "only group chats have display names (this space is a DM)"
+      );
       return await remoteGetDisplayName(remote, space.id);
     },
     // Fetch an attachment by GUID. Returns a spectrum `Attachment` whose
     // `.read()` / `.stream()` lazily download the bytes — calling both
     // issues two independent gRPC downloads, so cache `.read()` if you
     // need the bytes more than once. Returns `undefined` for unknown
-    // GUIDs. Local-mode iMessage is not supported.
+    // GUIDs.
     getAttachment: async (
       { client }: { client: IMessageClient },
       guid: string,
       phone?: string
     ): Promise<Attachment | undefined> => {
-      if (isLocal(client)) {
-        throw UnsupportedError.action(
-          "getAttachment",
-          "iMessage (local mode)",
-          "fetching attachments by GUID requires remote iMessage"
-        );
-      }
       if (client.length === 0) {
         throw new Error("No iMessage clients configured");
       }

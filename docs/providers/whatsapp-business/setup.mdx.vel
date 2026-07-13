@@ -38,7 +38,7 @@ import { Spectrum } from "spectrum-ts";
 import { whatsappBusiness } from "spectrum-ts/providers/whatsapp-business";
 
 const app = await Spectrum({
-  providers: [
+  platforms: [
     whatsappBusiness.config({
       accessToken: process.env.WA_TOKEN!,
       phoneNumberId: process.env.WA_NUMBER_ID!,

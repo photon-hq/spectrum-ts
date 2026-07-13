@@ -8,6 +8,77 @@ If iMessage sends are failing and you've ruled out your code, this page is organ
 
 If your symptom isn't listed, jump to [Still stuck?](#still-stuck) for what to send us so we can trace it on our side.
 
+## "Object literal may only specify known properties, and 'local' does not exist"
+
+Local iMessage moved to its own package. `imessage.config({ local: true })` is
+no longer valid.
+
+```bash
+bun add @spectrum-ts/imessage-local
+```
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "@spectrum-ts/imessage-local";
+
+const app = await Spectrum({
+  platforms: [imessage.config()],
+});
+```
+
+Use `@spectrum-ts/imessage` or `spectrum-ts/providers/imessage` for Spectrum
+Cloud. Use `@spectrum-ts/imessage-local` only on the Mac whose Messages database
+you need to access.
+
+## A cloud build is trying to install `better-sqlite3`
+
+Check the dependency and import used by the deployment. The batteries-included
+`spectrum-ts` package and cloud `@spectrum-ts/imessage` package do not depend on
+`imessage-kit` or `better-sqlite3`.
+
+```bash
+bun pm why @spectrum-ts/imessage-local
+bun pm why @photon-ai/imessage-kit
+bun pm why better-sqlite3
+```
+
+Remove `@spectrum-ts/imessage-local` from the deployed package's dependencies
+and make sure no shared entrypoint imports it. Keep Mac and cloud composition
+modules separate so the cloud bundler cannot reach the local dependency graph.
+
+## "Failed to load better-sqlite3" with the local package
+
+This applies only to `@spectrum-ts/imessage-local` under Node.js. Normally
+`imessage-kit` installs `better-sqlite3` as an optional dependency. If your
+package manager omits optional dependencies, install it explicitly:
+
+```bash
+npm install better-sqlite3
+```
+
+Bun uses its built-in SQLite implementation and does not load
+`better-sqlite3` at runtime.
+
+## Local messages fail with a database permission error
+
+Confirm all of the following:
+
+- The application is running on macOS.
+- The logged-in macOS account is signed into Messages.
+- The terminal, IDE, or executable running the application has **Full Disk
+  Access** under **System Settings → Privacy & Security**.
+- `~/Library/Messages/chat.db` exists for that user.
+
+Restart the terminal or IDE after granting Full Disk Access so macOS applies
+the permission to the new process.
+
+## An edge build reports `http2`, `async_hooks`, `tls`, or another Node module
+
+The package split removes the local SQLite dependency from cloud installs, but
+the current cloud iMessage transport still uses Node-compatible gRPC. Deploy it
+to a Node.js or Bun runtime. Strict browser/worker isolates without Node APIs
+are not supported yet.
+
 ## "Target not allowed for this project"
 
 You're on the **Free** or **Pro** plan. On these plans your project sends through a [shared pool of lines](/spectrum-ts/providers/imessage/connection-and-routing#line-model), and a shared line will only message recipients you've registered as **users** of your project. Any other target is rejected with `Target not allowed for this project`.

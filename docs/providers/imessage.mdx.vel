@@ -1,54 +1,202 @@
 ---
 title: "iMessage"
-description: "Receive and send iMessage through cloud or local mode."
+description: "Choose and configure the cloud or local iMessage provider."
 ---
 
-```ts
-import { imessage } from "spectrum-ts/providers/imessage";
-```
+Spectrum ships two iMessage packages. They expose the same provider name and
+the same `imessage.config()` registration pattern, but target different
+environments.
 
-The iMessage provider supports two connection modes: cloud and local. It exposes iMessage-specific features such as tapbacks, DM and group spaces, chat backgrounds, mini-app cards, and per-phone routing through [platform narrowing](/spectrum-ts/platform-narrowing). Group creation and group-change events require a dedicated cloud line.
+| Use case | Package | Included in `spectrum-ts`? | Runtime |
+|---|---|---|---|
+| Managed Spectrum Cloud lines | `@spectrum-ts/imessage` | Yes | Node.js or Bun |
+| This Mac's Messages database | `@spectrum-ts/imessage-local` | No | macOS with Bun or Node.js |
 
-## Quick start
+<Warning>
+  Choose one iMessage package per `Spectrum()` instance. Both packages register
+  the `"iMessage"` platform, so registering both would create an ambiguous
+  platform configuration.
+</Warning>
 
-Use cloud mode when you want Spectrum to manage the iMessage infrastructure:
+## Cloud quick start
+
+Use the cloud provider for deployed applications and managed phone lines. It
+is already installed by the batteries-included `spectrum-ts` package.
 
 ```ts
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
 const app = await Spectrum({
-  projectId: process.env.PROJECT_ID!,
-  projectSecret: process.env.PROJECT_SECRET!,
-  providers: [imessage.config()],
+  projectId: process.env.SPECTRUM_PROJECT_ID!,
+  projectSecret: process.env.SPECTRUM_PROJECT_SECRET!,
+  platforms: [imessage.config()],
 });
 ```
 
-Use local mode when you are developing on your own Mac and only need local Messages database access:
+For a lean installation, use the scoped packages instead:
 
-```ts
-imessage.config({ local: true });
+```bash
+bun add @spectrum-ts/core @spectrum-ts/imessage
 ```
 
-Cloud mode discovers all lines owned by your project by default. If your project owns multiple dedicated lines and you want the SDK to subscribe to only some of them, pass those cloud clients explicitly:
+```ts
+import { Spectrum } from "@spectrum-ts/core";
+import { imessage } from "@spectrum-ts/imessage";
+```
+
+Cloud mode discovers every line owned by the project and renews its tokens
+automatically. Most applications should use the empty `imessage.config()` call.
+
+### Explicit cloud clients
+
+Pass clients only when you need to restrict the SDK to a known subset of cloud
+lines or supply independently managed credentials:
 
 ```ts
 imessage.config({
   clients: [
-    { address: "line-1.imsg.photon.codes:443", token: "your-token", phone: "+15551111111" },
+    {
+      address: "line-1.imsg.photon.codes:443",
+      token: process.env.IMESSAGE_TOKEN!,
+      phone: "+15551111111",
+    },
   ],
 });
 ```
 
-This is advanced cloud configuration, not a separate connection mode. Explicit client tokens are not renewed by the SDK, so you are responsible for keeping them current. Most applications should use `imessage.config()` and let Spectrum discover and renew their cloud clients automatically.
+Explicit tokens are not renewed by Spectrum. The application is responsible
+for replacing them before they expire.
+
+## Local macOS quick start
+
+Use the local provider only when the application runs on the Mac whose Messages
+database it should access.
+
+<CodeGroup>
+```bash npm
+npm install spectrum-ts @spectrum-ts/imessage-local
+```
+
+```bash pnpm
+pnpm add spectrum-ts @spectrum-ts/imessage-local
+```
+
+```bash yarn
+yarn add spectrum-ts @spectrum-ts/imessage-local
+```
+
+```bash bun
+bun add spectrum-ts @spectrum-ts/imessage-local
+```
+</CodeGroup>
+
+```ts
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "@spectrum-ts/imessage-local";
+
+const app = await Spectrum({
+  platforms: [imessage.config()],
+});
+```
+
+Local iMessage does not use Spectrum project credentials. The host must be
+signed into Messages and the process may need **Full Disk Access** in macOS
+System Settings to read `~/Library/Messages/chat.db`.
+
+Node.js uses `better-sqlite3` through `imessage-kit`; Bun uses its built-in
+SQLite implementation. If a Node package manager was configured to omit
+optional dependencies, install `better-sqlite3` explicitly.
+
+<Note>
+  Do not install `@spectrum-ts/imessage-local` in a cloud deployment. Keeping it
+  out of `spectrum-ts` is what prevents the native SQLite dependency from
+  entering cloud dependency graphs.
+</Note>
+
+## Feature comparison
+
+| Capability | Cloud package | Local package |
+|---|---:|---:|
+| Receive and send text | Yes | Yes |
+| Receive and send attachments and contacts | Yes | Yes |
+| Existing DMs and group chats | Yes | Yes |
+| Create a DM | Yes | Deterministic local reference |
+| Create a group | Dedicated lines only | No |
+| Reactions, replies, effects, and unsend | Yes | No |
+| Streaming text and typing indicators | Yes | Typing is a no-op; streaming is unsupported |
+| Rename, avatar, membership, and group events | Dedicated lines only | No |
+| Backgrounds, mini-app cards, and native contact-card sharing | Yes | No |
+| Universal `app(...)` content | Native mini-app card | Sends the app URL as text |
+
+Local inbound attachments remain readable from incoming message content. The
+cloud-only `imessage(app).getAttachment(guid)` lookup is not available locally.
+
+## Keep deployment entrypoints separate
+
+If one repository has both a deployed cloud worker and a Mac development tool,
+give them separate composition modules so bundlers see only the correct import:
+
+```ts
+// cloud-app.ts
+import { imessage } from "@spectrum-ts/imessage";
+
+export const platforms = [imessage.config()];
+```
+
+```ts
+// mac-app.ts
+import { imessage } from "@spectrum-ts/imessage-local";
+
+export const platforms = [imessage.config()];
+```
+
+Avoid a shared module that statically imports both packages and chooses one at
+runtime. Static imports put both dependency graphs in reach of the bundler.
+
+## Migrating from `local: true`
+
+The combined-package API has been removed. Replace the old import and flag:
+
+```ts
+// Before
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "@spectrum-ts/imessage";
+
+const app = await Spectrum({
+  providers: [imessage.config({ local: true })],
+});
+```
+
+with the explicit local package:
+
+```ts
+// After
+import { Spectrum } from "spectrum-ts";
+import { imessage } from "@spectrum-ts/imessage-local";
+
+const app = await Spectrum({
+  platforms: [imessage.config()],
+});
+```
+
+The cloud import remains `@spectrum-ts/imessage` or
+`spectrum-ts/providers/imessage`.
+
+## Runtime compatibility
+
+Separating the packages removes `imessage-kit` and `better-sqlite3` from cloud
+installs. The current cloud transport still uses Node-compatible gRPC, so use a
+Node.js or Bun deployment runtime. Strict browser and worker isolates without
+Node APIs are not supported yet.
 
 ## Explore iMessage
 
 <CardGroup cols={2}>
   <Card title="Connection and routing" icon="route" href="/spectrum-ts/providers/imessage/connection-and-routing">
-    Compare cloud and local modes. Learn line allocation, quotas, space types, and per-phone routing.
+    Compare the two packages and learn line allocation, quotas, spaces, and per-phone cloud routing.
   </Card>
   <Card title="Messaging features" icon="sparkles" href="/spectrum-ts/providers/imessage/messaging-features">
-    Use effects, chat renames, avatars, group membership, backgrounds, mini-app cards, contact cards, attachments, and tapbacks.
+    See which effects, group operations, cards, attachments, and tapbacks each package supports.
   </Card>
 </CardGroup>

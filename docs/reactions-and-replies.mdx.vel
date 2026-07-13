@@ -28,12 +28,12 @@ Both forms are equivalent — `message.react(emoji)` delegates to `space.send(re
 
 Reactions resolve to a `Message` — keep it as the handle to `unsend()` later. Resolves `undefined` only when the platform does not support reactions.
 
-The reaction string is platform-specific. For iMessage, use the built-in tapback constants:
+Use the universal `Emoji` aliases for iMessage's native tapbacks:
 
 ```ts
-import { imessage } from "spectrum-ts/providers/imessage";
+import { Emoji } from "spectrum-ts";
 
-await message.react(imessage.tapbacks.laugh);
+await message.react(Emoji.laugh);
 ```
 
 `reaction()` rejects reaction messages as targets — reacting to a reaction throws at build time.
@@ -42,12 +42,12 @@ Available tapbacks:
 
 | Constant | Value |
 |---|---|
-| `imessage.tapbacks.love` | `"love"` |
-| `imessage.tapbacks.like` | `"like"` |
-| `imessage.tapbacks.dislike` | `"dislike"` |
-| `imessage.tapbacks.laugh` | `"laugh"` |
-| `imessage.tapbacks.emphasize` | `"emphasize"` |
-| `imessage.tapbacks.question` | `"question"` |
+| `Emoji.love` | `"❤️"` |
+| `Emoji.like` | `"👍"` |
+| `Emoji.dislike` | `"👎"` |
+| `Emoji.laugh` | `"😂"` |
+| `Emoji.emphasize` | `"‼️"` |
+| `Emoji.question` | `"❓"` |
 
 ## Threaded replies
 

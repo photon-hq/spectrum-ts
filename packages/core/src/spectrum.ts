@@ -171,24 +171,32 @@ const spectrumOptionsSchema = z
   })
   .optional();
 
-const spectrumConfigSchema = z.union([
-  z.object({
-    projectId: z.string().min(1),
-    projectSecret: z.string().min(1),
-    providers: z.array(z.custom<PlatformProviderConfig>()),
-    options: spectrumOptionsSchema,
-    telemetry: z.boolean().optional(),
-    webhookSecret: z.string().min(1).optional(),
-  }),
-  z.object({
-    projectId: z.undefined().optional(),
-    projectSecret: z.undefined().optional(),
-    providers: z.array(z.custom<PlatformProviderConfig>()),
-    options: spectrumOptionsSchema,
-    telemetry: z.boolean().optional(),
-    webhookSecret: z.string().min(1).optional(),
-  }),
-]);
+const spectrumConfigSchema = z
+  .union([
+    z.object({
+      projectId: z.string().min(1),
+      projectSecret: z.string().min(1),
+      providers: z.array(z.custom<PlatformProviderConfig>()).optional(),
+      platforms: z.array(z.custom<PlatformProviderConfig>()).optional(),
+      options: spectrumOptionsSchema,
+      telemetry: z.boolean().optional(),
+      webhookSecret: z.string().min(1).optional(),
+    }),
+    z.object({
+      projectId: z.undefined().optional(),
+      projectSecret: z.undefined().optional(),
+      providers: z.array(z.custom<PlatformProviderConfig>()).optional(),
+      platforms: z.array(z.custom<PlatformProviderConfig>()).optional(),
+      options: spectrumOptionsSchema,
+      telemetry: z.boolean().optional(),
+      webhookSecret: z.string().min(1).optional(),
+    }),
+  ])
+  .refine(
+    (config) =>
+      (config.providers === undefined) !== (config.platforms === undefined),
+    "Spectrum requires exactly one of platforms or providers"
+  );
 
 // ---------------------------------------------------------------------------
 // Telemetry bootstrap
@@ -258,56 +266,63 @@ function resolveProjectCredentials(options: {
 // Spectrum() factory
 // ---------------------------------------------------------------------------
 
-export async function Spectrum<
-  const Providers extends PlatformProviderConfig[],
->(options: {
-  projectId: string;
-  projectSecret: string;
-  providers: [...Providers];
-  options?: SpectrumOptions;
-  telemetry?: boolean;
-  webhookSecret?: string;
-}): Promise<SpectrumInstance<Providers> & { readonly config: ProjectData }>;
-export async function Spectrum<
-  const Providers extends PlatformProviderConfig[],
->(options: {
-  projectId?: never;
-  projectSecret?: never;
-  providers: [...Providers];
-  options?: SpectrumOptions;
-  telemetry?: boolean;
-  webhookSecret?: string;
-}): Promise<SpectrumInstance<Providers>>;
+type PlatformSelection<Providers extends PlatformProviderConfig[]> =
+  | {
+      platforms: [...Providers];
+      providers?: never;
+    }
+  | {
+      platforms?: never;
+      providers: [...Providers];
+    };
+
+type SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> =
+  PlatformSelection<Providers> & {
+    options?: SpectrumOptions;
+    telemetry?: boolean;
+    webhookSecret?: string;
+  };
+
+const resolveConfiguredProviders = <Providers extends PlatformProviderConfig[]>(
+  options: PlatformSelection<Providers>
+): [...Providers] => {
+  const configuredProviders = options.platforms ?? options.providers;
+  if (!configuredProviders) {
+    throw new Error("Spectrum requires platforms or providers");
+  }
+  return configuredProviders;
+};
+
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
 >(
-  options:
-    | {
-        projectId: string;
-        projectSecret: string;
-        providers: [...Providers];
-        options?: SpectrumOptions;
-        telemetry?: boolean;
-        webhookSecret?: string;
-      }
-    | {
-        projectId?: never;
-        projectSecret?: never;
-        providers: [...Providers];
-        options?: SpectrumOptions;
-        telemetry?: boolean;
-        webhookSecret?: string;
-      }
+  options: {
+    projectId: string;
+    projectSecret: string;
+  } & SpectrumFactoryOptions<Providers>
+): Promise<SpectrumInstance<Providers> & { readonly config: ProjectData }>;
+export async function Spectrum<
+  const Providers extends PlatformProviderConfig[],
+>(
+  options: {
+    projectId?: never;
+    projectSecret?: never;
+  } & SpectrumFactoryOptions<Providers>
+): Promise<SpectrumInstance<Providers>>;
+export async function Spectrum<
+  const Providers extends PlatformProviderConfig[],
+>(
+  options: SpectrumFactoryOptions<Providers> &
+    (
+      | { projectId: string; projectSecret: string }
+      | { projectId?: never; projectSecret?: never }
+    )
 ): Promise<SpectrumInstance<Providers>> {
   const { projectId, projectSecret } = resolveProjectCredentials(options);
   spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
 
-  const {
-    providers,
-    options: runtimeOptions,
-    telemetry,
-    webhookSecret,
-  } = options;
+  const providers = resolveConfiguredProviders(options);
+  const { options: runtimeOptions, telemetry, webhookSecret } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
   // Honor an explicit log-level override before anything logs. Applies even
   // when telemetry is off (the console logger respects it too); the LOG_LEVEL

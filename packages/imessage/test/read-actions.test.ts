@@ -2,7 +2,6 @@ import {
   type AdvancedIMessage,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { AvatarData } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
@@ -14,7 +13,6 @@ import {
 import { getDisplayName as remoteGetDisplayName } from "@/remote/rename";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
 
-const LOCAL_MODE_ERROR = /local mode/;
 const GROUP_ONLY_ERROR = /only group chats/;
 
 const GROUP_GUID = "iMessage;+;chat42";
@@ -184,20 +182,6 @@ describe("iMessage actions.getMembers", () => {
     expect(members).toHaveLength(3);
   });
 
-  it("is unsupported in local mode", async () => {
-    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
-    const space = {
-      id: GROUP_GUID,
-      type: "group",
-      phone: SHARED_PHONE,
-      __platform: "iMessage",
-    } as const;
-
-    await expect(callGetMembers(localClient, space)).rejects.toThrow(
-      LOCAL_MODE_ERROR
-    );
-  });
-
   it("rejects DMs", async () => {
     const client = [clientWith(SELF_PHONE, {})];
     const space = {
@@ -301,20 +285,6 @@ describe("iMessage actions.getAvatar", () => {
     await expect(callGetAvatar(client, space)).rejects.toThrow(NotFoundError);
   });
 
-  it("is unsupported in local mode", async () => {
-    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
-    const space = {
-      id: GROUP_GUID,
-      type: "group",
-      phone: SHARED_PHONE,
-      __platform: "iMessage",
-    } as const;
-
-    await expect(callGetAvatar(localClient, space)).rejects.toThrow(
-      LOCAL_MODE_ERROR
-    );
-  });
-
   it("rejects DMs", async () => {
     const client = [clientWith(SELF_PHONE, {})];
     const space = {
@@ -361,20 +331,6 @@ describe("iMessage actions.getDisplayName", () => {
     } as const;
 
     expect(await callGetDisplayName(client, space)).toBeUndefined();
-  });
-
-  it("is unsupported in local mode", async () => {
-    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
-    const space = {
-      id: GROUP_GUID,
-      type: "group",
-      phone: SHARED_PHONE,
-      __platform: "iMessage",
-    } as const;
-
-    await expect(callGetDisplayName(localClient, space)).rejects.toThrow(
-      LOCAL_MODE_ERROR
-    );
   });
 
   it("is unsupported for a 1:1 chat (group-only, like the other group reads)", async () => {

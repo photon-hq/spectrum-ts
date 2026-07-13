@@ -9,7 +9,7 @@ Providers plug into Spectrum's type system and runtime. Each provider exports a 
 
 <CardGroup cols={2}>
   <Card title="iMessage" icon="comment" href="/spectrum-ts/providers/imessage">
-    Connect through cloud or local mode. Use tapbacks, typing indicators, threaded replies, DMs, and groups.
+    Use the batteries-included cloud provider, or explicitly install the separate macOS local provider.
   </Card>
   <Card title="Terminal" icon="terminal" href="/spectrum-ts/providers/terminal">
     Run a local chat interface for development, testing, and CLI-style agents.
@@ -27,7 +27,12 @@ Providers plug into Spectrum's type system and runtime. Each provider exports a 
 
 ## Combining providers
 
-Drop any combination into `providers`:
+Call each provider's `config()` method and pass the results to `platforms`:
+
+<Note>
+  `providers` remains a compatibility alias for existing applications. New
+  code and these docs use `platforms`.
+</Note>
 
 <Tabs>
   <Tab title="Aggregate import">
@@ -38,7 +43,7 @@ Drop any combination into `providers`:
     const app = await Spectrum({
       projectId: "...",
       projectSecret: "...",
-      providers: [
+      platforms: [
         imessage.config(),
         whatsappBusiness.config({
           accessToken: process.env.WA_TOKEN!,
@@ -64,7 +69,7 @@ Drop any combination into `providers`:
     const app = await Spectrum({
       projectId: "...",
       projectSecret: "...",
-      providers: [
+      platforms: [
         imessage.config(),
         whatsappBusiness.config({
           accessToken: process.env.WA_TOKEN!,
@@ -82,6 +87,13 @@ Drop any combination into `providers`:
 </Tabs>
 
 `app.messages` merges messages from every provider. The `message.platform` field tells you which provider delivered each message.
+
+<Note>
+  `@spectrum-ts/imessage-local` is not part of the aggregate import. Install it
+  explicitly and import it from its scoped package. Do not register cloud and
+  local iMessage in the same `Spectrum()` instance: both represent the
+  `"iMessage"` platform.
+</Note>
 
 ## Writing your own
 

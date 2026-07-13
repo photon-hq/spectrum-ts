@@ -41,6 +41,6 @@ describe("officialProviderInstallHint", () => {
     const hint = officialProviderInstallHint("telegram");
     expect(hint).toContain("@spectrum-ts/telegram");
     expect(hint).toMatch(INSTALL_COMMAND);
-    expect(hint).toContain("Spectrum({ providers: [...] })");
+    expect(hint).toContain("Spectrum({ platforms: [...] })");
   });
 });

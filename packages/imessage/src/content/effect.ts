@@ -1,8 +1,4 @@
 import {
-  type MessageEffect as AdvancedIMessageMessageEffect,
-  MessageEffect,
-} from "@photon-ai/advanced-imessage";
-import {
   type Content,
   type ContentBuilder,
   type ContentInput,
@@ -10,9 +6,26 @@ import {
 } from "@spectrum-ts/core";
 import { messageEffectSchema } from "@spectrum-ts/core/authoring";
 
-export type IMessageMessageEffect = AdvancedIMessageMessageEffect;
+export const messageEffects = {
+  balloons: "com.apple.messages.effect.CKBalloonEffect",
+  celebration: "com.apple.messages.effect.CKHappyBirthdayEffect",
+  confetti: "com.apple.messages.effect.CKConfettiEffect",
+  echo: "com.apple.messages.effect.CKEchoEffect",
+  fireworks: "com.apple.messages.effect.CKFireworksEffect",
+  gentle: "com.apple.MobileSMS.expressivesend.gentle",
+  heart: "com.apple.messages.effect.CKHeartEffect",
+  invisible: "com.apple.MobileSMS.expressivesend.invisibleink",
+  lasers: "com.apple.messages.effect.CKLasersEffect",
+  loud: "com.apple.MobileSMS.expressivesend.loud",
+  slam: "com.apple.MobileSMS.expressivesend.impact",
+  sparkles: "com.apple.messages.effect.CKSparklesEffect",
+  spotlight: "com.apple.messages.effect.CKSpotlightEffect",
+} as const;
 
-const SUPPORTED_EFFECTS = new Set<string>(Object.values(MessageEffect));
+export type IMessageMessageEffect =
+  (typeof messageEffects)[keyof typeof messageEffects];
+
+const SUPPORTED_EFFECTS = new Set<string>(Object.values(messageEffects));
 
 const resolveContent = (input: ContentInput): Promise<Content> =>
   typeof input === "string" ? text(input).build() : input.build();

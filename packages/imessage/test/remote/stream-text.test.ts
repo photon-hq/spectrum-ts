@@ -2,7 +2,6 @@ import type {
   AdvancedIMessage,
   Message as SDKMessage,
 } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import {
   markdown,
   type StreamText,
@@ -11,11 +10,9 @@ import {
 } from "@spectrum-ts/core";
 import { setSystemTime } from "@spectrum-ts/test-support/time";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { imessage } from "@/index";
 import { sendStreamText } from "@/remote/stream-text";
 
 const SENT_DATE = new Date(1_700_000_000_000);
-const LOCAL_MODE = /local mode/;
 const BOOM = /boom/;
 
 // iMessage caps a message at ~5 edits; the driver stays within that budget.
@@ -178,20 +175,5 @@ describe("sendStreamText", () => {
     ).rejects.toThrow(BOOM);
     expect(sendText).toHaveBeenCalledTimes(1);
     expect(edit).not.toHaveBeenCalled();
-  });
-});
-
-describe("iMessage streamText local-mode rejection", () => {
-  it("throws UnsupportedError in local mode", async () => {
-    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
-    const send = imessage.config().__definition.send;
-
-    await expect(
-      send({
-        space: { id: "chat", phone: "p", type: "dm", __platform: "iMessage" },
-        content: await build(fromArray(["hi"])),
-        client: localClient,
-      })
-    ).rejects.toThrow(LOCAL_MODE);
   });
 });

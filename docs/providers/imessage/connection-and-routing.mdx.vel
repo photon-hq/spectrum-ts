@@ -1,28 +1,29 @@
 ---
 title: "iMessage connection and routing"
 sidebarTitle: "Connection and routing"
-description: "Configure iMessage connection modes, lines, quotas, spaces, and per-phone routing."
+description: "Configure cloud or local iMessage packages, lines, spaces, and per-phone routing."
 ---
 
-Use this page to choose an iMessage connection mode and understand how Spectrum routes iMessage conversations.
+Use this page to choose an iMessage package and understand how Spectrum routes
+iMessage conversations. Cloud and local iMessage are separate packages; the
+choice is made by the import, not by a config flag.
 
-## Connection modes
+## Provider packages
 
 <Tabs>
-  <Tab title="Cloud (default)">
+  <Tab title="Cloud: @spectrum-ts/imessage">
     Authenticates with Spectrum Cloud and connects to managed iMessage infrastructure via gRPC. Supports sending, receiving, typing indicators, reactions, and replies. Group creation and inbound group-change events require a dedicated line.
-
-    ```ts
-    imessage.config();
-    ```
 
     With automatic discovery, tokens are renewed at 80% of their TTL. This requires `projectId` and `projectSecret` on the `Spectrum()` call:
 
     ```ts
+    import { Spectrum } from "spectrum-ts";
+    import { imessage } from "spectrum-ts/providers/imessage";
+
     const app = await Spectrum({
-      projectId: process.env.PROJECT_ID!,
-      projectSecret: process.env.PROJECT_SECRET!,
-      providers: [imessage.config()],
+      projectId: process.env.SPECTRUM_PROJECT_ID!,
+      projectSecret: process.env.SPECTRUM_PROJECT_SECRET!,
+      platforms: [imessage.config()],
     });
     ```
 
@@ -36,17 +37,31 @@ Use this page to choose an iMessage connection mode and understand how Spectrum 
     });
     ```
 
-    Explicit clients let you control which cloud-owned lines this SDK instance subscribes to. They are still cloud mode. Their tokens are not renewed by the SDK, so you are responsible for keeping them current; most applications should use automatic discovery.
+    Explicit clients let you control which cloud-owned lines this SDK instance subscribes to. They still use the cloud package. Their tokens are not renewed by the SDK, so you are responsible for keeping them current; most applications should use automatic discovery.
   </Tab>
-  <Tab title="Local">
-    Reads the macOS Messages SQLite database directly. No network. Good for development on your own Mac.
+  <Tab title="Local: @spectrum-ts/imessage-local">
+    Reads the macOS Messages SQLite database directly. It is an explicit,
+    macOS-only install and does not require project credentials.
+
+    ```bash
+    bun add spectrum-ts @spectrum-ts/imessage-local
+    ```
 
     ```ts
-    imessage.config({ local: true });
+    import { Spectrum } from "spectrum-ts";
+    import { imessage } from "@spectrum-ts/imessage-local";
+
+    const app = await Spectrum({
+      platforms: [imessage.config()],
+    });
     ```
 
     <Note>
-      Local mode only supports sending text and attachments. Reactions, typing indicators, threaded replies, group creation, chat backgrounds, chat renaming, group avatars (setting and reading), and group membership (management and listing) are not available.
+      Local iMessage supports receiving and sending text, attachments, and
+      contacts. Universal app content degrades to its URL. Reactions, threaded
+      replies, effects, group creation, streaming text, chat backgrounds,
+      renaming, avatars, contact-card sharing, and membership operations are
+      unavailable. Typing signals are accepted as a no-op.
     </Note>
   </Tab>
 </Tabs>
@@ -71,7 +86,9 @@ DM delivery is identical across both cloud line models. The developer-facing dif
 When traffic to a dedicated line approaches its per-line capacity, Spectrum can automatically provision an additional line so deliverability isn't affected. Auto-scale is an opt-in feature on the Business plan. Enable it in your project settings if you'd rather not get paged when a line saturates.
 
 <Note>
-  These are Spectrum Cloud features. In local mode (`imessage.config({ local: true })`), you provide your own iCloud account and managed-line concepts do not apply.
+  These are Spectrum Cloud features. With `@spectrum-ts/imessage-local`, you
+  provide the Messages account on the Mac and managed-line concepts do not
+  apply.
 </Note>
 
 ## Quotas
@@ -148,7 +165,9 @@ To look up an existing conversation by its chat GUID, use `space.get(id)`:
 const existing = await im.space.get("any;-;+15551111111");
 ```
 
-DM creation works in cloud mode. Local mode can construct a deterministic DM reference, but it cannot create a group because the local Messages database does not expose chat creation.
+DM creation works with the cloud package. The local package can construct a
+deterministic DM reference, but it cannot create a group because the local
+Messages database does not expose chat creation.
 
 Group creation requires a dedicated line. In shared-pool mode, passing multiple users to `space.create()` throws an `UnsupportedError`. You can use `space.get(chatGuid)` to reference an existing group, but shared mode still does not receive membership or metadata changes from the group-event stream.
 

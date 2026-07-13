@@ -1,0 +1,36 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tags": ["provider"],
+  "tasks": {
+    "build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/smoke-import.mjs",
+        "$TURBO_ROOT$/packages/imessage/src/content/**",
+        "$TURBO_ROOT$/packages/imessage/src/shared/**"
+      ]
+    },
+    "typecheck": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/imessage/src/content/**",
+        "$TURBO_ROOT$/packages/imessage/src/shared/**"
+      ]
+    },
+    "test:node": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/imessage/src/content/**",
+        "$TURBO_ROOT$/packages/imessage/src/shared/**"
+      ]
+    },
+    "test:bun": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/imessage/src/content/**",
+        "$TURBO_ROOT$/packages/imessage/src/shared/**"
+      ]
+    }
+  }
+}

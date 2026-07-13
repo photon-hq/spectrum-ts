@@ -14,7 +14,7 @@ import {
   ATTACHMENT_PLACEHOLDER,
   hasUsableTextPart,
   toOrderedParts,
-} from "../shared/inbound-parts";
+} from "../../../imessage/src/shared/inbound-parts";
 import type { IMessageMessage } from "../types";
 import { localAttachmentContent } from "./attachments";
 

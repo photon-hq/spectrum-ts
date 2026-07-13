@@ -1,11 +1,11 @@
 {
-  "name": "@spectrum-ts/imessage",
+  "name": "@spectrum-ts/imessage-local",
   "version": "9.3.1",
-  "description": "Cloud iMessage provider for spectrum-ts.",
+  "description": "Local macOS iMessage provider for spectrum-ts.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
-    "directory": "packages/imessage"
+    "directory": "packages/imessage-local"
   },
   "homepage": "https://photon.codes/spectrum",
   "bugs": {
@@ -32,11 +32,6 @@
       }
     }
   },
-  "spectrum": {
-    "key": "imessage",
-    "import": "imessage",
-    "label": "iMessage"
-  },
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",
     "dev": "tsdown --watch",
@@ -45,10 +40,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@photon-ai/advanced-imessage": "^1.0.0",
-    "@photon-ai/otel": "^3.1.0",
-    "lru-cache": "^11.0.0",
-    "marked": "^18.0.5",
+    "@photon-ai/imessage-kit": "^3.0.0",
     "zod": "^4.2.1"
   },
   "peerDependencies": {

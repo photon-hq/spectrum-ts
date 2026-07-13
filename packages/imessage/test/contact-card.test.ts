@@ -1,13 +1,10 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
-import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Space } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { isContactCard } from "@/content/contact-card";
 import { imessage, nativeContactCard } from "@/index";
 import { shareContactCard as remoteShareContactCard } from "@/remote/contact-card";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
-
-const LOCAL_MODE_ERROR = /local mode/;
 
 const SIGNAL = {
   type: "contactCard",
@@ -73,19 +70,6 @@ describe("iMessage send: contactCard dispatch", () => {
 
     expect(result).toBeUndefined();
     expect(shareContactInfo).toHaveBeenCalledWith("any;-;+15550123");
-  });
-
-  it("is unsupported in local mode", async () => {
-    const localClient = Object.create(IMessageSDK.prototype) as IMessageSDK;
-
-    await expect(
-      def.send({
-        ...ctx,
-        client: localClient,
-        space: { id: "any;-;x", type: "dm", phone: SHARED_PHONE },
-        content: await nativeContactCard().build(),
-      })
-    ).rejects.toThrow(LOCAL_MODE_ERROR);
   });
 });
 

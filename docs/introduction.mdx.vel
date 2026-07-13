@@ -68,7 +68,7 @@ import { imessage, terminal } from "spectrum-ts/providers";
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  providers: [
+  platforms: [
     imessage.config(),
     terminal.config(),
   ],
@@ -85,7 +85,14 @@ Every provider feeds the same message stream. Your agent can send, react, reply,
 
 iMessage is where Spectrum is most mature.
 
-Spectrum gives you production iMessage infrastructure with the richest iMessage feature set we offer today. You get managed iMessage lines, so your agent can run on any server and connect to iMessage through Spectrum. The managed iMessage provider supports local development, DMs and groups, typing indicators, reactions, threaded replies, group creation, message effects, chat backgrounds, chat renaming, group avatars, per-line routing, dedicated line auto-scale, and automatic token renewal.
+Spectrum gives you production iMessage infrastructure with the richest
+iMessage feature set we offer today. The batteries-included cloud provider
+connects a Node.js or Bun service to managed iMessage lines and supports DMs,
+groups, typing indicators, reactions, threaded replies, effects, backgrounds,
+per-line routing, dedicated-line auto-scale, and automatic token renewal. For
+tools that run directly on your own Mac, install the separate
+`@spectrum-ts/imessage-local` provider to access that Mac's Messages database
+without bringing its native SQLite dependency into deployed applications.
 
 That matters because iMessage is not a generic SMS fallback. Users expect native behavior, reliable delivery, and conversations that feel like they belong on Apple devices.
 

@@ -86,10 +86,9 @@ const messageCaches = new WeakMap<object, MessageCache>();
 const pollCaches = new WeakMap<object, PollCache>();
 
 /**
- * Returns a per-client message cache. Keyed by an object (the client array
- * for remote, or the IMessageSDK instance for local), so each iMessage
- * provider instance has its own cache and multiple providers don't share
- * state accidentally.
+ * Returns a per-client message cache. Keyed by the client array so each
+ * iMessage provider instance has its own cache and multiple providers don't
+ * share state accidentally.
  */
 export const getMessageCache = (owner: object): MessageCache => {
   let cache = messageCaches.get(owner);

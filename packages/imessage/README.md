@@ -1,6 +1,6 @@
 # @spectrum-ts/imessage
 
-iMessage provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts), supporting local (imessage-kit) and remote (advanced-imessage) modes — including tapbacks, special effects, polls, and mini-apps.
+Cloud iMessage provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts), including tapbacks, special effects, polls, and mini-apps.
 
 ## Install
 
@@ -15,7 +15,7 @@ import { Spectrum } from "spectrum-ts";
 import { imessage } from "@spectrum-ts/imessage";
 
 const spectrum = Spectrum({
-  providers: [imessage.config({ /* ... */ })],
+  platforms: [imessage.config()],
 });
 ```
 
@@ -32,3 +32,7 @@ await space.shareContactCard();
 ```
 
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.
+
+For direct access to the local macOS Messages database, install and import
+`@spectrum-ts/imessage-local` separately. The local provider is intentionally
+not included in the batteries-included `spectrum-ts` package.

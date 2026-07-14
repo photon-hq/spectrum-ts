@@ -19,7 +19,15 @@ const cloudConfig = z.object({}).strict();
 export const configSchema = z.union([directConfig, cloudConfig]);
 
 export type WhatsAppConfig = z.infer<typeof configSchema>;
-export type WhatsAppClients = WhatsAppClient[];
+
+// The vendor client doesn't retain the `phoneNumberId` it was created with, so
+// carry the line alongside the client. Every creation site knows the line, and
+// the required field makes "client without a line" a compile error.
+export interface LineClient {
+  client: WhatsAppClient;
+  line: string;
+}
+export type WhatsAppClients = LineClient[];
 
 export const isCloudConfig = (
   config: WhatsAppConfig
@@ -29,7 +37,10 @@ export const userSchema = z.object({});
 
 export const spaceSchema = z.object({
   id: z.string(),
+  line: z.string().optional(),
 });
+
+export type WhatsAppSpace = z.infer<typeof spaceSchema>;
 
 export type WhatsAppMessage = SchemaMessage<
   typeof userSchema,

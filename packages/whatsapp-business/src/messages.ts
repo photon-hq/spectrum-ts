@@ -8,7 +8,6 @@ import {
   type Contact,
   type Content,
   type ManagedStream,
-  mergeStreams,
   type Poll,
   type Reaction,
   type ContactAddress as SpectrumContactAddress,
@@ -31,18 +30,19 @@ import {
   tracedFetch,
 } from "@spectrum-ts/core/authoring";
 import { extension as mimeExtension } from "mime-types";
+import { subscribeLineAdded } from "./auth";
 import { pollOptionId, pollToInteractive } from "./poll";
-import type { WhatsAppClients, WhatsAppMessage } from "./types";
+import type { LineClient, WhatsAppClients, WhatsAppMessage } from "./types";
 
-// v1 routes outbound traffic to the first line. When multi-line send becomes a
-// requirement, extend spaceSchema with an optional `line` (phoneNumberId) and
-// pick the matching client here.
-const primary = (clients: WhatsAppClients): WhatsAppClient => {
-  const client = clients[0];
-  if (!client) {
+// Outbound traffic routes to the line the space is tagged with (the line an
+// inbound message arrived on). Spaces without a line — or whose line has since
+// left the project — fall back to the first line.
+const clientFor = (clients: WhatsAppClients, line?: string): LineClient => {
+  const entry = (line && clients.find((c) => c.line === line)) || clients[0];
+  if (!entry) {
     throw new Error("No WhatsApp Business client available");
   }
-  return client;
+  return entry;
 };
 
 type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
@@ -50,11 +50,12 @@ type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
 const toRecord = (
   result: WaSendResult,
   spaceId: string,
-  content: Content
+  content: Content,
+  line: string
 ): ProviderMessageRecord => ({
   id: result.messageId,
   content,
-  space: { id: spaceId },
+  space: { id: spaceId, line },
   timestamp: new Date(),
 });
 
@@ -245,12 +246,12 @@ const waContactToSpectrum = (card: ContactCard): Content => {
 };
 
 const toMessages = (
-  client: WhatsAppClient,
+  { client, line }: LineClient,
   msg: InboundMessage
 ): WhatsAppMessage[] => {
   const base = {
     sender: { id: msg.from },
-    space: { id: msg.from },
+    space: { id: msg.from, line },
     timestamp: msg.timestamp,
   };
   if (msg.content.type === "contacts") {
@@ -486,10 +487,8 @@ const contactToWa = (contact: Contact): ContactCardInput => {
 
 const streamLog = createLogger("spectrum.whatsapp.stream");
 
-const clientStream = (
-  client: WhatsAppClient
-): ManagedStream<WhatsAppMessage> => {
-  const eventStream = client.events
+const clientStream = (entry: LineClient): ManagedStream<WhatsAppMessage> => {
+  const eventStream = entry.client.events
     .subscribe({
       // The client heals disconnects AND silently stalled streams on its own
       // (its stallTimeoutMs converts missed heartbeats into a reconnect with
@@ -513,7 +512,7 @@ const clientStream = (
     const pump = (async () => {
       try {
         for await (const event of eventStream) {
-          for (const m of toMessages(client, event.message)) {
+          for (const m of toMessages(entry, event.message)) {
             await emit(m);
           }
         }
@@ -529,25 +528,78 @@ const clientStream = (
   });
 };
 
+// In cloud mode lines can appear after startup (subscribeLineAdded), so the
+// merge is dynamic: fixed streams via mergeStreams semantics, plus a pump per
+// late-added line. The stream only ends early when every line's stream ends
+// and no dynamic source exists (direct mode).
 export const messages = (
   clients: WhatsAppClients
-): ManagedStream<WhatsAppMessage> => mergeStreams(clients.map(clientStream));
+): ManagedStream<WhatsAppMessage> =>
+  stream<WhatsAppMessage>((emit, end) => {
+    const inner = new Set<ManagedStream<WhatsAppMessage>>();
+    const pumps: Promise<void>[] = [];
+    let open = 0;
+    let closed = false;
+    let unsubscribe: (() => void) | undefined;
+
+    const add = (entry: LineClient) => {
+      if (closed) {
+        return;
+      }
+      const source = clientStream(entry);
+      inner.add(source);
+      open += 1;
+      pumps.push(
+        (async () => {
+          try {
+            for await (const value of source) {
+              await emit(value);
+            }
+          } catch (error) {
+            end(error);
+          } finally {
+            open -= 1;
+            if (open === 0 && !unsubscribe) {
+              end();
+            }
+          }
+        })()
+      );
+    };
+
+    for (const entry of clients) {
+      add(entry);
+    }
+    unsubscribe = subscribeLineAdded(clients, add);
+    if (open === 0 && !unsubscribe) {
+      end();
+    }
+
+    return async () => {
+      closed = true;
+      unsubscribe?.();
+      await Promise.allSettled([...inner].map((source) => source.close()));
+      await Promise.allSettled(pumps);
+    };
+  });
 
 export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
-  content: Content
+  content: Content,
+  line?: string
 ): Promise<ProviderMessageRecord | undefined> => {
   if (content.type === "reply") {
     return await replyToMessage(
       clients,
       spaceId,
       content.target.id,
-      content.content
+      content.content,
+      line
     );
   }
   if (content.type === "reaction") {
-    return await reactToMessage(clients, spaceId, content);
+    return await reactToMessage(clients, spaceId, content, line);
   }
   if (content.type === "typing") {
     // WhatsApp Business has no typing-indicator API. Silently ignore so
@@ -558,16 +610,17 @@ export const send = async (
   if (content.type === "read") {
     // Cumulative receipt: the Cloud API marks `target` and every earlier
     // message in the conversation as read (blue ticks for the sender).
-    await primary(clients).messages.markRead(content.target.id);
+    await clientFor(clients, line).client.messages.markRead(content.target.id);
     return;
   }
-  const client = primary(clients);
+  const { client, line: clientLine } = clientFor(clients, line);
   switch (content.type) {
     case "text":
       return toRecord(
         await client.messages.send({ to: spaceId, text: content.text }),
         spaceId,
-        content
+        content,
+        clientLine
       );
     case "attachment": {
       const { mediaId } = await client.media.upload({
@@ -586,7 +639,8 @@ export const send = async (
           [mediaType]: mediaPayload,
         } as Parameters<typeof client.messages.send>[0]),
         spaceId,
-        content
+        content,
+        clientLine
       );
     }
     case "contact":
@@ -596,7 +650,8 @@ export const send = async (
           contacts: [contactToWa(content)],
         }),
         spaceId,
-        content
+        content,
+        clientLine
       );
     case "voice": {
       const { mediaId } = await client.media.upload({
@@ -610,7 +665,8 @@ export const send = async (
           audio: { id: mediaId },
         } as Parameters<typeof client.messages.send>[0]),
         spaceId,
-        content
+        content,
+        clientLine
       );
     }
     case "poll": {
@@ -619,14 +675,15 @@ export const send = async (
         interactive: pollToInteractive(content),
       });
       cachePoll(client, result.messageId, content);
-      return toRecord(result, spaceId, content);
+      return toRecord(result, spaceId, content, clientLine);
     }
     case "app":
       // No mini-app surface on WhatsApp — send the bare URL as text.
       return toRecord(
         await client.messages.send({ to: spaceId, text: await content.url() }),
         spaceId,
-        content
+        content,
+        clientLine
       );
     default:
       throw UnsupportedError.content(content.type);
@@ -636,24 +693,27 @@ export const send = async (
 const reactToMessage = async (
   clients: WhatsAppClients,
   spaceId: string,
-  content: Reaction
+  content: Reaction,
+  line?: string
 ): Promise<ProviderMessageRecord> => {
+  const { client, line: clientLine } = clientFor(clients, line);
   // The Cloud API returns a real message id for reaction sends, so the
   // record carries a genuine handle (usable by a future unsend).
-  const result = await primary(clients).messages.send({
+  const result = await client.messages.send({
     to: spaceId,
     reaction: { messageId: content.target.id, emoji: content.emoji },
   });
-  return toRecord(result, spaceId, content);
+  return toRecord(result, spaceId, content, clientLine);
 };
 
 export const replyToMessage = async (
   clients: WhatsAppClients,
   spaceId: string,
   messageId: string,
-  content: Content
+  content: Content,
+  line?: string
 ): Promise<ProviderMessageRecord> => {
-  const client = primary(clients);
+  const { client, line: clientLine } = clientFor(clients, line);
   switch (content.type) {
     case "text":
       return toRecord(
@@ -663,7 +723,8 @@ export const replyToMessage = async (
           text: content.text,
         }),
         spaceId,
-        content
+        content,
+        clientLine
       );
     case "attachment": {
       const { mediaId } = await client.media.upload({
@@ -683,7 +744,8 @@ export const replyToMessage = async (
           [mediaType]: mediaPayload,
         } as Parameters<typeof client.messages.send>[0]),
         spaceId,
-        content
+        content,
+        clientLine
       );
     }
     case "contact":
@@ -694,7 +756,8 @@ export const replyToMessage = async (
           contacts: [contactToWa(content)],
         }),
         spaceId,
-        content
+        content,
+        clientLine
       );
     case "voice": {
       const { mediaId } = await client.media.upload({
@@ -709,7 +772,8 @@ export const replyToMessage = async (
           audio: { id: mediaId },
         } as Parameters<typeof client.messages.send>[0]),
         spaceId,
-        content
+        content,
+        clientLine
       );
     }
     case "poll": {
@@ -719,7 +783,7 @@ export const replyToMessage = async (
         interactive: pollToInteractive(content),
       });
       cachePoll(client, result.messageId, content);
-      return toRecord(result, spaceId, content);
+      return toRecord(result, spaceId, content, clientLine);
     }
     case "app":
       // No mini-app surface on WhatsApp — send the bare URL as text.
@@ -730,7 +794,8 @@ export const replyToMessage = async (
           text: await content.url(),
         }),
         spaceId,
-        content
+        content,
+        clientLine
       );
     default:
       throw UnsupportedError.content(content.type);

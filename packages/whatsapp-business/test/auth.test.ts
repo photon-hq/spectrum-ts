@@ -132,7 +132,8 @@ vi.doMock("@photon-ai/whatsapp-business", () => ({
   TypedEventStream: FakeTypedEventStream,
 }));
 
-const { createCloudClients, disposeCloudAuth } = await import("@/auth");
+const { createCloudClients, disposeCloudAuth, subscribeLineAdded } =
+  await import("@/auth");
 
 const waitFor = async (
   predicate: () => boolean,
@@ -168,7 +169,7 @@ describe("whatsapp cloud auth stream renewal", () => {
 
   it("opens a fresh subscription after token refresh even when the old SDK iterator does not return", async () => {
     const clients = await createCloudClients("project-1", "secret-1");
-    const eventStream = clients[0]?.events.subscribe();
+    const eventStream = clients[0]?.client.events.subscribe();
     if (!eventStream) {
       throw new Error("expected a WhatsApp event stream");
     }
@@ -181,7 +182,7 @@ describe("whatsapp cloud auth stream renewal", () => {
       "initial subscription did not start"
     );
 
-    await clients[0]?.messages.markRead("wamid.1");
+    await clients[0]?.client.messages.markRead("wamid.1");
 
     await waitFor(
       () => rawClients[1]?.events.subscribe.mock.calls.length === 1,
@@ -215,8 +216,8 @@ describe("whatsapp cloud auth stream renewal", () => {
     );
 
     const clients = await createCloudClients("project-1", "secret-1");
-    const firstMarkRead = clients[0]?.messages.markRead("wamid.1");
-    const secondMarkRead = clients[0]?.messages.markRead("wamid.2");
+    const firstMarkRead = clients[0]?.client.messages.markRead("wamid.1");
+    const secondMarkRead = clients[0]?.client.messages.markRead("wamid.2");
 
     await waitFor(
       () => issueWhatsappBusinessTokens.mock.calls.length === 2,
@@ -233,6 +234,40 @@ describe("whatsapp cloud auth stream renewal", () => {
     expect(rawClients[1]?.options.accessToken).toBe("token-2");
     expect(rawClients[1]?.messages.markRead).toHaveBeenCalledTimes(2);
 
+    await disposeCloudAuth(clients);
+  });
+
+  it("picks up a line added to the project at runtime", async () => {
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-1" },
+      expiresIn: 0,
+    }));
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-2", "phone-2": "token-2b" },
+      expiresIn: 0,
+    }));
+
+    const clients = await createCloudClients("project-1", "secret-1");
+    expect(clients.map((c) => c.line)).toEqual(["phone-1"]);
+
+    const added: string[] = [];
+    const unsubscribe = subscribeLineAdded(clients, (entry) => {
+      added.push(entry.line);
+    });
+
+    // expiresIn 0 → any proxy RPC refreshes first, pulling the new payload.
+    await clients[0]?.client.messages.markRead("wamid.1");
+
+    expect(clients.map((c) => c.line)).toEqual(["phone-1", "phone-2"]);
+    expect(added).toEqual(["phone-2"]);
+
+    // The late-added line's proxy routes RPCs to its own raw client
+    // (rawClients[2]: raw0 = initial phone-1, raw1 = refreshed phone-1,
+    // raw2 = phone-2).
+    await clients[1]?.client.messages.markRead("wamid.2");
+    expect(rawClients[2]?.messages.markRead).toHaveBeenCalledWith("wamid.2");
+
+    unsubscribe?.();
     await disposeCloudAuth(clients);
   });
 

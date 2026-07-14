@@ -13,7 +13,9 @@ const target = {
 describe("whatsapp send — read", () => {
   it("marks the conversation read up to the target via markRead", async () => {
     const markRead = vi.fn(() => Promise.resolve());
-    const clients = [{ messages: { markRead } }] as unknown as WhatsAppClients;
+    const clients = [
+      { client: { messages: { markRead } }, line: "LINE_A" },
+    ] as unknown as WhatsAppClients;
 
     const result = await send(clients, "15550001111", asRead({ target }));
 

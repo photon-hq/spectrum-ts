@@ -246,8 +246,28 @@ const waContactToSpectrum = (card: ContactCard): Content => {
   return asContact(input);
 };
 
-const stubMessage = (id: string, content: Content): SpectrumMessage =>
-  ({ id, content }) as unknown as SpectrumMessage;
+// Inbound group items are raw provider records that core's
+// wrapProviderMessage inflates into full Messages. They must carry
+// sender/space/timestamp — cloud webhook delivery serializes those per item
+// and crashes on a missing sender.
+const groupItem = (
+  msg: InboundMessage,
+  index: number,
+  content: Content
+): SpectrumMessage =>
+  ({
+    id: `${msg.id}:${index}`,
+    content,
+    sender: { id: msg.from },
+    space: { id: msg.from },
+    timestamp: msg.timestamp,
+  }) as unknown as SpectrumMessage;
+
+// Group items and multi-contact parts carry synthetic ids (`<wamid>:<index>`,
+// cf. toMessages) that the Cloud API doesn't know. Strip the suffix so
+// targeted actions (reply/react/read) hit the real parent message. Safe:
+// wamids are `wamid.` + base64, which never contains ":".
+const parentWamid = (id: string): string => id.split(":")[0] ?? id;
 
 const toMessages = (
   client: WhatsAppClient,
@@ -291,10 +311,7 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
       }
 
       return asGroup({
-        items: [
-          stubMessage(`${msg.id}:0`, media),
-          stubMessage(`${msg.id}:1`, asText(caption)),
-        ],
+        items: [groupItem(msg, 0, media), groupItem(msg, 1, asText(caption))],
       });
     }
     case "sticker":
@@ -559,7 +576,7 @@ export const send = async (
     return await replyToMessage(
       clients,
       spaceId,
-      content.target.id,
+      parentWamid(content.target.id),
       content.content
     );
   }
@@ -575,7 +592,7 @@ export const send = async (
   if (content.type === "read") {
     // Cumulative receipt: the Cloud API marks `target` and every earlier
     // message in the conversation as read (blue ticks for the sender).
-    await primary(clients).messages.markRead(content.target.id);
+    await primary(clients).messages.markRead(parentWamid(content.target.id));
     return;
   }
   const client = primary(clients);
@@ -659,7 +676,10 @@ const reactToMessage = async (
   // record carries a genuine handle (usable by a future unsend).
   const result = await primary(clients).messages.send({
     to: spaceId,
-    reaction: { messageId: content.target.id, emoji: content.emoji },
+    reaction: {
+      messageId: parentWamid(content.target.id),
+      emoji: content.emoji,
+    },
   });
   return toRecord(result, spaceId, content);
 };

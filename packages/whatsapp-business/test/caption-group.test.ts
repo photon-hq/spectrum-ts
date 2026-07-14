@@ -52,6 +52,14 @@ describe("whatsapp inbound media caption", () => {
     }
     expect(content.items).toHaveLength(2);
 
+    // Each item must be a complete record — cloud webhook delivery
+    // serializes item.sender/item.timestamp and crashes on undefined.
+    for (const item of content.items) {
+      expect(item.sender).toEqual({ id: "15551234567" });
+      expect(item.timestamp).toEqual(new Date("2026-07-14T00:00:00.000Z"));
+      expect(item.space).toEqual({ id: "15551234567" });
+    }
+
     const [attachmentItem, textItem] = content.items;
     expect(attachmentItem?.id).toBe("wamid.CAPTION1:0");
     expect(attachmentItem?.content).toMatchObject({

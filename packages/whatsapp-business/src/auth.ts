@@ -7,6 +7,7 @@ import {
 } from "@photon-ai/whatsapp-business";
 import { cloud, stream } from "@spectrum-ts/core";
 import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
+import type { LineClient, WhatsAppClients } from "./types";
 
 const log = createLogger("spectrum.whatsapp.auth");
 const streamLog = createLogger("spectrum.whatsapp.stream");
@@ -32,7 +33,27 @@ interface LineState {
   subscriptions: Set<LineSubscription>;
 }
 
-const cloudAuthState = new WeakMap<WhatsAppClient[], CloudAuth>();
+const cloudAuthState = new WeakMap<WhatsAppClients, CloudAuth>();
+
+// Cloud mode can grow lines at runtime (a token refresh may return a
+// phoneNumberId that wasn't in the original payload). Listeners let the
+// message stream subscribe to lines added after startup.
+type LineAddedListener = (entry: LineClient) => void;
+const lineListeners = new WeakMap<WhatsAppClients, Set<LineAddedListener>>();
+
+export const subscribeLineAdded = (
+  clients: WhatsAppClients,
+  listener: LineAddedListener
+): (() => void) | undefined => {
+  const listeners = lineListeners.get(clients);
+  if (!listeners) {
+    return;
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
 
 // `@photon-ai/whatsapp-business` 0.1.x does not accept a token callback, so we
 // recreate the underlying client before each RPC when the token is near expiry,
@@ -40,7 +61,7 @@ const cloudAuthState = new WeakMap<WhatsAppClient[], CloudAuth>();
 export async function createCloudClients(
   projectId: string,
   projectSecret: string
-): Promise<WhatsAppClient[]> {
+): Promise<WhatsAppClients> {
   let tokenData = await cloud.issueWhatsappBusinessTokens(
     projectId,
     projectSecret
@@ -80,6 +101,23 @@ export async function createCloudClients(
         sub.swap();
       }
       await old.close().catch(() => undefined);
+    }
+
+    // A line added to the project after startup shows up as a new
+    // phoneNumberId in the refreshed payload: give it a client, expose it for
+    // outbound routing, and let subscribed message streams pick it up.
+    for (const phoneNumberId of Object.keys(tokenData.auth)) {
+      if (lines.has(phoneNumberId) || disposed) {
+        continue;
+      }
+      const entry = addLine(phoneNumberId);
+      clients.push(entry);
+      log.info("whatsapp line added at runtime", {
+        "spectrum.whatsapp.line": phoneNumberId,
+      });
+      for (const listener of listeners) {
+        listener(entry);
+      }
     }
   };
 
@@ -159,16 +197,23 @@ export async function createCloudClients(
 
   scheduleRenewal();
 
-  const clients: WhatsAppClient[] = Object.keys(tokenData.auth).map(
-    (phoneNumberId) => {
-      const state: LineState = {
-        current: buildRawClient(phoneNumberId),
-        subscriptions: new Set(),
-      };
-      lines.set(phoneNumberId, state);
-      return buildClientProxy(state, refreshIfNeeded);
-    }
-  );
+  // The proxy (not `state.current`, which is swapped on token refresh) is the
+  // stable per-line handle carried in the LineClient entry.
+  const addLine = (phoneNumberId: string): LineClient => {
+    const state: LineState = {
+      current: buildRawClient(phoneNumberId),
+      subscriptions: new Set(),
+    };
+    lines.set(phoneNumberId, state);
+    return {
+      client: buildClientProxy(state, refreshIfNeeded),
+      line: phoneNumberId,
+    };
+  };
+
+  const clients: WhatsAppClients = Object.keys(tokenData.auth).map(addLine);
+  const listeners = new Set<LineAddedListener>();
+  lineListeners.set(clients, listeners);
 
   cloudAuthState.set(clients, {
     dispose: async () => {
@@ -190,7 +235,7 @@ export async function createCloudClients(
 }
 
 export async function disposeCloudAuth(
-  clients: WhatsAppClient[]
+  clients: WhatsAppClients
 ): Promise<void> {
   const auth = cloudAuthState.get(clients);
   if (!auth) {

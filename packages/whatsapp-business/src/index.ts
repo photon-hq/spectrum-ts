@@ -7,6 +7,7 @@ import {
   isCloudConfig,
   spaceSchema,
   type WhatsAppClients,
+  type WhatsAppSpace,
 } from "./types";
 
 export const whatsappBusiness = definePlatform("WhatsApp Business", {
@@ -20,11 +21,14 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
     }): Promise<WhatsAppClients> => {
       if (!isCloudConfig(config)) {
         return [
-          createClient({
-            accessToken: config.accessToken,
-            appSecret: config.appSecret ?? "",
-            phoneNumberId: config.phoneNumberId,
-          }),
+          {
+            client: createClient({
+              accessToken: config.accessToken,
+              appSecret: config.appSecret ?? "",
+              phoneNumberId: config.phoneNumberId,
+            }),
+            line: config.phoneNumberId,
+          },
         ];
       }
 
@@ -45,7 +49,7 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
       // closes use `.catch(() => undefined)` for the same reason) — settle all
       // so one non-idempotent `close()` can't reject and abort cleanup.
       await disposeCloudAuth(client);
-      await Promise.allSettled(client.map((c) => c.close()));
+      await Promise.allSettled(client.map((c) => c.client.close()));
     },
   },
 
@@ -55,7 +59,7 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
 
   space: {
     schema: spaceSchema,
-    create: async ({ input }) => {
+    create: async ({ input, client }): Promise<WhatsAppSpace> => {
       if (input.users.length === 0) {
         throw new Error("WhatsApp space creation requires at least one user");
       }
@@ -70,12 +74,13 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
       if (!user) {
         throw new Error("WhatsApp space creation requires a user");
       }
-      return { id: user.id };
+
+      return { id: user.id, line: client[0]?.line };
     },
   },
 
   messages: ({ client }) => messages(client),
 
   send: async ({ space, content, client }) =>
-    await send(client, space.id, content),
+    await send(client, space.id, content, space.line),
 });

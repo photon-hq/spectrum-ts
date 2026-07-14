@@ -16,6 +16,7 @@ import {
   type ContactName as SpectrumContactName,
   type ContactOrg as SpectrumContactOrg,
   type ContactPhone as SpectrumContactPhone,
+  type Message as SpectrumMessage,
   stream,
   UnsupportedError,
 } from "@spectrum-ts/core";
@@ -23,6 +24,7 @@ import {
   asAttachment,
   asContact,
   asCustom,
+  asGroup,
   asPollOption,
   asReaction,
   asText,
@@ -244,6 +246,9 @@ const waContactToSpectrum = (card: ContactCard): Content => {
   return asContact(input);
 };
 
+const stubMessage = (id: string, content: Content): SpectrumMessage =>
+  ({ id, content }) as unknown as SpectrumMessage;
+
 const toMessages = (
   client: WhatsAppClient,
   msg: InboundMessage
@@ -278,8 +283,20 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
     case "image":
     case "video":
     case "audio":
-    case "document":
-      return lazyMedia(client, content.media);
+    case "document": {
+      const media = lazyMedia(client, content.media);
+      const caption = content.media.caption?.trim();
+      if (!caption) {
+        return media;
+      }
+
+      return asGroup({
+        items: [
+          stubMessage(`${msg.id}:0`, media),
+          stubMessage(`${msg.id}:1`, asText(caption)),
+        ],
+      });
+    }
     case "sticker":
       return asCustom({ whatsapp_type: "sticker", ...content.sticker });
     case "location":

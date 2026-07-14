@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "290a871b37ec",
+  "strategy": "manual-commit",
+  "branch": "feat/whatsapp-space-line",
+  "checkpoints_count": 13,
+  "files_touched": [
+    "packages/whatsapp-business/src/auth.ts",
+    "packages/whatsapp-business/src/index.ts",
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/whatsapp-business/src/types.ts",
+    "packages/whatsapp-business/test/auth.test.ts",
+    "packages/whatsapp-business/test/inbound-line.test.ts",
+    "packages/whatsapp-business/test/messages.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/29/0a871b37ec/0/metadata.json",
+      "transcript": "/29/0a871b37ec/0/full.jsonl",
+      "compact_transcript": "/29/0a871b37ec/0/transcript.jsonl",
+      "content_hash": "/29/0a871b37ec/0/content_hash.txt",
+      "prompt": "/29/0a871b37ec/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 107,
+    "cache_creation_tokens": 144021,
+    "cache_read_tokens": 6306443,
+    "output_tokens": 52693,
+    "api_call_count": 58
+  }
+}

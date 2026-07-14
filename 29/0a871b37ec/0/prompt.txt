@@ -1,0 +1,450 @@
+ok take a look at the changes here and pls lmk if these changes are cooked or not and check blast radius
+
+---
+
+<task-notification>
+<task-id>af7570bc4769d5013</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/af7570bc4769d5013.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle: efficiency check" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts",
+    "line": 254,
+    "summary": "lineForClient(client) is a WeakMap lookup executed inside toMessages for every inbound message, even though the client→line mapping is immutable after client creation. It can be resolved once per client stream: hoist `const line = lineForClient(client)` into clientStream (src/messages.ts:490) and pass it (or a prebuilt space object) into toMessages, so the lookup happens once per subscription instead of once per message.",
+    "failure_scenario": "One redundant WeakMap.get per inbound message on the hot receive path. Cost is nanoseconds per message (dwarfed by the network I/O and object spreads already there), so this is a micro-optimization/clarity hoist, not a measurable performance risk — no realistic throughput impact even at high message volume."
+  }
+]
+
+No other efficiency issues found. For the specific concerns raised: registerClientLine adds only a WeakMap.set per line at startup (no blocking work); the WeakMap in src/line-registry.ts stores only a string value and, being weak-keyed, does not keep the proxy alive or extend retention of the createCloudClients scope — the proxy already closes over `state`/`refreshIfNeeded` via buildClientProxy, and that retention is pre-existing (the clients array and cloudAuthState dispose closure hold the same scope), so the diff introduces no new GC pressure.</result>
+<usage><subagent_tokens>36018</subagent_tokens><tool_uses>6</tool_uses><duration_ms>49706</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab5205ffd0ce5711b</task-id>
+<tool-use-id>toolu_01K8yErAySeafDS9J8KuFEzr</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/ab5205ffd0ce5711b.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle: CLAUDE.md conventions" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>```json
+[
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/types.ts",
+    "line": 32,
+    "summary": "Missing trailing comma on the new `line: z.string().optional()` field in spaceSchema — fails the project's Biome/Ultracite formatter (`bun x ultracite check` reports: 'Formatter would have printed: line: z.string().optional(),'). Fix with `bun x ultracite fix`.",
+    "failure_scenario": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/.claude/CLAUDE.md: 'Run `bun x ultracite fix` before committing to ensure compliance.' Verified: `bun x ultracite check` exits with 1 error on this exact line; CI/lint will fail."
+  },
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/test/inbound-line.test.ts",
+    "line": 1,
+    "summary": "New test file imports from \"vitest\" (`import { describe, expect, it } from \"vitest\"`), while the parent-directory CLAUDE.md mandates `bun test` (bun:test) and forbids vitest. Important context: this is repo convention, not an introduced inconsistency — packages/whatsapp-business/package.json test scripts are `\"test:bun\": \"bun --bun vitest run\"` / `\"test:node\": \"vitest run\"`, vitest is a devDependency, and every sibling test (auth.test.ts, config.test.ts, messages.test.ts, redact-url.test.ts) imports from \"vitest\". The new file is consistent with the package; switching only this file to bun:test would break `vitest run`. Flag only if the team intends to enforce the parent CLAUDE.md over existing repo convention.",
+    "failure_scenario": "/Users/riceontopp/Developer/CLAUDE.md: 'Use `bun test` instead of `jest` or `vitest`'. Rule technically violated, but repo/package convention standardizes on vitest, so this is a pre-existing project-wide deviation rather than a defect in this diff."
+  }
+]
+```
+
+Notes on what was checked and cleared: no CLAUDE.md exists at the repo root or under packages/whatsapp-business (only /Users/riceontopp/Developer/CLAUDE.md and /Users/riceontopp/Developer/photon-ai/spectrum-ts/.claude/CLAUDE.md govern). `bun x ultracite check` on line-registry.ts and inbound-line.test.ts reported zero issues — the only real lint failure is the types.ts trailing comma. The diff's changes to auth.ts, index.ts, and messages.ts introduce no convention violations (arrow functions, const, WeakMap usage in line-registry.ts all conform to Ultracite standards).</result>
+<usage><subagent_tokens>31372</subagent_tokens><tool_uses>4</tool_uses><duration_ms>36278</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a91d7993c4aa457a7</task-id>
+<tool-use-id>toolu_01QMoxu67Kghy3PSUGaPjUJP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a91d7993c4aa457a7.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle A: line-by-line scan" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts",
+    "line": 41,
+    "summary": "spaceSchema now accepts `line`, but send()/primary() still routes every outbound message to clients[0], silently ignoring space.line. The pre-existing comment right above primary() (lines 38-40) states that extending spaceSchema with `line` is the trigger to 'pick the matching client here' — the schema half was done without the routing half, so the feature's own contract is now half-implemented and the field is accepted but dead on the outbound path.",
+    "failure_scenario": "Cloud project with two lines A and B. Inbound message arrives on line B; toMessages tags space = {id: '1555...', line: 'B'}. Agent calls send/reply on that space → primary(clients) returns the line-A proxy → the reply is sent from phone number A, a different WhatsApp number than the customer messaged. Conversation continuity breaks (customer gets a reply from an unknown number; WhatsApp 24h session window on line B is not used)."
+  },
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts",
+    "line": 254,
+    "summary": "When the client is unregistered, `line: lineForClient(client)` produces an explicit `line: undefined` property on the space object instead of omitting the key. Elsewhere in this file (waNameToSpectrum, waPhoneToSpectrum, etc.) the codebase deliberately conditionally assigns optional keys to avoid `key: undefined`. If core strict-parses, JSON-serializes with key-order/presence-sensitive dedupe, or hashes the space object, `{id}` vs `{id, line: undefined}` diverge.",
+    "failure_scenario": "A message arrives via a client created by any path that doesn't call registerClientLine (e.g. a future/third client-construction path, or core cloning/wrapping the client object) → emitted space is {id: '1555...', line: undefined}; downstream consumers doing `'line' in space` or Object.keys-based comparison treat it as a different space shape than pre-change messages."
+  },
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts",
+    "line": 58,
+    "summary": "Outbound ProviderMessageRecord built by toRecord() still sets space: { id: spaceId } with no line, so inbound messages in a conversation carry space.line while outbound records for the same conversation don't — inconsistent space identity within one thread after this change.",
+    "failure_scenario": "Multi-line cloud setup: inbound from user X on line B yields space {id: X, line: 'B'}; the agent's reply record has space {id: X} with no line. Any consumer that keys conversation history or space state on the full space object (id+line) splits one conversation into two, or attributes the outbound message to no line/the wrong line."
+  },
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/auth.ts",
+    "line": 74,
+    "summary": "In createCloudClients (touched function), the line set is frozen at first token issuance: refreshTokens() only iterates existing `lines` entries and `continue`s when a phoneNumberId is missing from the new token payload, and the clients array/registry is never extended. A line added to the project after startup never gets a client, and hence never gets registered in the line registry — its inbound messages can never be tagged.",
+    "failure_scenario": "Project starts with line A only; operator adds line B in the dashboard; next token refresh returns auth for A and B. No client/proxy is created for B, so messages to B are never subscribed at all (and even if a client existed, it would be unregistered → space.line undefined), until the process restarts."
+  },
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/types.ts",
+    "line": 32,
+    "summary": "Missing trailing comma after `line: z.string().optional()` violates the repo's Biome/Ultracite formatting (every other multi-line object in these files has trailing commas); `bun x ultracite check` will flag it and CI lint may fail.",
+    "failure_scenario": "CI runs `bun x ultracite check` on the branch → format diagnostic on packages/whatsapp-business/src/types.ts:32 fails the lint step."
+  }
+]</result>
+<usage><subagent_tokens>45838</subagent_tokens><tool_uses>10</tool_uses><duration_ms>109144</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a278f80e7ebb91d10</task-id>
+<tool-use-id>toolu_01CPAV18Ut3igV8RSFsSMUX1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a278f80e7ebb91d10.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle: altitude check" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "packages/whatsapp-business/src/line-registry.ts",
+    "line": 9,
+    "summary": "WeakMap side-channel duplicates line identity the package already owns at every client-creation site. The premise ('clients don't expose phoneNumberId') only forces this if the client array must stay `WhatsAppClient[]` — but `WhatsAppClients` is defined in this package's own types.ts, and in cloud mode auth.ts already holds a `lines: Map&lt;phoneNumberId, LineState&gt;` with the phoneNumberId in hand at the exact spot the proxy is built (auth.ts:163-176). The deeper fix is to make the client handle carry its line — e.g. `WhatsAppClients = Array&lt;{ client: WhatsAppClient; line: string }&gt;` (or thread line into `clientStream`) — so messages() and send() receive line by construction instead of by object-identity lookup in a parallel registry.",
+    "failure_scenario": "Registration is a separate imperative call at each of the two creation sites (index.ts:27, auth.ts:173) and its correctness depends on messages.ts seeing the exact same object reference that was registered (the auth.ts comment about 'register the proxy, not state.current, which is swapped on token refresh' is the tell — this already almost broke once). Any future creation path (a third auth mode, a client rebuilt after reconfiguration, a wrapper/decorator added around clients before they reach messages()) that forgets or breaks the registration silently emits line=undefined; the second test in inbound-line.test.ts even codifies that silent failure as expected behavior, so no test will catch the regression."
+  },
+  {
+    "file": "packages/whatsapp-business/src/messages.ts",
+    "line": 254,
+    "summary": "Half of the design the codebase already prescribed: the pre-existing comment above primary() (messages.ts:38-40) says 'When multi-line send becomes a requirement, extend spaceSchema with an optional line (phoneNumberId) and pick the matching client here.' This diff extends the schema and tags inbound messages, but send() still routes everything to clients[0] via primary(), and index.ts:82 passes only space.id into send() even though space.line is sitting on the space object right there. The right altitude is to complete the loop: pass space.line through send and select the matching client.",
+    "failure_scenario": "In multi-line cloud mode (the only mode where line matters), a bot replying to a message that arrived on line B sends from line A — the customer gets a reply from a different phone number, and WhatsApp's 24-hour customer-service window (which is per phone-number-id) may reject the send outright. The line tag is decorative until routing uses it, so the first consumer who trusts space.line to mean 'replies go out on this line' ships a wrong-line bug. Outbound toRecord (messages.ts:53-58) also emits space:{id} without line, so echoed provider records disagree with inbound ones."
+  },
+  {
+    "file": "packages/whatsapp-business/src/types.ts",
+    "line": 32,
+    "summary": "'Which line did this space arrive on' is being invented per-platform with divergent names: iMessage's spaceSchema already expresses the same concept as `phone: z.string()` (packages/imessage/src/types.ts:44-48), and this diff adds it to WhatsApp as `line: z.string().optional()`. Core (@spectrum-ts/core types/space.ts, platform/types.ts) has no line concept, so every multi-line platform will re-derive both the field and a client→line recovery mechanism. If line identity is meant to be consumed cross-platform (e.g. an app routing by line regardless of platform), the concretely better altitude is a shared optional `line` on core's space contract — or at minimum aligning the field name with iMessage's existing precedent — rather than a third spelling per future platform.",
+    "failure_scenario": "A cross-platform app that needs 'reply on the same line' must special-case `space.phone` for iMessage, `space.line` for WhatsApp, and whatever the next multi-line platform picks; each platform also grows its own registry/side-channel (line-registry.ts is the first). Renaming later is a breaking schema change for every consumer, so the divergence gets more expensive the longer it ships."
+  }
+]</result>
+<usage><subagent_tokens>43891</subagent_tokens><tool_uses>11</tool_uses><duration_ms>109117</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a557735333ab8128a</task-id>
+<tool-use-id>toolu_011geKHTBJHr2MJf1PEiEsKH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a557735333ab8128a.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle: simplification check" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>```json
+[
+  {
+    "file": "packages/whatsapp-business/src/line-registry.ts",
+    "line": 9,
+    "summary": "WeakMap side-registry is more complex than needed: both creation sites already construct/wrap the client while holding phoneNumberId in hand (auth.ts:172 builds the proxy object literal itself; index.ts direct mode has config.phoneNumberId right there). Simpler form: put the line on the client — `type LineClient = WhatsAppClient &amp; { readonly phoneNumberId: string }`, set `WhatsAppClients = LineClient[]` (types.ts:22), add the field in buildClientProxy's returned literal and via a wrapper in index.ts, then toMessages reads `client.phoneNumberId` directly. Deletes the whole module, both register/lookup call sites, and the register-the-proxy-not-state.current ordering comment in auth.ts:170-173.",
+    "failure_scenario": "Registration and lookup are coupled only by convention. Any future client-creation path (new mode, refactor, or a test double) that forgets registerClientLine compiles fine and silently emits messages with space.line undefined — the exact bug this feature exists to prevent — whereas a required property on the client type makes the omission a compile error."
+  },
+  {
+    "file": "packages/whatsapp-business/test/inbound-line.test.ts",
+    "line": 44,
+    "summary": "The two tests are near-identical copy-paste: each hand-builds an inbound fixture, a `filtered` async-iterable with close(), a fake client with events.subscribe().filter(), and the same for-await-first-message consume loop; only the phone number and the registerClientLine call differ. Extract a helper, e.g. `const receiveOne = async (register?: string) =&gt; { ...build client; if (register) registerClientLine(client, register); ...return first message }` — each test body becomes ~3 lines.",
+    "failure_scenario": "When clientStream's subscribe/filter contract changes (e.g. reconnect options or event shape), both hand-rolled fakes must be updated in lockstep; missing one leaves a test asserting against a stale protocol, and every future line-tagging test copies the same 20-line boilerplate."
+  },
+  {
+    "file": "packages/whatsapp-business/src/types.ts",
+    "line": 32,
+    "summary": "`line: z.string().optional()` is only optional because the WeakMap lookup can miss. Every real creation path (direct mode index.ts, cloud mode auth.ts) knows phoneNumberId at construction, so under the direct pass-through design `line` can be required — removing the optional branch downstream consumers must handle and the second test ('leaves line undefined for an unregistered client'), which exercises a state unreachable through the platform's own creation paths.",
+    "failure_scenario": "Downstream consumers must write `space.line ?? fallback` handling for a case that never occurs in production, and the unregistered-client test cements the registry-miss behavior as intended API rather than an artifact of the side-table design."
+  }
+]
+```</result>
+<usage><subagent_tokens>42187</subagent_tokens><tool_uses>13</tool_uses><duration_ms>123025</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af93c38836adf1e9d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/af93c38836adf1e9d.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle B: removed-behavior audit" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Verification complete for all three replaced sites. The auth.ts audit passed (only one proxy-creation path exists; refresh swaps `state.current` under the stable registered proxy, and raw clients from `buildRawClient` never reach `toMessages` — inbound flows through the registered proxy in `clientStream`). The index.ts direct-mode audit passed (all three fields, `appSecret ?? ""` fallback, and single-element array preserved). No dedupe keys, JSON equality, or strict-schema comparisons on the space object were found in core (`spaceSchema.parse` in define.ts:127 tolerates the optional field). Two shape-consistency findings remain.
+
+```json
+[
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts",
+    "line": 58,
+    "summary": "toRecord still builds space: { id: spaceId } without line, so ProviderMessageRecords returned from send() have an untagged space while inbound messages now carry space.line — the two space shapes produced by this package are asymmetric.",
+    "failure_scenario": "An app that correlates its own sent-message records with inbound messages by space (or reads record.space.line to know which line a reply went out on) gets line === undefined on every outbound record even in cloud mode where the line is known via primary(clients), making inbound and outbound spaces for the same conversation compare unequal."
+  },
+  {
+    "file": "/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts",
+    "line": 41,
+    "summary": "The diff implements exactly half of the plan documented in the comment above primary() ('extend spaceSchema with an optional line ... and pick the matching client here'): spaceSchema gained line and inbound messages are tagged, but send() still routes everything through primary(clients) = clients[0], ignoring space.line.",
+    "failure_scenario": "In a multi-line cloud project, a user replies to an inbound message via its space (which now carries line = phoneNumberId of line B); send() silently dispatches through clients[0] (line A), so the customer receives the reply from a different WhatsApp number than the one they messaged — and the new line field gives callers the false impression that per-line routing is honored."
+  }
+]
+```</result>
+<usage><subagent_tokens>52276</subagent_tokens><tool_uses>14</tool_uses><duration_ms>155126</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4fc7eea5a11f1246</task-id>
+<tool-use-id>toolu_01EDpS4LZR4wCTZEbW1THVWx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a4fc7eea5a11f1246.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle: reuse check" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Investigation complete. I verified the key reuse questions:
+
+- `@photon-ai/whatsapp-business`'s `WhatsAppClient` interface (node_modules/.../dist/index.d.ts:1098) exposes only `events`, `media`, `messages`, `close` — `phoneNumberId` exists only on `WhatsAppCredentials`/`ClientOptions` and is not retained on the returned client at runtime (confirmed in dist/index.js `createClient`). So no existing accessor to call.
+- `@spectrum-ts/core` has no `line` concept, no `lineFor`, no space-line mechanism.
+- `InboundMessage` from the vendor package carries no receiving-number field, so the association must be recorded at client creation.
+- However, `packages/imessage` already solved the identical "which line did this inbound arrive on" problem, and it did so with a different mechanism: a wrapper client type `RemoteClient { client: AdvancedIMessage; phone: string }` (packages/imessage/src/types.ts:5) whose `phone` is stamped onto the message base as `space.phone` (packages/imessage/src/remote/inbound.ts:120-124). Also, in cloud mode `auth.ts` already maintains a `lines: Map&lt;phoneNumberId, LineState&gt;` holding the same association the WeakMap re-records.
+
+```json
+[
+  {
+    "file": "packages/whatsapp-business/src/line-registry.ts",
+    "line": 9,
+    "summary": "New WeakMap client-&gt;line side-registry re-implements the line-tagging mechanism the sibling iMessage platform already established: a wrapper client type carrying the line identity as a field (RemoteClient { client, phone } in packages/imessage/src/types.ts:5, surfaced as space.phone in packages/imessage/src/remote/inbound.ts). Wrapping WhatsAppClients entries as { client, phoneNumberId } would follow the existing convention instead of adding a second, WhatsApp-only mechanism.",
+    "failure_scenario": "Two divergent per-platform mechanisms for the same 'which line did this arrive on' concept (wrapper field on iMessage vs hidden WeakMap on WhatsApp): future platforms and cross-platform code (routing, docs, tests) must learn both, and the WhatsApp mapping is invisible on the client type so a client constructed anywhere without calling registerClientLine silently yields line: undefined with no compile-time signal."
+  },
+  {
+    "file": "packages/whatsapp-business/src/auth.ts",
+    "line": 174,
+    "summary": "In cloud mode the phoneNumberId-&gt;client association already exists in this function's `lines: Map&lt;string, LineState&gt;` (auth.ts:166-170); registerClientLine(proxy, phoneNumberId) records the same fact a second time in the reverse direction. Storing phoneNumberId on LineState (or on the proxy/wrapper itself) would make one structure the single source of truth instead of two parallel maps that must be kept in sync at every creation site.",
+    "failure_scenario": "Duplicated bookkeeping: any future client-creation or line-swap path (e.g. re-minting a proxy on auth topology change) must remember to update both the closure-scoped `lines` map and the module-global WeakMap; missing the WeakMap call produces inbound messages with line: undefined that no type error or existing test outside the new one catches."
+  }
+]
+```</result>
+<usage><subagent_tokens>45345</subagent_tokens><tool_uses>20</tool_uses><duration_ms>179038</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a3ef2ef4a4a0c03f5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a3ef2ef4a4a0c03f5.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle C: cross-file tracer" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>```json
+[
+  {
+    "file": "packages/whatsapp-business/src/messages.ts",
+    "line": 38,
+    "summary": "Stale/contradictory comment: it says the future work is to 'extend spaceSchema with an optional line (phoneNumberId) and pick the matching client here' — the diff did the first half (types.ts now has `line`) but `primary()` still routes every outbound to clients[0]. The comment no longer describes reality and the feature it gates is half-shipped.",
+    "failure_scenario": "A reader (or the next implementer) sees the schema already has `line` and assumes multi-line send works; in a cloud project with two phoneNumberIds, a customer messages line B, the agent's message.reply()/space.send() goes out from line A's number, and markRead/reaction calls hit the wrong line's client (Graph API rejects the wamid as not belonging to that phone number). The new `space.line` tag makes users expect line-affine replies that don't happen."
+  },
+  {
+    "file": "packages/whatsapp-business/src/messages.ts",
+    "line": 58,
+    "summary": "Outbound records are inconsistent with inbound: toRecord() builds `space: { id: spaceId }` with no `line`, while inbound messages now carry `space.line`. Agent-sent ProviderMessageRecords (echoed on webhooks/streams) in the same conversation lack the field the feature introduces.",
+    "failure_scenario": "A consumer that groups or routes conversation traffic by `space.line` (the stated purpose of the change) sees every inbound message tagged but every outbound/agent message untagged, so per-line analytics, mirroring, or dedupe keyed on (space.id, space.line) splits one conversation into two buckets or drops the outbound half."
+  },
+  {
+    "file": "packages/whatsapp-business/src/index.ts",
+    "line": 74,
+    "summary": "Spaces constructed via space.create() (returns `{ id: user.id }`) and core's default space.get() (candidate `{ id }`, core define.ts:207) never carry `line`, and there is no space.params to supply one — only inbound-message spaces get the tag.",
+    "failure_scenario": "Code that obtains a space programmatically (`whatsappBusiness(spectrum).space.get(id)` or space.create(user)) and branches on `space.line` silently gets undefined even in a single-line direct-mode setup where the line is statically known, producing divergent behavior between reply-to-inbound flows and proactive-send flows."
+  },
+  {
+    "file": "packages/whatsapp-business/src/types.ts",
+    "line": 32,
+    "summary": "New schema line `line: z.string().optional()` is missing the trailing comma the rest of the file/Biome (ultracite) formatting uses.",
+    "failure_scenario": "`bun x ultracite check` / CI format check flags the file; trivial but will block a clean pipeline until `bun x ultracite fix` is run."
+  }
+]
+```
+
+Verification notes for the caller (not findings): the WeakMap identity chain is intact — `definition.messages({ client })` in core (packages/core/src/spectrum.ts:483) passes the exact array returned by `createClient`, and `messages() → clientStream(client) → toMessages(client)` never wraps or spreads the client objects; cloud mode registers the stable per-line proxy (not the swapped `state.current`), so token refresh does not break lookup. Core never rejects the new field: inbound spaces are spread unvalidated (spectrum.ts:434), `finalizeSpace` parses with the provider's own schema where `line` is now declared, and webhook slim schemas are `z.looseObject` (packages/core/src/webhook/types.ts:23), so `line` survives serialization. No dedupe/hashing keyed on deep space equality was found. No other package (core, imessage, etc.) defines a `line` field on a space schema, so phoneNumberId is not conflicting with any established cross-platform convention — but it is also a brand-new convention this package invents unilaterally. All 14 package tests pass under `bun run test:node`.</result>
+<usage><subagent_tokens>80916</subagent_tokens><tool_uses>35</tool_uses><duration_ms>318875</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a18decacbc8728045</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a18decacbc8728045.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify outbound routing gap" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>CONFIRMED — but as a PRE-EXISTING gap, not a new bug introduced by the diff. The diff does make it more misleading, though, and leaves a now-stale comment.
+
+Evidence:
+
+(a) send() really does ignore space.line, and space.line is not even passed in. The wiring in `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/index.ts:80-81`:
+
+```ts
+send: async ({ space, content, client }) =&gt;
+  await send(client, space.id, content),
+```
+
+`space` here is validated against the new spaceSchema, so `space.line` IS available at this call site — but only `space.id` is forwarded. `send()` in `src/messages.ts:537-541` has signature `(clients, spaceId, content)` with no line parameter, and every content path routes via `primary(clients)`:
+
+```ts
+const primary = (clients: WhatsAppClients): WhatsAppClient =&gt; {
+  const client = clients[0];
+```
+
+(b) Yes, cloud mode can produce multiple clients. `createCloudClients` in `src/auth.ts:163-176` builds one client per key of the token response:
+
+```ts
+const clients: WhatsAppClient[] = Object.keys(tokenData.auth).map(
+  (phoneNumberId) =&gt; { ... }
+```
+
+So `tokenData.auth` with two phoneNumberIds yields `clients.length === 2`, and `clients[0]` order is whatever `Object.keys` yields — trigger: a cloud project with 2+ lines, an inbound message on the non-first line, then any reply/send to that space goes out from line A's phone number (`src/messages.ts:565`, and reply path `src/messages.ts:657`).
+
+(c) markRead and reactions also route via primary: `await primary(clients).messages.markRead(content.target.id)` at `src/messages.ts:562`, and reactions at `src/messages.ts:644` (`await primary(clients).messages.send({ to: spaceId, reaction: ... })`). For a message that arrived on line B, these hit line A's client — the Cloud API will reject or misattribute since the message id belongs to line B's phone number.
+
+New vs pre-existing: `primary()`, `send()`, and the markRead/reaction paths are untouched by the diff (`git diff HEAD` shows only types.ts, auth.ts, index.ts client construction, line-registry.ts, and the inbound `toMessages` tagging). The wrong-line outbound routing existed before and was explicitly documented as a v1 limitation in the comment at `src/messages.ts:38-40`:
+
+```ts
+// v1 routes outbound traffic to the first line. When multi-line send becomes a
+// requirement, extend spaceSchema with an optional `line` (phoneNumberId) and
+// pick the matching client here.
+```
+
+The diff performs exactly half of that comment's prescription — it extends spaceSchema with `line` and tags inbound spaces — but does not "pick the matching client here." Two consequences worth flagging in review:
+
+1. The schema now advertises a `line` field that outbound silently ignores, which is misleading to consumers who set it expecting routing.
+2. The comment is now stale/self-contradictory: it says "extend spaceSchema with an optional `line`" as a future step, but that step has been done while the routing half has not.
+
+Verdict: CONFIRMED mechanism (multi-line cloud + inbound on non-first line → outbound reply, markRead, and reaction all via clients[0], i.e. the wrong phone number); classification: PRE-EXISTING gap that the diff makes more visible and misleading. The right ask for this PR is either to wire `space.line` through `send()` to select the matching client (completing the comment's plan), or to update the comment/docs to state that `line` is inbound-informational only for now.</result>
+<usage><subagent_tokens>44471</subagent_tokens><tool_uses>4</tool_uses><duration_ms>45110</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2ff128d67714d2f0</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a2ff128d67714d2f0.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify outbound record asymmetry" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>VERDICT: PLAUSIBLE
+
+The factual claims mostly check out, but the claimed consumer-observable trigger through `toRecord` does not survive tracing into core.
+
+**What's confirmed factually**
+
+(a) `toRecord`'s space is really untagged. `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts` lines 51–60:
+
+```ts
+const toRecord = (
+  result: WaSendResult,
+  spaceId: string,
+  content: Content
+): ProviderMessageRecord =&gt; ({
+  id: result.messageId,
+  content,
+  space: { id: spaceId },
+  timestamp: new Date(),
+});
+```
+
+(b) The line IS knowable at that point. Every `toRecord` call site in `send()`/`replyToMessage()` already holds `const client = primary(clients)` (messages.ts lines 565, 657), and `lineForClient(client)` would return the phoneNumberId — the registry registers both the local client (index.ts line 28) and the cloud proxy (auth.ts). So tagging outbound records is a one-line change per call site.
+
+Also confirmed: `space.create` in `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/index.ts` line 74 returns `{ id: user.id }` with no `line`.
+
+**Why the trigger is uncertain (the load-bearing counter-evidence)**
+
+(c) The outbound record's `space` field is discarded by core before it reaches consumers. In `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/core/src/platform/build.ts`, `wrapProviderMessage` builds the outbound Message with `space: ctx.space` and `spaceRef: ctx.spaceRef` (line ~519) — i.e. the Space the consumer called `.send()` on — and `extractExtras` explicitly filters out the `space` key (`providerMessageCoreKeys` includes `"space"`). So a consumer-facing outbound Message's `space` is whatever space it was sent from, never `toRecord`'s `{ id: spaceId }`. If the consumer sends from an inbound message's space (which now carries `line`), the returned outbound Message's `space.line` is present. The `toRecord` half of the candidate is therefore not observable in the direct send path — that portion is effectively refuted.
+
+By contrast, inbound records' `space` IS consumer-observable: `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/core/src/spectrum.ts` line ~434 builds `spaceRef = { ...record.space, __platform }` from the inbound record, so `message.space.line` is set for inbound.
+
+**The residual real asymmetry**: a Space obtained via `space.create` (or held from before) has `line: undefined`, while spaces on inbound messages carry `line: &lt;phoneNumberId&gt;`. A consumer grouping by `(space.id, space.line)` across those two sources would split a conversation. However: I found no core-internal structure keyed by the full spaceRef (no `spaceKey`/stringify-based maps), outbound send ignores `line` entirely by design (documented v1 comment at messages.ts lines 38–40), and single-line deployments have only one line anyway. What would confirm CONFIRMED: a downstream consumer (or webhook-envelope path) that keys conversation state on the full space object rather than `space.id` alone.
+
+**New vs pre-existing**: NEW — before this diff no space anywhere carried `line`, so there was no inconsistency to observe; the diff introduces the tag on inbound only, creating the asymmetry.</result>
+<usage><subagent_tokens>60399</subagent_tokens><tool_uses>26</tool_uses><duration_ms>228971</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2ad70592553e9a23</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/a2ad70592553e9a23.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify line:undefined key issue" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Verdict: REFUTED** (as a behavioral bug — the mechanism exists but no real consumer can observe it; at most a style nit).
+
+**(a) Mechanism confirmed at the code level.** `packages/whatsapp-business/src/messages.ts:254` builds `space: { id: msg.from, line: lineForClient(client) }`, and `lineForClient` returns `string | undefined` (`src/line-registry.ts:18-19`), so an unregistered client yields an own `line: undefined` property. **However, no unregistered client exists in any real flow:** both construction paths register before returning — direct mode in `src/index.ts` (`registerClientLine(client, config.phoneNumberId); return [client];`) and cloud mode in `src/auth.ts:163-175` (registers the stable proxy per phoneNumberId before pushing into the returned array). `messages(clients)` (`messages.ts:533-535`) maps over exactly those array elements into `clientStream`, which passes the same object identity to `toMessages` (line 517). So in production `line` is always a string. The only unregistered case is a hand-built client, and the new test `test/inbound-line.test.ts:44-67` explicitly asserts `line` is `undefined` there — it's the documented intended behavior, not an accident.
+
+**(b) Downstream cannot distinguish `{id}` from `{id, line: undefined}`.**
+- Inbound message spaces are never zod-parsed. In `packages/core/src/spectrum.ts:434-437` the space is just spread: `const spaceRef = { ...record.space, __platform: definition.name }` — the undefined key is copied but inert. `def.space.schema.parse` is only invoked on the `space.get`/`space.create` paths (`packages/core/src/platform/define.ts:127, 208-217`), which construct candidates from an id, never from an inbound message record. (Even if it were parsed, `line: z.string().optional()` accepts `undefined`.)
+- `extractExtras` (`build.ts:470-481`) excludes `space` via `providerMessageCoreKeys`, so the message-schema parse never touches it.
+- No serialization path exists on this side: the space object stays in-memory through `buildSpace`/`wrapProviderMessage`. The webhook path deserializes cloud-produced payloads with `z.looseObject` (`packages/core/src/webhook/types.ts:23`) — not produced from this object — and any `JSON.stringify` would drop the undefined key anyway. Telemetry only reads `space.id` (`spectrum.ts:429`, `build.ts:629`).
+- No key comparison: I found no `Object.keys`/entries iteration or structural comparison over spaces anywhere in `packages/core/src` (the only `Object.entries` in build.ts are over extras and declared actions).
+
+**(c) The style-precedent claim is accurate.** `messages.ts:224-244` (`waContactToSpectrum`) conditionally assigns optional fields, e.g. `if (card.emails.length &gt; 0) { input.emails = card.emails.map(waEmailToSpectrum); }` — so `...(line ? { line } : {})` would match house style. But that's consistency, not correctness.
+
+Bottom line: the candidate's mechanism is real (`line: undefined` key does appear for unregistered clients), but every production client is registered, and every downstream path either spreads in-memory (indistinguishable to `space.line` reads), skips zod entirely, or would drop the undefined key on serialization. No consumer observes a behavioral difference — style-only.</result>
+<usage><subagent_tokens>60328</subagent_tokens><tool_uses>33</tool_uses><duration_ms>283436</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa42fc7f5e9a700d5</task-id>
+<tool-use-id>toolu_012ToP9kVwwn1Am9ZD7JMuvR</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/4ccf92be-c970-463b-8cb3-d5463dd72401/tasks/aa42fc7f5e9a700d5.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify frozen line set claim" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>VERDICT: CONFIRMED — with the explicit caveat that this is PRE-EXISTING behavior, not introduced by the diff.
+
+Evidence, all from `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/auth.ts`:
+
+(a) Initial clients array is frozen at first token issuance (lines 163–176):
+```ts
+const clients: WhatsAppClient[] = Object.keys(tokenData.auth).map(
+  (phoneNumberId) =&gt; {
+    const state: LineState = { current: buildRawClient(phoneNumberId), subscriptions: new Set() };
+    lines.set(phoneNumberId, state);
+    ...
+    return proxy;
+  }
+);
+```
+The array is built once from the first `issueWhatsappBusinessTokens` payload and returned; nothing ever pushes to it.
+
+(b) `refreshTokens` (lines 67–85) only iterates existing entries and drops everything else:
+```ts
+for (const [phoneNumberId, state] of lines) {
+  if (!tokenData.auth[phoneNumberId]) {
+    continue;   // line removed from payload: stale client kept, silently
+  }
+  state.current = buildRawClient(phoneNumberId);
+  ...
+}
+```
+A NEW `phoneNumberId` appearing in the refreshed `tokenData.auth` is never added to `lines`, never gets a client/proxy, and never gets registered in the line registry. (`refreshIfNeeded`, lines 154–159, just funnels into the same `coalescedRefresh` → `refreshTokens` path.)
+
+(c) Nothing else picks up new lines at runtime. Core invokes the factory exactly once per provider at init: `/Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/core/src/spectrum.ts` line 575 (`def.lifecycle.createClient({...})` inside the `spectrum.init` span) stores the result in `platformStates` and never re-invokes it; `lifecycle` is only touched again at shutdown (`destroyClient`, line 918). The inbound stream is `messages = (clients) =&gt; mergeStreams(clients.map(clientStream))` (`packages/whatsapp-business/src/messages.ts` lines 533–535), i.e., it maps over the frozen array once. There is no webhook-driven or fusor-driven reconfiguration path for this platform (cloud mode returns plain clients, not a FusorClient).
+
+Trigger: add a WhatsApp line to the project while the process is running → next token refresh returns the new `phoneNumberId` in `tokenData.auth` → it is skipped by the `lines` iteration → no client, no event subscription, no line tag for that line until process restart.
+
+Pre-existing: the diff (`git diff HEAD -- packages/whatsapp-business`) only changed `return buildClientProxy(state, refreshIfNeeded)` to additionally call `registerClientLine(proxy, phoneNumberId)`; the `Object.keys(tokenData.auth).map(...)` construction and the `refreshTokens` loop with the `continue` are unchanged from the parent commit. The candidate finding describes real, confirmed behavior, but it is not a regression introduced by this change — at most the diff extends the existing limitation to line-tagging (a new line would also be missing from the registry, consistent with it having no client at all).</result>
+<usage><subagent_tokens>51110</subagent_tokens><tool_uses>43</tool_uses><duration_ms>300927</duration_ms></usage>
+</task-notification>
+
+---
+
+ok can we complete it all.
+
+---
+
+U FUCKDONT USE SUPERPOWERS

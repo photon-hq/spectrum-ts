@@ -20,7 +20,7 @@ Use this section when you need to choose the right outbound content shape or und
     Send styled text that renders through each provider's native formatting model.
   </Card>
   <Card title="Attachments" icon="paperclip" href="/spectrum-ts/content/attachments">
-    Send files from paths or buffers with stable attachment IDs.
+    Send files from paths, URLs, or buffers with stable attachment IDs.
   </Card>
   <Card title="Voice" icon="audio-lines" href="/spectrum-ts/content/voice">
     Send voice notes with audio metadata and provider fallbacks.
@@ -29,9 +29,9 @@ Use this section when you need to choose the right outbound content shape or und
     Share contact cards from structured data, users, or vCards.
   </Card>
   <Card title="Rich links" icon="link" href="/spectrum-ts/content/rich-links">
-    Render URLs as rich previews with lazy Open Graph metadata.
+    Let each platform render URLs with its native preview behavior.
   </Card>
-  <Card title="App link cards" icon="panel-top" href="/spectrum-ts/content/app-link-cards">
+  <Card title="App link cards" icon="panel-top" href="/spectrum-ts/content/app">
     Present URLs as tappable app-style cards where providers support them.
   </Card>
   <Card title="Polls" icon="list-checks" href="/spectrum-ts/content/polls">

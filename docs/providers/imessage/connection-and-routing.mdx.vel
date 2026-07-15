@@ -4,6 +4,8 @@ sidebarTitle: "Connection and routing"
 description: "Configure cloud or local iMessage packages, lines, spaces, and per-phone routing."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use this page to choose an iMessage package and understand how Spectrum routes
 iMessage conversations. Cloud and local iMessage are separate packages; the
 choice is made by the import, not by a config flag.
@@ -59,9 +61,10 @@ choice is made by the import, not by a config flag.
     <Note>
       Local iMessage supports receiving and sending text, attachments, and
       contacts. Universal app content degrades to its URL. Reactions, threaded
-      replies, effects, group creation, streaming text, chat backgrounds,
-      renaming, avatars, contact-card sharing, and membership operations are
-      unavailable. Typing signals are accepted as a no-op.
+      replies, edits, unsend, read receipts, effects, group creation, streaming
+      text, chat backgrounds, renaming, avatars, contact-card sharing, and
+      membership operations are unavailable. Typing signals are accepted as a
+      no-op.
     </Note>
   </Tab>
 </Tabs>
@@ -137,7 +140,7 @@ These fields are also available on `message.sender` after narrowing:
 for await (const [space, message] of app.messages) {
   if (message.platform !== "iMessage") continue;
   const imMsg = imessage(message);
-  console.log(imMsg.sender.service);
+  console.log(imMsg.sender?.service);
 }
 ```
 
@@ -169,7 +172,8 @@ DM creation works with the cloud package. The local package can construct a
 deterministic DM reference, but it cannot create a group because the local
 Messages database does not expose chat creation.
 
-Group creation requires a dedicated line. In shared-pool mode, passing multiple users to `space.create()` throws an `UnsupportedError`. You can use `space.get(chatGuid)` to reference an existing group, but shared mode still does not receive membership or metadata changes from the group-event stream.
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+Group creation requires a dedicated line. In shared-pool mode, passing multiple users to `space.create()` throws an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />. You can use `space.get(chatGuid)` to reference an existing group, but shared mode still does not receive membership or metadata changes from the group-event stream.
 
 ### Per-phone routing
 

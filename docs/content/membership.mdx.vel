@@ -3,6 +3,8 @@ title: "Membership"
 description: "Add or remove group members and leave chats through the content pipeline."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use `addMember()` and `removeMember()` to manage a group chat's members, and `leaveSpace()` to make the agent's own account leave the chat. All three are fire-and-forget: `space.send(...)` resolves to `undefined`.
 
 ```ts
@@ -16,19 +18,24 @@ await space.send(leaveSpace());
 `space.add(users)`, `space.remove(users)`, and `space.leave()` are sugar for the canonical forms above.
 
 ```ts
-await space.add(alice);                       // a resolved User
-await space.add(["+15551234567", bob]);       // ids and Users mix; batches land in one provider call
+await space.add(alice);
+await space.add(["+15551234567", bob]);
 await space.remove("+15551234567");
 await space.leave();
 ```
 
-`addMember()` and `removeMember()` accept a single `User` or id string, or an array of either. Ids use the same platform handle format `space.create` accepts (for iMessage: an E.164 phone number or email); they are passed to the provider verbatim, with no resolution step. Both return a `ContentBuilder` that validates when it builds — an empty member list rejects at `space.send(...)` time, not at construction.
+{% set memberInput = symbol("ts:spectrum-ts#MemberInput") %}
+{% set user = symbol("ts:spectrum-ts#User") %}
+{% set contentBuilder = symbol("ts:spectrum-ts#ContentBuilder") %}
+`addMember()` and `removeMember()` accept <TypeTooltip name="MemberInput" type={`{{ memberInput.signature }}`} />: a <TypeTooltip name="User" type={`{{ user.signature }}`} /> resolved by the current platform or a raw id, either alone or in a batch. Ids use the same platform handle format `space.create` accepts (for iMessage: an E.164 phone number or email); they are passed to the provider verbatim, with no resolution step. Both return a <TypeTooltip name="ContentBuilder" type={`{{ contentBuilder.signature }}`} /> that validates when it builds — an empty member list rejects at `space.send(...)` time, not at construction.
 
-Per-platform constraints surface as `UnsupportedError` from the provider's send action. iMessage requires remote mode and a group chat — a DM cannot be converted into a group, so on a DM the error points you at creating a group via `space.create` instead.
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+Per-platform constraints surface as an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} /> from the provider's send action. iMessage requires remote mode and a group chat — a DM cannot be converted into a group, so on a DM the error points you at creating a group via `space.create` instead.
 
 ## Inbound membership events
 
-On platforms that report membership changes (iMessage remote mode today), the same content types arrive as inbound messages on `app.messages` — what you send is what you observe when someone else does it:
+{% set messageType = symbol("ts:spectrum-ts#Message") %}
+On platforms that report membership changes (iMessage remote mode today), the same content types arrive as inbound <TypeTooltip name="Message" type={`{{ messageType.signature }}`} /> values on `app.messages` — what you send is what you observe when someone else does it:
 
 ```ts
 for await (const [space, message] of app.messages) {

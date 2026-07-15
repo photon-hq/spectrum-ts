@@ -3,6 +3,8 @@ title: "Text"
 description: "Send plain text and stream text through Spectrum."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use `text()` for plain outbound text. You can also pass a plain string anywhere Spectrum accepts content.
 
 ```ts
@@ -16,7 +18,8 @@ await space.send("Hello, world.");
 
 ## Streaming text
 
-Both `text()` and `markdown()` accept a streaming source: an AI SDK result, an `AsyncIterable`, or a `ReadableStream`.
+{% set streamTextSource = symbol("ts:spectrum-ts#StreamTextSource") %}
+Both `text()` and `markdown()` accept a <TypeTooltip name="StreamTextSource" type={`{{ streamTextSource.signature }}`} />: an AI SDK result, an `AsyncIterable`, or a `ReadableStream`.
 
 On platforms that support it, text streams live. iMessage in remote mode sends the first chunk as a real message and edits in place as more text arrives. Telegram private chats animate a native draft preview. Platforms without streaming support wait for the stream to finish and send the full text as one message.
 
@@ -55,4 +58,13 @@ On platforms that support it, text streams live. iMessage in remote mode sends t
   </Tab>
 </Tabs>
 
-A stream can only be sent once. Pass `options.extract` for any chunk shape the built-in auto-detection doesn't recognize.
+A stream can only be sent once.
+
+{% set textStreamOptions = symbol("ts:spectrum-ts#TextStreamOptions") %}
+<Accordion title="TextStreamOptions" description="{{ textStreamOptions.doc.summary }}">
+  | Option | Type | Description |
+  |---|---|---|
+  {% for m in textStreamOptions.members -%}
+  | `{{ m.name }}{% if m.optional %}?{% endif %}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {{ m.doc.summary }} |
+  {% endfor %}
+</Accordion>

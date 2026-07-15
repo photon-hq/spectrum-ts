@@ -3,11 +3,14 @@ title: "App"
 description: "Send and update a tappable app card, with optional live rendering on supported platforms."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use `app()` when you want to present a URL as a tappable card instead of an inline link.
 
 ## Send an app card
 
-Pass the destination URL to `app()` and send it like any other content:
+{% set appUrl = symbol("ts:spectrum-ts#AppUrl") %}
+The first argument is <TypeTooltip name="AppUrl" type={`{{ appUrl.signature }}`} />. {{ appUrl.doc.summary }}
 
 ```ts
 import { app } from "spectrum-ts";
@@ -19,7 +22,10 @@ On iMessage, the recipient gets a native mini-app card. On Slack, Telegram, What
 
 ## Show the app's live UI
 
-Pass `{ live: true }` as the second argument to ask supported platforms to render the installed app extension's live UI:
+{% set appOptions = symbol("ts:spectrum-ts#AppOptions") %}
+The second argument is <TypeTooltip name="AppOptions" type={`{{ appOptions.signature }}`} />.
+
+Set `live` to `true` to request live rendering:
 
 ```ts
 import { app } from "spectrum-ts";
@@ -30,6 +36,14 @@ await space.send(
   })
 );
 ```
+
+<Accordion title="AppOptions" description="{{ appOptions.doc.summary }}">
+  | Option | Type | Description |
+  |---|---|---|
+  {% for m in appOptions.members -%}
+  | `{{ m.name }}{% if m.optional %}?{% endif %}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {{ m.doc.summary }} |
+  {% endfor %}
+</Accordion>
 
 When `live` is omitted, iMessage shows the card's static URL preview. Platforms without a live app surface ignore the option and keep their normal URL fallback.
 

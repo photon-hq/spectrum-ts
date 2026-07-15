@@ -5,17 +5,16 @@ description: "Use definePlatform to plug a new messaging platform into Spectrum"
 
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
-{% set pd = symbol("ts:spectrum-ts#PlatformDef") %}
-{% set ep = symbol("ts:spectrum-ts#EventProducer") %}
-{% set schemaMsg = symbol("ts:spectrum-ts#SchemaMessage") %}
-
+{% set spaceType = symbol("ts:spectrum-ts#Space") %}
+{% set messageType = symbol("ts:spectrum-ts#Message") %}
 `definePlatform` is the entry point for building your own provider. It takes a name and a definition object, and returns a callable that:
 
 - exposes a `.config()` method for registering the provider on `Spectrum()`
-- accepts a Spectrum instance, space, or message for [narrowing](/spectrum-ts/platform-narrowing)
-- carries any `static` properties you declare (like iMessage's `tapbacks`)
+- accepts the app, a <TypeTooltip name="Space" type={`{{ spaceType.signature }}`} />, or a <TypeTooltip name="Message" type={`{{ messageType.signature }}`} /> for [narrowing](/spectrum-ts/platform-narrowing)
+- carries any `static` properties you declare (like iMessage's effect constants)
 
-The full definition shape is <TypeTooltip name="PlatformDef" type={`{{ pd.signature }}`} />.
+{% set pd = symbol("ts:spectrum-ts#PlatformDef") %}
+The core definition shape is <TypeTooltip name="PlatformDef" type={`{{ pd.signature }}`} />. You pass `name` as the first argument to `definePlatform`. The optional `static` object is an additional `definePlatform` input whose properties are copied onto the returned provider.
 
 ## Shape
 
@@ -87,31 +86,44 @@ export const myPlatform = definePlatform("my-platform", {
 
 ## Field reference
 
-| Field | Required | Description |
-|---|---|---|
-| `config` | Yes | A Zod schema that validates the object passed to `platform.config()`. If every field is optional, `platform.config()` can be called with no arguments. |
-| `user.resolve` | Yes | Resolves a user from a string ID. Returns at minimum `{ id: string }`. |
-| `user.schema` | No | Optional Zod schema for extra user properties. |
-| `space.create` | Yes | Creates a conversation from participants. Receives an array of users plus optional params. |
-| `space.get` | No | Hydrates a space from a known platform space ID. When omitted, the framework builds `{ id }` and validates it against `space.schema`. Providers whose schema requires more fields must implement this. |
-| `space.schema` | No | Optional Zod schema for the resolved space. |
-| `space.params` | No | Zod schema for additional space parameters — surfaces as the second arg to `platform(app).space.create()` and `platform(app).space.get()`. |
-| `space.actions` | No | A map of content-builder factories that become sugar methods on the resolved space. Each `space.<name>(...args)` delegates to `space.send(factory(...args))`. Names that collide with built-in `Space` methods (`send`, `edit`, `unsend`, `read`, `startTyping`, `stopTyping`, `responding`, `getMessage`, `getMembers`, `getAvatar`, `rename`, `avatar`, `add`, `remove`, `leave`) are skipped at runtime with a warning. |
-| `lifecycle.createClient` | Yes | Creates the platform client. Receives `config`, `projectId`, `projectSecret` (both may be `undefined`), and `store`. |
-| `lifecycle.destroyClient` | No | Tears down the client on shutdown. Omit if no cleanup is needed. |
-| `messages` | Yes | Async generator that yields incoming messages. |
-| `send` | Yes | Dispatches a content item to a space. All content types — text, markdown, attachments, reactions, replies, edits, unsends, typing indicators — flow through this single action. Return a `ProviderMessageRecord` for content that produces a message (including reactions — the record is the unsend handle), or `undefined` for fire-and-forget signals (typing, edits, unsends). |
-| `actions.getMessage` | No | Fetches a message by ID from a space. Receives `(ctx, space, messageId)` where `ctx` is `{ client, config, store }`. Powers `space.getMessage(id)`. When omitted, `space.getMessage()` throws `UnsupportedError`. |
-| `actions.getMembers` | No | Lists a space's current participants. Receives `(ctx, space)` and returns raw `{ id, ...extras }` records; `space.getMembers()` tags each with `__platform`. When omitted, `space.getMembers()` throws `UnsupportedError`. |
-| `actions.getAvatar` | No | Downloads the space's avatar. Receives `(ctx, space)` and returns `{ data: Buffer, mimeType }` — or `undefined` when no avatar is set. Powers `space.getAvatar()`. When omitted, `space.getAvatar()` throws `UnsupportedError`. |
-| `actions.[custom]` | No | Platform-specific methods projected onto the platform instance. Each receives `(ctx, ...args)` where `ctx` is `{ client, config, store }`; the public signature drops `ctx`. Names that collide with reserved instance keys (`user`, `space`, `messages`, plus any event names) are skipped at runtime with a warning. |
-| `events.[custom]` | No | Additional async generators for platform-specific events — exposed on `app.[eventName]`. |
-| `message.schema` | No | Zod schema for extra properties on incoming messages. |
-| `static` | No | Constants attached to the platform object (e.g. tapback names). |
+{% set providerMessageRecord = symbol("ts:spectrum-ts/authoring#ProviderMessageRecord") %}
+Return a <TypeTooltip name="ProviderMessageRecord" type={`{{ providerMessageRecord.signature }}`} /> from `send` when the content produces a message. Return `undefined` for fire-and-forget signals.
+
+<AccordionGroup>
+  <Accordion title="PlatformDef" description="{{ pd.doc.summary }}">
+    | Field | Type | Required | Description |
+    |---|---|---|---|
+    {% for m in pd.members -%}
+    | `{{ m.name }}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {% if m.optional %}No{% else %}Yes{% endif %} | {% if m.doc.summary %}{{ m.doc.summary }}{% else %}-{% endif %} |
+    {% endfor %}
+  </Accordion>
+  <Accordion title="Nested definition fields" description="Configure platform resolution, lifecycle hooks, schemas, and actions.">
+    | Field | Required | Description |
+    |---|---|---|
+    | `user.resolve` | Yes | Resolves a user from a string ID. Returns at minimum `{ id: string }`. |
+    | `user.schema` | No | Adds provider-specific user properties with a Zod schema. |
+    | `space.create` | Yes | Creates a conversation from participants. Receives an array of users plus optional params. |
+    | `space.get` | No | Hydrates a space from a known provider ID. When omitted, Spectrum builds `{ id }` and validates it against `space.schema`. Providers whose schemas require more fields must implement this method. |
+    | `space.schema` | No | Adds provider-specific properties to resolved spaces with a Zod schema. |
+    | `space.params` | No | Adds provider-specific parameters to `platform(app).space.create()` and `platform(app).space.get()` with a Zod schema. |
+    | `space.actions` | No | Adds async methods to resolved spaces. Spectrum binds each method's first parameter to the space, so callers pass only the remaining arguments. Reserved universal method names are skipped with a warning. |
+    | `lifecycle.createClient` | Yes | Creates the provider client. Receives `config`, `projectConfig`, `projectId`, `projectSecret`, and `store`. |
+    | `lifecycle.destroyClient` | No | Tears down the client on shutdown. Omit it when the client needs no cleanup. |
+    | `message.schema` | No | Adds provider-specific properties to incoming messages with a Zod schema. |
+    | `message.actions` | No | Adds async methods to narrowed messages. Spectrum binds each method's first parameter to the message, so callers pass only the remaining arguments. |
+    | `actions.getMessage` | No | Fetches a message by ID and powers `space.getMessage(id)`. Spectrum injects `{ client, config, store }` as the first argument. |
+    | `actions.getMembers` | No | Lists a space's participants and powers `space.getMembers()`. Spectrum injects `{ client, config, store }` as the first argument. |
+    | `actions.getAvatar` | No | Downloads a space's avatar and powers `space.getAvatar()`. Spectrum injects `{ client, config, store }` as the first argument. |
+    | `actions.getDisplayName` | No | Reads a space's title and powers `space.getDisplayName()`. Spectrum injects `{ client, config, store }` as the first argument. |
+    | `actions.[custom]` | No | Adds a provider-specific method to the narrowed provider instance. Spectrum injects `{ client, config, store }` as the first argument. |
+    | `events.[custom]` | No | Adds an event stream exposed on `app.[eventName]` and the narrowed provider instance. |
+    | `static` | No | Copies constants onto the provider returned by `definePlatform`. |
+  </Accordion>
+</AccordionGroup>
 
 ## Message direction
 
-Records yielded from `messages` are wrapped as inbound, and records returned from `send` are wrapped as outbound. When a provider knows the actual direction of a record, it can set `direction` on the raw record and Spectrum will use it instead of the wrapping context:
+Records yielded from `messages` are wrapped as inbound <TypeTooltip name="Message" type={`{{ messageType.signature }}`} /> values. Records returned from `send` are wrapped as outbound messages. When a provider knows a record's actual direction, it can set `direction` on the raw record and Spectrum uses it instead of the wrapping context:
 
 ```ts
 yield {
@@ -135,7 +147,8 @@ This matters for nested records like reaction targets: the outer reaction is inb
 
 ## Event producers
 
-Every event generator receives `{ client, config, store }` and returns an `AsyncIterable`. The signature is <TypeTooltip name="EventProducer" type={`{{ ep.signature }}`} />.
+{% set ep = symbol("ts:spectrum-ts#EventProducer") %}
+Every event generator receives `{ client, config, projectConfig, store }` and returns an `AsyncIterable`. The signature is <TypeTooltip name="EventProducer" type={`{{ ep.signature }}`} />.
 
 The core `messages` stream lives at the top level of the definition. Optional custom event streams (presence, read receipts, etc.) live inside `events`:
 
@@ -168,6 +181,7 @@ message: {
 },
 ```
 
+{% set schemaMsg = symbol("ts:spectrum-ts#SchemaMessage") %}
 Use <TypeTooltip name="SchemaMessage" type={`{{ schemaMsg.signature }}`} /> when you need the message shape in your own types.
 
 ## Instance actions
@@ -176,7 +190,8 @@ Methods declared in `actions` are projected onto the platform instance returned 
 
 Two tiers share the `actions` slot:
 
-- **Platform-wise actions** (`getMessage`, `getMembers`, `getAvatar`) — framework-recognized names. Always present on every platform instance. When omitted, the framework wires a default that throws `UnsupportedError`.
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+- **Platform-wise actions** (`getMessage`, `getMembers`, `getAvatar`, `getDisplayName`) — framework-recognized names. Always present on every platform instance. When omitted, the framework wires a default that throws an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 - **Platform-specific actions** — free-form keys for platform ergonomics (e.g. iMessage's `getAttachment`). Only present when declared.
 
 ```ts
@@ -194,19 +209,19 @@ export const myPlatform = definePlatform("my-platform", {
 
 const mine = myPlatform(app);
 
-// Platform-wise — always available, throws UnsupportedError if not overridden
 const msg = await mine.getMessage(space, "msg-123");
 
-// Platform-specific — available because declared above
 const thread = await mine.lookupThread("thread-456");
 ```
 
 ## Fusor-backed providers
 
-When your platform receives inbound messages through webhooks (rather than a persistent connection), use `fusor(...)` as the client in `lifecycle.createClient`. A Fusor client handles webhook signature verification and delivers parsed payloads to your `messages` handler:
+{% set fusorMessages = symbol("ts:spectrum-ts#FusorMessages") %}
+{% set fusorMessagesCtx = symbol("ts:spectrum-ts#FusorMessagesCtx") %}
+When your platform receives inbound messages through webhooks (rather than a persistent connection), use `fusor(...)` as the client in `lifecycle.createClient`. A Fusor client handles webhook signature verification and delivers parsed payloads to a <TypeTooltip name="FusorMessages" type={`{{ fusorMessages.signature }}`} /> handler:
 
 ```ts
-import { definePlatform, fusor, fusorEvent } from "spectrum-ts";
+import { definePlatform, fusor } from "spectrum-ts";
 import z from "zod";
 
 export const myWebhookPlatform = definePlatform("my-webhook-platform", {
@@ -222,9 +237,9 @@ export const myWebhookPlatform = definePlatform("my-webhook-platform", {
       }),
   },
 
-  messages: async function* ({ payload, config, respond }) {
+  messages: async ({ payload, respond }) => {
     respond({ status: 200 });
-    yield {
+    return {
       id: payload.id,
       content: { type: "text", text: payload.text },
       sender: { id: payload.userId },
@@ -247,7 +262,15 @@ export const myWebhookPlatform = definePlatform("my-webhook-platform", {
 });
 ```
 
-The Fusor overload of `definePlatform` replaces the top-level `messages` async generator with a per-webhook-delivery handler that receives `{ payload, config, respond }`. Call `respond()` to set the HTTP response sent back to the webhook caller.
+The Fusor overload of `definePlatform` replaces the top-level `messages` async generator with a per-webhook-delivery handler. It receives a <TypeTooltip name="FusorMessagesCtx" type={`{{ fusorMessagesCtx.signature }}`} />. Call `respond()` to set the HTTP response sent back to the webhook caller.
+
+<Accordion title="FusorMessagesCtx" description="Context passed to a Fusor message handler for one webhook delivery.">
+  | Field | Type | Description |
+  |---|---|---|
+  {% for m in fusorMessagesCtx.members -%}
+  | `{{ m.name }}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {% if m.doc.summary %}{{ m.doc.summary }}{% else %}-{% endif %} |
+  {% endfor %}
+</Accordion>
 
 ## Registering your platform
 

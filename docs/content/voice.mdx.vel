@@ -3,7 +3,7 @@ title: "Voice"
 description: "Send voice notes with audio metadata and provider fallbacks."
 ---
 
-Use `voice()` to send a voice note. It uses the same input shape as `attachment`: a path or a `Buffer` plus optional metadata.
+Use `voice()` to send a voice note. It uses the same input shape as `attachment`: a path, a `URL`, or a `Buffer` plus optional metadata.
 
 <Note>
   This page covers audio clips sent inside messages. To place or receive a live

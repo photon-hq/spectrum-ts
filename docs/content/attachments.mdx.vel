@@ -1,9 +1,11 @@
 ---
 title: "Attachments"
-description: "Send files from paths or buffers with stable attachment IDs."
+description: "Send files from paths, URLs, or buffers with stable attachment IDs."
 ---
 
-Use `attachment()` to send files. Pass a file path or a `Buffer`. MIME types are detected from the file extension. Override with `options.mimeType` when you already have the bytes.
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+Use `attachment()` to send files. Pass a file path, a `URL`, or a `Buffer`. MIME types are detected from the file extension. Override with `options.mimeType` when you already have the bytes.
 
 ```ts
 import { attachment } from "spectrum-ts";
@@ -34,7 +36,9 @@ await space.send(attachment(buffer, {
 }));
 ```
 
-The `Attachment` and `AttachmentInput` types are exported from the public API for use in your own type signatures:
+{% set attachmentType = symbol("ts:spectrum-ts#Attachment") %}
+{% set attachmentInput = symbol("ts:spectrum-ts#AttachmentInput") %}
+Use the resolved <TypeTooltip name="Attachment" type={`{{ attachmentType.signature }}`} /> and accepted <TypeTooltip name="AttachmentInput" type={`{{ attachmentInput.signature }}`} /> input types in your own signatures:
 
 ```ts
 import { type Attachment, type AttachmentInput } from "spectrum-ts";

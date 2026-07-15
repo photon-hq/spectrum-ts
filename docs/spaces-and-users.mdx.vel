@@ -7,6 +7,7 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 {% set space = symbol("ts:spectrum-ts#Space") %}
 {% set user = symbol("ts:spectrum-ts#User") %}
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
 
 A **space** is a conversation — a DM, a group chat, a terminal session. A **user** is a participant identified by a platform-specific ID. Both carry a `__platform` tag so the narrowing functions from [platform narrowing](/spectrum-ts/platform-narrowing) can recover their platform-specific shapes.
 
@@ -14,22 +15,15 @@ A **space** is a conversation — a DM, a group chat, a terminal session. A **us
 
 Every <TypeTooltip name="Space" type={`{{ space.signature }}`} /> exposes the same interface regardless of platform:
 
-| Method | Description |
-|---|---|
-| `send(...content)` | Send one or more content items into the conversation. |
-| `edit(message, newContent)` | Rewrite a previously-sent message. Sugar for `send(edit(newContent, message))`. |
-| `unsend(message)` | Retract a previously-sent message. Sugar for `send(unsend(message))`. |
-| `startTyping()` | Show a typing indicator. No-op if the platform doesn't support it. |
-| `stopTyping()` | Hide the typing indicator. |
-| `responding(fn)` | Start a typing indicator, run `fn`, and stop the indicator when it completes — even if `fn` throws. |
-| `getMessage(id)` | Fetch a message by ID from the conversation. Throws `UnsupportedError` on platforms that don't support it. |
-| `getMembers()` | List the chat's current participants as `User`s, excluding the agent's own account where identifiable. Throws `UnsupportedError` on platforms that can't list members. |
-| `getAvatar()` | Download the chat avatar (group icon) as `{ data, mimeType }`. Resolves `undefined` when none is set; throws `UnsupportedError` on platforms that can't fetch avatars. |
-| `rename(displayName)` | Rename the chat. Sugar for `send(rename(displayName))`. |
-| `avatar(input, options?)` | Set or clear the chat avatar. Sugar for `send(avatar(input, options?))`. |
-| `add(users)` | Add members to the chat. Sugar for `send(addMember(users))`. |
-| `remove(users)` | Remove members from the chat. Sugar for `send(removeMember(users))`. |
-| `leave()` | Leave the chat with the agent's own account. Sugar for `send(leaveSpace())`. |
+<Accordion title="Space" description="{{ space.doc.summary }}">
+  | Member | Description |
+  |---|---|
+  {% for m in space.members -%}
+  | `{{ m.signature | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {{ m.doc.summary | replace("\n", " ") | replace("|", "\\|") }} |
+  {% endfor %}
+</Accordion>
+
+Provider-specific constraints surface as an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 
 ```ts
 for await (const [space, message] of app.messages) {
@@ -39,14 +33,15 @@ for await (const [space, message] of app.messages) {
 
 ## User
 
-Users are minimal: an ID and a platform tag.
+Every <TypeTooltip name="User" type={`{{ user.signature }}`} /> has a platform-specific ID and platform tag.
 
-```ts
-interface User {
-  readonly id: string;
-  readonly __platform: string;
-}
-```
+<Accordion title="User" description="{{ user.doc.summary }}">
+  | Field | Description |
+  |---|---|
+  {% for m in user.members -%}
+  | `{{ m.signature | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {{ m.doc.summary | replace("\n", " ") | replace("|", "\\|") }} |
+  {% endfor %}
+</Accordion>
 
 Resolve a user from a platform-specific identifier through a narrowed platform instance:
 
@@ -115,4 +110,4 @@ const existing = await im.space.get("any;-;+15551111111");
 await existing.send("Hello again.");
 ```
 
-The returned space is the platform-specific type — so you can read extra fields like `type: "dm" | "group"` on iMessage — but it also satisfies the generic `Space` interface, so `send()`, `startTyping()`, and friends are always available.
+The returned space is the platform-specific type — so you can read extra fields like `type: "dm" | "group"` on iMessage — but it also satisfies the generic <TypeTooltip name="Space" type={`{{ space.signature }}`} /> interface, so `send()`, `startTyping()`, and friends are always available.

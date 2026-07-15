@@ -3,6 +3,8 @@ title: "Rename"
 description: "Rename chats through the content pipeline."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use `rename()` to rename the current chat. It is fire-and-forget: `space.send(rename(...))` resolves to `undefined`.
 
 ```ts
@@ -13,6 +15,8 @@ await space.send(rename("New Chat Name"));
 
 `space.rename(displayName)` is sugar for `space.send(rename(displayName))`. The builder throws at construction time if `displayName` is empty.
 
-Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as `UnsupportedError` from the provider's send action.
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} /> from the provider's send action.
 
-Rename is bidirectional: on platforms that report it (iMessage remote mode today), someone else renaming the chat arrives as an inbound message with `content.type === "rename"` and the new `displayName`. `message.sender` is the user who renamed the chat, or `undefined` when the platform recorded no actor.
+{% set renameContent = symbol("ts:spectrum-ts#Rename") %}
+The <TypeTooltip name="Rename" type={`{{ renameContent.signature }}`} /> content is bidirectional: on platforms that report it (iMessage remote mode today), someone else renaming the chat arrives as an inbound message with `content.type === "rename"` and the new `displayName`. `message.sender` is the user who renamed the chat, or `undefined` when the platform recorded no actor.

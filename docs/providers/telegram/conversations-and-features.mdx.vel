@@ -8,7 +8,7 @@ Use [platform narrowing](/spectrum-ts/platform-narrowing) when you need Telegram
 
 ## Starting a conversation
 
-Resolve a user by their Telegram user ID and open a space. You can also pass a `chatId` parameter to target a specific Telegram chat:
+Resolve a user by their Telegram user ID to open their private chat. Telegram bots cannot create groups. Use `space.get(chatId)` for an existing group, supergroup, or channel, and stringify numeric Telegram chat IDs.
 
 ```ts
 const tg = telegram(app);
@@ -16,6 +16,9 @@ const user = await tg.user("123456789");
 const space = await tg.space.create(user);
 
 await space.send("Hello from Spectrum.");
+
+const group = await tg.space.get(process.env.TELEGRAM_CHAT_ID!);
+await group.send("Hello, existing group.");
 ```
 
 ## Supported features
@@ -30,4 +33,4 @@ await space.send("Hello from Spectrum.");
 | Threaded replies | Send and receive |
 | Typing indicators | Send |
 | Message edits | Send and receive, including text and markdown |
-| Custom Bot API calls | Via platform-specific actions |
+| Custom Bot API calls | Send with `custom({ method, params })` content |

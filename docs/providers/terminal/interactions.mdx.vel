@@ -25,7 +25,7 @@ Reactions ride the same `app.messages` stream as text. They arrive as a `reactio
 ```ts
 for await (const [space, message] of app.messages) {
   if (message.content.type === "reaction") {
-    console.log(`${message.sender.id} reacted ${message.content.emoji}`);
+    console.log(`${message.sender?.id ?? "unknown"} reacted ${message.content.emoji}`);
     continue;
   }
   if (message.content.type === "text") {

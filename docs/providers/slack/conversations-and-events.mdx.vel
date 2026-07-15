@@ -50,5 +50,5 @@ Narrowed Slack messages expose additional fields:
 | Media, files, and images | Send and receive |
 | Reactions | Send and receive |
 | Threaded replies | Send and receive |
-| Typing indicators | Send |
-| Message edits | Send and receive |
+| Typing indicators | Accepted as a no-op |
+| Message edits | Receive only |

@@ -3,7 +3,12 @@ title: "Contacts"
 description: "Share contact cards from structured data, users, or vCards."
 ---
 
-Use `contact()` to share contact cards. The builder takes either a structured `ContactInput`, a vCard string, a `vcf` instance, or a known `User` paired with optional `ContactDetails`.
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set contactInput = symbol("ts:spectrum-ts#ContactInput") %}
+{% set user = symbol("ts:spectrum-ts#User") %}
+{% set contactDetails = symbol("ts:spectrum-ts#ContactDetails") %}
+Use `contact()` to share contact cards. The builder takes either a structured <TypeTooltip name="ContactInput" type={`{{ contactInput.signature }}`} />, a vCard string, a `vcf` instance, or a known <TypeTooltip name="User" type={`{{ user.signature }}`} /> paired with optional <TypeTooltip name="ContactDetails" type={`{{ contactDetails.signature }}`} />.
 
 <Tabs>
   <Tab title="Structured">
@@ -42,11 +47,13 @@ Use `contact()` to share contact cards. The builder takes either a structured `C
   </Tab>
 </Tabs>
 
-`fromVCard(vcf)` parses a vCard string into a `ContactInput`. `toVCard(contact)` serializes a resolved `Contact` back to vCard.
+{% set contactType = symbol("ts:spectrum-ts#Contact") %}
+`fromVCard(vcf)` parses a vCard string into a <TypeTooltip name="ContactInput" type={`{{ contactInput.signature }}`} />. `toVCard(contact)` serializes a resolved <TypeTooltip name="Contact" type={`{{ contactType.signature }}`} /> back to vCard.
 
 <Accordion title="ContactInput" description="The fields you can populate on a contact card. All fields are optional except where the receiving platform requires at least one identifying field.">
   | Field | Type | Description |
   |---|---|---|
+  | `user` | <TypeTooltip name="User" type={`{{ user.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> | Resolved provider user reference. |
   | `name` | `{ formatted?, first?, last?, middle?, prefix?, suffix? }` | Structured display name. |
   | `phones` | `Array<{ value, type? }>` | Phone numbers. `type` is `"mobile" \| "home" \| "work" \| "other"`. |
   | `emails` | `Array<{ value, type? }>` | Email addresses. `type` is `"home" \| "work" \| "other"`. |

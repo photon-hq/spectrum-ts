@@ -6,9 +6,11 @@ description: "Receive, narrow, and act on incoming messages"
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 {% set message = symbol("ts:spectrum-ts#Message") %}
+{% set space = symbol("ts:spectrum-ts#Space") %}
 {% set content = symbol("ts:spectrum-ts#Content") %}
+{% set poll = symbol("ts:spectrum-ts#Poll") %}
 
-Every incoming message arrives through `app.messages` as a `[Space, Message]` tuple. The space is already bound to the originating conversation — you don't need to resolve it yourself to reply.
+Every incoming message arrives through `app.messages` as a tuple containing a <TypeTooltip name="Space" type={`{{ space.signature }}`} /> and a <TypeTooltip name="Message" type={`{{ message.signature }}`} />. The space is already bound to the originating conversation — you don't need to resolve it yourself to reply.
 
 ## Receiving messages
 
@@ -24,60 +26,17 @@ Messages from every configured provider merge into this single stream. The order
 
 Every message conforms to <TypeTooltip name="Message" type={`{{ message.signature }}`} />.
 
-<table>
-  <thead>
-    <tr>
-      <th>Field</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>id</code></td>
-      <td>Platform-assigned message identifier.</td>
-    </tr>
-    <tr>
-      <td><code>content</code></td>
-      <td>Discriminated union on <code>type</code> — see <a href="#narrowing-content">Narrowing content</a> for the full set of variants.</td>
-    </tr>
-    <tr>
-      <td><code>sender</code></td>
-      <td>The <TypeTooltip name="User" type={`{{ symbol("ts:spectrum-ts#User").signature }}`} /> who sent the message — <code>undefined</code> for events with no attributable author (e.g. a group-management event whose platform recorded no actor).</td>
-    </tr>
-    <tr>
-      <td><code>space</code></td>
-      <td>The <TypeTooltip name="Space" type={`{{ symbol("ts:spectrum-ts#Space").signature }}`} /> the message was sent into.</td>
-    </tr>
-    <tr>
-      <td><code>platform</code></td>
-      <td>Name of the provider that delivered the message (e.g. <code>"iMessage"</code>, <code>"terminal"</code>).</td>
-    </tr>
-    <tr>
-      <td><code>timestamp</code></td>
-      <td><code>Date</code> of when the message was sent.</td>
-    </tr>
-    <tr>
-      <td><code>react(reaction)</code></td>
-      <td>React to this message. Returns the reaction <code>Message</code> — keep it as the handle to <code>unsend()</code> later. No-op on platforms that don't support reactions.</td>
-    </tr>
-    <tr>
-      <td><code>reply(...content)</code></td>
-      <td>Reply threaded to this message. Falls back silently on platforms without thread support.</td>
-    </tr>
-    <tr>
-      <td><code>edit(newContent)</code></td>
-      <td>Rewrite the content of this outbound message. Fire-and-forget.</td>
-    </tr>
-    <tr>
-      <td><code>unsend()</code></td>
-      <td>Retract this outbound message. Fire-and-forget.</td>
-    </tr>
-  </tbody>
-</table>
+<Accordion title="Message" description="{{ message.doc.summary }}">
+  | Member | Description |
+  |---|---|
+  {% for m in message.members -%}
+  | `{{ m.signature | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {{ m.doc.summary | replace("\n", " ") | replace("|", "\\|") }} |
+  {% endfor %}
+</Accordion>
 
 ## Narrowing content
 
-`Content` is a discriminated union. Narrow on `message.content.type` before accessing fields:
+<TypeTooltip name="Content" type={`{{ content.signature }}`} /> is a discriminated union. Narrow on `message.content.type` before accessing fields:
 
 ```ts
 for await (const [space, message] of app.messages) {
@@ -98,7 +57,7 @@ for await (const [space, message] of app.messages) {
       console.log(message.content.name?.formatted, message.content.phones);
       break;
     case "richlink":
-      console.log(message.content.url, await message.content.title());
+      console.log(message.content.url);
       break;
     case "reaction":
       console.log(`${message.content.emoji} on ${message.content.target.id}`);
@@ -122,29 +81,32 @@ for await (const [space, message] of app.messages) {
 }
 ```
 
-<Accordion title="Content" description="The incoming content variants that every Message carries. Most platforms only emit a subset — narrow defensively.">
+<Accordion title="Content" description="{{ content.doc.summary }}">
   | Type | Fields |
   |---|---|
   | `"text"` | `text: string` |
   | `"markdown"` | `markdown: string` — outbound-only styled text |
   | `"attachment"` | `id: string`, `name: string`, `mimeType: string`, `size?: number`, `read()`, `stream()` |
   | `"voice"` | `name?: string`, `mimeType: string`, `duration?: number`, `size?: number`, `read()`, `stream()` |
-  | `"contact"` | `name?`, `phones?`, `emails?`, `addresses?`, `org?`, `urls?`, `birthday?`, `note?`, `photo?`, `user?` |
-  | `"richlink"` | `url: string`, `title()`, `summary()`, `cover()` |
-  | `"reaction"` | `emoji: string`, `target: Message` |
+  | `"contact"` | `name?`, `phones?`, `emails?`, `addresses?`, `org?`, `urls?`, `birthday?`, `note?`, `photo?`, `user?`, `raw?` |
+  | `"richlink"` | `url: string` |
+  | `"effect"` | `content`, `effect: string` — iMessage effect wrapping text, markdown, or an attachment |
+  | `"reaction"` | `emoji: string`, `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> |
   | `"poll"` | `title: string`, `options: { title: string }[]` |
-  | `"poll_option"` | `option: { title }`, `poll: Poll`, `selected: boolean`, `title: string` — sent as a vote |
-  | `"group"` | `items: Message[]` — bundled multi-message unit |
+  | `"poll_option"` | `option: { title }`, `poll:` <TypeTooltip name="Poll" type={`{{ poll.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />, `selected: boolean`, `title: string` — sent as a vote |
+  | `"group"` | `items:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />`[]` — bundled multi-message unit |
   | `"rename"` | `displayName: string` — the chat was renamed |
   | `"avatar"` | `action: { kind: "set", read(), mimeType } \| { kind: "clear" }` — group icon set or cleared |
   | `"addMember"` | `members: string[]` — members added; `sender` is who added them |
   | `"removeMember"` | `members: string[]` — members removed; `sender` is who removed them |
   | `"leaveSpace"` | *(no fields)* — `sender` is the member who left |
-  | `"reply"` | `content: Content`, `target: Message` — threaded reply wrapping inner content |
-  | `"edit"` | `content: Content`, `target: Message` — rewrite of a previously-sent message |
-  | `"unsend"` | `target: Message` — retraction of a previously-sent message |
+  | `"reply"` | `content:` <TypeTooltip name="Content" type={`{{ content.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />, `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — threaded reply wrapping inner content |
+  | `"edit"` | `content:` <TypeTooltip name="Content" type={`{{ content.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />, `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — rewrite of a previously-sent message |
+  | `"unsend"` | `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — retraction of a previously-sent message |
+  | `"read"` | `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — mark the conversation read through the target message |
   | `"typing"` | `state: "start" \| "stop"` — typing indicator signal |
-  | `"streamText"` | `stream: () => AsyncIterable<string>` — streaming text content |
+  | `"streamText"` | `stream: () => AsyncIterable<string>`, `format?: "plain" \| "markdown"` — streaming text content |
+  | `"app"` | `url()`, `layout()`, `live?: boolean` — app-style link card |
   | `"custom"` | `raw: unknown` — platform-specific structured data |
 </Accordion>
 
@@ -154,13 +116,11 @@ Group-management events (`rename`, `avatar`, `addMember`, `removeMember`, `leave
 
 ## Filtering out your own messages
 
-On platforms where your account also receives its own sends, guard with a platform-specific check — for example, iMessage carries an `isFromMe` flag on the raw message extra you can expose through a provider `message.schema`.
-
-For unified logic, compare the sender to a known identity:
+Every <TypeTooltip name="Message" type={`{{ message.signature }}`} /> carries a `direction`. Skip outbound messages when you only want user input:
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.sender?.id === myAccountId) continue;
+  if (message.direction === "outbound") continue;
   // handle incoming
 }
 ```
@@ -171,9 +131,9 @@ Every message is its own context. You can reply, react, or send new content into
 
 ```ts
 for await (const [space, message] of app.messages) {
-  await message.react("love");              // react
-  await message.reply("Got it");            // threaded reply
-  await space.send("Here's more context");  // fresh send into the space
+  await message.react("❤️");
+  await message.reply("Got it");
+  await space.send("Here's more context");
 }
 ```
 

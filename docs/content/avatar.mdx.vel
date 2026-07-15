@@ -3,6 +3,8 @@ title: "Avatar"
 description: "Set or clear group chat avatars."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use `avatar()` to set or clear the chat avatar, also called a group icon. It is fire-and-forget: `space.send(avatar(...))` resolves to `undefined`.
 
 ```ts
@@ -18,9 +20,12 @@ await space.send(avatar(buffer, { mimeType: "image/jpeg" }));
 await space.send(avatar("clear"));
 ```
 
-`space.avatar(...)` is sugar for `space.send(avatar(...))`. Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as `UnsupportedError` from the provider's send action.
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+`space.avatar(...)` is sugar for `space.send(avatar(...))`. Per-platform constraints, such as iMessage requiring remote mode and a group chat, surface as an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} /> from the provider's send action.
 
-Avatar is bidirectional: on platforms that report it (iMessage remote mode today), someone else changing the icon arrives as an inbound message with `content.type === "avatar"` — `action.kind === "set"` carries the fetched icon behind `action.read()` with its `mimeType`, and `"clear"` mirrors icon removal. Over the Spectrum webhook, a `set` arrives metadata-only (its `read()` throws); fetch the current icon via `space.getAvatar()` instead. `message.sender` is the user who changed it, or `undefined` when the platform recorded no actor.
+{% set avatarContent = symbol("ts:spectrum-ts#Avatar") %}
+{% set avatarData = symbol("ts:spectrum-ts#AvatarData") %}
+The <TypeTooltip name="Avatar" type={`{{ avatarContent.signature }}`} /> content is bidirectional: on platforms that report it (iMessage remote mode today), someone else changing the icon arrives as an inbound message with `content.type === "avatar"` — `action.kind === "set"` carries the fetched icon behind `action.read()` with its `mimeType`, and `"clear"` mirrors icon removal. Over the Spectrum webhook, a `set` arrives metadata-only (its `read()` throws); fetch the current icon via `space.getAvatar()` instead, which returns <TypeTooltip name="AvatarData" type={`{{ avatarData.signature }}`} /> with the image bytes and MIME type. `message.sender` is the user who changed it, or `undefined` when the platform recorded no actor.
 
 <Note>
   The string `"clear"` is a reserved sentinel. If you have a file literally named `clear` with no extension, pass `"./clear"` or load it as a `Buffer`.

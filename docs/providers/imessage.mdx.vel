@@ -123,7 +123,7 @@ optional dependencies, install `better-sqlite3` explicitly.
 | Existing DMs and group chats | Yes | Yes |
 | Create a DM | Yes | Deterministic local reference |
 | Create a group | Dedicated lines only | No |
-| Reactions, replies, effects, and unsend | Yes | No |
+| Reactions, replies, edits, unsend, read receipts, and effects | Yes | No |
 | Streaming text and typing indicators | Yes | Typing is a no-op; streaming is unsupported |
 | Rename, avatar, membership, and group events | Dedicated lines only | No |
 | Backgrounds, mini-app cards, and native contact-card sharing | Yes | No |

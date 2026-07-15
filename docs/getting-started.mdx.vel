@@ -5,6 +5,10 @@ description: "Install spectrum-ts and send your first message across platforms"
 
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
+{% set message = symbol("ts:spectrum-ts#Message") %}
+{% set space = symbol("ts:spectrum-ts#Space") %}
+{% set user = symbol("ts:spectrum-ts#User") %}
+
 `spectrum-ts` is a unified messaging SDK for TypeScript. Write your logic once, deliver it across every platform — iMessage, WhatsApp Business, your terminal, or a custom platform you build yourself.
 
 ## Installation
@@ -63,12 +67,12 @@ Spectrum is built around four primitives:
 
 | Primitive | What it represents |
 |---|---|
-| **Message** | An incoming piece of content — text, attachments, or structured data — from any platform. |
-| **Space** | A conversation context. A DM, a group chat, a terminal session. You send messages *into* a space. |
-| **User** | A participant on a platform, identified by a platform-specific ID. |
+| <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> | An incoming piece of content — text, attachments, or structured data — from any platform. |
+| <TypeTooltip name="Space" type={`{{ space.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> | A conversation context. A DM, a group chat, a terminal session. You send messages *into* a space. |
+| <TypeTooltip name="User" type={`{{ user.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> | A participant on a platform, identified by a platform-specific ID. |
 | **Platform provider** | A platform adapter (iMessage, terminal, WhatsApp, or your own) that translates platform-specific protocols into Spectrum's unified interface. |
 
-Every message arrives as a `[Space, Message]` tuple. The space gives you the ability to respond; the message gives you the content and metadata.
+Every message arrives as a tuple containing a <TypeTooltip name="Space" type={`{{ space.signature }}`} /> and a <TypeTooltip name="Message" type={`{{ message.signature }}`} />. The space gives you the ability to respond; the message gives you the content and metadata.
 
 ## Quickstart
 
@@ -106,7 +110,7 @@ const app = await Spectrum({
 
 for await (const [space, message] of app.messages) {
   if (message.content.type === "text") {
-    console.log(`[${message.platform}] ${message.sender.id}: ${message.content.text}`);
+    console.log(`[${message.platform}] ${message.sender?.id ?? "unknown"}: ${message.content.text}`);
     await space.send("hello world");
   }
 }
@@ -129,12 +133,14 @@ const app = await Spectrum({
 `Spectrum()` returns a <TypeTooltip name="SpectrumInstance" type={`{{ spectrumInstance.signature }}`} /> — an object that merges a message stream with platform-specific custom event streams.
 
 ```ts
-app.messages                 // AsyncIterable<[Space, Message]>
+app.messages
 await app.send(space, ...)   // send into a space
 await app.responding(space, fn)  // run fn with a typing indicator
 await app.webhook(req, handler)  // handle an inbound webhook delivery
 await app.stop()             // graceful shutdown
 ```
+
+`app.messages` is an `AsyncIterable` of tuples containing a <TypeTooltip name="Space" type={`{{ space.signature }}`} /> and a <TypeTooltip name="Message" type={`{{ message.signature }}`} />.
 
 Custom events emitted by providers are exposed as flat async iterables on the same object — see [Custom events and lifecycle](/spectrum-ts/custom-events-and-lifecycle).
 

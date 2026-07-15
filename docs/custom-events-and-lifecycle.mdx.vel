@@ -3,6 +3,8 @@ title: "Custom Events and Lifecycle"
 description: "Platform-specific event streams and graceful shutdown"
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 ## Custom events
 
 Platform providers can emit events beyond messages — typing indicators, read receipts, delivery status, whatever the provider chooses to surface. Spectrum exposes each event as a flat async iterable on the app instance:
@@ -36,15 +38,16 @@ Use the flat form on `app` when you want a merged feed across platforms; use the
 
 ### Fusor custom events
 
-Fusor-backed providers can emit non-message events (presence, read receipts, delivery status) into typed event streams using `fusorEvent`. Inside a Fusor `messages` handler, yield a `fusorEvent(name, data)` alongside regular messages to push events into `app.<name>` streams:
+{% set fusorEventType = symbol("ts:spectrum-ts#FusorEvent") %}
+Fusor-backed providers can emit non-message events (presence, read receipts, delivery status) into typed event streams using `fusorEvent`. The helper returns a <TypeTooltip name="FusorEvent" type={`{{ fusorEventType.signature }}`} /> envelope. Return a `fusorEvent(name, data)` from a Fusor `messages` handler to push it into an `app.<name>` stream:
 
 ```ts
 import { fusorEvent } from "spectrum-ts";
 
-yield fusorEvent("presence", { userId: update.userId, online: true });
+return fusorEvent("presence", { userId: update.userId, online: true });
 ```
 
-Events emitted this way are available as `app.presence` (merged across providers) or `narrowedInstance.presence` (scoped to the emitting provider). The event name and data shape are fully typed based on the provider's event declarations.
+Return an array when one webhook delivery produces both messages and custom events. Events emitted this way are available as `app.presence` (merged across providers) or `narrowedInstance.presence` (scoped to the emitting provider). Provider event declarations type the resulting streams. The `fusorEvent` helper itself accepts any name and data, so an undeclared event name produces a runtime warning.
 
 ## Lifecycle
 

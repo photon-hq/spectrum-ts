@@ -32,7 +32,7 @@ roadmap.
     Use the Telegram Bot API with Fusor webhooks, media, reactions, replies, typing, and edits.
   </Card>
   <Card title="Slack" icon="hash" href="/spectrum-ts/providers/slack">
-    Connect one or more Slack workspaces with text, media, reactions, threads, typing, and edits.
+    Connect one or more Slack workspaces with text, media, reactions, threads, and inbound edit events.
   </Card>
 </CardGroup>
 

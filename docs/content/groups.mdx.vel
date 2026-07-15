@@ -3,9 +3,12 @@ title: "Groups"
 description: "Bundle multiple messages into one logical visual group."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use `group()` to bundle multiple messages into one logical unit, such as an album of images or a multi-attachment reply.
 
-Each item is delivered as its own `Message`, but the items ship together so the receiving platform can render them as a single visual group when supported.
+{% set messageType = symbol("ts:spectrum-ts#Message") %}
+Each item is delivered as its own <TypeTooltip name="Message" type={`{{ messageType.signature }}`} /> envelope, but the items ship together so the receiving platform can render them as a single visual group when supported.
 
 ```ts
 import { group, attachment } from "spectrum-ts";

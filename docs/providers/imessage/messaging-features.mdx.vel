@@ -4,6 +4,8 @@ sidebarTitle: "Messaging features"
 description: "Use iMessage effects, chat metadata, mini-app cards, contact cards, attachments, and tapbacks."
 ---
 
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
 Use these provider-specific helpers after choosing the cloud or local package
 on the [iMessage provider](/spectrum-ts/providers/imessage) page. Unless noted,
 the rich operations on this page require the cloud package.
@@ -22,33 +24,32 @@ await space.send(effect(attachment("/path/to/photo.jpg"), imessage.effect.messag
 
 The wrapped content can be a string, `markdown(...)`, or any `attachment(...)`. Effects only apply on iMessage. Other platforms see the inner content unchanged.
 
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
 <Note>
   Sending effects requires the cloud `@spectrum-ts/imessage` package. The local
   package exports the helper for API consistency but rejects effect sends with
-  an `UnsupportedError`.
+  an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 </Note>
 
+{% set messageEffect = symbol("ts:@photon-ai/advanced-imessage#MessageEffect") %}
 <AccordionGroup>
   <Accordion title="Bubble effects" description="Animate the sent message bubble.">
     | Constant | Value |
     |---|---|
-    | `imessage.effect.message.slam` | `"com.apple.MobileSMS.expressivesend.impact"` |
-    | `imessage.effect.message.loud` | `"com.apple.MobileSMS.expressivesend.loud"` |
-    | `imessage.effect.message.gentle` | `"com.apple.MobileSMS.expressivesend.gentle"` |
-    | `imessage.effect.message.invisible` | `"com.apple.MobileSMS.expressivesend.invisibleink"` |
+    {% for v in messageEffect.variants -%}
+    {% if v.name == "slam" or v.name == "loud" or v.name == "gentle" or v.name == "invisible" -%}
+    | `imessage.effect.message.{{ v.name }}` | `{{ v.value.text }}` |
+    {% endif -%}
+    {% endfor %}
   </Accordion>
   <Accordion title="Screen effects" description="Play a full-screen animation on the recipient's device when the message arrives.">
     | Constant | Value |
     |---|---|
-    | `imessage.effect.message.confetti` | `"com.apple.messages.effect.CKConfettiEffect"` |
-    | `imessage.effect.message.fireworks` | `"com.apple.messages.effect.CKFireworksEffect"` |
-    | `imessage.effect.message.balloons` | `"com.apple.messages.effect.CKBalloonEffect"` |
-    | `imessage.effect.message.heart` | `"com.apple.messages.effect.CKHeartEffect"` |
-    | `imessage.effect.message.lasers` | `"com.apple.messages.effect.CKLasersEffect"` |
-    | `imessage.effect.message.celebration` | `"com.apple.messages.effect.CKHappyBirthdayEffect"` |
-    | `imessage.effect.message.sparkles` | `"com.apple.messages.effect.CKSparklesEffect"` |
-    | `imessage.effect.message.spotlight` | `"com.apple.messages.effect.CKSpotlightEffect"` |
-    | `imessage.effect.message.echo` | `"com.apple.messages.effect.CKEchoEffect"` |
+    {% for v in messageEffect.variants -%}
+    {% if v.name != "slam" and v.name != "loud" and v.name != "gentle" and v.name != "invisible" -%}
+    | `imessage.effect.message.{{ v.name }}` | `{{ v.value.text }}` |
+    {% endif -%}
+    {% endfor %}
   </Accordion>
 </AccordionGroup>
 
@@ -68,7 +69,7 @@ await space.send(rename("Book Club"));
 
 Renaming requires `@spectrum-ts/imessage` and only works on group chats. With
 `@spectrum-ts/imessage-local`, or on a DM, `rename()` throws an
-`UnsupportedError`.
+<TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 
 ## Group avatars
 
@@ -87,7 +88,8 @@ await space.avatar("clear");
 await space.send(avatar("./icon.png"));
 ```
 
-Read the current icon back with `space.getAvatar()` — it resolves `{ data, mimeType }` (or `undefined` when the group has no icon), and the result round-trips into the setter:
+{% set avatarData = symbol("ts:spectrum-ts#AvatarData") %}
+Read the current icon back with `space.getAvatar()`. It resolves to <TypeTooltip name="AvatarData" type={`{{ avatarData.signature }}`} /> or `undefined` when the group has no icon. The result round-trips into the setter:
 
 ```ts
 const icon = await space.getAvatar();
@@ -98,7 +100,7 @@ if (icon) {
 
 Group avatars require `@spectrum-ts/imessage` and only work on group chats.
 With `@spectrum-ts/imessage-local`, or on a DM, `avatar()` and `getAvatar()`
-throw an `UnsupportedError`.
+throw an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 
 ## Group membership
 
@@ -137,7 +139,7 @@ for (const member of detailed) {
 
 Membership management requires `@spectrum-ts/imessage` and only works on group
 chats. With `@spectrum-ts/imessage-local`, or on a DM, it throws an
-`UnsupportedError` — a DM cannot be converted into a group, so create a new
+<TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} /> — a DM cannot be converted into a group, so create a new
 group with `space.create` instead. `getMembers()` has the same constraints.
 
 ## Inbound group events
@@ -222,7 +224,7 @@ Background UI may not appear in these cases:
 
 <Note>
   Chat backgrounds require `@spectrum-ts/imessage`. With
-  `@spectrum-ts/imessage-local`, `background()` throws an `UnsupportedError`.
+  `@spectrum-ts/imessage-local`, `background()` throws an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 </Note>
 
 <Note>
@@ -269,31 +271,26 @@ const sent = await space.send(customizedMiniApp({
 
 The recipient must have the matching iMessage extension installed. Omit `live`, or set it to `false`, to keep the static layout preview.
 
+{% set customizedMiniAppInput = symbol("ts:spectrum-ts/providers/imessage#CustomizedMiniAppInput") %}
+{% set customizedMiniAppLayout = symbol("ts:spectrum-ts/providers/imessage#CustomizedMiniAppLayout") %}
+{% set customizedMiniAppMessage = symbol("ts:@photon-ai/advanced-imessage#CustomizedMiniAppMessage") %}
+{% set miniAppLayout = symbol("ts:@photon-ai/advanced-imessage#MiniAppLayout") %}
+`customizedMiniApp()` accepts a <TypeTooltip name="CustomizedMiniAppInput" type={`{{ customizedMiniAppInput.signature }}`} />. Its `layout` field uses <TypeTooltip name="CustomizedMiniAppLayout" type={`{{ customizedMiniAppLayout.signature }}`} />.
+
 <AccordionGroup>
   <Accordion title="CustomizedMiniAppInput" description="Fields for building a mini-app card.">
     | Field | Type | Description |
     |---|---|---|
-    | `appName` | `string` | Display name of the owning app, shown by Messages fallback UI. |
-    | `appStoreId` | `number` (optional) | Apple App Store numeric ID. Omit for unpublished extensions. |
-    | `extensionBundleId` | `string` | Bundle identifier of the iMessage extension target. |
-    | `layout` | `CustomizedMiniAppLayout` | Visible card layout. See below. |
-    | `live` | `boolean` (optional) | Render the installed extension's live UI when `true`. Omit for the static layout preview. |
-    | `teamId` | `string` | 10-character uppercase alphanumeric Apple Team ID. |
-    | `url` | `string` | Absolute URL delivered to the installed extension on tap. |
+    {% for m in customizedMiniAppMessage.members -%}
+    | `{{ m.name }}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}`{% if m.optional %} (optional){% endif %} | {{ m.doc.summary }} |
+    {% endfor %}
   </Accordion>
-  <Accordion title="CustomizedMiniAppLayout" description="Visible layout of a mini-app card. Mirrors Apple's MSMessageTemplateLayout.">
+  <Accordion title="CustomizedMiniAppLayout" description="{{ miniAppLayout.doc.summary }}">
     | Field | Type | Description |
     |---|---|---|
-    | `caption` | `string` (optional) | Primary caption text. |
-    | `subcaption` | `string` (optional) | Secondary caption text. |
-    | `trailingCaption` | `string` (optional) | Right-aligned primary text. |
-    | `trailingSubcaption` | `string` (optional) | Right-aligned secondary text. |
-    | `image` | `Uint8Array` (optional) | Image data for the card. Must be set with `imageTitle`. |
-    | `imageTitle` | `string` (optional) | Title for the image. Must be set with `image`. |
-    | `imageSubtitle` | `string` (optional) | Subtitle for the image. Requires `image`. |
-    | `summary` | `string` (optional) | Fallback text for surfaces that can't render the card, such as notifications and lock screen. |
-
-    At least one of `caption`, `subcaption`, `trailingCaption`, `trailingSubcaption`, or `image` must be set.
+    {% for m in miniAppLayout.members -%}
+    | `{{ m.name }}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}`{% if m.optional %} (optional){% endif %} | {{ m.doc.summary }} |
+    {% endfor %}
   </Accordion>
 </AccordionGroup>
 
@@ -334,7 +331,7 @@ await space.send(edit(customizedMiniApp({
 <Note>
   Mini-app cards require `@spectrum-ts/imessage`. With
   `@spectrum-ts/imessage-local`, `customizedMiniApp()` throws an
-  `UnsupportedError`.
+  <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 </Note>
 
 ## Native contact card sharing
@@ -364,12 +361,13 @@ This shares the bot's own contact card as it appears in iMessage. Recipients can
 <Note>
   Native contact card sharing requires `@spectrum-ts/imessage`. With
   `@spectrum-ts/imessage-local`, `nativeContactCard()` throws an
-  `UnsupportedError`.
+  <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 </Note>
 
 ## Fetching attachments
 
-Retrieve an attachment by its iMessage GUID using `getAttachment` on the narrowed platform instance. The returned `Attachment` is lazy. `.read()` and `.stream()` each trigger an independent download, so cache `.read()` if you need the bytes more than once.
+{% set attachmentType = symbol("ts:spectrum-ts#Attachment") %}
+Retrieve an attachment by its iMessage GUID using `getAttachment` on the narrowed platform instance. The returned <TypeTooltip name="Attachment" type={`{{ attachmentType.signature }}`} /> is lazy. `.read()` and `.stream()` each trigger an independent download, so cache `.read()` if you need the bytes more than once.
 
 ```ts
 import { imessage } from "spectrum-ts/providers/imessage";
@@ -393,22 +391,24 @@ When only one phone is configured, or in shared-pool mode, the phone parameter i
 
 <Note>
   `getAttachment` requires `@spectrum-ts/imessage`. With
-  `@spectrum-ts/imessage-local`, it throws an `UnsupportedError`. Local inbound
+  `@spectrum-ts/imessage-local`, it throws an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />. Local inbound
   attachments are still available through each incoming message's content.
 </Note>
 
 ## Tapback reactions
 
-iMessage converts six universal `Emoji` aliases into native tapbacks:
+{% set emoji = symbol("ts:spectrum-ts#Emoji") %}
+iMessage converts six universal <TypeTooltip name="Emoji" type={`{{ emoji.signature }}`} /> aliases into native tapbacks:
 
-| Constant | Value |
-|---|---|
-| `Emoji.love` | `"❤️"` |
-| `Emoji.like` | `"👍"` |
-| `Emoji.dislike` | `"👎"` |
-| `Emoji.laugh` | `"😂"` |
-| `Emoji.emphasize` | `"‼️"` |
-| `Emoji.question` | `"❓"` |
+<Accordion title="Emoji" description="{{ emoji.doc.summary }}">
+  | Constant | Value |
+  |---|---|
+  {% for v in emoji.variants -%}
+  {% if v.name == "love" or v.name == "like" or v.name == "dislike" or v.name == "laugh" or v.name == "emphasize" or v.name == "question" -%}
+  | `Emoji.{{ v.name }}` | `{{ v.value.text }}` |
+  {% endif -%}
+  {% endfor %}
+</Accordion>
 
 ```ts
 import { Emoji } from "spectrum-ts";

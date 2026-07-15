@@ -11,7 +11,7 @@ import { reply, text } from "spectrum-ts";
 await space.send(reply(text("Got it"), message));
 ```
 
-`reply()` cannot wrap `reply`, `edit`, `reaction`, `group`, `typing`, `rename`, `avatar`, or `unsend` content.
+`reply()` cannot wrap `reply`, `edit`, `reaction`, `group`, `typing`, `rename`, `avatar`, `addMember`, `removeMember`, `leaveSpace`, `unsend`, or `read` content.
 
 ## Reply sugar
 

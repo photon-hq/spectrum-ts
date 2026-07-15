@@ -6,12 +6,15 @@ description: "Recover platform-specific types and actions from unified Spectrum 
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 {% set pi = symbol("ts:spectrum-ts#PlatformInstance") %}
+{% set spectrumInstance = symbol("ts:spectrum-ts#SpectrumInstance") %}
+{% set space = symbol("ts:spectrum-ts#Space") %}
+{% set message = symbol("ts:spectrum-ts#Message") %}
 
 Every platform provider exports a callable — `imessage`, `terminal`, `whatsappBusiness`, `telegram` — that **narrows** generic Spectrum types into platform-specific ones. The same function handles three different inputs.
 
 ## Narrowing the app
 
-Pass a `Spectrum` instance to get a <TypeTooltip name="PlatformInstance" type={`{{ pi.signature }}`} /> for that platform. The instance gives you `user()` and `space.create()` / `space.get()` resolvers, plus access to any custom events the provider emits.
+Pass a <TypeTooltip name="SpectrumInstance" type={`{{ spectrumInstance.signature }}`} /> to get a <TypeTooltip name="PlatformInstance" type={`{{ pi.signature }}`} /> for that platform. The platform instance gives you `user()` and `space.create()` / `space.get()` resolvers, plus access to any custom events the provider emits.
 
 ```ts
 import { imessage } from "spectrum-ts/providers/imessage";
@@ -24,7 +27,7 @@ const space = await im.space.create(user);
 await space.send("Hello from a new conversation.");
 ```
 
-If the platform isn't registered in `providers`, the type of `imessage(app)` resolves to `never` — the call is a compile-time error.
+If the platform isn't registered in the `platforms` array, the type of `imessage(app)` resolves to `never` — the call is a compile-time error.
 
 ## Narrowing a space
 
@@ -72,4 +75,4 @@ Some platforms support an additional `params` argument for extra space creation 
 
 ## Why narrowing matters
 
-The generic `Space` and `Message` interfaces are deliberately small — just enough to send, react, and reply across every platform. Narrowing is the escape hatch for everything else: typed access to iMessage chat types, WhatsApp phone numbers, or any extra field your [custom platform](/spectrum-ts/custom-platforms) exposes.
+The generic <TypeTooltip name="Space" type={`{{ space.signature }}`} /> and <TypeTooltip name="Message" type={`{{ message.signature }}`} /> interfaces are deliberately small — just enough to send, react, and reply across every platform. Narrowing is the escape hatch for everything else: typed access to iMessage chat types, WhatsApp phone numbers, or any extra field your [custom platform](/spectrum-ts/custom-platforms) exposes.

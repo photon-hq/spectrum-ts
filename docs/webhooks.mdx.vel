@@ -5,6 +5,12 @@ description: "Receive messages via HTTP instead of a long-lived process"
 
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
+{% set message = symbol("ts:spectrum-ts#Message") %}
+{% set space = symbol("ts:spectrum-ts#Space") %}
+{% set honoOptions = symbol("ts:@spectrum-ts/hono#SpectrumPluginOptions") %}
+{% set expressOptions = symbol("ts:@spectrum-ts/express#SpectrumPluginOptions") %}
+{% set elysiaOptions = symbol("ts:@spectrum-ts/elysia#SpectrumPluginOptions") %}
+
 `app.webhook()` lets you receive messages through HTTP `POST` requests instead of the `app.messages` stream. It handles two webhook formats through the same method:
 
 | | Native Spectrum webhook | Fusor webhook |
@@ -75,7 +81,7 @@ Pass the raw body bytes. The HMAC is computed over the exact bytes on the wire. 
 
 ## Framework adapters
 
-First-party adapters mount the endpoint for you and handle raw-body parsing correctly. Each is an optional subpath import — install the framework as a peer dependency only if you use it.
+First-party adapters mount the endpoint for you and handle raw-body parsing correctly. Install the adapter package and its framework only when you use it.
 
 <Tabs>
   <Tab title="Hono">
@@ -83,7 +89,7 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
     import { Hono } from "hono";
     import { Spectrum } from "spectrum-ts";
     import { imessage } from "spectrum-ts/providers/imessage";
-    import { spectrum } from "spectrum-ts/hono";
+    import { spectrum } from "@spectrum-ts/hono";
 
     const app = await Spectrum({
       projectId: process.env.PROJECT_ID!,
@@ -106,13 +112,21 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
 
     export default server;
     ```
+
+    <Accordion title="SpectrumPluginOptions" description="{{ honoOptions.doc.summary }}">
+      | Option | Type | Default | Description |
+      |---|---|---|---|
+      {% for m in honoOptions.members -%}
+      | `{{ m.name }}{% if m.optional %}?{% endif %}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {% if m.doc.customTags["@default"] %}`{{ m.doc.customTags["@default"][0] }}`{% else %}—{% endif %} | {{ m.doc.summary | replace("\n", " ") | replace("|", "\\|") }} |
+      {% endfor %}
+    </Accordion>
   </Tab>
   <Tab title="Express">
     ```ts
     import express from "express";
     import { Spectrum } from "spectrum-ts";
     import { imessage } from "spectrum-ts/providers/imessage";
-    import { spectrum } from "spectrum-ts/express";
+    import { spectrum } from "@spectrum-ts/express";
 
     const app = await Spectrum({
       projectId: process.env.PROJECT_ID!,
@@ -139,13 +153,21 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
     ```
 
     Mount the adapter **before** any global `express.json()`. A global JSON parser consumes the body stream first, breaking signature verification.
+
+    <Accordion title="SpectrumPluginOptions" description="{{ expressOptions.doc.summary }}">
+      | Option | Type | Default | Description |
+      |---|---|---|---|
+      {% for m in expressOptions.members -%}
+      | `{{ m.name }}{% if m.optional %}?{% endif %}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {% if m.doc.customTags["@default"] %}`{{ m.doc.customTags["@default"][0] }}`{% else %}—{% endif %} | {{ m.doc.summary | replace("\n", " ") | replace("|", "\\|") }} |
+      {% endfor %}
+    </Accordion>
   </Tab>
   <Tab title="Elysia">
     ```ts
     import { Elysia } from "elysia";
     import { Spectrum } from "spectrum-ts";
     import { imessage } from "spectrum-ts/providers/imessage";
-    import { spectrum } from "spectrum-ts/elysia";
+    import { spectrum } from "@spectrum-ts/elysia";
 
     const app = await Spectrum({
       projectId: process.env.PROJECT_ID!,
@@ -167,21 +189,21 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
       )
       .listen(3000);
     ```
+
+    <Accordion title="SpectrumPluginOptions" description="{{ elysiaOptions.doc.summary }}">
+      | Option | Type | Default | Description |
+      |---|---|---|---|
+      {% for m in elysiaOptions.members -%}
+      | `{{ m.name }}{% if m.optional %}?{% endif %}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {% if m.doc.customTags["@default"] %}`{{ m.doc.customTags["@default"][0] }}`{% else %}—{% endif %} | {{ m.doc.summary | replace("\n", " ") | replace("|", "\\|") }} |
+      {% endfor %}
+    </Accordion>
   </Tab>
 </Tabs>
-
-All three adapters accept the same options:
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `app` | `Spectrum` instance | — | The instance returned by `await Spectrum({...})`. |
-| `onMessage` | `(space, message) => void \| Promise<void>` | — | Invoked once per inbound message, fire-and-forget. |
-| `path` | `string` | `"/spectrum/webhook"` | Route the endpoint is mounted on. |
 
 ## What the SDK handles
 
 - **Signature verification.** Native webhooks are verified with `HMAC-SHA256` over `v0:<timestamp>:<rawBody>`, with a 5-minute replay window. Bad signature returns `401`, missing headers return `400`.
-- **Payload deserialization.** Native webhook JSON is deserialized into normal `Message` / `Space` objects, including reactions and grouped items.
+- **Payload deserialization.** Native webhook JSON is deserialized into normal <TypeTooltip name="Message" type={`{{ message.signature }}`} /> and <TypeTooltip name="Space" type={`{{ space.signature }}`} /> objects, including reactions and grouped items.
 - **Attachment rehydration.** Native webhooks carry attachment metadata only. `read()` and `stream()` fetch the bytes lazily via the platform.
 - **Format detection.** Native vs Fusor is detected per request by payload shape — JSON for native, protobuf for Fusor.
 

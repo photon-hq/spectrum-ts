@@ -7,7 +7,7 @@ description: "Send and receive messages through the Slack API."
 import { slack } from "spectrum-ts/providers/slack";
 ```
 
-The Slack provider connects your agent to Slack workspaces through the Slack API. It supports multi-workspace installations, text and media messaging, reactions, threaded replies, typing indicators, and edits.
+The Slack provider connects your agent to Slack workspaces through the Slack API. It supports multi-workspace installations, text and media messaging, reactions, threaded replies, and inbound edit events. Typing indicators are accepted as a no-op.
 
 ## Explore Slack
 

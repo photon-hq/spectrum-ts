@@ -55,6 +55,7 @@ export { renameSchema } from "./content/rename";
 export { asReply, replySchema } from "./content/reply";
 export { asRichlink } from "./content/richlink";
 export { asText } from "./content/text";
+export { asUnsend } from "./content/unsend";
 export { asVoice } from "./content/voice";
 export type {
   ProviderMessageRecord,

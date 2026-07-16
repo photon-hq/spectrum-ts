@@ -28,6 +28,7 @@ import {
   asPollOption,
   asReaction,
   asText,
+  asUnsend,
   createLogger,
   errorAttrs,
   type ProviderMessageRecord,
@@ -321,12 +322,24 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
       return asCustom({ whatsapp_type: "location", ...content.location });
     case "reaction": {
       // Meta signals REMOVING a reaction as a reaction event whose emoji is
-      // the protobuf default "" which is not a valid `reaction` content (asReaction
-      // requires a non-empty emoji).
+      // the protobuf default "" — not valid `reaction` content (asReaction
+      // requires a non-empty emoji), and Meta doesn't say which emoji was
+      // removed (one reaction per user per message). Surface the portable
+      // `unsend` arm: the retracted "message" is the sender's reaction on
+      // the target, identified by the same synthetic `<id>:reaction:<user>`
+      // convention Slack uses for reaction messages.
       if (!content.reaction.emoji) {
-        return asCustom({
-          whatsapp_type: "reaction-removed",
-          messageId: content.reaction.messageId,
+        const reactedId = content.reaction.messageId;
+        const removedReaction = {
+          id: `${reactedId}:reaction:${msg.from}`,
+          content: asCustom({
+            whatsapp_type: "reaction-removed",
+            messageId: reactedId,
+            stub: true,
+          }),
+        };
+        return asUnsend({
+          target: removedReaction as Parameters<typeof asUnsend>[0]["target"],
         });
       }
       // WhatsApp reaction events carry only the target message id; synthesize

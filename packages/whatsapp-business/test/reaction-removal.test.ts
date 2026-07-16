@@ -62,14 +62,24 @@ describe("whatsapp reaction removal", () => {
     });
   });
 
-  it("surfaces an empty-emoji reaction (removal) as a custom arm, not a throw", async () => {
+  it("surfaces an empty-emoji reaction (removal) as portable unsend content, not a throw", async () => {
     const [received] = await receiveAll(fakeClient([reactionEvent("")]));
 
     expect(received?.content).toMatchObject({
-      type: "custom",
-      raw: {
-        whatsapp_type: "reaction-removed",
-        messageId: "wamid.TARGET1",
+      type: "unsend",
+      target: {
+        // Synthetic reaction-message identity, mirroring Slack's
+        // `<id>:reaction:<user>` convention. parentWamid strips the suffix
+        // if a targeted action ever addresses it.
+        id: "wamid.TARGET1:reaction:15551234567",
+        content: {
+          type: "custom",
+          raw: {
+            whatsapp_type: "reaction-removed",
+            messageId: "wamid.TARGET1",
+            stub: true,
+          },
+        },
       },
     });
   });

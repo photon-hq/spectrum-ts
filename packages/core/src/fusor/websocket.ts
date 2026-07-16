@@ -21,6 +21,7 @@ import { errorAttrs } from "../utils/telemetry";
 const log = createLogger("spectrum.fusor.ws");
 
 export const FUSOR_WS_SUBPROTOCOL = "fusor.v1.json";
+export const FUSOR_WS_MAX_PENDING_EVENTS = 1024;
 
 // Staleness watchdog: the server sends app-level heartbeat frames (the
 // cadence is advertised in `ready`); no frame of any kind for
@@ -29,16 +30,27 @@ export const FUSOR_WS_SUBPROTOCOL = "fusor.v1.json";
 // bounds how long we wait for the server to acknowledge the init.
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const STALENESS_GRACE_MS = 5000;
+const LOCAL_CLOSE_TIMEOUT_MS = 2000;
 
 export class FusorWsError extends Error {
   readonly closeCode?: number;
   readonly errorCode?: string;
+  readonly reason?: string;
+  readonly retryable?: boolean;
 
-  constructor(message: string, closeCode?: number, errorCode?: string) {
+  constructor(
+    message: string,
+    closeCode?: number,
+    errorCode?: string,
+    reason?: string,
+    retryable?: boolean
+  ) {
     super(message);
     this.name = "FusorWsError";
     this.closeCode = closeCode;
     this.errorCode = errorCode;
+    this.reason = reason;
+    this.retryable = retryable;
   }
 }
 
@@ -50,6 +62,31 @@ export function isWsAuthError(error: unknown): boolean {
     error instanceof FusorWsError &&
     (error.closeCode === 4401 || error.errorCode === "unauthenticated")
   );
+}
+
+/** A server verifier invariant, not a rejected credential to re-mint. */
+export function isWsTerminalAuthError(error: unknown): boolean {
+  return (
+    error instanceof FusorWsError &&
+    error.errorCode === "unauthenticated" &&
+    error.reason === "jwt:not-initialized"
+  );
+}
+
+/** A fatal server/client protocol condition that reconnecting cannot repair. */
+export function isWsTerminalError(error: unknown): boolean {
+  if (!(error instanceof FusorWsError)) {
+    return false;
+  }
+  if (isWsTerminalAuthError(error)) {
+    return true;
+  }
+  // A rejected credential is the one retryable=false server response that the
+  // client can repair itself by minting a fresh token.
+  if (isWsAuthError(error)) {
+    return false;
+  }
+  return error.retryable === false || error.closeCode === 1009;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -107,12 +144,21 @@ export interface FusorWsSessionOptions {
    * Called for every event frame, in arrival order. `sendReply` is set
    * only when the server flagged `replyExpected` — replying to anything
    * else earns a (non-fatal) `reply_unknown_event` notice from the
-   * server, so the core must not fire blind replies.
+   * server, so the core must not fire blind replies. `seq` is the global
+   * stream cursor for this delivery; callers must checkpoint it only after
+   * this promise resolves successfully.
    */
   onEvent: (
     event: RawInboundEvent,
-    sendReply: ((reply: InboundReply) => void) | undefined
+    sendReply: ((reply: InboundReply) => void) | undefined,
+    seq: number
   ) => Promise<void>;
+  /** Called once when the server acknowledges the subscription as ready. */
+  onReady?: () => void;
+  /** Called when the underlying transport reports that it has closed. */
+  onTransportClose?: () => void;
+  /** Last transport-completed global stream sequence; defaults to live tail. */
+  startSeq?: number;
   token: string;
   url: string;
 }
@@ -129,7 +175,11 @@ export function runFusorWsSession(
   const WebSocketCtor = globalThis.WebSocket;
   if (typeof WebSocketCtor !== "function") {
     throw new FusorWsError(
-      "global WebSocket is not available in this runtime — the fusor websocket transport needs Bun, Node >= 22, or a browser/worker environment"
+      "global WebSocket is not available in this runtime — the fusor websocket transport needs Bun, Node >= 22, or a browser/worker environment",
+      undefined,
+      "websocket_unavailable",
+      undefined,
+      false
     );
   }
 
@@ -138,20 +188,47 @@ export function runFusorWsSession(
   // error above can fire.
   const wsOpen = WebSocketCtor.OPEN;
 
+  // Optional for source compatibility with callers of the original session
+  // helper; the core always supplies its explicit safe checkpoint.
+  const startSeq = options.startSeq ?? 0;
+  if (
+    !Number.isSafeInteger(startSeq) ||
+    startSeq < 0 ||
+    startSeq >= Number.MAX_SAFE_INTEGER
+  ) {
+    throw new FusorWsError(
+      "fusor websocket startSeq must be a non-negative safe integer below Number.MAX_SAFE_INTEGER",
+      undefined,
+      "invalid_start_seq",
+      undefined,
+      false
+    );
+  }
+
   const ws = new WebSocketCtor(options.url, [FUSOR_WS_SUBPROTOCOL]);
 
   let settled = false;
   let closedByUs = false;
+  let closing = false;
+  let pendingLocalError: Error | undefined;
   // Last fatal `error` frame — the close event that follows carries only
   // a code, so this is what makes the rejection actionable.
-  let pendingError: { code: string; message: string; reason?: string } | null =
-    null;
+  let pendingError: {
+    code: string;
+    message: string;
+    reason?: string;
+    retryable?: boolean;
+  } | null = null;
+  let readyNotified = false;
+  let transportCloseNotified = false;
   let stalenessBudgetMs =
     2 * DEFAULT_HEARTBEAT_INTERVAL_MS + STALENESS_GRACE_MS;
   let watchdog: ReturnType<typeof setTimeout> | undefined;
+  let closeFailsafe: ReturnType<typeof setTimeout> | undefined;
   // Events are processed strictly in arrival order even though the
   // handler is async (same discipline as the server side).
   let tail: Promise<void> = Promise.resolve();
+  let pendingEventCount = 0;
 
   let resolveDone!: () => void;
   let rejectDone!: (error: Error) => void;
@@ -159,6 +236,11 @@ export function runFusorWsSession(
     resolveDone = resolve;
     rejectDone = reject;
   });
+  // `done` is also the processing-drain boundary. A transport close may race
+  // an async handler that already received an event; reconnecting before that
+  // handler settles could replay it concurrently or checkpoint past it. Mark
+  // the transport settled immediately (so no new frames are accepted), then
+  // resolve/reject only after the ordered handler tail has drained.
   const settle = (error?: Error): void => {
     if (settled) {
       return;
@@ -168,11 +250,71 @@ export function runFusorWsSession(
       clearTimeout(watchdog);
       watchdog = undefined;
     }
-    if (error) {
-      rejectDone(error);
-    } else {
-      resolveDone();
+    if (closeFailsafe) {
+      clearTimeout(closeFailsafe);
+      closeFailsafe = undefined;
     }
+    tail.then(
+      () => {
+        if (error) {
+          rejectDone(error);
+        } else {
+          resolveDone();
+        }
+      },
+      (handlerError: unknown) => {
+        rejectDone(
+          handlerError instanceof Error
+            ? handlerError
+            : new FusorWsError(String(handlerError))
+        );
+      }
+    );
+  };
+
+  const closeTransport = (error?: Error): void => {
+    if (settled || closing) {
+      return;
+    }
+    closing = true;
+    pendingLocalError = error;
+    try {
+      ws.close();
+    } catch {
+      // Already closing.
+    }
+    if (settled) {
+      return;
+    }
+    closeFailsafe = setTimeout(() => {
+      const timeoutError = new FusorWsError(
+        "fusor websocket close handshake timed out"
+      );
+      settle(
+        pendingLocalError
+          ? new FusorWsError(
+              `${pendingLocalError.message}; ${timeoutError.message}`,
+              pendingLocalError instanceof FusorWsError
+                ? pendingLocalError.closeCode
+                : undefined,
+              pendingLocalError instanceof FusorWsError
+                ? pendingLocalError.errorCode
+                : undefined,
+              pendingLocalError instanceof FusorWsError
+                ? pendingLocalError.reason
+                : undefined,
+              pendingLocalError instanceof FusorWsError
+                ? pendingLocalError.retryable
+                : undefined
+            )
+          : timeoutError
+      );
+    }, LOCAL_CLOSE_TIMEOUT_MS);
+    closeFailsafe.unref?.();
+  };
+
+  const failSession = (error: Error): void => {
+    closeTransport(error);
   };
 
   const armWatchdog = (): void => {
@@ -186,12 +328,7 @@ export function runFusorWsSession(
       log.warn("fusor ws: no frame within staleness budget; closing", {
         "spectrum.fusor.ws.staleness_budget_ms": stalenessBudgetMs,
       });
-      settle(new FusorWsError("websocket heartbeat timeout"));
-      try {
-        ws.close();
-      } catch {
-        // Already closing.
-      }
+      failSession(new FusorWsError("websocket heartbeat timeout"));
     }, stalenessBudgetMs);
     watchdog.unref?.();
   };
@@ -225,33 +362,94 @@ export function runFusorWsSession(
       "spectrum.fusor.ws.heartbeat_interval_ms":
         typeof interval === "number" ? interval : 0,
     });
+    if (!readyNotified) {
+      readyNotified = true;
+      options.onReady?.();
+    }
   };
 
   const handleEventFrame = (frame: Record<string, unknown>): void => {
+    if (pendingEventCount >= FUSOR_WS_MAX_PENDING_EVENTS) {
+      failSession(
+        new FusorWsError(
+          `fusor websocket pending-event limit (${FUSOR_WS_MAX_PENDING_EVENTS}) exceeded`,
+          undefined,
+          "client_backpressure",
+          undefined,
+          true
+        )
+      );
+      return;
+    }
     const eventFrame = frame as unknown as WsEventFrame;
+    const seq = eventFrame.seq;
+    if (
+      !Number.isSafeInteger(seq) ||
+      seq <= 0 ||
+      seq >= Number.MAX_SAFE_INTEGER
+    ) {
+      failSession(
+        new FusorWsError(
+          "fusor websocket event seq must be a positive safe integer below Number.MAX_SAFE_INTEGER",
+          undefined,
+          "event_invalid",
+          undefined,
+          false
+        )
+      );
+      return;
+    }
     let event: RawInboundEvent;
     try {
       event = toRawInboundEvent(eventFrame);
     } catch (error) {
       log.warn(
-        "fusor ws: undecodable event frame; skipping",
+        "fusor ws: undecodable event frame; failing session",
         errorAttrs(error),
         error
+      );
+      failSession(
+        new FusorWsError(
+          `fusor websocket event frame is undecodable: ${error instanceof Error ? error.message : String(error)}`,
+          undefined,
+          "event_invalid",
+          undefined,
+          false
+        )
       );
       return;
     }
     const sendReply = eventFrame.replyExpected
       ? sendReplyFor(event.eventId)
       : undefined;
-    tail = tail
-      .then(() => options.onEvent(event, sendReply))
-      .catch((error) => {
-        log.warn(
-          "fusor ws: event handler failed",
-          { "spectrum.fusor.ws.event_id": event.eventId, ...errorAttrs(error) },
-          error
-        );
-      });
+    // Do not recover this chain after a handler failure. Every later event was
+    // delivered after the failed one, so processing it and advancing the core
+    // cursor would skip the failed delivery. Failing the session reconnects
+    // from the last earlier safe cursor instead.
+    pendingEventCount += 1;
+    const next = tail.then(() => options.onEvent(event, sendReply, seq));
+    tail = next;
+    next.then(
+      () => {
+        pendingEventCount -= 1;
+      },
+      (error) => {
+        pendingEventCount -= 1;
+        if (!settled) {
+          log.warn(
+            "fusor ws: event handler failed",
+            {
+              "spectrum.fusor.ws.event_id": event.eventId,
+              ...errorAttrs(error),
+            },
+            error
+          );
+          failSession(
+            error instanceof Error ? error : new FusorWsError(String(error))
+          );
+        }
+      }
+    );
   };
 
   const handleErrorFrame = (frame: Record<string, unknown>): void => {
@@ -260,7 +458,13 @@ export function runFusorWsSession(
       typeof frame.message === "string" ? frame.message : "server error";
     const reason = typeof frame.reason === "string" ? frame.reason : undefined;
     if (frame.fatal === true) {
-      pendingError = { code, message, reason };
+      pendingError = {
+        code,
+        message,
+        reason,
+        retryable:
+          typeof frame.retryable === "boolean" ? frame.retryable : undefined,
+      };
     } else {
       // Typed non-fatal notice (reply_unknown_event, frame_invalid, …)
       // — the stream keeps running; surface it for debugging.
@@ -302,13 +506,28 @@ export function runFusorWsSession(
   };
 
   ws.onopen = () => {
+    if (settled || closing) {
+      try {
+        ws.close(1000);
+      } catch {
+        // Already closing.
+      }
+      return;
+    }
     armWatchdog();
     ws.send(
-      JSON.stringify({ type: "init", startSeq: 0, token: options.token })
+      JSON.stringify({
+        type: "init",
+        startSeq,
+        token: options.token,
+      })
     );
   };
 
   ws.onmessage = (messageEvent: MessageEvent) => {
+    if (settled || closing) {
+      return;
+    }
     armWatchdog();
     handleFrame(messageEvent.data);
   };
@@ -319,6 +538,14 @@ export function runFusorWsSession(
   };
 
   ws.onclose = (closeEvent: CloseEvent) => {
+    if (!transportCloseNotified) {
+      transportCloseNotified = true;
+      options.onTransportClose?.();
+    }
+    if (pendingLocalError) {
+      settle(pendingLocalError);
+      return;
+    }
     if (closedByUs) {
       settle();
       return;
@@ -330,7 +557,9 @@ export function runFusorWsSession(
       new FusorWsError(
         `fusor websocket closed (${closeEvent.code}): ${detail}`,
         closeEvent.code,
-        pendingError?.code ?? (closeEvent.reason || undefined)
+        pendingError?.code ?? (closeEvent.reason || undefined),
+        pendingError?.reason,
+        pendingError?.retryable
       )
     );
   };
@@ -341,16 +570,11 @@ export function runFusorWsSession(
   return {
     done,
     close() {
-      closedByUs = true;
-      try {
-        ws.close(1000);
-      } catch {
-        // Already closed.
+      if (closedByUs || closing) {
+        return;
       }
-      // Some runtimes skip the close event for never-opened sockets;
-      // don't let done hang on shutdown.
-      const failsafe = setTimeout(() => settle(), 2000);
-      failsafe.unref?.();
+      closedByUs = true;
+      closeTransport();
     },
   };
 }

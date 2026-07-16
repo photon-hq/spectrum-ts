@@ -102,6 +102,7 @@ export async function createCloudClients(
   const dedicated = tokenData;
   for (const [instanceId, token] of Object.entries(dedicated.auth)) {
     const entry: RemoteClient = {
+      instanceId,
       phone: requirePhone(dedicated, instanceId),
       client: createGrpcClient({
         address: `${instanceId}.imsg.photon.codes:443`,

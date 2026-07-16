@@ -4,6 +4,8 @@ import z from "zod";
 
 export interface RemoteClient {
   client: AdvancedIMessage;
+  /** Cloud instance routing key; absent for explicit and shared clients. */
+  instanceId?: string;
   phone: string;
 }
 

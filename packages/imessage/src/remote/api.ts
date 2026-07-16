@@ -56,8 +56,10 @@ import {
 
 export const messages = (
   clients: RemoteClient[],
-  projectConfig: ProjectData | undefined
-): ManagedStream<IMessageMessage> => remoteMessages(clients, projectConfig);
+  projectConfig: ProjectData | undefined,
+  includeReceived = true
+): ManagedStream<IMessageMessage> =>
+  remoteMessages(clients, projectConfig, includeReceived);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

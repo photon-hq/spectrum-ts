@@ -1,6 +1,6 @@
 import { createLogger, withSpan } from "@photon-ai/otel";
 import type z from "zod";
-import type { FusorClient, FusorMessages } from "../fusor/types";
+import type { FusorClient, FusorMessages, HybridFusor } from "../fusor/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { ProjectData } from "../utils/cloud";
@@ -311,22 +311,30 @@ function createPlatformInstance<
   ) as unknown as PlatformInstance<Def>;
 }
 
-// `definePlatform` has two call shapes, expressed as overloads:
+// `definePlatform` has three call shapes, expressed as overloads:
 //
-// 1. **Fusor mode** — `lifecycle.createClient` returns `fusor(name, verify)`
+// 1. **Regular mode** — `createClient` returns a normal SDK client and
+//    `messages` is a long-lived `EventProducer` (async-iterable) stream.
+// 2. **Hybrid Fusor mode** — `createClient` still returns the normal SDK
+//    client, while `fusor.create` optionally returns a separate branded
+//    `FusorClient`. `fusor.messages` handles those payloads and receives the
+//    regular client; the regular `messages` producer remains active alongside
+//    it for event classes that do not travel through Fusor.
+// 3. **Pure Fusor mode** — `lifecycle.createClient` returns
+//    `fusor(name, verify)`
 //    (a branded `FusorClient<TPayload>`). There is no long-lived SDK client;
 //    `messages` runs once per inbound webhook against an already-verified
 //    payload, returning the message(s) to emit on `spectrum.messages` (and
 //    optionally calling `respond(reply)` to shape the HTTP reply to fusor).
-// 2. **Regular mode** — `createClient` returns a normal SDK client and
-//    `messages` is a long-lived `EventProducer` (async-iterable) stream.
 //
 // Overloads (not one conditional signature): switching `messages`'s shape on
 // the resolved `_Client` via a conditional type breaks TS contextual typing of
 // `({ client, config })` for regular providers — the conditional collapses to
-// `unknown` before `_Client` resolves. Two concrete signatures sidestep that.
+// `unknown` before `_Client` resolves. Concrete overloads sidestep that.
 //
-// The REGULAR overload is listed first. Overload resolution defers
+// The REGULAR overload is listed first. Its `PlatformDef` carries
+// `fusor?: never`, so a hybrid definition skips it unambiguously. Overload
+// resolution otherwise defers
 // context-sensitive (unannotated-param) arrows during applicability, so a def
 // whose `createClient` and `messages` are both inline arrows — every regular
 // provider — matches the first applicable overload (regular). A fusor provider
@@ -401,6 +409,95 @@ export function definePlatform<
       _Actions
     >,
     "lifecycle" | "name"
+  > & { static?: _Static }
+): Platform<
+  PlatformDef<
+    _Name,
+    _ConfigSchema,
+    _UserSchema,
+    _SpaceSchema,
+    _SpaceParamsSchema,
+    _Client,
+    _ResolvedUser,
+    _ResolvedSpace,
+    _MessageSchema,
+    _MessageType,
+    _Events,
+    _SpaceActions,
+    _MessageActions,
+    _Actions
+  >
+> &
+  Readonly<_Static>;
+
+export function definePlatform<
+  _Name extends string,
+  _ConfigSchema extends z.ZodType<object>,
+  _UserSchema extends z.ZodType<object> | undefined,
+  _SpaceSchema extends z.ZodType<object> | undefined,
+  _SpaceParamsSchema extends z.ZodType<object> | undefined,
+  _Client,
+  _TPayload,
+  _ResolvedUser extends { id: string },
+  _ResolvedSpace extends { id: string },
+  _MessageSchema extends z.ZodType<object> | undefined = undefined,
+  _MessageType extends ProviderMessage<
+    _ResolvedUser,
+    _ResolvedSpace,
+    _MessageSchema extends z.ZodType<object>
+      ? z.infer<_MessageSchema>
+      : Record<never, never>
+  > = ProviderMessage<
+    _ResolvedUser,
+    _ResolvedSpace,
+    _MessageSchema extends z.ZodType<object>
+      ? z.infer<_MessageSchema>
+      : Record<never, never>
+  >,
+  _Events extends
+    | (Record<
+        string,
+        EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
+      > & { messages?: never })
+    | undefined = undefined,
+  _Static extends Record<string, unknown> = Record<never, never>,
+  _SpaceActions extends Record<string, SpaceActionFn> = Record<never, never>,
+  _MessageActions extends Record<string, MessageActionFn> = Record<
+    never,
+    never
+  >,
+  _Actions extends Record<string, InstanceActionFn> = Record<never, never>,
+>(
+  name: _Name,
+  def: {
+    fusor: HybridFusor<_TPayload, _Client, z.infer<_ConfigSchema>>;
+    lifecycle: {
+      createClient: (
+        ctx: CreateClientContext<_ConfigSchema>
+      ) => Promise<_Client>;
+      destroyClient?: (ctx: {
+        client: NoInferValue<_Client>;
+        store: Store;
+      }) => Promise<void>;
+    };
+  } & Omit<
+    PlatformDef<
+      _Name,
+      _ConfigSchema,
+      _UserSchema,
+      _SpaceSchema,
+      _SpaceParamsSchema,
+      _Client,
+      _ResolvedUser,
+      _ResolvedSpace,
+      _MessageSchema,
+      _MessageType,
+      _Events,
+      _SpaceActions,
+      _MessageActions,
+      _Actions
+    >,
+    "fusor" | "lifecycle" | "name"
   > & { static?: _Static }
 ): Platform<
   PlatformDef<
@@ -507,11 +604,11 @@ export function definePlatform<
 > &
   Readonly<_Static>;
 
-// Implementation signature — intentionally loose so both overloads above are
+// Implementation signature — intentionally loose so all overloads above are
 // assignable to it. Callers only ever see the overloads; the body erases to
 // `AnyPlatformDef` and the overload return types restore precision at the call
-// site. The runtime is identical for both modes: fusor's `messages`/`events`
-// are read off `__definition` by FusorCore, never invoked here.
+// site. Fusor callbacks are read off `__definition` by the Spectrum bootstrap,
+// never invoked here.
 export function definePlatform(platformId: string, rawDef: unknown): unknown {
   assertValidPlatformId(platformId);
   const def = rawDef as AnyPlatformDef & {

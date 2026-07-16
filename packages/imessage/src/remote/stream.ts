@@ -111,10 +111,11 @@ const toMessageItem = async (
   event: MessageEvent,
   phone: string,
   cursor: string,
+  includeReceived: boolean,
   onInbound?: OnInboundMessage
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
   if (event.type === "message.received") {
-    if (event.message.isFromMe) {
+    if (!includeReceived || event.message.isFromMe) {
       return { cursor, id: event.message.guid, values: [] };
     }
 
@@ -282,6 +283,7 @@ const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
 const messageStream = (
   client: AdvancedIMessage,
   phone: string,
+  includeReceived: boolean,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
@@ -295,7 +297,14 @@ const messageStream = (
         streamLabel("messages", phone),
         String(event.sequence),
         () =>
-          toMessageItem(client, event, phone, String(event.sequence), onInbound)
+          toMessageItem(
+            client,
+            event,
+            phone,
+            String(event.sequence),
+            includeReceived,
+            onInbound
+          )
       ),
     processMissed: (event) =>
       event.type === "catchup.complete"
@@ -309,6 +318,7 @@ const messageStream = (
                 event,
                 phone,
                 String(event.sequence),
+                includeReceived,
                 onInbound
               )
           ),
@@ -381,11 +391,12 @@ const clientStream = (
   pollCache: PollCache,
   phone: string,
   includeGroupEvents: boolean,
+  includeReceived: boolean,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
-    messageStream(client, phone, onInbound, recover),
+    messageStream(client, phone, includeReceived, onInbound, recover),
     pollStream(client, pollCache, phone, recover),
   ];
 
@@ -398,7 +409,8 @@ const clientStream = (
 
 export const messages = (
   clients: RemoteClient[],
-  projectConfig?: ProjectData | undefined
+  projectConfig?: ProjectData | undefined,
+  includeReceived = true
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
   // When the project profile opts in to iMessage sync, push the bot's contact
@@ -422,6 +434,7 @@ export const messages = (
         pollCache,
         entry.phone,
         includeGroupEvents,
+        includeReceived,
         tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
         recover
       );

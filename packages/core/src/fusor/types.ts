@@ -12,6 +12,10 @@ export interface FusorVerifyRequest {
   rawBody: Uint8Array;
 }
 
+/**
+ * Verify and decode one provider request. Thrown errors reject that event as
+ * terminal unless wrapped in FusorRetryableError.
+ */
 export type FusorVerify<TPayload = unknown> = (
   req: FusorVerifyRequest
 ) => TPayload | Promise<TPayload>;
@@ -20,6 +24,28 @@ export interface FusorReply {
   body?: string | Uint8Array;
   headers?: Record<string, string>;
   status?: number;
+}
+
+/**
+ * Mark a provider verification or message-processing failure as safe to retry.
+ * Streaming delivery reconnects from the prior durable checkpoint.
+ */
+export class FusorRetryableError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "FusorRetryableError";
+  }
+}
+
+/**
+ * Mark a provider message-processing failure as deterministic for this event.
+ * Streaming delivery returns an error reply and advances its checkpoint.
+ */
+export class FusorTerminalError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "FusorTerminalError";
+  }
 }
 
 export type FusorRespond = (reply: FusorReply) => void;
@@ -45,9 +71,74 @@ export type FusorMessagesReturn =
   | (ProviderMessageRecord | FusorEvent)[]
   | undefined;
 
+/**
+ * Process one verified payload. Thrown errors retry streaming delivery unless
+ * wrapped in FusorTerminalError. Providers should keep side effects idempotent.
+ */
 export type FusorMessages<TPayload, TConfig = unknown> = (
   ctx: FusorMessagesCtx<TPayload, TConfig>
 ) => FusorMessagesReturn | Promise<FusorMessagesReturn>;
+
+/**
+ * Initialization context for a hybrid provider's optional Fusor transport.
+ *
+ * Hybrid providers retain their regular, long-lived SDK client for actions,
+ * outbound sends, regular event producers, and teardown. The Fusor binding is
+ * an additional inbound source only, so its initializer receives that client
+ * alongside the normal provider initialization context and may return
+ * `undefined` to keep using only the provider's regular message source.
+ */
+export interface HybridFusorCreateContext<TClient, TConfig = unknown> {
+  client: TClient;
+  config: TConfig;
+  projectConfig: ProjectData | undefined;
+  projectId: string | undefined;
+  projectSecret: string | undefined;
+  store: Store;
+}
+
+/** Runtime context for a hybrid provider's per-payload Fusor handler. */
+export interface HybridFusorMessagesCtx<TPayload, TClient, TConfig = unknown>
+  extends FusorMessagesCtx<TPayload, TConfig> {
+  /** The provider's regular lifecycle client, not the Fusor routing client. */
+  client: TClient;
+}
+
+/**
+ * Hybrid handlers emit only core message records. Custom event channels remain
+ * regular `events` producers backed by the provider's regular client.
+ */
+export type HybridFusorMessagesReturn =
+  | ProviderMessageRecord
+  | ProviderMessageRecord[]
+  | undefined;
+
+export type HybridFusorMessages<TPayload, TClient, TConfig = unknown> = (
+  ctx: HybridFusorMessagesCtx<TPayload, TClient, TConfig>
+) => HybridFusorMessagesReturn | Promise<HybridFusorMessagesReturn>;
+
+/**
+ * Optional Fusor inbound binding for a provider that also owns a regular SDK
+ * client. `create` is evaluated once during `Spectrum()` initialization;
+ * returning `undefined` leaves the provider entirely on its regular transport.
+ */
+export interface HybridFusor<TPayload, TClient, TConfig = unknown> {
+  create: (
+    ctx: HybridFusorCreateContext<TClient, TConfig>
+  ) =>
+    | FusorClient<TPayload>
+    | undefined
+    | Promise<FusorClient<TPayload> | undefined>;
+  messages: HybridFusorMessages<TPayload, TClient, TConfig>;
+  /**
+   * Restrict this binding to events received over Fusor's authenticated
+   * streaming transport. When enabled, a caller cannot invoke the binding by
+   * posting a raw Fusor protobuf envelope to `spectrum.webhook()`.
+   *
+   * @default false
+   */
+  streamOnly?: boolean;
+}
 
 export const FUSOR_BRAND: unique symbol = Symbol.for("spectrum.fusor.client");
 

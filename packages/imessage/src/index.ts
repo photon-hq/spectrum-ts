@@ -12,6 +12,7 @@ import {
   type Content,
   definePlatform,
   type Edit,
+  fusor,
   type RemoveMember,
   type Rename,
   type Space,
@@ -88,6 +89,10 @@ import {
   isSharedMode,
   randomPhone,
 } from "./remote/client";
+import {
+  handleImessageFusorMessages,
+  verifyImessageFusorRequest,
+} from "./remote/fusor";
 import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
 import { cacheMessage } from "./remote/inbound";
 import {
@@ -461,6 +466,17 @@ const remoteForMessageTarget = (
 export const imessage = definePlatform(IMESSAGE_PLATFORM, {
   config: configSchema,
 
+  fusor: {
+    streamOnly: true,
+    create: ({ config, projectId, projectSecret }) => {
+      if (config.clients || !(projectId && projectSecret)) {
+        return;
+      }
+      return fusor("imessage", verifyImessageFusorRequest);
+    },
+    messages: handleImessageFusorMessages,
+  },
+
   static: {
     effect: {
       message: messageEffects,
@@ -601,8 +617,8 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     schema: messageSchema,
   },
 
-  messages: ({ client, projectConfig }) =>
-    remoteMessages(client, projectConfig),
+  messages: ({ client, config, projectConfig }) =>
+    remoteMessages(client, projectConfig, config.clients !== undefined),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {

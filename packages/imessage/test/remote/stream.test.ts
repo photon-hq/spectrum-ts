@@ -1,3 +1,4 @@
+import type { MessageEvent } from "@photon-ai/advanced-imessage";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import { flush, settleSoon } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
@@ -37,8 +38,46 @@ const idleEventStream = () => {
   };
 };
 
-const remoteClient = (phone: string) => {
-  const subscribeToMessages = vi.fn(idleEventStream);
+const oneEventStream = <T>(event: T) => {
+  let closed = false;
+  let emitted = false;
+  let resolveNext: ((result: IteratorResult<T, undefined>) => void) | undefined;
+
+  const close = (): Promise<void> => {
+    closed = true;
+    resolveNext?.({ done: true, value: undefined });
+    resolveNext = undefined;
+    return Promise.resolve();
+  };
+
+  return {
+    close,
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<T, undefined>> {
+          if (closed) {
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          if (!emitted) {
+            emitted = true;
+            return Promise.resolve({ done: false, value: event });
+          }
+          return new Promise((resolve) => {
+            resolveNext = resolve;
+          });
+        },
+        return(): Promise<IteratorResult<T, undefined>> {
+          return close().then(() => ({ done: true, value: undefined }));
+        },
+      };
+    },
+  };
+};
+
+const remoteClient = (phone: string, messageEvent?: MessageEvent) => {
+  const subscribeToMessages = vi.fn(() =>
+    messageEvent ? oneEventStream(messageEvent) : idleEventStream()
+  );
   const subscribeToPolls = vi.fn(idleEventStream);
   const subscribeToGroups = vi.fn(idleEventStream);
   const entry: RemoteClient = {
@@ -225,4 +264,41 @@ describe("remote iMessage streams", () => {
     await stream.close();
     await settleSoon(iterator.next());
   }, 15_000);
+
+  it("suppresses direct received messages when Fusor owns that lane", async () => {
+    const received = {
+      type: "message.received",
+      sequence: 1,
+      chatGuid: "iMessage;-;+15551234567",
+      isFromMe: false,
+      occurredAt: new Date("2026-07-16T01:02:03.456Z"),
+      message: {
+        guid: "message-guid",
+        chatGuids: ["iMessage;-;+15551234567"],
+        content: {
+          attachments: [],
+          formatting: [],
+          mentions: [],
+          text: "direct duplicate",
+        },
+        dateCreated: new Date("2026-07-16T01:02:03.456Z"),
+        isFromMe: false,
+      },
+    } as unknown as MessageEvent;
+    const dedicated = remoteClient("+15550100", received);
+    const stream = messages([dedicated.entry], undefined, false);
+    let settled = false;
+    const pending = stream[Symbol.asyncIterator]()
+      .next()
+      .finally(() => {
+        settled = true;
+      });
+
+    await flush();
+    expect(settled).toBe(false);
+    expect(dedicated.subscribeToMessages).toHaveBeenCalledTimes(1);
+
+    await stream.close();
+    await settleSoon(pending);
+  });
 });

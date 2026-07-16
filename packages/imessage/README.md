@@ -19,6 +19,15 @@ const spectrum = Spectrum({
 });
 ```
 
+With Spectrum Cloud credentials, inbound received messages arrive through
+Fusor's authenticated WebSocket transport. The provider keeps its Advanced
+iMessage clients for outbound actions, reactions, polls, and group events, so
+cloud apps still maintain supplemental direct gRPC streams; received-message
+duplicates on those streams are ignored. Synthetic iMessage envelopes are
+stream-only and are never accepted through the public `spectrum.webhook()`
+path. Explicit `clients` configurations remain entirely on direct gRPC inbound
+transport, so self-hosted endpoints keep their existing behavior.
+
 This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
 
 `nativeContactCard()` shares the bot account's own contact card (Apple's "Share Name and Photo") with a chat — remote mode only:

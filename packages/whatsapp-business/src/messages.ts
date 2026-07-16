@@ -29,6 +29,7 @@ import {
   asReaction,
   asText,
   createLogger,
+  errorAttrs,
   type ProviderMessageRecord,
   tracedFetch,
 } from "@spectrum-ts/core/authoring";
@@ -319,6 +320,15 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
     case "location":
       return asCustom({ whatsapp_type: "location", ...content.location });
     case "reaction": {
+      // Meta signals REMOVING a reaction as a reaction event whose emoji is
+      // the protobuf default "" which is not a valid `reaction` content (asReaction
+      // requires a non-empty emoji).
+      if (!content.reaction.emoji) {
+        return asCustom({
+          whatsapp_type: "reaction-removed",
+          messageId: content.reaction.messageId,
+        });
+      }
       // WhatsApp reaction events carry only the target message id; synthesize
       // a minimal target Message shape. Core's wrapProviderMessage inflates
       // this into a full Message with react/reply methods at emit time.
@@ -547,7 +557,24 @@ const clientStream = (
     const pump = (async () => {
       try {
         for await (const event of eventStream) {
-          for (const m of toMessages(client, event.message)) {
+          // One unmappable event must not kill the live stream: a mapping
+          // throw here ends the merged stream for the whole project, and
+          // nothing downstream restarts it. Skip the event and keep pumping.
+          let mapped: WhatsAppMessage[];
+          try {
+            mapped = toMessages(client, event.message);
+          } catch (error) {
+            streamLog.warn(
+              "skipping unmappable whatsapp message event",
+              {
+                "spectrum.whatsapp.message_id": event.message.id,
+                ...errorAttrs(error),
+              },
+              error instanceof Error ? error : undefined
+            );
+            continue;
+          }
+          for (const m of mapped) {
             await emit(m);
           }
         }

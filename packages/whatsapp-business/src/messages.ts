@@ -129,21 +129,13 @@ const cacheReaction = (
   }
 };
 
-const takeCachedReaction = (
+const getCachedReaction = (
   client: WhatsAppClient,
   reactedId: string,
   from: string
-): CachedReaction | undefined => {
-  const cache = reactionCaches.get(client);
-  const key = reactionCacheKey(reactedId, from);
-  const entry = cache?.get(key);
-  cache?.delete(key);
-  return entry;
-};
+): CachedReaction | undefined =>
+  reactionCaches.get(client)?.get(reactionCacheKey(reactedId, from));
 
-// WhatsApp reaction events carry only the target message id; synthesize a
-// minimal target Message shape. Core's wrapProviderMessage inflates this
-// into a full Message with react/reply methods at emit time.
 const reactionTargetStub = (reactedId: string) => ({
   id: reactedId,
   content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
@@ -364,7 +356,7 @@ const mapReactionContent = (
 ): Content => {
   const reactedId = reaction.messageId;
   if (!reaction.emoji) {
-    const cached = takeCachedReaction(client, reactedId, msg.from);
+    const cached = getCachedReaction(client, reactedId, msg.from);
     const removedReaction = cached
       ? {
           id: cached.id,

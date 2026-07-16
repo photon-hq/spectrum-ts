@@ -81,6 +81,29 @@ describe("whatsapp reaction removal", () => {
     });
   });
 
+  it("a duplicate removal webhook emits the same unsend target, not a stub", async () => {
+    // Meta delivery is at-least-once — a retried removal must not degrade
+    // to the synthetic stub shape, or consumers can't dedupe by target id.
+    const received = await receiveAll(
+      fakeClient([
+        reactionEvent("\u{1F44D}", "wamid.REACT1"),
+        reactionEvent("", "wamid.REMOVE1"),
+        reactionEvent("", "wamid.REMOVE1-RETRY"),
+      ])
+    );
+
+    expect(received).toHaveLength(3);
+    for (const removal of [received[1], received[2]]) {
+      expect(removal?.content).toMatchObject({
+        type: "unsend",
+        target: {
+          id: "wamid.REACT1",
+          content: { type: "reaction", emoji: "\u{1F44D}" },
+        },
+      });
+    }
+  });
+
   it("a re-reaction updates which emoji a later removal reports", async () => {
     const received = await receiveAll(
       fakeClient([

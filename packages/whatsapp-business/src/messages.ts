@@ -93,12 +93,10 @@ const cachePoll = (
   }
 };
 
-// Inbound reaction adds, keyed by (reacted message, reactor) — unique because
-// WhatsApp allows one reaction per user per message. A removal event carries
-// no emoji and no reaction wamid, so this cache is the only way to report
-// which emoji was taken out; best-effort by design (restart/eviction means a
-// removal can miss, falling back to a stub target).
-type CachedReaction = { id: string; emoji: string };
+interface CachedReaction {
+  emoji: string;
+  id: string;
+}
 const MAX_REACTION_CACHE_SIZE = 1000;
 const reactionCaches = new WeakMap<
   WhatsAppClient,
@@ -355,6 +353,53 @@ const toMessages = (
   ];
 };
 
+// Meta signals REMOVING a reaction as a reaction event whose emoji is the
+// protobuf default "" which is not a valid `reaction` content (asReaction
+// requires a non-empty emoji), and Meta doesn't say which emoji was removed
+// (one reaction per user per message).
+const mapReactionContent = (
+  client: WhatsAppClient,
+  msg: InboundMessage,
+  reaction: { messageId: string; emoji: string }
+): Content => {
+  const reactedId = reaction.messageId;
+  if (!reaction.emoji) {
+    const cached = takeCachedReaction(client, reactedId, msg.from);
+    const removedReaction = cached
+      ? {
+          id: cached.id,
+          content: asReaction({
+            emoji: cached.emoji,
+            target: reactionTargetStub(reactedId) as Parameters<
+              typeof asReaction
+            >[0]["target"],
+          }),
+        }
+      : {
+          id: `${reactedId}:reaction:${msg.from}`,
+          content: asCustom({
+            whatsapp_type: "reaction-removed",
+            messageId: reactedId,
+            stub: true,
+          }),
+        };
+    return asUnsend({
+      target: removedReaction as Parameters<typeof asUnsend>[0]["target"],
+    });
+  }
+  // Remember the add so a later removal can report which emoji left.
+  cacheReaction(client, reactedId, msg.from, {
+    id: msg.id,
+    emoji: reaction.emoji,
+  });
+  return asReaction({
+    emoji: reaction.emoji,
+    target: reactionTargetStub(reactedId) as Parameters<
+      typeof asReaction
+    >[0]["target"],
+  });
+};
+
 const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
   const { content } = msg;
   switch (content.type) {
@@ -378,51 +423,8 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
       return asCustom({ whatsapp_type: "sticker", ...content.sticker });
     case "location":
       return asCustom({ whatsapp_type: "location", ...content.location });
-    case "reaction": {
-      const reactedId = content.reaction.messageId;
-      // Meta signals REMOVING a reaction as a reaction event whose emoji is
-      // the protobuf default "" which is not a valid `reaction` content
-      // (asReaction requires a non-empty emoji), and Meta doesn't say which
-      // emoji was removed (one reaction per user per message). Instead, we
-      // surface a `unsend` arm whose target is the reaction being retracted:
-      // the cached original when the add was seen (real wamid + the emoji
-      // being taken out), else a synthetic `<id>:reaction:<user>` stub.
-      if (!content.reaction.emoji) {
-        const cached = takeCachedReaction(client, reactedId, msg.from);
-        const removedReaction = cached
-          ? {
-              id: cached.id,
-              content: asReaction({
-                emoji: cached.emoji,
-                target: reactionTargetStub(reactedId) as Parameters<
-                  typeof asReaction
-                >[0]["target"],
-              }),
-            }
-          : {
-              id: `${reactedId}:reaction:${msg.from}`,
-              content: asCustom({
-                whatsapp_type: "reaction-removed",
-                messageId: reactedId,
-                stub: true,
-              }),
-            };
-        return asUnsend({
-          target: removedReaction as Parameters<typeof asUnsend>[0]["target"],
-        });
-      }
-      // Remember the add so a later removal can report which emoji left.
-      cacheReaction(client, reactedId, msg.from, {
-        id: msg.id,
-        emoji: content.reaction.emoji,
-      });
-      return asReaction({
-        emoji: content.reaction.emoji,
-        target: reactionTargetStub(reactedId) as Parameters<
-          typeof asReaction
-        >[0]["target"],
-      });
-    }
+    case "reaction":
+      return mapReactionContent(client, msg, content.reaction);
     case "interactive": {
       const inter = content.interactive;
       if (inter.type === "button_reply" || inter.type === "list_reply") {

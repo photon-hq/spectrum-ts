@@ -14,6 +14,8 @@ import {
 } from "@spectrum-ts/core";
 import {
   type CloseableAsyncIterable,
+  createLogger,
+  errorAttrs,
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "@spectrum-ts/core/authoring";
@@ -55,6 +57,46 @@ const isEventFromCurrentAccount = (
   (phone !== SHARED_PHONE &&
     event.actor?.address !== undefined &&
     event.actor.address === phone);
+
+const streamLog = createLogger("spectrum.imessage.stream");
+
+// Mapping does RPC work (message/attachment rebuilds), so its errors split
+// two ways. Client errors marked `retryable` are transient (network blip,
+// gateway restart): rethrow so resumableOrderedStream refetches the event
+// via catch-up and the message is delivered late rather than lost.
+const isRetryableMappingError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { retryable?: unknown }).retryable === true;
+
+// Everything else is deterministic (schema/shape throws, non-retryable
+// client errors) and must not wedge the stream: retrying would refetch the
+// same poison event forever and the cursor would never advance. Convert the
+// throw into an empty skip item — the same shape the isFromMe skips use —
+// so the cursor moves past the event.
+const skipUnmappable = async <T>(
+  label: string,
+  cursor: string,
+  map: () => Promise<ResumableStreamItem<T>>
+): Promise<ResumableStreamItem<T>> => {
+  try {
+    return await map();
+  } catch (error) {
+    if (isRetryableMappingError(error)) {
+      throw error;
+    }
+    streamLog.warn(
+      "skipping unmappable imessage event",
+      {
+        "spectrum.imessage.stream": label,
+        "spectrum.imessage.cursor": cursor,
+        ...errorAttrs(error),
+      },
+      error instanceof Error ? error : undefined
+    );
+    return { cursor, id: `unmappable:${cursor}`, values: [] };
+  }
+};
 
 /**
  * Side effect fired when a non-self `message.received` event is converted.
@@ -248,16 +290,26 @@ const messageStream = (
     label: streamLabel("messages", phone),
     recover,
     processLive: (event) =>
-      toMessageItem(client, event, phone, String(event.sequence), onInbound),
+      skipUnmappable(
+        streamLabel("messages", phone),
+        String(event.sequence),
+        () =>
+          toMessageItem(client, event, phone, String(event.sequence), onInbound)
+      ),
     processMissed: (event) =>
       event.type === "catchup.complete"
         ? Promise.resolve(toCatchUpCompleteItem(event))
-        : toMessageItem(
-            client,
-            event,
-            phone,
+        : skipUnmappable(
+            streamLabel("messages", phone),
             String(event.sequence),
-            onInbound
+            () =>
+              toMessageItem(
+                client,
+                event,
+                phone,
+                String(event.sequence),
+                onInbound
+              )
           ),
     subscribeLive: (cursor) =>
       withClose(client.messages.subscribeEvents(), cursor),
@@ -275,11 +327,24 @@ const pollStream = (
     label: streamLabel("polls", phone),
     recover,
     processLive: (event) =>
-      toPollItem(client, pollCache, event, phone, String(event.sequence)),
+      skipUnmappable(streamLabel("polls", phone), String(event.sequence), () =>
+        toPollItem(client, pollCache, event, phone, String(event.sequence))
+      ),
     processMissed: (event) =>
       event.type === "catchup.complete"
         ? Promise.resolve(toCatchUpCompleteItem(event))
-        : toPollItem(client, pollCache, event, phone, String(event.sequence)),
+        : skipUnmappable(
+            streamLabel("polls", phone),
+            String(event.sequence),
+            () =>
+              toPollItem(
+                client,
+                pollCache,
+                event,
+                phone,
+                String(event.sequence)
+              )
+          ),
     subscribeLive: (cursor) =>
       withClose(client.polls.subscribeEvents(), cursor),
   });
@@ -295,11 +360,17 @@ const groupStream = (
     label: streamLabel("groups", phone),
     recover,
     processLive: (event) =>
-      toGroupItem(client, event, phone, String(event.sequence)),
+      skipUnmappable(streamLabel("groups", phone), String(event.sequence), () =>
+        toGroupItem(client, event, phone, String(event.sequence))
+      ),
     processMissed: (event) =>
       event.type === "catchup.complete"
         ? Promise.resolve(toCatchUpCompleteItem(event))
-        : toGroupItem(client, event, phone, String(event.sequence)),
+        : skipUnmappable(
+            streamLabel("groups", phone),
+            String(event.sequence),
+            () => toGroupItem(client, event, phone, String(event.sequence))
+          ),
     subscribeLive: (cursor) =>
       withClose(client.groups.subscribeEvents(), cursor),
   });

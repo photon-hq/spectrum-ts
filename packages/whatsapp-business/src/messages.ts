@@ -93,6 +93,64 @@ const cachePoll = (
   }
 };
 
+// Inbound reaction adds, keyed by (reacted message, reactor) — unique because
+// WhatsApp allows one reaction per user per message. A removal event carries
+// no emoji and no reaction wamid, so this cache is the only way to report
+// which emoji was taken out; best-effort by design (restart/eviction means a
+// removal can miss, falling back to a stub target).
+type CachedReaction = { id: string; emoji: string };
+const MAX_REACTION_CACHE_SIZE = 1000;
+const reactionCaches = new WeakMap<
+  WhatsAppClient,
+  Map<string, CachedReaction>
+>();
+
+const reactionCacheKey = (reactedId: string, from: string): string =>
+  `${reactedId}:${from}`;
+
+const cacheReaction = (
+  client: WhatsAppClient,
+  reactedId: string,
+  from: string,
+  entry: CachedReaction
+): void => {
+  let cache = reactionCaches.get(client);
+  if (!cache) {
+    cache = new Map<string, CachedReaction>();
+    reactionCaches.set(client, cache);
+  }
+  const key = reactionCacheKey(reactedId, from);
+  // Delete-then-set keeps a re-reaction fresh in LRU order.
+  cache.delete(key);
+  cache.set(key, entry);
+  if (cache.size > MAX_REACTION_CACHE_SIZE) {
+    const first = cache.keys().next().value;
+    if (first !== undefined) {
+      cache.delete(first);
+    }
+  }
+};
+
+const takeCachedReaction = (
+  client: WhatsAppClient,
+  reactedId: string,
+  from: string
+): CachedReaction | undefined => {
+  const cache = reactionCaches.get(client);
+  const key = reactionCacheKey(reactedId, from);
+  const entry = cache?.get(key);
+  cache?.delete(key);
+  return entry;
+};
+
+// WhatsApp reaction events carry only the target message id; synthesize a
+// minimal target Message shape. Core's wrapProviderMessage inflates this
+// into a full Message with react/reply methods at emit time.
+const reactionTargetStub = (reactedId: string) => ({
+  id: reactedId,
+  content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
+});
+
 const optionIndexFromId = (id: string): number | undefined => {
   if (!id.startsWith(OPTION_ID_PREFIX)) {
     return;
@@ -321,36 +379,48 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
     case "location":
       return asCustom({ whatsapp_type: "location", ...content.location });
     case "reaction": {
+      const reactedId = content.reaction.messageId;
       // Meta signals REMOVING a reaction as a reaction event whose emoji is
-      // the protobuf default "" which is not a valid `reaction` content (asReaction
-      // requires a non-empty emoji), and Meta doesn't say which emoji was
-      // removed (one reaction per user per message). Instead, we surface a
-      // `unsend` arm: the retracted "message" is the sender's reaction on
-      // the target, identified by the same synthetic `<id>:reaction:<user>`.
+      // the protobuf default "" which is not a valid `reaction` content
+      // (asReaction requires a non-empty emoji), and Meta doesn't say which
+      // emoji was removed (one reaction per user per message). Instead, we
+      // surface a `unsend` arm whose target is the reaction being retracted:
+      // the cached original when the add was seen (real wamid + the emoji
+      // being taken out), else a synthetic `<id>:reaction:<user>` stub.
       if (!content.reaction.emoji) {
-        const reactedId = content.reaction.messageId;
-        const removedReaction = {
-          id: `${reactedId}:reaction:${msg.from}`,
-          content: asCustom({
-            whatsapp_type: "reaction-removed",
-            messageId: reactedId,
-            stub: true,
-          }),
-        };
+        const cached = takeCachedReaction(client, reactedId, msg.from);
+        const removedReaction = cached
+          ? {
+              id: cached.id,
+              content: asReaction({
+                emoji: cached.emoji,
+                target: reactionTargetStub(reactedId) as Parameters<
+                  typeof asReaction
+                >[0]["target"],
+              }),
+            }
+          : {
+              id: `${reactedId}:reaction:${msg.from}`,
+              content: asCustom({
+                whatsapp_type: "reaction-removed",
+                messageId: reactedId,
+                stub: true,
+              }),
+            };
         return asUnsend({
           target: removedReaction as Parameters<typeof asUnsend>[0]["target"],
         });
       }
-      // WhatsApp reaction events carry only the target message id; synthesize
-      // a minimal target Message shape. Core's wrapProviderMessage inflates
-      // this into a full Message with react/reply methods at emit time.
-      const stubTarget = {
-        id: content.reaction.messageId,
-        content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
-      };
+      // Remember the add so a later removal can report which emoji left.
+      cacheReaction(client, reactedId, msg.from, {
+        id: msg.id,
+        emoji: content.reaction.emoji,
+      });
       return asReaction({
         emoji: content.reaction.emoji,
-        target: stubTarget as Parameters<typeof asReaction>[0]["target"],
+        target: reactionTargetStub(reactedId) as Parameters<
+          typeof asReaction
+        >[0]["target"],
       });
     }
     case "interactive": {

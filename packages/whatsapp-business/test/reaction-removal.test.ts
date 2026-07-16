@@ -23,8 +23,8 @@ const fakeClient = (inbounds: unknown[]): WhatsAppClient => {
   } as unknown as WhatsAppClient;
 };
 
-const reactionEvent = (emoji: string) => ({
-  id: "wamid.REACT1",
+const reactionEvent = (emoji: string, id = "wamid.REACT1") => ({
+  id,
   from: "15551234567",
   timestamp: new Date("2026-07-16T00:00:00.000Z"),
   content: {
@@ -62,7 +62,44 @@ describe("whatsapp reaction removal", () => {
     });
   });
 
-  it("surfaces an empty-emoji reaction (removal) as portable unsend content, not a throw", async () => {
+  it("surfaces a removal whose add was seen as unsend of the real reaction", async () => {
+    const received = await receiveAll(
+      fakeClient([
+        reactionEvent("\u{1F44D}", "wamid.REACT1"),
+        reactionEvent("", "wamid.REMOVE1"),
+      ])
+    );
+
+    expect(received).toHaveLength(2);
+    expect(received[1]?.content).toMatchObject({
+      type: "unsend",
+      target: {
+        // The cached original: its own wamid and the emoji being taken out.
+        id: "wamid.REACT1",
+        content: { type: "reaction", emoji: "\u{1F44D}" },
+      },
+    });
+  });
+
+  it("a re-reaction updates which emoji a later removal reports", async () => {
+    const received = await receiveAll(
+      fakeClient([
+        reactionEvent("\u{1F44D}", "wamid.REACT1"),
+        reactionEvent("\u{2764}\u{FE0F}", "wamid.REACT2"),
+        reactionEvent("", "wamid.REMOVE1"),
+      ])
+    );
+
+    expect(received[2]?.content).toMatchObject({
+      type: "unsend",
+      target: {
+        id: "wamid.REACT2",
+        content: { type: "reaction", emoji: "\u{2764}\u{FE0F}" },
+      },
+    });
+  });
+
+  it("surfaces a removal with no cached add as unsend of a stub, not a throw", async () => {
     const [received] = await receiveAll(fakeClient([reactionEvent("")]));
 
     expect(received?.content).toMatchObject({

@@ -118,17 +118,18 @@ const toMessageItem = async (
       return { cursor, id: event.message.guid, values: [] };
     }
 
+    const cache = getMessageCache(client);
+    const values = await toInboundMessages(client, cache, event, phone);
+
+    // After conversion succeeds — an event skipUnmappable discards must not
+    // trigger a contact-card share (and burn its 24h dedupe slot) for a
+    // message that was never delivered.
     const inboundChatGuid = event.message.chatGuids?.[0];
     if (inboundChatGuid) {
       onInbound?.(inboundChatGuid);
     }
 
-    const cache = getMessageCache(client);
-    return {
-      cursor,
-      id: event.message.guid,
-      values: await toInboundMessages(client, cache, event, phone),
-    };
+    return { cursor, id: event.message.guid, values };
   }
 
   if (event.type === "message.reactionAdded") {

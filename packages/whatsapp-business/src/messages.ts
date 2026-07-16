@@ -622,6 +622,23 @@ export const send = async (
     await primary(clients).messages.markRead(parentWamid(content.target.id));
     return;
   }
+  if (content.type === "unsend") {
+    // The Cloud API can only retract reactions — resend the reaction with
+    // emoji: "" at the reacted message. Regular business messages cannot be
+    // deleted, so any other target stays unsupported.
+    const unsent = content.target.content;
+    if (unsent.type !== "reaction") {
+      throw UnsupportedError.content(content.type);
+    }
+    await primary(clients).messages.send({
+      to: spaceId,
+      reaction: {
+        messageId: parentWamid(unsent.target.id),
+        emoji: "",
+      },
+    });
+    return;
+  }
   const client = primary(clients);
   switch (content.type) {
     case "text":

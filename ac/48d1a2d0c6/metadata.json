@@ -3,7 +3,7 @@
   "checkpoint_id": "ac48d1a2d0c6",
   "strategy": "manual-commit",
   "branch": "feat/imessage-fusor-inbound",
-  "checkpoints_count": 8,
+  "checkpoints_count": 11,
   "files_touched": [
     "packages/imessage/src/index.ts",
     "packages/imessage/src/types.ts",
@@ -20,13 +20,20 @@
       "compact_transcript": "/ac/48d1a2d0c6/0/transcript.jsonl",
       "content_hash": "/ac/48d1a2d0c6/0/content_hash.txt",
       "prompt": "/ac/48d1a2d0c6/0/prompt.txt"
+    },
+    {
+      "metadata": "/ac/48d1a2d0c6/1/metadata.json",
+      "transcript": "/ac/48d1a2d0c6/1/full.jsonl",
+      "compact_transcript": "/ac/48d1a2d0c6/1/transcript.jsonl",
+      "content_hash": "/ac/48d1a2d0c6/1/content_hash.txt",
+      "prompt": "/ac/48d1a2d0c6/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 282,
-    "cache_creation_tokens": 487926,
-    "cache_read_tokens": 26947425,
-    "output_tokens": 104789,
-    "api_call_count": 144
+    "input_tokens": 307,
+    "cache_creation_tokens": 548013,
+    "cache_read_tokens": 27685690,
+    "output_tokens": 115919,
+    "api_call_count": 157
   }
 }

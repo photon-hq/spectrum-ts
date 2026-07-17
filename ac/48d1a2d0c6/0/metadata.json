@@ -1,0 +1,77 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "ac48d1a2d0c6",
+  "session_id": "06e8a9af-f654-4587-886b-60df145eec02",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-17T04:56:35.244351Z",
+  "branch": "feat/imessage-fusor-inbound",
+  "checkpoints_count": 8,
+  "save_step_count": 3,
+  "files_touched": [
+    "packages/imessage/src/index.ts",
+    "packages/imessage/src/types.ts",
+    "packages/imessage/test/contact-card.test.ts",
+    "packages/imessage/test/membership.test.ts",
+    "packages/imessage/test/read-actions.test.ts",
+    "packages/imessage/test/remote/app.test.ts",
+    "packages/imessage/test/space.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "36afc0a4b8a9",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 282,
+    "cache_creation_tokens": 487926,
+    "cache_read_tokens": 26947425,
+    "output_tokens": 104789,
+    "api_call_count": 144
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-17T04:56:35.171443Z",
+    "agent_lines": 0,
+    "agent_removed": 46,
+    "human_added": 71,
+    "human_modified": 163,
+    "human_removed": 0,
+    "total_committed": 209,
+    "total_lines_changed": 320,
+    "agent_percentage": 14.374999999999998,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 56,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 56
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 56,
+      "user_lines_removed": 0,
+      "agent_lines_added": 670,
+      "agent_lines_removed": 247,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 56
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 56,
+      "user_lines_removed": 0,
+      "agent_lines_added": 670,
+      "agent_lines_removed": 247,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 56
+      }
+    }
+  ]
+}

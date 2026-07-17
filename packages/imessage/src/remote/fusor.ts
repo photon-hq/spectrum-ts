@@ -17,7 +17,7 @@ import { type ReceivedEvent, toInboundMessages } from "./inbound";
 
 const EVENT_PATH = "/imessage/events/messageChanged";
 const PROTOBUF_CONTENT_TYPE = "application/x-protobuf";
-const TRANSFORM_VERSIONS = new Set(["1", "2"]);
+const TRANSFORM_VERSIONS = new Set(["1", "2", "3"]);
 const SOURCE = "spectrum-imessage";
 const POSITIVE_INTEGER_RE = /^[1-9]\d*$/;
 
@@ -108,10 +108,10 @@ export const assertVirtualImessageResources = (event: ReceivedEvent): void => {
 export interface ImessageFusorPayload {
   event: ReceivedEvent;
   instanceId?: string;
-  transformVersion: "1" | "2";
+  transformVersion: "1" | "2" | "3";
 }
 
-/** Verify and decode a trusted transform-v1 or transform-v2 fan-in request. */
+/** Verify and decode a supported, trusted iMessage fan-in request. */
 export const verifyImessageFusorRequest = (
   request: FusorVerifyRequest
 ): ImessageFusorPayload => {
@@ -140,7 +140,7 @@ export const verifyImessageFusorRequest = (
   }
 
   const instanceId =
-    transformVersion === "2"
+    transformVersion === "2" || transformVersion === "3"
       ? requireHeader(request, "x-fusor-imessage-instance-id")
       : header(request, "x-fusor-imessage-instance-id") || undefined;
   const logId = requireHeader(request, "x-fusor-imessage-log-id");
@@ -164,7 +164,7 @@ export const verifyImessageFusorRequest = (
   return {
     event,
     instanceId,
-    transformVersion: transformVersion as "1" | "2",
+    transformVersion: transformVersion as "1" | "2" | "3",
   };
 };
 

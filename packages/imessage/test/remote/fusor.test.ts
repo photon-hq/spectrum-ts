@@ -47,6 +47,14 @@ const v1Request = () => {
   });
 };
 
+const v3Request = () =>
+  request({
+    headers: {
+      ...request().headers,
+      "x-fusor-imessage-transform-version": "3",
+    },
+  });
+
 const client = (): AdvancedIMessage =>
   ({
     messages: {
@@ -103,7 +111,7 @@ describe("iMessage Fusor transport", () => {
       request({
         headers: {
           ...request().headers,
-          "x-fusor-imessage-transform-version": "3",
+          "x-fusor-imessage-transform-version": "4",
         },
       }),
     ],
@@ -132,6 +140,28 @@ describe("iMessage Fusor transport", () => {
     expect(payload.instanceId).toBeUndefined();
     expect(payload.transformVersion).toBe("1");
     expect(payload.event.message.destinationCallerId).toBe("p:+15550001111");
+  });
+
+  it("accepts Spectrum-materialized transform-v3 frames", () => {
+    const payload = verifyImessageFusorRequest(v3Request());
+
+    expect(payload.instanceId).toBe("instance-1");
+    expect(payload.transformVersion).toBe("3");
+    expect(payload.event.sequence).toBe(42);
+  });
+
+  it("requires an instance header on transform-v3 frames", () => {
+    const base = v3Request();
+
+    expect(() =>
+      verifyImessageFusorRequest({
+        ...base,
+        headers: {
+          ...base.headers,
+          "x-fusor-imessage-instance-id": "",
+        },
+      })
+    ).toThrow("missing x-fusor-imessage-instance-id");
   });
 
   it("routes a dedicated event by its trusted instance id", async () => {

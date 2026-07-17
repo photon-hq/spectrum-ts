@@ -1,8 +1,14 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  GrpcAdvancedIMessage,
+} from "@photon-ai/advanced-imessage";
 import { describe, expect, it } from "vitest";
 import { imessage } from "@/index";
 import type { RemoteClient } from "@/types";
 import { SHARED_PHONE } from "@/types";
+
+// Streams are the gRPC inbound plane; these outbound tests never touch it.
+const noStreams = {} as unknown as GrpcAdvancedIMessage;
 
 const SHARED_GROUP_ERROR = /shared mode cannot create group chats/;
 const MULTI_CLIENT_ERROR = /params\.phone.*\+15550100, \+15550111/;
@@ -38,7 +44,11 @@ const clients = (
     onCreate?: (addresses: string[]) => { guid: string; isGroup: boolean },
   ][]
 ): RemoteClient[] =>
-  entries.map(([phone, onCreate]) => ({ phone, client: fakeRemote(onCreate) }));
+  entries.map(([phone, onCreate]) => ({
+    phone,
+    client: fakeRemote(onCreate),
+    streams: noStreams,
+  }));
 
 describe("imessage space.create", () => {
   it("shared mode: builds the deterministic DM guid without an API call", async () => {

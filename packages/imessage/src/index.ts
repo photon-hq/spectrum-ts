@@ -1,6 +1,7 @@
 import {
   type AdvancedIMessage,
-  createClient,
+  createGrpcClient,
+  createHttpClient,
   type MiniAppCardSession,
 } from "@photon-ai/advanced-imessage";
 import { withSpan } from "@photon-ai/otel";
@@ -476,15 +477,23 @@ export const imessage = definePlatform("iMessage", {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
+        // Explicit clients carry a single operator-controlled address: it
+        // must serve the HTTP middleware for outbound and, during the
+        // transition, the gRPC event streams for inbound.
         return entries.map((e) => ({
           phone: e.phone,
-          client: createClient({
+          client: createHttpClient({
             address: e.address,
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.
             autoIdempotency: true,
             retry: true,
+            tls: true,
+            token: e.token,
+          }),
+          streams: createGrpcClient({
+            address: e.address,
             tls: true,
             token: e.token,
           }),
@@ -502,7 +511,9 @@ export const imessage = definePlatform("iMessage", {
 
     destroyClient: async ({ client }) => {
       await disposeCloudAuth(client);
-      await Promise.all(client.map((entry) => entry.client.close()));
+      await Promise.all(
+        client.flatMap((entry) => [entry.client.close(), entry.streams.close()])
+      );
     },
   },
 

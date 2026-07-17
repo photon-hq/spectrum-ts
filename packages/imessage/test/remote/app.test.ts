@@ -1,5 +1,6 @@
 import type {
   AdvancedIMessage,
+  GrpcAdvancedIMessage,
   MiniAppCardSession,
   MiniAppMessageResult,
 } from "@photon-ai/advanced-imessage";
@@ -9,6 +10,9 @@ import { asCustomizedMiniApp } from "@/content/customized-mini-app";
 import { imessage } from "@/index";
 import { SPECTRUM_MINI_APP, toSpectrumMiniApp } from "@/remote/app";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
+
+// Streams are the gRPC inbound plane; these outbound tests never touch it.
+const noStreams = {} as unknown as GrpcAdvancedIMessage;
 
 const SENT_DATE = new Date(1_700_000_000_000);
 const MINI_APP_SESSION: MiniAppCardSession = {
@@ -51,6 +55,7 @@ const remoteClient = (messages: Record<string, unknown>): RemoteClient[] => [
     client: {
       messages,
     } as unknown as AdvancedIMessage,
+    streams: noStreams,
   },
 ];
 

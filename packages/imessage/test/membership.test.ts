@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  GrpcAdvancedIMessage,
+} from "@photon-ai/advanced-imessage";
 import { addMember, leaveSpace, removeMember } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";
@@ -8,6 +11,9 @@ import {
   removeParticipants as remoteRemoveParticipants,
 } from "@/remote/members";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
+
+// Streams are the gRPC inbound plane; these outbound tests never touch it.
+const noStreams = {} as unknown as GrpcAdvancedIMessage;
 
 const GROUP_ONLY_ERROR = /only group chats/;
 const CREATE_GROUP_HINT = /space\.create/;
@@ -31,6 +37,7 @@ interface GroupsMock {
 const clientWithGroups = (phone: string, groups: GroupsMock): RemoteClient => ({
   phone,
   client: { groups } as unknown as AdvancedIMessage,
+  streams: noStreams,
 });
 
 describe("iMessage remote members wrappers", () => {

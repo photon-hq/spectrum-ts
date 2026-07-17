@@ -1,0 +1,9 @@
+lets do some code review, lets go step by step. dont use any superpowers but like i wnna talk about it b/c i have some design questions.
+
+---
+
+yeah so like first off, why do we touch the core fusor dir at all?
+
+---
+
+is the envelope a valid way to build it currently? is this the correct way?

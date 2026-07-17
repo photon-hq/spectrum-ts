@@ -13,6 +13,7 @@ import {
 } from "../content/membership";
 import { renameSchema } from "../content/rename";
 import type { Content } from "../content/types";
+import { asVoice } from "../content/voice";
 import type { ProviderMessageRecord } from "../platform/build";
 import { UnsupportedError } from "../utils/errors";
 import type {
@@ -144,6 +145,8 @@ const mapContent = (
       return deserializeGroup(raw, platform, spaceRef, ctx);
     case "attachment":
       return deserializeAttachment(raw, platform, spaceRef, ctx);
+    case "voice":
+      return deserializeVoice(raw, platform, spaceRef, ctx);
     case "addMember":
       return addMemberSchema.parse({
         type: "addMember",
@@ -229,6 +232,35 @@ const deserializeAttachment = (
     id,
     name: asString(raw.name) || DEFAULT_ATTACHMENT_NAME,
     mimeType: asString(raw.mimeType) || DEFAULT_MIME_TYPE,
+    size: typeof raw.size === "number" ? raw.size : undefined,
+    read: bytes ? bytes.read : unavailable,
+    stream: bytes?.stream,
+  });
+};
+
+const deserializeVoice = (
+  raw: Record<string, unknown>,
+  platform: string,
+  spaceRef: SpaceRef,
+  ctx: DeserializeContext
+): Content => {
+  const id = asString(raw.id);
+  const bytes = id
+    ? ctx.resolveAttachment?.(platform, spaceRef, id)
+    : undefined;
+  const unavailable = (): Promise<never> =>
+    Promise.reject(
+      UnsupportedError.action(
+        "getAttachment",
+        platform,
+        `voice attachment "${id}" arrived without bytes over the Spectrum webhook and "${platform}" exposes no getAttachment`
+      )
+    );
+  return asVoice({
+    ...(id ? { id } : {}),
+    name: asString(raw.name) || undefined,
+    mimeType: asString(raw.mimeType),
+    duration: typeof raw.duration === "number" ? raw.duration : undefined,
     size: typeof raw.size === "number" ? raw.size : undefined,
     read: bytes ? bytes.read : unavailable,
     stream: bytes?.stream,

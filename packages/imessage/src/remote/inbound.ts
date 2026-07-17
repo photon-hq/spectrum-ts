@@ -12,12 +12,17 @@ import {
   asCustom,
   asReply,
   asText,
+  asVoice,
   createLogger,
   errorAttrs,
   groupSchema,
   type ProviderMessageRecord,
 } from "@spectrum-ts/core/authoring";
 import { getMessageCache, type MessageCache } from "../cache";
+import {
+  appleAudioMimeType,
+  normalizeAppleAttachmentMimeType,
+} from "../shared/audio";
 import { type OrderedPart, toOrderedParts } from "../shared/inbound-parts";
 import { isVCardAttachment } from "../shared/vcard";
 import type { IMessageMessage } from "../types";
@@ -134,7 +139,21 @@ const toAttachmentContent = (
   asAttachment({
     id: info.guid,
     name: info.fileName,
-    mimeType: info.mimeType,
+    mimeType: normalizeAppleAttachmentMimeType(info),
+    size: info.totalBytes,
+    read: async () => await downloadPrimaryAttachment(client, info.guid),
+    stream: async () => downloadPrimaryAttachmentStream(client, info.guid),
+  });
+
+const toVoiceContent = (
+  client: AdvancedIMessage,
+  info: AppleAttachment,
+  mimeType: string
+): Content =>
+  asVoice({
+    id: info.guid,
+    name: info.fileName,
+    mimeType,
     size: info.totalBytes,
     read: async () => await downloadPrimaryAttachment(client, info.guid),
     stream: async () => downloadPrimaryAttachmentStream(client, info.guid),
@@ -159,11 +178,17 @@ const toVCardContent = async (
 
 const attachmentContent = async (
   client: AdvancedIMessage,
-  info: AppleAttachment
-): Promise<Content> =>
-  isVCardAttachment(info.mimeType, info.fileName)
-    ? await toVCardContent(client, info)
+  info: AppleAttachment,
+  isVoice: boolean
+): Promise<Content> => {
+  if (isVCardAttachment(info.mimeType, info.fileName)) {
+    return await toVCardContent(client, info);
+  }
+  const audioMimeType = isVoice ? appleAudioMimeType(info) : undefined;
+  return audioMimeType
+    ? toVoiceContent(client, info, audioMimeType)
     : toAttachmentContent(client, info);
+};
 
 const buildAttachmentMessage = async (
   client: AdvancedIMessage,
@@ -171,9 +196,10 @@ const buildAttachmentMessage = async (
   info: AppleAttachment,
   id: string,
   partIndex: number,
-  parentId?: string
+  parentId?: string,
+  isVoice = false
 ): Promise<IMessageMessage> => {
-  const content = await attachmentContent(client, info);
+  const content = await attachmentContent(client, info, isVoice);
   const msg: IMessageMessage = { ...base, id, content, partIndex };
   if (parentId !== undefined) {
     msg.parentId = parentId;
@@ -206,7 +232,8 @@ const buildOrderedPartMessage = async (
   part: OrderedPart<AppleAttachment>,
   id: string,
   partIndex: number,
-  parentId?: string
+  parentId?: string,
+  voiceAttachmentGuid?: string
 ): Promise<IMessageMessage> =>
   part.type === "text"
     ? buildTextMessage(base, part.text, id, partIndex, parentId)
@@ -216,7 +243,8 @@ const buildOrderedPartMessage = async (
         part.attachment,
         id,
         partIndex,
-        parentId
+        parentId,
+        part.attachment.guid === voiceAttachmentGuid
       );
 
 const buildUnwrappedContentMessage = async (
@@ -226,6 +254,9 @@ const buildUnwrappedContentMessage = async (
   messageGuidStr: string
 ): Promise<IMessageMessage> => {
   const attachments = messageAttachments(message);
+  const voiceAttachmentGuid = message.isAudioMessage
+    ? attachments.find((attachment) => appleAudioMimeType(attachment))?.guid
+    : undefined;
 
   if (attachments.length === 0) {
     const text = message.content.text;
@@ -251,7 +282,15 @@ const buildUnwrappedContentMessage = async (
     if (!part) {
       throw new Error("Unreachable: parts.length === 1 but no element");
     }
-    return buildOrderedPartMessage(client, base, part, messageGuidStr, 0);
+    return buildOrderedPartMessage(
+      client,
+      base,
+      part,
+      messageGuidStr,
+      0,
+      undefined,
+      voiceAttachmentGuid
+    );
   }
 
   const items: IMessageMessage[] = [];
@@ -267,7 +306,8 @@ const buildUnwrappedContentMessage = async (
         part,
         formatChildId(i, messageGuidStr),
         i,
-        messageGuidStr
+        messageGuidStr,
+        voiceAttachmentGuid
       )
     );
   }

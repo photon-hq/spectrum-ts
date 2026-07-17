@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Attachment } from "@/content/attachment";
 import type { Reaction } from "@/content/reaction";
 import type { Reply } from "@/content/reply";
+import type { Voice } from "@/content/voice";
 import {
   type DeserializeContext,
   deserializeSpectrumMessage,
@@ -228,6 +229,34 @@ describe("deserializeSpectrumMessage", () => {
     expect(content.name).toBe("doc.pdf");
     expect(content.mimeType).toBe("application/pdf");
     await expect(content.read()).rejects.toThrow(UNSUPPORTED_ATTACHMENT_ERROR);
+  });
+
+  it("reconstructs voice bytes and metadata via the attachment resolver", async () => {
+    const bytes = Buffer.from("caff-voice-bytes");
+    const ctx: DeserializeContext = {
+      resolveAttachment: (platform, _spaceRef, attachmentId) => {
+        expect(platform).toBe(PLATFORM);
+        expect(attachmentId).toBe("voice-att");
+        return { read: () => Promise.resolve(bytes) };
+      },
+    };
+    const { record } = deserialize(
+      {
+        type: "voice",
+        id: "voice-att",
+        name: "Audio Message.caf",
+        mimeType: "audio/x-caf",
+        size: 16,
+      },
+      ctx
+    );
+    const content = record.content as Voice;
+    expect(content.type).toBe("voice");
+    expect(content.id).toBe("voice-att");
+    expect(content.name).toBe("Audio Message.caf");
+    expect(content.mimeType).toBe("audio/x-caf");
+    expect(content.size).toBe(16);
+    expect(await content.read()).toEqual(bytes);
   });
 
   it("delivers an unknown content type as custom", () => {

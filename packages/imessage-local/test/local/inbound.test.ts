@@ -10,7 +10,8 @@ const attachment = (
   id: string,
   fileName: string,
   mimeType: string,
-  sizeBytes = DEFAULT_ATTACHMENT_SIZE_BYTES
+  sizeBytes = DEFAULT_ATTACHMENT_SIZE_BYTES,
+  uti?: string
 ): LocalIMessage["attachments"][number] =>
   ({
     fileName,
@@ -22,7 +23,7 @@ const attachment = (
     sizeBytes,
     transferName: fileName,
     transferStatus: "finished",
-    uti: undefined,
+    uti,
   }) as unknown as LocalIMessage["attachments"][number];
 
 const localMessage = (overrides: Partial<LocalIMessage> = {}): LocalIMessage =>
@@ -126,6 +127,39 @@ describe("iMessage local toMessages", () => {
         partIndex: undefined,
       },
     ]);
+  });
+
+  it("maps native CAF audio messages to voice content", async () => {
+    const [message] = await toMessages(
+      localMessage({
+        attachments: [
+          attachment(
+            "voice-att",
+            "Audio Message.caf",
+            "application/octet-stream",
+            456,
+            "com.apple.coreaudio-format"
+          ),
+        ],
+        hasAttachments: true,
+        isAudioMessage: true,
+        isExpirable: true,
+        text: undefined,
+      })
+    );
+
+    expect(message?.content).toMatchObject({
+      id: "voice-att",
+      mimeType: "audio/x-caf",
+      name: "Audio Message.caf",
+      size: 456,
+      type: "voice",
+    });
+    if (message?.content.type !== "voice") {
+      throw new Error("expected voice content");
+    }
+    expect(message.content.read).toBeTypeOf("function");
+    expect(message.content.stream).toBeTypeOf("function");
   });
 
   it("wraps attachment replies without changing the local message id", async () => {

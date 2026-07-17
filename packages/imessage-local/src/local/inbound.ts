@@ -10,6 +10,7 @@ import {
   asText,
   type ProviderMessageRecord,
 } from "@spectrum-ts/core/authoring";
+import { appleAudioMimeType } from "../../../imessage/src/shared/audio";
 import {
   ATTACHMENT_PLACEHOLDER,
   hasUsableTextPart,
@@ -31,6 +32,15 @@ const isPendingAttachmentJoin = (message: LocalIMessage): boolean =>
 
 const replyTargetId = (message: LocalIMessage): string | undefined =>
   message.threadRootMessageId ?? undefined;
+
+const voiceAttachmentId = (message: LocalIMessage): string | undefined => {
+  if (!message.isAudioMessage) {
+    return;
+  }
+  return message.attachments.find((attachment) =>
+    appleAudioMimeType(attachment)
+  )?.id;
+};
 
 const stubReplyTarget = (
   space: IMessageMessage["space"],
@@ -133,6 +143,7 @@ export const toMessages = async (
     timestamp: message.createdAt,
   };
   const targetId = replyTargetId(message);
+  const audioAttachmentId = voiceAttachmentId(message);
 
   if (message.attachments.length > 0) {
     if (!hasUsableTextPart(message.text)) {
@@ -140,7 +151,10 @@ export const toMessages = async (
         message.attachments.map(async (att) => ({
           ...base,
           id: `${message.id}:${att.id}`,
-          content: await localAttachmentContent(att),
+          content: await localAttachmentContent(
+            att,
+            att.id === audioAttachmentId
+          ),
         }))
       );
       return wrapReply(messages, targetId);
@@ -166,7 +180,10 @@ export const toMessages = async (
           : {
               ...base,
               id: `${message.id}:${part.attachment.id}`,
-              content: await localAttachmentContent(part.attachment),
+              content: await localAttachmentContent(
+                part.attachment,
+                part.attachment.id === audioAttachmentId
+              ),
               partIndex: i,
             }
       );

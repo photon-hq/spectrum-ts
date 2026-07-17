@@ -64,12 +64,14 @@ const attachment = (
   guid: string,
   fileName: string,
   mimeType: string,
-  totalBytes = 123
+  totalBytes = 123,
+  uti = ""
 ) => ({
   guid,
   fileName,
   mimeType,
   totalBytes,
+  uti,
 });
 
 const summarizeGroupItem = (item: GroupItem) => {
@@ -396,6 +398,73 @@ describe("iMessage remote toInboundMessages content", () => {
     expect((message as { parentId?: string } | undefined)?.parentId).toBe(
       undefined
     );
+  });
+
+  it("maps native CAF audio messages to voice content", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [
+            attachment(
+              "voice-att",
+              "Audio Message.caf",
+              "application/octet-stream",
+              456,
+              "com.apple.coreaudio-format"
+            ),
+          ],
+          text: undefined,
+        },
+        { isAudioMessage: true, isExpirable: true }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content).toMatchObject({
+      id: "voice-att",
+      mimeType: "audio/x-caf",
+      name: "Audio Message.caf",
+      size: 456,
+      type: "voice",
+    });
+    if (message?.content.type !== "voice") {
+      throw new Error("expected voice content");
+    }
+    expect(message.content.read).toBeTypeOf("function");
+    expect(message.content.stream).toBeTypeOf("function");
+  });
+
+  it("normalizes ordinary CAF attachments without marking them as voice", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [
+            attachment(
+              "audio-att",
+              "recording.caf",
+              "application/octet-stream",
+              456,
+              "com.apple.coreaudio-format"
+            ),
+          ],
+          text: undefined,
+        }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content).toMatchObject({
+      id: "audio-att",
+      mimeType: "audio/x-caf",
+      name: "recording.caf",
+      type: "attachment",
+    });
   });
 
   it("keeps multiple attachments without usable text as an attachment-only group", async () => {

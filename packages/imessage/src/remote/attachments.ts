@@ -4,6 +4,7 @@ import {
 } from "@photon-ai/advanced-imessage";
 import type { Attachment } from "@spectrum-ts/core";
 import { asAttachment } from "@spectrum-ts/core/authoring";
+import { normalizeAppleAttachmentMimeType } from "../shared/audio";
 
 /**
  * Stream the primary file bytes of an attachment as a `ReadableStream`.
@@ -102,7 +103,7 @@ export const getRemoteAttachment = async (
   return asAttachment({
     id: info.guid,
     name: info.fileName,
-    mimeType: info.mimeType,
+    mimeType: normalizeAppleAttachmentMimeType(info),
     size: info.totalBytes,
     read: () => downloadPrimaryAttachment(client, info.guid),
     stream: async () => downloadPrimaryAttachmentStream(client, info.guid),

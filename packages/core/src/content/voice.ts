@@ -21,6 +21,7 @@ const audioMimeSchema = z
 
 export const voiceSchema = z.object({
   type: z.literal("voice"),
+  id: z.string().nonempty().optional(),
   name: z.string().nonempty().optional(),
   mimeType: audioMimeSchema,
   duration: z.number().nonnegative().optional(),
@@ -91,6 +92,7 @@ const resolveVoiceMimeType = (
 };
 
 export const asVoice = (input: {
+  id?: string;
   name?: string;
   mimeType: string;
   duration?: number;
@@ -111,6 +113,7 @@ export const asVoice = (input: {
 
   return voiceSchema.parse({
     type: "voice",
+    ...(input.id ? { id: input.id } : {}),
     name: input.name,
     mimeType: input.mimeType,
     duration: input.duration,

@@ -30,6 +30,12 @@ const clientEntry = z.object({
   token: z.string(),
   phone: z.string(),
   /**
+   * HTTP middleware address for outbound calls. Defaults to
+   * `SPECTRUM_IMESSAGE_HTTP_ADDRESS` / the production middleware — set it to
+   * keep a self-hosted config fully self-contained.
+   */
+  httpAddress: z.string().optional(),
+  /**
    * Dedicated instance id, sent as `x-photon-server` so the HTTP middleware
    * routes outbound calls to that instance. Omit for shared-mode tokens.
    */

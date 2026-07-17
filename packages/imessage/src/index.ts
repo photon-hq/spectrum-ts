@@ -487,7 +487,7 @@ export const imessage = definePlatform("iMessage", {
         return entries.map((e) => ({
           phone: e.phone,
           client: createHttpClient({
-            address: middlewareAddress(),
+            address: e.httpAddress ?? middlewareAddress(),
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.

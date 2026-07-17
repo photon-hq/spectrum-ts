@@ -26,4 +26,16 @@ describe("iMessage cloud config", () => {
       clients: [entry],
     });
   });
+
+  it("accepts a self-contained explicit client with its own middleware", () => {
+    const entry = {
+      address: "a.example:443",
+      httpAddress: "http://localhost:8080",
+      phone: "+15550100",
+      token: "t",
+    };
+    expect(configSchema.parse({ clients: [entry] })).toEqual({
+      clients: [entry],
+    });
+  });
 });

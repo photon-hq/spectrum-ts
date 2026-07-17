@@ -1,0 +1,33 @@
+ok can u take a look at this https://github.com/photon-hq/fusor/blob/main/docs/client-adapters.md and than take a look at the implementation we have rn in this and lmk whats wrong or how close we are
+
+---
+
+ok the docs is the final say, our impl must match docs 100% so give it to me as like ok we must fix.
+
+---
+
+ok can u find where defineFusorPlatform is
+
+---
+
+wait then why the fuck did it get put into 1 function???
+
+---
+
+so whats the is best way to go about this
+
+---
+
+ok lets just make a plan to do this. dont use super powers but ask me about my impl.
+
+---
+
+ok i am toold to not bring it back
+
+---
+
+ok so whats the stauts for inbound fusor
+
+---
+
+ok how about comparing to this https://github.com/photon-hq/spectrum-ts/blob/84381b5590c779592bfd9443bdc062ee7cd48baa/docs/fusor.md

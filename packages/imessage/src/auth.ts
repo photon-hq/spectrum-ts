@@ -27,6 +27,17 @@ interface CloudAuth {
 
 const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
 
+/**
+ * The HTTP middleware (imessage-server-v2-http) every outbound unary call
+ * dials, in both shared and dedicated modes. Dedicated routing happens
+ * server-side via the SDK's `server` option (x-photon-server), not by
+ * dialing per-instance hosts — those speak only gRPC and serve only the
+ * inbound event streams.
+ */
+export const middlewareAddress = (): string =>
+  process.env.SPECTRUM_IMESSAGE_HTTP_ADDRESS ??
+  "imessage.spectrum.photon.codes:443";
+
 const requirePhone = (data: DedicatedTokenData, instanceId: string): string => {
   const phone = data.numbers?.[instanceId];
   if (!phone) {
@@ -163,13 +174,7 @@ export async function createCloudClients(
   };
   const cloudAuth: CloudAuth = { dispose, forceRefresh };
 
-  // Outbound unary calls dial the HTTP middleware (imessage-server-v2-http)
-  // in both modes; dedicated routing happens server-side via the SDK's
-  // `server` option, not by dialing per-instance hosts. The gRPC address
-  // below serves only the inbound event streams.
-  const httpAddress =
-    process.env.SPECTRUM_IMESSAGE_HTTP_ADDRESS ??
-    "imessage.spectrum.photon.codes:443";
+  const httpAddress = middlewareAddress();
 
   if (tokenData.type === "shared") {
     const address =

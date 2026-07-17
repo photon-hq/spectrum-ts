@@ -37,7 +37,11 @@ export {
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
 
-import { createCloudClients, disposeCloudAuth } from "./auth";
+import {
+  createCloudClients,
+  disposeCloudAuth,
+  middlewareAddress,
+} from "./auth";
 import { getMessageCache } from "./cache";
 import {
   type Background,
@@ -477,18 +481,19 @@ export const imessage = definePlatform("iMessage", {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
-        // Explicit clients carry a single operator-controlled address: it
-        // must serve the HTTP middleware for outbound and, during the
-        // transition, the gRPC event streams for inbound.
+        // `address` keeps its historical meaning — the per-line gRPC plane
+        // (event streams). Outbound rides the HTTP middleware like the cloud
+        // path; dedicated static tokens set `server` for instance routing.
         return entries.map((e) => ({
           phone: e.phone,
           client: createHttpClient({
-            address: e.address,
+            address: middlewareAddress(),
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.
             autoIdempotency: true,
             retry: true,
+            server: e.server,
             tls: true,
             token: e.token,
           }),

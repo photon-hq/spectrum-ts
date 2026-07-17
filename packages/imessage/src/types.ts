@@ -29,6 +29,11 @@ const clientEntry = z.object({
   address: z.string(),
   token: z.string(),
   phone: z.string(),
+  /**
+   * Dedicated instance id, sent as `x-photon-server` so the HTTP middleware
+   * routes outbound calls to that instance. Omit for shared-mode tokens.
+   */
+  server: z.string().optional(),
 });
 
 export const configSchema = z.strictObject({

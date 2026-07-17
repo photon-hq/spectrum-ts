@@ -146,6 +146,92 @@ Custom events emitted by providers are exposed as flat async iterables on the sa
 
 `app.webhook()` handles both native Spectrum webhooks and Fusor webhooks through the same method. See [Webhooks](/spectrum-ts/webhooks) for setup and framework adapters.
 
+## Reliable Fusor stream resume
+
+When `app.messages` consumes a Fusor-backed provider such as Telegram, inbound
+events arrive over a long-lived WebSocket. This requires a global
+standards-compatible `WebSocket`: use Bun or Node 22 or newer. On an older Node
+release, install a compatible implementation and assign it to
+`globalThis.WebSocket` before initializing Spectrum. Spectrum sends the last
+safe stream sequence when it reconnects, and Fusor resumes at the following
+sequence. The default cursor store is in-memory: it protects reconnects in the
+current process, but a process restart starts a new live tail until a positive
+cursor exists.
+
+Pass a durable store through `options.fusorCursorStore` in production:
+
+```ts
+import { Spectrum, type FusorCursorStore } from "spectrum-ts";
+import { telegram } from "spectrum-ts/providers/telegram";
+
+const fusorCursorStore: FusorCursorStore = {
+  async load(projectId) {
+    return database.cursors.get(projectId);
+  },
+  async save(projectId, seq) {
+    await database.cursors.advance(projectId, seq);
+  },
+};
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  platforms: [telegram.config({ botToken: process.env.TELEGRAM_BOT_TOKEN! })],
+  options: { fusorCursorStore },
+});
+```
+
+The store contract is deliberately small:
+
+- `load(projectId)` returns the last committed stream sequence, or `undefined`
+  for a live tail.
+- `save(projectId, seq)` must commit durably and monotonically before resolving.
+- The store or its key namespace must also be scoped to the Fusor deployment
+  or stream identity. Never share a cursor between staging and production.
+
+Spectrum processes event frames in order and checkpoints only after the
+provider pipeline has accepted an event and any synchronous provider reply has
+been queued. A failed checkpoint closes the socket and reconnects from the old
+cursor; a bounded process-local event-ID cache suppresses duplicate provider
+delivery while that checkpoint is retried. Across process restarts, delivery is
+still at-least-once, so make application side effects idempotent.
+
+Reconnects use equal-jitter exponential backoff (capped at 30 seconds), do not
+reset the attempt counter until a connection has remained ready for one minute,
+and honor typed server retry hints up to five minutes. This avoids reconnect
+storms during rollouts, capacity shedding, and NATS interruptions. Initial
+token issuance failures enter the same retry loop, and its timer remains
+referenced so a stream-only Node process cannot exit cleanly during backoff;
+`app.stop()` cancels the timer immediately.
+
+The client admits at most 64 event frames and 8 MiB of UTF-8 event-frame data
+by default, counting the handler currently executing. When either backlog
+limit is exceeded, it closes the session, drops work that has not started, and
+reconnects from the last durable cursor. The overflowing event is not delivered
+or checkpointed. You can tune the limits for known provider latency and payload
+profiles:
+
+```ts
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID!,
+  projectSecret: process.env.PROJECT_SECRET!,
+  platforms: [imessage.config()],
+  options: {
+    fusorCursorStore,
+    fusorMaxPendingEvents: 64,
+    fusorMaxPendingBytes: 8 * 1024 * 1024,
+    fusorShutdownTimeoutMs: 2_000,
+  },
+});
+```
+
+Fusor provider `messages` handlers receive an `AbortSignal` as `signal` in
+their context. Pass it to cancellable database and HTTP operations. On shutdown
+or backlog shedding, Spectrum aborts that signal and waits up to the configured
+shutdown timeout (2 seconds by default); if a handler ignores cancellation,
+shutdown still completes and the unfinished event is neither replied to nor
+checkpointed.
+
 ## Multi-platform in three lines
 
 Combine providers to receive and send across platforms simultaneously:

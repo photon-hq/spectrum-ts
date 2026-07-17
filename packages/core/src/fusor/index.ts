@@ -1,5 +1,9 @@
 import { FUSOR_BRAND, type FusorClient, type FusorVerify } from "./types";
 
+export {
+  type FusorCursorStore,
+  MemoryFusorCursorStore,
+} from "./cursor";
 export { type FusorEvent, fusorEvent, isFusorEvent } from "./event";
 export type {
   FusorClient,

@@ -54,6 +54,62 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
 
 Spectrum also runs fully standalone — you can connect to a local iMessage database with the separate [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) package, bring your own gRPC endpoints, or build your own platform provider. See the [docs](https://docs.photon.codes) for self-hosted setups.
 
+### Production Fusor stream resume
+
+When `app.messages` consumes a Fusor-backed provider (for example Telegram),
+inbound events arrive over a long-lived WebSocket. This path requires a runtime
+with a global standards-compatible `WebSocket`: use Bun or Node 22 or newer.
+On an older Node release, install a compatible implementation and assign it to
+`globalThis.WebSocket` before initializing Spectrum. Spectrum keeps a
+process-local cursor by default, which survives reconnects but not a process
+restart. Production services can supply a durable cursor store:
+
+```typescript
+import { Spectrum, type FusorCursorStore } from "spectrum-ts";
+import { telegram } from "spectrum-ts/providers/telegram";
+
+const fusorCursorStore: FusorCursorStore = {
+  async load(projectId) {
+    return database.cursors.get(projectId);
+  },
+  async save(projectId, seq) {
+    // Commit durably and monotonically before this promise resolves.
+    await database.cursors.advance(projectId, seq);
+  },
+};
+
+const app = await Spectrum({
+  projectId: process.env.PROJECT_ID,
+  projectSecret: process.env.PROJECT_SECRET,
+  platforms: [telegram.config({ botToken: process.env.TELEGRAM_BOT_TOKEN! })],
+  options: { fusorCursorStore },
+});
+```
+
+Namespace stored cursors by Fusor deployment or stream identity in addition to
+project ID; never reuse a production cursor in staging. Spectrum checkpoints
+only after the provider pipeline has accepted the event and any synchronous
+reply has been queued. Delivery remains at-least-once, so application side
+effects should still be idempotent.
+
+Spectrum also bounds the WebSocket event backlog to 64 admitted events and
+8 MiB of UTF-8 event-frame data by default (the currently executing handler is
+included). If either limit is exceeded, Spectrum closes the session, discards
+unstarted queued work, and reconnects from the last durable cursor; the
+overflowing event is never checkpointed. Tune the bounds with
+`options.fusorMaxPendingEvents` and `options.fusorMaxPendingBytes` when provider
+latency and payload sizes justify it.
+
+Shutdown aborts the `signal` passed to each Fusor provider's `messages`
+context. Providers should pass that signal to cancellable I/O. Spectrum waits
+at most `options.fusorShutdownTimeoutMs` (2 seconds by default) for a handler
+that ignores cancellation, then lets shutdown finish without replying to or
+checkpointing that event.
+
+Initial token issuance and connection failures use the same referenced retry
+loop, so a stream-only Node worker remains alive during reconnect backoff until
+`app.stop()` cancels it.
+
 ## Documentation
 
 Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full documentation.

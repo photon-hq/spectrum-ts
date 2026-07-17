@@ -73,6 +73,7 @@ export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
 export type {
   FusorClient,
+  FusorCursorStore,
   FusorEvent,
   FusorMessages,
   FusorMessagesCtx,
@@ -102,7 +103,11 @@ export type {
   SchemaMessage,
   SpaceNamespace,
 } from "./platform/types";
-export { Spectrum, type SpectrumInstance } from "./spectrum";
+export {
+  Spectrum,
+  type SpectrumInstance,
+  type SpectrumOptions,
+} from "./spectrum";
 export type { Message } from "./types/message";
 export type { Space } from "./types/space";
 export type { AgentSender, User } from "./types/user";

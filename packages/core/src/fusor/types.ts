@@ -35,6 +35,8 @@ export interface FusorMessagesCtx<TPayload, TConfig = unknown> {
    */
   projectConfig: ProjectData | undefined;
   respond: FusorRespond;
+  /** Aborted when the Fusor session closes or sheds an overloaded backlog. */
+  signal: AbortSignal;
   /** Per-platform in-memory key/value store, shared with the rest of the platform. */
   store: Store;
 }

@@ -7,10 +7,19 @@ import type { ProviderMessageRecord } from "../platform/types";
 import { officialProviderInstallHint } from "../utils/provider-packages";
 import { errorAttrs } from "../utils/telemetry";
 import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
+import {
+  type FusorCursorStore,
+  MemoryFusorCursorStore,
+  normalizeFusorCursor,
+} from "./cursor";
 import { FUSOR_MESSAGES_CHANNEL, isFusorEvent } from "./event";
 import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
 import type { FusorMessagesReturn, FusorReply, FusorVerify } from "./types";
 import {
+  DEFAULT_FUSOR_MAX_PENDING_BYTES,
+  DEFAULT_FUSOR_MAX_PENDING_EVENTS,
+  DEFAULT_FUSOR_SHUTDOWN_TIMEOUT_MS,
+  FusorWsError,
   type FusorWsSession,
   isWsAuthError,
   runFusorWsSession,
@@ -20,8 +29,12 @@ const DEFAULT_FUSOR_WS_URL =
   "wss://fusor-ws.spectrum.photon.codes/v1/subscribe";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
+const RETRY_AFTER_MAX_MS = 300_000;
+const STABLE_SESSION_MS = 60_000;
+const EVENT_DEDUPE_CAPACITY = 10_000;
 
 const log = createLogger("spectrum.fusor");
+const NEVER_ABORTED_SIGNAL = new AbortController().signal;
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -30,6 +43,7 @@ export interface RegisteredFusorHandler<TPayload = unknown> {
   messages: (ctx: {
     payload: TPayload;
     respond: (reply: FusorReply) => void;
+    signal: AbortSignal;
   }) => FusorMessagesReturn | Promise<FusorMessagesReturn>;
   // Route a `fusorEvent(channel, data)` to its custom event channel. Wired by
   // the Spectrum bootstrap to the per-(platform, channel) queue.
@@ -128,11 +142,15 @@ function routeHandlerResult(
 function runHandlerOnce<TPayload>(
   handler: RegisteredFusorHandler<TPayload>,
   parsedRequest: ParsedHttpRequest,
-  deliver: (record: ProviderMessageRecord) => void = handler.pushMessage
+  deliver: (record: ProviderMessageRecord) => void = handler.pushMessage,
+  signal: AbortSignal = NEVER_ABORTED_SIGNAL
 ): Promise<HandlerOutcome> {
   return (async () => {
     try {
       const payload = await handler.verify(parsedRequest);
+      if (signal.aborted) {
+        return { ok: false, errorReason: "event processing aborted" };
+      }
       let reply: FusorReply | undefined;
       let respondCalled = false;
       let returned = false;
@@ -147,9 +165,12 @@ function runHandlerOnce<TPayload>(
         respondCalled = true;
         reply = next;
       };
-      const result = await handler.messages({ payload, respond });
+      const result = await handler.messages({ payload, respond, signal });
       returned = true;
 
+      if (signal.aborted) {
+        return { ok: false, errorReason: "event processing aborted" };
+      }
       routeHandlerResult(result, handler as RegisteredFusorHandler, deliver);
       return { ok: true, reply };
     } catch (error) {
@@ -159,12 +180,20 @@ function runHandlerOnce<TPayload>(
 }
 
 export interface FusorCoreOptions {
+  /** Cursor persistence used by the streaming transport. */
+  cursorStore?: FusorCursorStore;
+  /** Maximum UTF-8 wire bytes held by admitted WebSocket event frames. */
+  maxPendingBytes?: number;
+  /** Maximum admitted WebSocket events, including the in-flight event. */
+  maxPendingEvents?: number;
   // Optional: only the streaming transport (start) needs cloud credentials to
   // mint a token. The webhook path (processEvent) routes registered handlers
   // without them, so a webhook-only Spectrum can construct a core with
   // neither set.
   projectId?: string;
   projectSecret?: string;
+  /** Maximum time shutdown waits for an uncooperative event handler. */
+  shutdownTimeoutMs?: number;
   /**
    * fusor-fanout-websocket endpoint (`wss://…/v1/subscribe`) — the
    * streaming transport. Defaults to the `SPECTRUM_FUSOR_WS_URL` env
@@ -176,6 +205,11 @@ export interface FusorCoreOptions {
 export class FusorCore {
   private readonly options: FusorCoreOptions;
   private readonly websocketEndpoint: string;
+  private readonly cursorStore: FusorCursorStore;
+  private readonly maxPendingEvents: number;
+  private readonly maxPendingBytes: number;
+  private readonly shutdownTimeoutMs: number;
+  private readonly processedEventIds = new Map<string, undefined>();
   private readonly handlers = new Map<string, RegisteredFusorHandler[]>();
   private tokenProvider?: FusorTokenProvider;
   private wsSession?: FusorWsSession;
@@ -194,6 +228,13 @@ export class FusorCore {
       options.websocketEndpoint ??
       process.env.SPECTRUM_FUSOR_WS_URL ??
       DEFAULT_FUSOR_WS_URL;
+    this.cursorStore = options.cursorStore ?? new MemoryFusorCursorStore();
+    this.maxPendingEvents =
+      options.maxPendingEvents ?? DEFAULT_FUSOR_MAX_PENDING_EVENTS;
+    this.maxPendingBytes =
+      options.maxPendingBytes ?? DEFAULT_FUSOR_MAX_PENDING_BYTES;
+    this.shutdownTimeoutMs =
+      options.shutdownTimeoutMs ?? DEFAULT_FUSOR_SHUTDOWN_TIMEOUT_MS;
     this.stoppedPromise = new Promise<void>((resolve) => {
       this.stopResolve = resolve;
     });
@@ -221,41 +262,46 @@ export class FusorCore {
       return;
     }
     this.started = true;
-    this.tokenProvider = await createFusorTokenProvider(
-      this.options.projectId,
-      this.options.projectSecret
-    );
     this.connectionLoop = this.runConnectionLoop().catch((error) => {
       log.error("fusor connection loop crashed", errorAttrs(error), error);
     });
   }
 
-  // Streaming transport: the fusor.v1.json WebSocket plane. A session that
-  // runs to a clean end reconnects immediately; an errored session backs
-  // off exponentially (reset on the next clean run).
+  // Streaming transport: every reconnect uses equal-jitter exponential
+  // backoff. The failure counter resets only after a minute of stable ready
+  // time, so accept-then-close loops cannot pin retries at one second.
   private async runConnectionLoop(): Promise<void> {
     let attempt = 0;
     while (!this.stopped) {
-      const wsRan = await this.tryWebsocketOnce();
+      const outcome = await this.tryWebsocketOnce();
       if (this.stopped) {
         return;
       }
-      if (wsRan) {
+      if (outcome.stable) {
         attempt = 0;
-        continue;
       }
-
       attempt += 1;
-      await this.backoffSleep(this.backoffMs(attempt));
+      const retryAfterMs = Math.min(
+        outcome.retryAfterMs ?? 0,
+        RETRY_AFTER_MAX_MS
+      );
+      await this.backoffSleep(Math.max(this.backoffMs(attempt), retryAfterMs));
     }
   }
 
-  // True when the stream ran to a clean end; false when it errored (the
-  // loop then backs off before reconnecting).
-  private async tryWebsocketOnce(): Promise<boolean> {
+  private async tryWebsocketOnce(): Promise<{
+    retryAfterMs?: number;
+    stable: boolean;
+  }> {
+    let readyAt: number | undefined;
     try {
-      await this.runWebsocketOnce();
-      return true;
+      await this.runWebsocketOnce(() => {
+        readyAt ??= Date.now();
+      });
+      return {
+        stable:
+          readyAt !== undefined && Date.now() - readyAt >= STABLE_SESSION_MS,
+      };
     } catch (error) {
       // Drop a stale token on auth failure so the next attempt mints a
       // fresh one instead of replaying the rejected token.
@@ -269,43 +315,96 @@ export class FusorCore {
           error
         );
       }
-      return false;
+      return {
+        stable:
+          readyAt !== undefined && Date.now() - readyAt >= STABLE_SESSION_MS,
+        retryAfterMs:
+          error instanceof FusorWsError ? error.retryAfterMs : undefined,
+      };
     }
   }
 
   private backoffMs(attempt: number): number {
-    return Math.min(RECONNECT_BASE_MS * 2 ** (attempt - 1), RECONNECT_MAX_MS);
+    const cap = Math.min(
+      RECONNECT_BASE_MS * 2 ** (attempt - 1),
+      RECONNECT_MAX_MS
+    );
+    return Math.round(cap / 2 + Math.random() * (cap / 2));
   }
 
   // Cancelable sleep: close() clears the timer and resolves it so
-  // shutdown doesn't wait out the (up to 30s) backoff.
+  // shutdown doesn't wait out the (up to 30s) backoff. Keep the timer
+  // referenced: a stream-only Node worker may have no other active handle,
+  // and must stay alive long enough to reconnect.
   private async backoffSleep(backoff: number): Promise<void> {
     await new Promise<void>((resolve) => {
       this.reconnectResolve = resolve;
       const timer = setTimeout(resolve, backoff);
-      timer.unref?.();
       this.reconnectTimer = timer;
     });
     this.reconnectTimer = undefined;
     this.reconnectResolve = undefined;
   }
 
-  private async runWebsocketOnce(): Promise<void> {
+  private async runWebsocketOnce(onReady: () => void): Promise<void> {
+    const projectId = this.options.projectId;
+    const projectSecret = this.options.projectSecret;
+    if (!(projectId && projectSecret)) {
+      throw new Error("fusor: project credentials not initialized");
+    }
     if (!this.tokenProvider) {
-      throw new Error("fusor: token not initialized");
+      const tokenProvider = await createFusorTokenProvider(
+        projectId,
+        projectSecret
+      );
+      if (this.stopped) {
+        await tokenProvider.dispose();
+        return;
+      }
+      this.tokenProvider = tokenProvider;
     }
     const token = await this.tokenProvider.getToken();
+    if (this.stopped) {
+      return;
+    }
+    const startSeq = normalizeFusorCursor(
+      await this.cursorStore.load(projectId)
+    );
+    if (this.stopped) {
+      return;
+    }
     const session = runFusorWsSession({
       url: this.websocketEndpoint,
       token,
-      onEvent: async (event, sendReply) => {
-        if (this.stopped) {
+      startSeq,
+      maxPendingBytes: this.maxPendingBytes,
+      maxPendingEvents: this.maxPendingEvents,
+      shutdownTimeoutMs: this.shutdownTimeoutMs,
+      onReady,
+      onEvent: async (event, seq, sendReply, signal) => {
+        if (this.stopped || signal.aborted) {
           return;
         }
-        const reply = await this.processEvent(event);
+        if (this.processedEventIds.has(event.eventId)) {
+          if (signal.aborted) {
+            return;
+          }
+          await this.cursorStore.save(projectId, seq);
+          return;
+        }
+        const reply = await this.processEvent(event, undefined, signal);
+        if (this.stopped || signal.aborted) {
+          return;
+        }
         // The server answers unexpected replies with typed notices —
         // only reply when asked (sendReply is set iff replyExpected).
         sendReply?.(reply);
+        // Remember successful processing before the durable checkpoint. If
+        // the store fails, the reconnect deliberately asks for this event
+        // again; the process-local id cache then retries the checkpoint
+        // without duplicating provider delivery.
+        this.rememberProcessedEvent(event.eventId);
+        await this.cursorStore.save(projectId, seq);
       },
     });
     this.wsSession = session;
@@ -313,6 +412,18 @@ export class FusorCore {
       await session.done;
     } finally {
       this.wsSession = undefined;
+    }
+  }
+
+  private rememberProcessedEvent(eventId: string): void {
+    this.processedEventIds.delete(eventId);
+    this.processedEventIds.set(eventId, undefined);
+    if (this.processedEventIds.size <= EVENT_DEDUPE_CAPACITY) {
+      return;
+    }
+    const oldest = this.processedEventIds.keys().next().value;
+    if (oldest !== undefined) {
+      this.processedEventIds.delete(oldest);
     }
   }
 
@@ -326,7 +437,8 @@ export class FusorCore {
   // request instead.
   async processEvent(
     event: RawInboundEvent,
-    deliver?: (record: ProviderMessageRecord) => void
+    deliver?: (record: ProviderMessageRecord) => void,
+    signal: AbortSignal = NEVER_ABORTED_SIGNAL
   ): Promise<InboundReply> {
     const handlers = this.handlers.get(event.platform) ?? [];
     if (handlers.length === 0) {
@@ -372,7 +484,9 @@ export class FusorCore {
     }
 
     const outcomes = await Promise.all(
-      handlers.map((handler) => runHandlerOnce(handler, parsedRequest, deliver))
+      handlers.map((handler) =>
+        runHandlerOnce(handler, parsedRequest, deliver, signal)
+      )
     );
 
     const combined = combineReplies(outcomes);

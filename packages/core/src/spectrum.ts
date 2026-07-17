@@ -11,6 +11,7 @@ import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
 import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
+import type { FusorCursorStore } from "./fusor/cursor";
 import { isFusorClient } from "./fusor/index";
 import type {
   FusorClient,
@@ -151,6 +152,41 @@ export interface SpectrumOptions {
   flattenGroups?: boolean;
 
   /**
+   * Persists the last Fusor stream sequence accepted by the provider pipeline.
+   * Supply a durable, monotonic implementation in production so reconnects
+   * and process restarts resume after the last checkpoint. The default is
+   * process-local memory and does not survive a restart.
+   */
+  fusorCursorStore?: FusorCursorStore;
+
+  /**
+   * Maximum UTF-8 wire bytes retained by admitted Fusor WebSocket event
+   * frames. Exceeding the limit closes the session and replays from the last
+   * durable cursor.
+   *
+   * @default 8388608 (8 MiB)
+   */
+  fusorMaxPendingBytes?: number;
+
+  /**
+   * Maximum Fusor WebSocket events admitted at once, including the event
+   * currently executing in the provider pipeline. Exceeding the limit closes
+   * the session and replays from the last durable cursor.
+   *
+   * @default 64
+   */
+  fusorMaxPendingEvents?: number;
+
+  /**
+   * Maximum time `stop()` waits for an in-flight Fusor provider handler that
+   * does not observe cancellation. Work that finishes after the deadline is
+   * not replied to or checkpointed.
+   *
+   * @default 2000
+   */
+  fusorShutdownTimeoutMs?: number;
+
+  /**
    * Minimum severity emitted by the SDK's structured logger (to both the
    * console and, when telemetry is on, OTLP). Applies process-wide. The
    * `LOG_LEVEL` environment variable still takes precedence.
@@ -167,6 +203,10 @@ export interface SpectrumOptions {
 const spectrumOptionsSchema = z
   .object({
     flattenGroups: z.boolean().optional(),
+    fusorCursorStore: z.custom<FusorCursorStore>().optional(),
+    fusorMaxPendingBytes: z.number().int().positive().optional(),
+    fusorMaxPendingEvents: z.number().int().positive().optional(),
+    fusorShutdownTimeoutMs: z.number().int().positive().optional(),
     logLevel: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   })
   .optional();
@@ -619,7 +659,14 @@ export async function Spectrum<
   }
 
   if (fusorPlatforms.length > 0) {
-    fusorCore = new FusorCore({ projectId, projectSecret });
+    fusorCore = new FusorCore({
+      projectId,
+      projectSecret,
+      cursorStore: runtimeOptions?.fusorCursorStore,
+      maxPendingBytes: runtimeOptions?.fusorMaxPendingBytes,
+      maxPendingEvents: runtimeOptions?.fusorMaxPendingEvents,
+      shutdownTimeoutMs: runtimeOptions?.fusorShutdownTimeoutMs,
+    });
     for (const { name, client } of fusorPlatforms) {
       const queue = createAsyncQueue<ProviderMessageRecord>();
       fusorMessageSources.set(name, queue);

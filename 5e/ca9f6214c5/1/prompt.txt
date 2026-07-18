@@ -1,0 +1,5 @@
+yo why dont we just use merge streams
+
+---
+
+ok how can i test this

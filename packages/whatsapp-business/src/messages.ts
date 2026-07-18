@@ -334,13 +334,6 @@ const waContactToSpectrum = (card: ContactCard): Content => {
 };
 
 // Inbound group items are raw provider records that core's
-// Meta delivers the user's WhatsApp profile push name alongside inbound
-// messages, but doesn't guarantee the contacts payload on every webhook.
-const senderRef = (msg: InboundMessage) => ({
-  id: msg.from,
-  ...(msg.contact?.name ? { name: msg.contact.name } : {}),
-});
-
 // wrapProviderMessage inflates into full Messages. They must carry
 // sender/space/timestamp — cloud webhook delivery serializes those per item
 // and crashes on a missing sender.
@@ -352,7 +345,7 @@ const groupItem = (
   ({
     id: `${msg.id}:${index}`,
     content,
-    sender: senderRef(msg),
+    sender: { id: msg.from },
     space: { id: msg.from },
     timestamp: msg.timestamp,
   }) as unknown as SpectrumMessage;
@@ -368,7 +361,7 @@ const toMessages = (
   msg: InboundMessage
 ): WhatsAppMessage[] => {
   const base = {
-    sender: senderRef(msg),
+    sender: { id: msg.from },
     space: { id: msg.from },
     timestamp: msg.timestamp,
   };

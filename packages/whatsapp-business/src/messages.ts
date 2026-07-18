@@ -40,6 +40,7 @@ import {
 } from "@spectrum-ts/core/authoring";
 import { extension as mimeExtension } from "mime-types";
 import { isWhatsAppTemplate, type WhatsAppTemplate } from "./content/template";
+import { WhatsAppPartialSendError } from "./errors/partial-send";
 import { pollOptionId, pollToInteractive } from "./poll";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 
@@ -55,6 +56,8 @@ const primary = (clients: WhatsAppClients): WhatsAppClient => {
 };
 
 type WaSendResult = Awaited<ReturnType<WhatsAppClient["messages"]["send"]>>;
+
+type ContentOfType<T extends Content["type"]> = Extract<Content, { type: T }>;
 
 const toRecord = (
   result: WaSendResult,
@@ -562,9 +565,7 @@ const mimeToMediaType = (
   return "document";
 };
 
-const voiceFilename = (
-  content: Extract<Content, { type: "voice" }>
-): string => {
+const voiceFilename = (content: ContentOfType<"voice">): string => {
   if (content.name) {
     return content.name;
   }
@@ -728,63 +729,27 @@ export const messages = (
 // Meta caps media captions at 1024 characters (image/video/document docs).
 const MAX_CAPTION_LENGTH = 1024;
 
-// Meta accepts captions only on image/video/document sends — never audio or
-// sticker (the SDK would forward an audio caption unchecked, and Meta's
-// rejection behavior for it is undocumented).
+// Meta accepts captions only on image/video/document sends.
 const captionablePair = (
   group: Group
-):
-  | { attachment: Extract<Content, { type: "attachment" }>; caption: string }
-  | undefined => {
+): { attachment: ContentOfType<"attachment">; caption: string } | undefined => {
   if (group.items.length !== 2) {
     return;
   }
   const contents = group.items.map((item) => item.content as Content);
   const attachment = contents.find(
-    (c): c is Extract<Content, { type: "attachment" }> =>
-      c.type === "attachment"
+    (c): c is ContentOfType<"attachment"> => c.type === "attachment"
   );
   const text = contents.find(
-    (c): c is Extract<Content, { type: "text" }> => c.type === "text"
+    (c): c is ContentOfType<"text"> => c.type === "text"
   );
-  if (!(attachment && text)) {
-    return;
-  }
-  if (mimeToMediaType(attachment.mimeType) === "audio") {
-    return;
-  }
-  if (text.text.length > MAX_CAPTION_LENGTH) {
-    return;
-  }
-  return { attachment, caption: text.text };
+  const captionable =
+    attachment &&
+    text &&
+    mimeToMediaType(attachment.mimeType) !== "audio" &&
+    text.text.length <= MAX_CAPTION_LENGTH;
+  return captionable ? { attachment, caption: text.text } : undefined;
 };
-
-// WhatsApp cannot retract delivered messages, so a sequential group send
-// that fails midway leaves earlier parts delivered. This error carries their
-// records so callers can reconcile instead of blindly re-sending the group.
-// It deliberately is NOT an UnsupportedError: core's fallback layer re-sends
-// the whole content on UnsupportedError (e.g. the markdown downgrade), which
-// after a partial delivery would duplicate the already-sent parts.
-export class WhatsAppPartialSendError extends Error {
-  readonly sent: ProviderMessageRecord[];
-  readonly failedIndex: number;
-
-  constructor(input: {
-    sent: ProviderMessageRecord[];
-    failedIndex: number;
-    total: number;
-    cause: unknown;
-  }) {
-    super(
-      `WhatsApp group send failed at part ${input.failedIndex + 1}/${input.total}; ` +
-        `${input.sent.length} earlier part(s) were already delivered and cannot be retracted`,
-      { cause: input.cause }
-    );
-    this.name = "WhatsAppPartialSendError";
-    this.sent = input.sent;
-    this.failedIndex = input.failedIndex;
-  }
-}
 
 // A captionable [attachment, text] pair collapses to one captioned media
 // send — the shape our own inbound mapping produces for captioned media.
@@ -810,6 +775,7 @@ const sendGroupParts = async (
       mediaType === "document"
         ? { id: mediaId, filename: attachment.name, caption }
         : { id: mediaId, caption };
+    // send as a caption-text pair together, goes out as 1 obj.
     return toRecord(
       await client.messages.send({
         to: spaceId,
@@ -834,7 +800,7 @@ const sendGroupParts = async (
           : await send(clients, spaceId, itemContent);
     } catch (error) {
       if (sent.length === 0) {
-        // Nothing delivered yet — surface the original error untouched so
+        // Nothing delivered yet thus we surface the original error untouched so
         // core's UnsupportedError fallbacks (markdown/streamText downgrade,
         // warn-and-skip) keep working.
         throw error;

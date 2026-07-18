@@ -1,7 +1,8 @@
 import { type Message, UnsupportedError } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
-import { replyToMessage, send, WhatsAppPartialSendError } from "@/messages";
+import { WhatsAppPartialSendError } from "@/errors/partial-send";
+import { replyToMessage, send } from "@/messages";
 import type { WhatsAppClients } from "@/types";
 
 const outboundItem = (content: unknown): Message =>

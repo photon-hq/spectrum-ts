@@ -17,7 +17,7 @@ import {
 } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
 import { FusorCore } from "@/fusor/core";
-import { Spectrum } from "@/spectrum";
+import { Spectrum, type SpectrumInstance } from "@/spectrum";
 import type { Message } from "@/types/message";
 
 stubCloud();
@@ -438,22 +438,27 @@ describe("fusor events", () => {
         await startGate.promise;
         await this.processEvent(event);
       });
+    let spectrum: SpectrumInstance | undefined;
+    let topLevel: AsyncIterator<unknown> | undefined;
+    let platformLevel: AsyncIterator<unknown> | undefined;
+    let topLevelEvent: Promise<IteratorResult<unknown>> | undefined;
+    let platformLevelEvent: Promise<IteratorResult<unknown>> | undefined;
 
     try {
-      const spectrum = await Spectrum({
+      spectrum = await Spectrum({
         ...baseConfig,
         providers: [provider.config({})],
       });
       expect(startSpy).not.toHaveBeenCalled();
 
-      const topLevel = (
+      topLevel = (
         spectrum as unknown as { presence: AsyncIterable<unknown> }
       ).presence[Symbol.asyncIterator]();
-      const platformLevel = (
+      platformLevel = (
         provider(spectrum) as unknown as { presence: AsyncIterable<unknown> }
       ).presence[Symbol.asyncIterator]();
-      const topLevelEvent = topLevel.next();
-      const platformLevelEvent = platformLevel.next();
+      topLevelEvent = topLevel.next();
+      platformLevelEvent = platformLevel.next();
       startGate.resolve();
 
       const expected = {
@@ -470,12 +475,13 @@ describe("fusor events", () => {
         value: { user: "stream-user", online: true },
       });
       expect(startSpy).toHaveBeenCalledTimes(1);
-
-      await topLevel.return?.();
-      await platformLevel.return?.();
-      await spectrum.stop();
     } finally {
       startGate.resolve();
+      await settleSoon(topLevel?.return?.());
+      await settleSoon(platformLevel?.return?.());
+      await settleSoon(topLevelEvent?.catch(() => undefined));
+      await settleSoon(platformLevelEvent?.catch(() => undefined));
+      await settleSoon(spectrum?.stop());
       startSpy.mockRestore();
     }
   });
@@ -484,8 +490,9 @@ describe("fusor events", () => {
     const startSpy = vi
       .spyOn(FusorCore.prototype, "start")
       .mockResolvedValue(undefined);
+    let spectrum: SpectrumInstance | undefined;
     try {
-      const spectrum = await Spectrum({
+      spectrum = await Spectrum({
         ...baseConfig,
         providers: [makePresence().config({})],
       });
@@ -503,8 +510,8 @@ describe("fusor events", () => {
 
       expect(result.status).toBe(200);
       expect(startSpy).not.toHaveBeenCalled();
-      await spectrum.stop();
     } finally {
+      await settleSoon(spectrum?.stop());
       startSpy.mockRestore();
     }
   });
@@ -513,16 +520,19 @@ describe("fusor events", () => {
     const startSpy = vi
       .spyOn(FusorCore.prototype, "start")
       .mockResolvedValue(undefined);
+    let spectrum: SpectrumInstance | undefined;
+    let presence: AsyncIterator<unknown> | undefined;
+    let firstPresence: Promise<IteratorResult<unknown>> | undefined;
     try {
-      const spectrum = await Spectrum({
+      spectrum = await Spectrum({
         ...baseConfig,
         providers: [makePresence().config({})],
       });
       // Attach to the presence stream before firing so the broadcaster is wired.
-      const presence = (
+      presence = (
         spectrum as unknown as { presence: AsyncIterable<unknown> }
       ).presence[Symbol.asyncIterator]();
-      const firstPresence = presence.next();
+      firstPresence = presence.next();
 
       let handlerCalls = 0;
       const result = await spectrum.webhook(
@@ -549,10 +559,10 @@ describe("fusor events", () => {
       // The event went to the channel, NOT the (messages-only) webhook handler.
       expect(handlerCalls).toBe(0);
       expect(startSpy).toHaveBeenCalledTimes(1);
-
-      await presence.return?.();
-      await spectrum.stop();
     } finally {
+      await settleSoon(presence?.return?.());
+      await settleSoon(firstPresence?.catch(() => undefined));
+      await settleSoon(spectrum?.stop());
       startSpy.mockRestore();
     }
   });

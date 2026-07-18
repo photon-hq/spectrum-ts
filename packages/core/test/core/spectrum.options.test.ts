@@ -1,6 +1,10 @@
 import { makeManagedProvider } from "@spectrum-ts/test-support/platform";
 import { describe, expect, it } from "vitest";
-import { Spectrum, type SpectrumOptions } from "@/spectrum";
+import {
+  Spectrum,
+  type SpectrumInstance,
+  type SpectrumOptions,
+} from "@/spectrum";
 
 const provider = () => makeManagedProvider("managed").config({});
 
@@ -23,16 +27,19 @@ describe("Spectrum() runtime options", () => {
   });
 
   it("accepts a Fusor cursor store with callable load and save methods", async () => {
-    const app = await Spectrum({
-      providers: [provider()],
-      options: {
-        fusorCursorStore: {
-          load: async () => undefined,
-          save: async () => undefined,
+    let app: SpectrumInstance | undefined;
+    try {
+      app = await Spectrum({
+        providers: [provider()],
+        options: {
+          fusorCursorStore: {
+            load: async () => undefined,
+            save: async () => undefined,
+          },
         },
-      },
-    });
-
-    await app.stop();
+      });
+    } finally {
+      await app?.stop();
+    }
   });
 });

@@ -141,6 +141,42 @@ describe("whatsapp inbound quoted-reply context", () => {
     });
   });
 
+  it("keeps the stream alive when a context-carrying event is unmappable", async () => {
+    // A quoted-reply event whose content crashes mapping (media with no
+    // payload) must be skipped by the poison-event guard — the messages
+    // after it still flow, reply-wrapped as usual.
+    const poison = baseMessage({
+      content: { type: "image" },
+      context: { id: "wamid.QUOTEDX" },
+    });
+    const good = baseMessage({
+      id: "wamid.OK1",
+      context: { id: "wamid.QUOTED9" },
+    });
+    const filtered = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: "message", message: poison };
+        yield { type: "message", message: good };
+      },
+      close: async () => undefined,
+    };
+    const client = {
+      events: { subscribe: () => ({ filter: () => filtered }) },
+    } as unknown as WhatsAppClient;
+
+    const received: WhatsAppMessage[] = [];
+    for await (const m of messages([client])) {
+      received.push(m);
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.id).toBe("wamid.OK1");
+    expect(received[0]?.content).toMatchObject({
+      type: "reply",
+      target: { id: "wamid.QUOTED9" },
+    });
+  });
+
   it("does not wrap reaction events", async () => {
     const received = await receiveOne(
       fakeClient(

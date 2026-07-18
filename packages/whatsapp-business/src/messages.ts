@@ -759,6 +759,33 @@ const captionablePair = (
   return { attachment, caption: text.text };
 };
 
+// WhatsApp cannot retract delivered messages, so a sequential group send
+// that fails midway leaves earlier parts delivered. This error carries their
+// records so callers can reconcile instead of blindly re-sending the group.
+// It deliberately is NOT an UnsupportedError: core's fallback layer re-sends
+// the whole content on UnsupportedError (e.g. the markdown downgrade), which
+// after a partial delivery would duplicate the already-sent parts.
+export class WhatsAppPartialSendError extends Error {
+  readonly sent: ProviderMessageRecord[];
+  readonly failedIndex: number;
+
+  constructor(input: {
+    sent: ProviderMessageRecord[];
+    failedIndex: number;
+    total: number;
+    cause: unknown;
+  }) {
+    super(
+      `WhatsApp group send failed at part ${input.failedIndex + 1}/${input.total}; ` +
+        `${input.sent.length} earlier part(s) were already delivered and cannot be retracted`,
+      { cause: input.cause }
+    );
+    this.name = "WhatsAppPartialSendError";
+    this.sent = input.sent;
+    this.failedIndex = input.failedIndex;
+  }
+}
+
 // A captionable [attachment, text] pair collapses to one captioned media
 // send — the shape our own inbound mapping produces for captioned media.
 // Every other composition falls back to sending each item as its own message
@@ -793,15 +820,35 @@ const sendGroupParts = async (
       group
     );
   }
+  const sent: ProviderMessageRecord[] = [];
   let first: ProviderMessageRecord | undefined;
   for (const [index, item] of group.items.entries()) {
     const itemContent = item.content as Content;
-    // Only the first part quotes the reply target — one bubble carrying the
-    // context reads better than every part quoting the same message.
-    const record =
-      index === 0 && replyTo !== undefined
-        ? await replyToMessage(clients, spaceId, replyTo, itemContent)
-        : await send(clients, spaceId, itemContent);
+    let record: ProviderMessageRecord | undefined;
+    try {
+      // Only the first part quotes the reply target — one bubble carrying
+      // the context reads better than every part quoting the same message.
+      record =
+        index === 0 && replyTo !== undefined
+          ? await replyToMessage(clients, spaceId, replyTo, itemContent)
+          : await send(clients, spaceId, itemContent);
+    } catch (error) {
+      if (sent.length === 0) {
+        // Nothing delivered yet — surface the original error untouched so
+        // core's UnsupportedError fallbacks (markdown/streamText downgrade,
+        // warn-and-skip) keep working.
+        throw error;
+      }
+      throw new WhatsAppPartialSendError({
+        sent,
+        failedIndex: index,
+        total: group.items.length,
+        cause: error,
+      });
+    }
+    if (record) {
+      sent.push(record);
+    }
     first ??= record;
   }
   if (!first) {

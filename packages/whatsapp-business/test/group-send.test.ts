@@ -1,7 +1,7 @@
-import type { Message } from "@spectrum-ts/core";
+import { type Message, UnsupportedError } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
-import { replyToMessage, send } from "@/messages";
+import { replyToMessage, send, WhatsAppPartialSendError } from "@/messages";
 import type { WhatsAppClients } from "@/types";
 
 const outboundItem = (content: unknown): Message =>
@@ -133,6 +133,76 @@ describe("whatsapp outbound group content", () => {
       replyTo: "wamid.TARGET1",
       image: { id: "MEDIA1", caption: "this one" },
     });
+  });
+
+  it("reports already-delivered parts when a later sequential send fails", async () => {
+    const { clients, sendSpy } = fakeClients();
+    sendSpy
+      .mockResolvedValueOnce({ messageId: "wamid.OUT1" })
+      .mockRejectedValueOnce(new Error("cloud api down"));
+    const group = asGroup({
+      items: [
+        outboundItem(attachment("audio/mpeg", "note.mp3")),
+        outboundItem(asText("listen")),
+      ],
+    });
+
+    const failure = await send(clients, "15550001111", group).catch(
+      (error: unknown) => error
+    );
+
+    if (!(failure instanceof WhatsAppPartialSendError)) {
+      throw new Error(`expected WhatsAppPartialSendError, got ${failure}`);
+    }
+    expect(failure.sent).toHaveLength(1);
+    expect(failure.sent[0]).toMatchObject({ id: "wamid.OUT1" });
+    expect(failure.failedIndex).toBe(1);
+    expect(failure.cause).toMatchObject({ message: "cloud api down" });
+  });
+
+  it("rethrows the original error untouched when the first part fails", async () => {
+    const { clients, sendSpy } = fakeClients();
+    const boom = new Error("cloud api down");
+    sendSpy.mockRejectedValueOnce(boom);
+    const group = asGroup({
+      items: [
+        outboundItem(attachment("audio/mpeg", "note.mp3")),
+        outboundItem(asText("listen")),
+      ],
+    });
+
+    const failure = await send(clients, "15550001111", group).catch(
+      (error: unknown) => error
+    );
+
+    expect(failure).toBe(boom);
+    expect(failure).not.toBeInstanceOf(WhatsAppPartialSendError);
+  });
+
+  it("shields core fallbacks from replaying a partially-delivered group", async () => {
+    // An UnsupportedError escaping mid-sequence would trigger core's
+    // markdown-downgrade re-send of the WHOLE group, duplicating the parts
+    // already delivered — so after a partial delivery it must surface as
+    // WhatsAppPartialSendError instead.
+    const { clients } = fakeClients();
+    const group = asGroup({
+      items: [
+        outboundItem(attachment("image/jpeg", "a.jpg")),
+        outboundItem(attachment("image/jpeg", "b.jpg")),
+        outboundItem({ type: "markdown", markdown: "*hi*" }),
+      ],
+    });
+
+    const failure = await send(clients, "15550001111", group).catch(
+      (error: unknown) => error
+    );
+
+    if (!(failure instanceof WhatsAppPartialSendError)) {
+      throw new Error(`expected WhatsAppPartialSendError, got ${failure}`);
+    }
+    expect(failure).not.toBeInstanceOf(UnsupportedError);
+    expect(failure.sent).toHaveLength(2);
+    expect(failure.cause).toBeInstanceOf(UnsupportedError);
   });
 
   it("quotes the reply target only on the first sequential part", async () => {

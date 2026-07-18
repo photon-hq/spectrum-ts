@@ -18,6 +18,7 @@ export {
   whatsappTemplate,
   whatsappTemplateSchema,
 } from "./content/template";
+export { WhatsAppPartialSendError } from "./messages";
 
 export const whatsappBusiness = definePlatform("WhatsApp Business", {
   config: configSchema,

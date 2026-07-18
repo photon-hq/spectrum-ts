@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "ff943d099d1a",
+  "strategy": "manual-commit",
+  "branch": "fix/whatsapp-parity",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "packages/whatsapp-business/src/messages.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ff/943d099d1a/0/metadata.json",
+      "transcript": "/ff/943d099d1a/0/full.jsonl",
+      "compact_transcript": "/ff/943d099d1a/0/transcript.jsonl",
+      "content_hash": "/ff/943d099d1a/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4,
+    "cache_creation_tokens": 448,
+    "cache_read_tokens": 398504,
+    "output_tokens": 348,
+    "api_call_count": 2
+  }
+}

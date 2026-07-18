@@ -183,7 +183,17 @@ export interface SpectrumOptions {
 const spectrumOptionsSchema = z
   .object({
     flattenGroups: z.boolean().optional(),
-    fusorCursorStore: z.custom<FusorCursorStore>().optional(),
+    fusorCursorStore: z
+      .custom<FusorCursorStore>(
+        (value) =>
+          typeof value === "object" &&
+          value !== null &&
+          "load" in value &&
+          typeof value.load === "function" &&
+          "save" in value &&
+          typeof value.save === "function"
+      )
+      .optional(),
     logLevel: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   })
   .optional();
@@ -781,7 +791,9 @@ export async function Spectrum<
     const key = `${platform}\0${channel}`;
     let broadcaster = eventBroadcasters.get(key);
     if (!broadcaster) {
-      broadcaster = broadcast(adaptIterable(queue.iterable));
+      broadcaster = broadcast(
+        adaptIterable(queue.iterable, undefined, ensureFusorStarted)
+      );
       eventBroadcasters.set(key, broadcaster);
     }
     return broadcaster;

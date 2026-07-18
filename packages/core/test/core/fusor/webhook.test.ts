@@ -1,3 +1,4 @@
+import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
   CTX_PROBE_PLATFORM,
@@ -421,44 +422,139 @@ describe("spectrum.webhook", () => {
 });
 
 describe("fusor events", () => {
-  it("routes fusorEvent(channel) to spectrum.<channel>, not the message handler", async () => {
-    const spectrum = await Spectrum({
-      ...baseConfig,
-      providers: [makePresence().config({})],
-    });
-    // Attach to the presence stream before firing so the broadcaster is wired.
-    const presence = (
-      spectrum as unknown as { presence: AsyncIterable<unknown> }
-    ).presence[Symbol.asyncIterator]();
-    const firstPresence = presence.next();
-
-    let handlerCalls = 0;
-    const result = await spectrum.webhook(
-      {
-        headers: {},
-        body: encodeEvent(
-          PRESENCE_PLATFORM,
-          JSON.stringify({ type: "presence", user: "alice" })
-        ),
-      },
-      () => {
-        handlerCalls += 1;
-      }
+  it("starts a pure-Fusor custom event stream once when it is consumed", async () => {
+    const provider = makePresence();
+    const event = RawInboundEvent.decode(
+      encodeEvent(
+        PRESENCE_PLATFORM,
+        JSON.stringify({ type: "presence", user: "stream-user" }),
+        "evt-stream-presence"
+      )
     );
-    expect(result.status).toBe(200);
+    const startGate = Promise.withResolvers<void>();
+    const startSpy = vi
+      .spyOn(FusorCore.prototype, "start")
+      .mockImplementation(async function (this: FusorCore) {
+        await startGate.promise;
+        await this.processEvent(event);
+      });
 
-    const event = await firstPresence;
-    expect(event.done).toBe(false);
-    expect(event.value).toEqual({
-      user: "alice",
-      online: true,
-      platform: PRESENCE_PLATFORM,
-    });
-    // The event went to the channel, NOT the (messages-only) webhook handler.
-    expect(handlerCalls).toBe(0);
+    try {
+      const spectrum = await Spectrum({
+        ...baseConfig,
+        providers: [provider.config({})],
+      });
+      expect(startSpy).not.toHaveBeenCalled();
 
-    await presence.return?.();
-    await spectrum.stop();
+      const topLevel = (
+        spectrum as unknown as { presence: AsyncIterable<unknown> }
+      ).presence[Symbol.asyncIterator]();
+      const platformLevel = (
+        provider(spectrum) as unknown as { presence: AsyncIterable<unknown> }
+      ).presence[Symbol.asyncIterator]();
+      const topLevelEvent = topLevel.next();
+      const platformLevelEvent = platformLevel.next();
+      startGate.resolve();
+
+      const expected = {
+        user: "stream-user",
+        online: true,
+        platform: PRESENCE_PLATFORM,
+      };
+      await expect(topLevelEvent).resolves.toEqual({
+        done: false,
+        value: expected,
+      });
+      await expect(platformLevelEvent).resolves.toEqual({
+        done: false,
+        value: { user: "stream-user", online: true },
+      });
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      await topLevel.return?.();
+      await platformLevel.return?.();
+      await spectrum.stop();
+    } finally {
+      startGate.resolve();
+      startSpy.mockRestore();
+    }
+  });
+
+  it("does not start Fusor for webhook-only custom event delivery", async () => {
+    const startSpy = vi
+      .spyOn(FusorCore.prototype, "start")
+      .mockResolvedValue(undefined);
+    try {
+      const spectrum = await Spectrum({
+        ...baseConfig,
+        providers: [makePresence().config({})],
+      });
+
+      const result = await spectrum.webhook(
+        {
+          headers: {},
+          body: encodeEvent(
+            PRESENCE_PLATFORM,
+            JSON.stringify({ type: "presence", user: "webhook-user" })
+          ),
+        },
+        () => undefined
+      );
+
+      expect(result.status).toBe(200);
+      expect(startSpy).not.toHaveBeenCalled();
+      await spectrum.stop();
+    } finally {
+      startSpy.mockRestore();
+    }
+  });
+
+  it("routes fusorEvent(channel) to spectrum.<channel>, not the message handler", async () => {
+    const startSpy = vi
+      .spyOn(FusorCore.prototype, "start")
+      .mockResolvedValue(undefined);
+    try {
+      const spectrum = await Spectrum({
+        ...baseConfig,
+        providers: [makePresence().config({})],
+      });
+      // Attach to the presence stream before firing so the broadcaster is wired.
+      const presence = (
+        spectrum as unknown as { presence: AsyncIterable<unknown> }
+      ).presence[Symbol.asyncIterator]();
+      const firstPresence = presence.next();
+
+      let handlerCalls = 0;
+      const result = await spectrum.webhook(
+        {
+          headers: {},
+          body: encodeEvent(
+            PRESENCE_PLATFORM,
+            JSON.stringify({ type: "presence", user: "alice" })
+          ),
+        },
+        () => {
+          handlerCalls += 1;
+        }
+      );
+      expect(result.status).toBe(200);
+
+      const event = await firstPresence;
+      expect(event.done).toBe(false);
+      expect(event.value).toEqual({
+        user: "alice",
+        online: true,
+        platform: PRESENCE_PLATFORM,
+      });
+      // The event went to the channel, NOT the (messages-only) webhook handler.
+      expect(handlerCalls).toBe(0);
+      expect(startSpy).toHaveBeenCalledTimes(1);
+
+      await presence.return?.();
+      await spectrum.stop();
+    } finally {
+      startSpy.mockRestore();
+    }
   });
 
   it("treats fusorEvent('messages', record) like a bare record", async () => {

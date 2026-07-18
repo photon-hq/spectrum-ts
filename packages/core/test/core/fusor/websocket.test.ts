@@ -161,9 +161,9 @@ async function waitFor(
   cond: () => boolean,
   timeoutMs = WAIT_TIMEOUT_MS
 ): Promise<void> {
-  const start = Date.now();
+  const start = performance.now();
   while (!cond()) {
-    if (Date.now() - start > timeoutMs) {
+    if (performance.now() - start > timeoutMs) {
       throw new Error("waitFor timed out");
     }
     await sleep(WAIT_POLL_MS);

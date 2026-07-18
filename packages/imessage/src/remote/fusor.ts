@@ -234,17 +234,18 @@ export const handleImessageFusorMessages: HybridFusorMessages<
 > = async ({ client, payload, projectConfig }) => {
   const selected = selectClient(client, payload);
   const phone = selected.phone === SHARED_PHONE ? SHARED_PHONE : selected.phone;
-  if (projectConfig?.profile?.imessageSynced === true) {
-    getContactShareTracker(selected.client).maybeShare(payload.event.chatGuid);
-  }
   const resourceClient = resourceClientForEntry(
     selected,
     payload.event.message.guid
   );
-  return await toInboundMessages(
+  const messages = await toInboundMessages(
     resourceClient,
     getMessageCache(resourceClient),
     payload.event,
     phone
   );
+  if (projectConfig?.profile?.imessageSynced === true) {
+    getContactShareTracker(selected.client).maybeShare(payload.event.chatGuid);
+  }
+  return messages;
 };

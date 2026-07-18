@@ -199,6 +199,86 @@ describe("iMessage Fusor transport", () => {
     });
   });
 
+  it("shares the event chat after a synced inbound conversion succeeds", async () => {
+    const shareContactInfo = vi.fn(() => Promise.resolve());
+    const direct = {
+      chats: { shareContactInfo },
+    } as unknown as AdvancedIMessage;
+    const resourceClient = client();
+    const payload = verifyImessageFusorRequest(request());
+
+    const records = await handleImessageFusorMessages({
+      client: [
+        {
+          client: direct,
+          instanceId: "instance-1",
+          phone: "+15550001111",
+          resourceClient,
+        },
+      ],
+      config: {},
+      payload,
+      projectConfig: {
+        id: "project-1",
+        name: "Project",
+        profile: { imessageSynced: true },
+        slug: "project",
+      },
+      respond: () => undefined,
+      store: {} as never,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(shareContactInfo).toHaveBeenCalledOnce();
+    expect(shareContactInfo).toHaveBeenCalledWith(payload.event.chatGuid);
+  });
+
+  it("does not share a synced event whose inbound conversion fails", async () => {
+    const shareContactInfo = vi.fn(() => Promise.resolve());
+    const direct = {
+      chats: { shareContactInfo },
+    } as unknown as AdvancedIMessage;
+    const decoded = verifyImessageFusorRequest(request());
+    const payload = {
+      ...decoded,
+      event: {
+        ...decoded.event,
+        message: {
+          ...decoded.event.message,
+          content: {
+            ...decoded.event.message.content,
+            attachments: undefined,
+          },
+        },
+      },
+    } as unknown as typeof decoded;
+
+    await expect(
+      handleImessageFusorMessages({
+        client: [
+          {
+            client: direct,
+            instanceId: "instance-1",
+            phone: "+15550001111",
+            resourceClient: client(),
+          },
+        ],
+        config: {},
+        payload,
+        projectConfig: {
+          id: "project-1",
+          name: "Project",
+          profile: { imessageSynced: true },
+          slug: "project",
+        },
+        respond: () => undefined,
+        store: {} as never,
+      })
+    ).rejects.toThrow();
+
+    expect(shareContactInfo).not.toHaveBeenCalled();
+  });
+
   it("binds virtual inbound attachment reads to the Spectrum resource client", async () => {
     const directDownload = vi.fn();
     const resourceDownload = vi.fn(() => ({

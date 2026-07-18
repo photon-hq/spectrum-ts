@@ -90,7 +90,6 @@ import {
 } from "./remote/client";
 import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
 import { cacheMessage } from "./remote/inbound";
-import { IMESSAGE_PLATFORM } from "./shared/errors";
 import {
   configSchema,
   type IMessageClient,
@@ -459,7 +458,9 @@ const remoteForMessageTarget = (
   return clientForPhone(client, space.phone);
 };
 
-export const imessage = definePlatform(IMESSAGE_PLATFORM, {
+// Platform label must stay a string literal here: generate-manifest.ts only
+// resolves same-directory consts, and package.json#spectrum.label is "iMessage".
+export const imessage = definePlatform("iMessage", {
   config: configSchema,
 
   static: {

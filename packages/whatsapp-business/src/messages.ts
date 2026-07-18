@@ -7,6 +7,7 @@ import type {
 import {
   type Contact,
   type Content,
+  type Group,
   type ManagedStream,
   mergeStreams,
   type Poll,
@@ -722,6 +723,91 @@ export const messages = (
   clients: WhatsAppClients
 ): ManagedStream<WhatsAppMessage> => mergeStreams(clients.map(clientStream));
 
+// Meta caps media captions at 1024 characters (image/video/document docs).
+const MAX_CAPTION_LENGTH = 1024;
+
+// Meta accepts captions only on image/video/document sends — never audio or
+// sticker (the SDK would forward an audio caption unchecked, and Meta's
+// rejection behavior for it is undocumented).
+const captionablePair = (
+  group: Group
+):
+  | { attachment: Extract<Content, { type: "attachment" }>; caption: string }
+  | undefined => {
+  if (group.items.length !== 2) {
+    return;
+  }
+  const contents = group.items.map((item) => item.content as Content);
+  const attachment = contents.find(
+    (c): c is Extract<Content, { type: "attachment" }> =>
+      c.type === "attachment"
+  );
+  const text = contents.find(
+    (c): c is Extract<Content, { type: "text" }> => c.type === "text"
+  );
+  if (!(attachment && text)) {
+    return;
+  }
+  if (mimeToMediaType(attachment.mimeType) === "audio") {
+    return;
+  }
+  if (text.text.length > MAX_CAPTION_LENGTH) {
+    return;
+  }
+  return { attachment, caption: text.text };
+};
+
+// A captionable [attachment, text] pair collapses to one captioned media
+// send — the shape our own inbound mapping produces for captioned media.
+// Every other composition falls back to sending each item as its own message
+// so no part of the group is silently dropped.
+const sendGroupParts = async (
+  clients: WhatsAppClients,
+  spaceId: string,
+  group: Group,
+  replyTo?: string
+): Promise<ProviderMessageRecord> => {
+  const pair = captionablePair(group);
+  if (pair) {
+    const client = primary(clients);
+    const { attachment, caption } = pair;
+    const { mediaId } = await client.media.upload({
+      file: await attachment.read(),
+      mimeType: attachment.mimeType,
+      filename: attachment.name,
+    });
+    const mediaType = mimeToMediaType(attachment.mimeType);
+    const mediaPayload =
+      mediaType === "document"
+        ? { id: mediaId, filename: attachment.name, caption }
+        : { id: mediaId, caption };
+    return toRecord(
+      await client.messages.send({
+        to: spaceId,
+        ...(replyTo === undefined ? {} : { replyTo }),
+        [mediaType]: mediaPayload,
+      } as Parameters<typeof client.messages.send>[0]),
+      spaceId,
+      group
+    );
+  }
+  let first: ProviderMessageRecord | undefined;
+  for (const [index, item] of group.items.entries()) {
+    const itemContent = item.content as Content;
+    // Only the first part quotes the reply target — one bubble carrying the
+    // context reads better than every part quoting the same message.
+    const record =
+      index === 0 && replyTo !== undefined
+        ? await replyToMessage(clients, spaceId, replyTo, itemContent)
+        : await send(clients, spaceId, itemContent);
+    first ??= record;
+  }
+  if (!first) {
+    throw UnsupportedError.content(group.type);
+  }
+  return { ...first, content: group };
+};
+
 export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
@@ -834,6 +920,8 @@ export const send = async (
         spaceId,
         content
       );
+    case "group":
+      return await sendGroupParts(clients, spaceId, content);
     default:
       throw UnsupportedError.content(content.type);
   }
@@ -941,6 +1029,8 @@ export const replyToMessage = async (
         spaceId,
         content
       );
+    case "group":
+      return await sendGroupParts(clients, spaceId, content, messageId);
     default:
       throw UnsupportedError.content(content.type);
   }

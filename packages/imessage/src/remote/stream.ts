@@ -115,7 +115,7 @@ const toMessageItem = async (
   onInbound?: OnInboundMessage
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
   if (event.type === "message.received") {
-    if (!includeReceived || event.message.isFromMe) {
+    if (!includeReceived || event.isFromMe || event.message.isFromMe) {
       return { cursor, id: event.message.guid, values: [] };
     }
 

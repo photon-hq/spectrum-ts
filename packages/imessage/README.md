@@ -25,8 +25,10 @@ iMessage clients for outbound actions, reactions, polls, and group events, so
 cloud apps still maintain supplemental direct gRPC streams; received-message
 duplicates on those streams are ignored. Synthetic iMessage envelopes are
 stream-only and are never accepted through the public `spectrum.webhook()`
-path. Explicit `clients` configurations remain entirely on direct gRPC inbound
-transport, so self-hosted endpoints keep their existing behavior.
+path. In cloud mode Fusor is authoritative for received messages, so Fusor
+connectivity is required even while the supplemental direct streams are
+healthy. Explicit `clients` configurations remain entirely on direct gRPC
+inbound transport, so self-hosted endpoints keep their existing behavior.
 
 In auto-discovered dedicated mode, native chats and resources continue to use
 their dedicated server directly. Spectrum Cloud also supplies one

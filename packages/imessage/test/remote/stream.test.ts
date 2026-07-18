@@ -303,4 +303,40 @@ describe("remote iMessage streams", () => {
     await stream.close();
     await settleSoon(pending);
   });
+
+  it("suppresses event-level self messages when the nested flag is false", async () => {
+    const selfMessage = {
+      type: "message.received",
+      sequence: 1,
+      chatGuid: "iMessage;-;+15551234567",
+      isFromMe: true,
+      occurredAt: new Date("2026-07-16T01:02:03.456Z"),
+      message: {
+        guid: "self-message-guid",
+        chatGuids: ["iMessage;-;+15551234567"],
+        content: {
+          attachments: [],
+          formatting: [],
+          mentions: [],
+          text: "outbound message",
+        },
+        dateCreated: new Date("2026-07-16T01:02:03.456Z"),
+        isFromMe: false,
+      },
+    } as unknown as MessageEvent;
+    const dedicated = remoteClient("+15550100", selfMessage);
+    const stream = messages([dedicated.entry]);
+    let settled = false;
+    const pending = stream[Symbol.asyncIterator]()
+      .next()
+      .finally(() => {
+        settled = true;
+      });
+
+    await flush();
+    expect(settled).toBe(false);
+
+    await stream.close();
+    await settleSoon(pending);
+  });
 });

@@ -1,0 +1,76 @@
+wait like actually whats the worsdt that can happen can the stream break at all or like the application crash?
+
+---
+
+ok can u like describe the scenario they are trying to project [Image #3] and also show how it doesnt happen
+
+---
+
+ok im raeding the code, can u talk to me about the template content portion? i dont fully understand it and the why and such behind it
+
+---
+
+ok but how does this work like give me an example of how someone could use htis
+
+---
+
+wait was this not possible before???
+
+---
+
+oh wtf is photon-ai/whatsapp-business?? can u give me the github to it
+
+---
+
+wait whats the difference???
+
+---
+
+ok so packages/whatsapp-business and photon-hq/whatsapp-business-ts are completely different
+
+---
+
+oh ok, why dont we rely on whatsapp-business-ts instead??
+
+---
+
+i understand, so these templates bring that over got it.
+
+---
+
+ok what other things did you end up adding so i can verify, bc so far i verified templates and group sending
+
+---
+
+1. Inbound quoted-reply context (0d82925) — the original Pratik bug, most worth your eyes.
+- src/messages.ts: replyTargetStub (~line 155), REPLY_EXEMPT_TYPES (~164), withReplyContext (~168), and its two call sites in toMessages (~377, ~384).
+- What to scrutinize: the exemption set — interactive, button, reaction events carry context.id but are not user quotes (a button tap's context is the message that was tapped; wrapping those would've broken poll votes). Also note it uses schema-level asReply instead of the reply() builder — deliberate, because quoted captioned media maps to a group, which the builder rejects.
+- Tests: test/reply-context.test.ts — 7 cases including the poison-event stream-survival one you care about. ok like how do we konw this works, from what i understand, we are stubbing it for some reason and then like in to messages, i understand the sender ref where its taking the message and then adding a contact name as the name?
+
+---
+
+ok so the api handles that stuff, we cant rlly look it up huh
+
+---
+
+i understand ok that makes sense, ok lets check that off for the manual review, lets keep going
+
+---
+
+can u give me like the file and line number
+
+---
+
+ok cool i see that now, i think its all ok, is everything pushed now? i will have someone else review
+
+---
+
+ok for the sender name is that actually like a real thing that we expose from like the spectrum-webhook side? like can u confirm everything on spectrum-webhook for whatsapp is proper
+
+---
+
+ok can we just remove sender.name i don tthink that we should fix it if we have to touch that repo.
+
+---
+
+ok can we just remove sender.name i don tthink that we should fix it if we have to touch that repo. but im planning this for a separate PR, as we just have other prioroties and this is not priority.

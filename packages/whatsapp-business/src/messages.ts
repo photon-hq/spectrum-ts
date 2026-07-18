@@ -2,6 +2,7 @@ import type {
   ContactCard,
   ContactCardInput,
   InboundMessage,
+  TemplateInput,
   WhatsAppClient,
 } from "@photon-ai/whatsapp-business";
 import {
@@ -38,6 +39,7 @@ import {
   tracedFetch,
 } from "@spectrum-ts/core/authoring";
 import { extension as mimeExtension } from "mime-types";
+import { isWhatsAppTemplate, type WhatsAppTemplate } from "./content/template";
 import { pollOptionId, pollToInteractive } from "./poll";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 
@@ -808,11 +810,41 @@ const sendGroupParts = async (
   return { ...first, content: group };
 };
 
+// Flat languageCode and an (empty-ok) components array — the exact shapes the
+// SDK proto knows; the relay renames them to Meta's `language.code` /
+// `components` wire fields. Body params serialize as { type: "text", text }
+// parameter objects per Meta's template-messages docs.
+const toTemplateInput = (content: WhatsAppTemplate): TemplateInput => ({
+  name: content.name,
+  languageCode: content.languageCode,
+  components: content.bodyParams?.length
+    ? [
+        {
+          type: "body",
+          parameters: content.bodyParams.map((text) => ({
+            type: "text",
+            text,
+          })),
+        },
+      ]
+    : [],
+});
+
 export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
   content: Content
 ): Promise<ProviderMessageRecord | undefined> => {
+  if (isWhatsAppTemplate(content)) {
+    return toRecord(
+      await primary(clients).messages.send({
+        to: spaceId,
+        template: toTemplateInput(content),
+      }),
+      spaceId,
+      content as unknown as Content
+    );
+  }
   if (content.type === "reply") {
     return await replyToMessage(
       clients,
@@ -965,6 +997,17 @@ export const replyToMessage = async (
   content: Content
 ): Promise<ProviderMessageRecord> => {
   const client = primary(clients);
+  if (isWhatsAppTemplate(content)) {
+    return toRecord(
+      await client.messages.send({
+        to: spaceId,
+        replyTo: messageId,
+        template: toTemplateInput(content),
+      }),
+      spaceId,
+      content as unknown as Content
+    );
+  }
   switch (content.type) {
     case "text":
       return toRecord(

@@ -27,7 +27,7 @@ describe("spectrum.webhook", () => {
   it("routes by platform, resolves [space, message], and delivers to the handler", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
     const received: [unknown, Message][] = [];
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
@@ -66,7 +66,7 @@ describe("spectrum.webhook", () => {
     const capture: CtxProbeCapture = {};
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeCtxProbe(capture).config({ token: "tok-123" })],
+      platforms: [makeCtxProbe(capture).config({ token: "tok-123" })],
     });
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
 
@@ -101,7 +101,7 @@ describe("spectrum.webhook", () => {
   it("delivers a senderless inbound message (sender undefined, no throw)", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
     const received: Message[] = [];
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
@@ -129,7 +129,7 @@ describe("spectrum.webhook", () => {
   it("echoes a url_verification reply as a Web Response", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
 
     const request = new Request("https://app.example.com/webhooks/fusor", {
@@ -157,7 +157,7 @@ describe("spectrum.webhook", () => {
   it("treats the Request and raw overloads equivalently", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
     const body = encodeEvent(
       "slack",
@@ -183,7 +183,7 @@ describe("spectrum.webhook", () => {
   it("returns 400 for an undecodable body (poison — no retry)", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
 
     const result = await spectrum.webhook(
@@ -198,7 +198,7 @@ describe("spectrum.webhook", () => {
   it("returns 400 when no handler is registered for the platform", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
 
     const result = await spectrum.webhook(
@@ -213,7 +213,7 @@ describe("spectrum.webhook", () => {
   it("returns 400 when the platform verify() rejects (poison)", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack({ verifyThrows: true }).config({})],
+      platforms: [makeSlack({ verifyThrows: true }).config({})],
     });
 
     const result = await spectrum.webhook(
@@ -234,7 +234,7 @@ describe("spectrum.webhook", () => {
   it("a handler throw does not change the response (200, runs async)", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
     });
 
     let invoked = false;
@@ -265,7 +265,7 @@ describe("spectrum.webhook", () => {
   it("flattens group messages into one handler call per item", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
       options: { flattenGroups: true },
     });
 
@@ -299,7 +299,7 @@ describe("spectrum.webhook", () => {
   it("isolates a handler throw per message — the rest of the batch still delivers", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makeSlack().config({})],
+      platforms: [makeSlack().config({})],
       options: { flattenGroups: true },
     });
 
@@ -333,7 +333,7 @@ describe("spectrum.webhook", () => {
   });
 
   it("throws when no fusor provider is configured", async () => {
-    const spectrum = await Spectrum({ providers: [] });
+    const spectrum = await Spectrum({ platforms: [] });
 
     await expect(
       spectrum.webhook({ headers: {}, body: new Uint8Array() }, () => undefined)
@@ -349,7 +349,7 @@ describe("spectrum.webhook", () => {
     try {
       const spectrum = await Spectrum({
         ...baseConfig,
-        providers: [makeSlack().config({})],
+        platforms: [makeSlack().config({})],
       });
 
       await spectrum.webhook(
@@ -385,7 +385,7 @@ describe("spectrum.webhook", () => {
     try {
       const spectrum = await Spectrum({
         ...baseConfig,
-        providers: [makeSlack().config({})],
+        platforms: [makeSlack().config({})],
       });
 
       const iterator = spectrum.messages[Symbol.asyncIterator]();
@@ -424,7 +424,7 @@ describe("fusor events", () => {
   it("routes fusorEvent(channel) to spectrum.<channel>, not the message handler", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makePresence().config({})],
+      platforms: [makePresence().config({})],
     });
     // Attach to the presence stream before firing so the broadcaster is wired.
     const presence = (
@@ -464,7 +464,7 @@ describe("fusor events", () => {
   it("treats fusorEvent('messages', record) like a bare record", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makePresence().config({})],
+      platforms: [makePresence().config({})],
     });
     const received: Message[] = [];
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
@@ -494,7 +494,7 @@ describe("fusor events", () => {
   it("drops an undeclared event channel without delivering to the handler", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      providers: [makePresence().config({})],
+      platforms: [makePresence().config({})],
     });
     let handlerCalls = 0;
     const result = await spectrum.webhook(

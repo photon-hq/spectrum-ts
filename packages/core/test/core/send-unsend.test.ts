@@ -78,7 +78,7 @@ describe("unsend sends are fire-and-forget", () => {
     const provider = makeUnsendProvider("unsend-ok", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space, message] = await firstMessage(app);
@@ -100,7 +100,7 @@ describe("unsend sends are fire-and-forget", () => {
     const provider = makeUnsendProvider("unsend-canonical", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -116,7 +116,7 @@ describe("unsend sends are fire-and-forget", () => {
     const provider = makeUnsendProvider("unsend-space-sugar", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -136,7 +136,7 @@ describe("unsend sends are fire-and-forget", () => {
     const provider = makeUnsendProvider("unsend-reaction", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -169,7 +169,7 @@ describe("unsend sends are fire-and-forget", () => {
     });
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -186,7 +186,7 @@ describe("unsend sends are fire-and-forget", () => {
     const provider = makeUnsendProvider("unsend-inbound", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);

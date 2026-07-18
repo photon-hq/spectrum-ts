@@ -15,7 +15,7 @@ import { Spectrum } from "spectrum-ts";
 import { whatsappBusiness } from "@spectrum-ts/whatsapp-business";
 
 const spectrum = Spectrum({
-  providers: [whatsappBusiness.config({ /* ... */ })],
+  platforms: [whatsappBusiness.config({ /* ... */ })],
 });
 ```
 

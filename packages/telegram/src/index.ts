@@ -19,7 +19,7 @@ export type { TelegramConfig } from "./config";
  * from its ctx and builds a photon client inline only to download media bytes.
  * Outbound (`send`) also builds a photon client inline. Both go through
  * `@photon-ai/telegram-ts`. Drop `telegram.config({...})` into
- * `Spectrum({ providers: [...] })`.
+ * `Spectrum({ platforms: [...] })`.
  *
  * In cloud mode (`projectConfig` present), `createClient` also self-registers
  * the bot's webhook against the Fusor edge for the project slug — see

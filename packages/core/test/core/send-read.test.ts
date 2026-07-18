@@ -77,7 +77,7 @@ describe("read sends are fire-and-forget", () => {
     const provider = makeReadProvider("read-ok", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -97,7 +97,7 @@ describe("read sends are fire-and-forget", () => {
     const provider = makeReadProvider("read-canonical", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space, message] = await firstMessage(app);
@@ -112,7 +112,7 @@ describe("read sends are fire-and-forget", () => {
     const provider = makeReadProvider("read-space-sugar", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space, message] = await firstMessage(app);
@@ -142,7 +142,7 @@ describe("read sends are fire-and-forget", () => {
     });
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -158,7 +158,7 @@ describe("read sends are fire-and-forget", () => {
     const provider = makeReadProvider("read-outbound", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);

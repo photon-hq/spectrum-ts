@@ -23,7 +23,7 @@ describe("Spectrum.stop() shutdown", () => {
   it("managed-stream provider: resolves promptly after consuming a message", async () => {
     const app = await Spectrum({
       ...baseConfig,
-      providers: [
+      platforms: [
         makeManagedProvider("managed-a", { withDestroy: true }).config({}),
       ],
     });
@@ -39,7 +39,7 @@ describe("Spectrum.stop() shutdown", () => {
   it("managed-stream provider with no destroyClient: resolves promptly (stream self-closes)", async () => {
     const app = await Spectrum({
       ...baseConfig,
-      providers: [makeManagedProvider("managed-nodestroy").config({})],
+      platforms: [makeManagedProvider("managed-nodestroy").config({})],
     });
     const messagesIterator = app.messages[Symbol.asyncIterator]();
     await messagesIterator.next();
@@ -52,7 +52,7 @@ describe("Spectrum.stop() shutdown", () => {
   it("multiple managed-stream providers: resolves promptly", async () => {
     const app = await Spectrum({
       ...baseConfig,
-      providers: [
+      platforms: [
         makeManagedProvider("managed-1", { withDestroy: true }).config({}),
         makeManagedProvider("managed-2").config({}),
       ],
@@ -68,7 +68,7 @@ describe("Spectrum.stop() shutdown", () => {
   it("no subscription: resolves promptly", async () => {
     const app = await Spectrum({
       ...baseConfig,
-      providers: [
+      platforms: [
         makeManagedProvider("managed-nosub", { withDestroy: true }).config({}),
       ],
     });
@@ -82,7 +82,7 @@ describe("Spectrum.stop() shutdown", () => {
     async () => {
       const app = await Spectrum({
         ...baseConfig,
-        providers: [makeNativeProvider("native").config({})],
+        platforms: [makeNativeProvider("native").config({})],
       });
       const messagesIterator = app.messages[Symbol.asyncIterator]();
       const first = await messagesIterator.next();

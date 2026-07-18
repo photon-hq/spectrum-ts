@@ -171,32 +171,24 @@ const spectrumOptionsSchema = z
   })
   .optional();
 
-const spectrumConfigSchema = z
-  .union([
-    z.object({
-      projectId: z.string().min(1),
-      projectSecret: z.string().min(1),
-      providers: z.array(z.custom<PlatformProviderConfig>()).optional(),
-      platforms: z.array(z.custom<PlatformProviderConfig>()).optional(),
-      options: spectrumOptionsSchema,
-      telemetry: z.boolean().optional(),
-      webhookSecret: z.string().min(1).optional(),
-    }),
-    z.object({
-      projectId: z.undefined().optional(),
-      projectSecret: z.undefined().optional(),
-      providers: z.array(z.custom<PlatformProviderConfig>()).optional(),
-      platforms: z.array(z.custom<PlatformProviderConfig>()).optional(),
-      options: spectrumOptionsSchema,
-      telemetry: z.boolean().optional(),
-      webhookSecret: z.string().min(1).optional(),
-    }),
-  ])
-  .refine(
-    (config) =>
-      (config.providers === undefined) !== (config.platforms === undefined),
-    "Spectrum requires exactly one of platforms or providers"
-  );
+const spectrumConfigSchema = z.union([
+  z.object({
+    projectId: z.string().min(1),
+    projectSecret: z.string().min(1),
+    platforms: z.array(z.custom<PlatformProviderConfig>()),
+    options: spectrumOptionsSchema,
+    telemetry: z.boolean().optional(),
+    webhookSecret: z.string().min(1).optional(),
+  }),
+  z.object({
+    projectId: z.undefined().optional(),
+    projectSecret: z.undefined().optional(),
+    platforms: z.array(z.custom<PlatformProviderConfig>()),
+    options: spectrumOptionsSchema,
+    telemetry: z.boolean().optional(),
+    webhookSecret: z.string().min(1).optional(),
+  }),
+]);
 
 // ---------------------------------------------------------------------------
 // Telemetry bootstrap
@@ -266,32 +258,12 @@ function resolveProjectCredentials(options: {
 // Spectrum() factory
 // ---------------------------------------------------------------------------
 
-type PlatformSelection<Providers extends PlatformProviderConfig[]> =
-  | {
-      platforms: [...Providers];
-      providers?: never;
-    }
-  | {
-      platforms?: never;
-      providers: [...Providers];
-    };
-
-type SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> =
-  PlatformSelection<Providers> & {
-    options?: SpectrumOptions;
-    telemetry?: boolean;
-    webhookSecret?: string;
-  };
-
-const resolveConfiguredProviders = <Providers extends PlatformProviderConfig[]>(
-  options: PlatformSelection<Providers>
-): [...Providers] => {
-  const configuredProviders = options.platforms ?? options.providers;
-  if (!configuredProviders) {
-    throw new Error("Spectrum requires platforms or providers");
-  }
-  return configuredProviders;
-};
+interface SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> {
+  options?: SpectrumOptions;
+  platforms: [...Providers];
+  telemetry?: boolean;
+  webhookSecret?: string;
+}
 
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
@@ -321,8 +293,12 @@ export async function Spectrum<
   const { projectId, projectSecret } = resolveProjectCredentials(options);
   spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
 
-  const providers = resolveConfiguredProviders(options);
-  const { options: runtimeOptions, telemetry, webhookSecret } = options;
+  const {
+    options: runtimeOptions,
+    platforms,
+    telemetry,
+    webhookSecret,
+  } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
   // Honor an explicit log-level override before anything logs. Applies even
   // when telemetry is off (the console logger respects it too); the LOG_LEVEL
@@ -556,11 +532,11 @@ export async function Spectrum<
   await withSpan(
     "spectrum.init",
     {
-      "spectrum.provider_count": providers.length,
+      "spectrum.provider_count": platforms.length,
       "spectrum.flatten_groups": flattenGroups,
     },
     async () => {
-      for (const provider of providers) {
+      for (const provider of platforms) {
         const providerConfig = provider as PlatformProviderConfig;
         const def = providerConfig.__definition;
         const userConfig = def.config.parse(providerConfig.config);
@@ -692,12 +668,12 @@ export async function Spectrum<
     return fusorStartPromise;
   };
 
-  const providerNames = providers
+  const providerNames = platforms
     .map((p) => (p as PlatformProviderConfig).__definition.name)
     .join(",");
 
   lifecycleLog.info("Spectrum started", {
-    "spectrum.lifecycle.provider_count": providers.length,
+    "spectrum.lifecycle.provider_count": platforms.length,
     "spectrum.lifecycle.providers": providerNames,
     "spectrum.lifecycle.telemetry": telemetry === true,
   });
@@ -1342,7 +1318,7 @@ export async function Spectrum<
   };
 
   const base = {
-    __providers: providers,
+    __providers: platforms,
     __internal: { platforms: platformStates },
     config: projectConfig,
     messages,

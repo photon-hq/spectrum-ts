@@ -56,7 +56,7 @@ describe("inbound membership events", () => {
     ]);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space, message] = await firstMessage(app);
@@ -85,7 +85,7 @@ describe("inbound membership events", () => {
     ]);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -111,7 +111,7 @@ describe("inbound membership events", () => {
     ]);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);

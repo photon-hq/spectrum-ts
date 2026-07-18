@@ -40,11 +40,6 @@ roadmap.
 
 Call each provider's `config()` method and pass the results to `platforms`:
 
-<Note>
-  `providers` remains a compatibility alias for existing applications. New
-  code and these docs use `platforms`.
-</Note>
-
 <Tabs>
   <Tab title="Aggregate import">
     ```ts

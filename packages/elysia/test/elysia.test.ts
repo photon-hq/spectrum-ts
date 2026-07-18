@@ -26,7 +26,7 @@ const DEFAULT_URL = "https://example.com/spectrum/webhook";
 const makeApp = (overrides: Record<string, unknown> = {}) =>
   Spectrum({
     ...baseConfig,
-    providers: [makeManagedProvider(PLATFORM).config({})],
+    platforms: [makeManagedProvider(PLATFORM).config({})],
     webhookSecret: SPECTRUM_WEBHOOK_SECRET,
     ...overrides,
   });

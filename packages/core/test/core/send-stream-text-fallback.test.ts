@@ -92,7 +92,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-fallback-text", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -112,7 +112,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-fallback-reply", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -136,7 +136,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-fallback-edit", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -163,7 +163,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-fallback-empty", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -204,7 +204,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-consumed", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -230,7 +230,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-fallback-none", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -248,7 +248,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-fallback-error", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -269,7 +269,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-md-supported", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -306,7 +306,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-md-chain", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -352,7 +352,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-md-reply", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -398,7 +398,7 @@ describe("streamText plain-text fallback", () => {
     const provider = makeProvider("stream-native", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);

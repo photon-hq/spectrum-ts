@@ -78,7 +78,7 @@ describe("membership sends are fire-and-forget", () => {
     const provider = makeMembershipProvider("membership-add", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -97,7 +97,7 @@ describe("membership sends are fire-and-forget", () => {
     const provider = makeMembershipProvider("membership-add-batch", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -120,7 +120,7 @@ describe("membership sends are fire-and-forget", () => {
     const provider = makeMembershipProvider("membership-remove", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -139,7 +139,7 @@ describe("membership sends are fire-and-forget", () => {
     const provider = makeMembershipProvider("membership-leave", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -156,7 +156,7 @@ describe("membership sends are fire-and-forget", () => {
     const provider = makeMembershipProvider("membership-canonical", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -185,7 +185,7 @@ describe("membership sends are fire-and-forget", () => {
     );
     const app = await Spectrum({
       ...baseConfig,
-      providers: [provider.config({})],
+      platforms: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);

@@ -37,15 +37,17 @@ describe("Spectrum() project credential env fallback", () => {
     process.env[PROJECT_ID] = "env-id";
     process.env[PROJECT_SECRET] = "env-secret";
 
-    const app = await Spectrum({ providers: [provider()] });
+    const app = await Spectrum({ platforms: [provider()] });
     expect(getProject).toHaveBeenCalledWith("env-id", "env-secret");
     await app.stop();
   });
 
-  it("accepts configured providers through the platforms option", async () => {
-    const app = await Spectrum({ platforms: [provider()] });
-    expect(app.__providers).toHaveLength(1);
-    await app.stop();
+  it("rejects the removed providers option", async () => {
+    const options = {
+      providers: [provider()],
+    } as unknown as Parameters<typeof Spectrum>[0];
+
+    await expect(Spectrum(options)).rejects.toThrow();
   });
 
   it("lets explicit credentials win over env", async () => {
@@ -55,7 +57,7 @@ describe("Spectrum() project credential env fallback", () => {
     const app = await Spectrum({
       projectId: "explicit-id",
       projectSecret: "explicit-secret",
-      providers: [provider()],
+      platforms: [provider()],
     });
     expect(getProject).toHaveBeenCalledWith("explicit-id", "explicit-secret");
     await app.stop();
@@ -69,7 +71,7 @@ describe("Spectrum() project credential env fallback", () => {
     // resolved-value invariant directly.
     const options = {
       projectId: "explicit-id",
-      providers: [provider()],
+      platforms: [provider()],
     } as unknown as Parameters<typeof Spectrum>[0];
 
     const app = await Spectrum(options);
@@ -78,7 +80,7 @@ describe("Spectrum() project credential env fallback", () => {
   });
 
   it("does not fetch a project when neither config nor env supplies credentials", async () => {
-    const app = await Spectrum({ providers: [provider()] });
+    const app = await Spectrum({ platforms: [provider()] });
     expect(getProject).not.toHaveBeenCalled();
     await app.stop();
   });
@@ -86,7 +88,7 @@ describe("Spectrum() project credential env fallback", () => {
   it("rejects a half-supplied credential pair (id via env, no secret)", async () => {
     process.env[PROJECT_ID] = "env-id";
 
-    await expect(Spectrum({ providers: [provider()] })).rejects.toThrow();
+    await expect(Spectrum({ platforms: [provider()] })).rejects.toThrow();
   });
 
   it("treats empty-string env vars as unset (no credentials)", async () => {
@@ -95,7 +97,7 @@ describe("Spectrum() project credential env fallback", () => {
     process.env[PROJECT_ID] = "";
     process.env[PROJECT_SECRET] = "";
 
-    const app = await Spectrum({ providers: [provider()] });
+    const app = await Spectrum({ platforms: [provider()] });
     expect(getProject).not.toHaveBeenCalled();
     await app.stop();
   });

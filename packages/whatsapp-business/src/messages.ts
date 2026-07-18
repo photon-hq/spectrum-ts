@@ -30,6 +30,7 @@ import {
   asReply,
   asText,
   asUnsend,
+  asVoice,
   createLogger,
   errorAttrs,
   type ProviderMessageRecord,
@@ -431,7 +432,10 @@ const mapContent = (client: WhatsAppClient, msg: InboundMessage): Content => {
     case "video":
     case "audio":
     case "document": {
-      const media = lazyMedia(client, content.media);
+      const media =
+        content.type === "audio" && content.media.voice
+          ? lazyVoice(client, content.media)
+          : lazyMedia(client, content.media);
       const caption = content.media.caption?.trim();
       if (!caption) {
         return media;
@@ -503,24 +507,35 @@ const fetchMedia = async (
   return response;
 };
 
+const lazyMediaSource = (
+  client: WhatsAppClient,
+  media: { id: string; mimeType: string; filename?: string }
+) => ({
+  id: media.id,
+  name: media.filename ?? `media-${media.id}`,
+  mimeType: media.mimeType,
+  read: async () =>
+    Buffer.from(await (await fetchMedia(client, media.id)).arrayBuffer()),
+  stream: async () => {
+    const response = await fetchMedia(client, media.id);
+    if (!response.body) {
+      throw new Error("Media response missing body");
+    }
+    return response.body;
+  },
+});
+
 const lazyMedia = (
   client: WhatsAppClient,
   media: { id: string; mimeType: string; filename?: string }
-): Content =>
-  asAttachment({
-    id: media.id,
-    name: media.filename ?? `media-${media.id}`,
-    mimeType: media.mimeType,
-    read: async () =>
-      Buffer.from(await (await fetchMedia(client, media.id)).arrayBuffer()),
-    stream: async () => {
-      const response = await fetchMedia(client, media.id);
-      if (!response.body) {
-        throw new Error("Media response missing body");
-      }
-      return response.body;
-    },
-  });
+): Content => asAttachment(lazyMediaSource(client, media));
+
+// WhatsApp flags push-to-talk recordings with media.voice — surface them as
+// voice content so apps can tell a voice note from an audio file attachment.
+const lazyVoice = (
+  client: WhatsAppClient,
+  media: { id: string; mimeType: string; filename?: string }
+): Content => asVoice(lazyMediaSource(client, media));
 
 const mimeToMediaType = (
   mimeType: string

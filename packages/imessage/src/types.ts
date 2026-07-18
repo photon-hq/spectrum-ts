@@ -7,6 +7,11 @@ export interface RemoteClient {
   /** Cloud instance routing key; absent for explicit and shared clients. */
   instanceId?: string;
   phone: string;
+  /**
+   * Spectrum proxy used only for project-scoped `spc-*` resources. All
+   * auto-discovered dedicated entries share the same client instance.
+   */
+  resourceClient?: AdvancedIMessage;
 }
 
 export type IMessageClient = RemoteClient[];

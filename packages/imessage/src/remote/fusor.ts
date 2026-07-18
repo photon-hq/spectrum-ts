@@ -1,7 +1,7 @@
 import {
   decodeCatchUpEvent,
   type MessageEvent,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import {
   FusorTerminalError,
   type FusorVerifyRequest,
@@ -11,7 +11,7 @@ import type z from "zod";
 import { getMessageCache } from "../cache";
 import type { IMessageClient, RemoteClient } from "../types";
 import { type configSchema, SHARED_PHONE } from "../types";
-import { isSharedMode } from "./client";
+import { isSharedMode, resourceClientForEntry } from "./client";
 import { getContactShareTracker } from "./contact-share";
 import { type ReceivedEvent, toInboundMessages } from "./inbound";
 
@@ -237,9 +237,13 @@ export const handleImessageFusorMessages: HybridFusorMessages<
   if (projectConfig?.profile?.imessageSynced === true) {
     getContactShareTracker(selected.client).maybeShare(payload.event.chatGuid);
   }
+  const resourceClient = resourceClientForEntry(
+    selected,
+    payload.event.message.guid
+  );
   return await toInboundMessages(
-    selected.client,
-    getMessageCache(selected.client),
+    resourceClient,
+    getMessageCache(resourceClient),
     payload.event,
     phone
   );

@@ -28,6 +28,16 @@ stream-only and are never accepted through the public `spectrum.webhook()`
 path. Explicit `clients` configurations remain entirely on direct gRPC inbound
 transport, so self-hosted endpoints keep their existing behavior.
 
+In auto-discovered dedicated mode, native chats and resources continue to use
+their dedicated server directly. Spectrum Cloud also supplies one
+project-scoped proxy token, which all of the dedicated lines share for
+virtualized `spc-msg-*` and `spc-att-*` resources delivered by Fusor. Replies,
+reactions, edits, unsends, message/attachment reads, and mini-app updates are
+routed through that proxy only when their resource id is virtual; the proxy
+resolves the owning instance and native GUID server-side. A dedicated token
+response without `proxyToken` is rejected rather than leaking a virtual GUID
+to an instance server. Shared and explicitly configured clients are unchanged.
+
 This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
 
 `nativeContactCard()` shares the bot account's own contact card (Apple's "Share Name and Photo") with a chat — remote mode only:

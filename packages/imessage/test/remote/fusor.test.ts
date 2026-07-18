@@ -1,6 +1,6 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import { FusorTerminalError } from "@spectrum-ts/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assertVirtualImessageResources,
   handleImessageFusorMessages,
@@ -166,6 +166,7 @@ describe("iMessage Fusor transport", () => {
 
   it("routes a dedicated event by its trusted instance id", async () => {
     const selected = client();
+    const resourceClient = client();
     const other = client();
     const payload = verifyImessageFusorRequest(request());
 
@@ -176,6 +177,7 @@ describe("iMessage Fusor transport", () => {
           client: selected,
           instanceId: "instance-1",
           phone: "+15550001111",
+          resourceClient,
         },
       ],
       config: {},
@@ -195,6 +197,127 @@ describe("iMessage Fusor transport", () => {
         phone: "+15550001111",
       },
     });
+  });
+
+  it("binds virtual inbound attachment reads to the Spectrum resource client", async () => {
+    const directDownload = vi.fn();
+    const resourceDownload = vi.fn(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { data: Uint8Array.from([1, 2, 3]), type: "primaryChunk" };
+      },
+      close: () => Promise.resolve(),
+    }));
+    const direct = {
+      attachments: { downloadStream: directDownload },
+    } as unknown as AdvancedIMessage;
+    const resourceClient = {
+      attachments: { downloadStream: resourceDownload },
+      messages: { get: () => Promise.reject(new Error("not expected")) },
+    } as unknown as AdvancedIMessage;
+    const decoded = verifyImessageFusorRequest(request());
+    const payload = {
+      ...decoded,
+      event: {
+        ...decoded.event,
+        message: {
+          ...decoded.event.message,
+          content: {
+            ...decoded.event.message.content,
+            attachments: [
+              {
+                fileName: "photo.png",
+                guid: "spc-att-photo",
+                isHidden: false,
+                isOutgoing: false,
+                isSticker: false,
+                mimeType: "image/png",
+                totalBytes: 3,
+                transferState: 0,
+                uti: "public.png",
+              },
+            ],
+            text: "\uFFFC",
+          },
+        },
+      },
+    } as unknown as typeof decoded;
+
+    const records = await handleImessageFusorMessages({
+      client: [
+        {
+          client: direct,
+          instanceId: "instance-1",
+          phone: "+15550001111",
+          resourceClient,
+        },
+      ],
+      config: {},
+      payload,
+      projectConfig: undefined,
+      respond: () => undefined,
+      store: {} as never,
+    });
+    const record = Array.isArray(records) ? records[0] : records;
+    if (record?.content.type !== "attachment") {
+      throw new Error("expected an attachment record");
+    }
+
+    await expect(record.content.read()).resolves.toEqual(
+      Buffer.from([1, 2, 3])
+    );
+    expect(resourceDownload).toHaveBeenCalledWith("spc-att-photo");
+    expect(directDownload).not.toHaveBeenCalled();
+  });
+
+  it("resolves virtual reply targets through the Spectrum resource client", async () => {
+    const decoded = verifyImessageFusorRequest(request());
+    const getDirect = vi.fn(() => Promise.reject(new Error("wrong client")));
+    const getResource = vi.fn(() =>
+      Promise.resolve({
+        ...decoded.event.message,
+        content: {
+          ...decoded.event.message.content,
+          text: "original message",
+        },
+        guid: "spc-msg-reply-target",
+      })
+    );
+    const payload = {
+      ...decoded,
+      event: {
+        ...decoded.event,
+        message: {
+          ...decoded.event.message,
+          replyTargetGuid: "spc-msg-reply-target",
+        },
+      },
+    } as typeof decoded;
+
+    const records = await handleImessageFusorMessages({
+      client: [
+        {
+          client: {
+            messages: { get: getDirect },
+          } as unknown as AdvancedIMessage,
+          instanceId: "instance-1",
+          phone: "+15550001111",
+          resourceClient: {
+            messages: { get: getResource },
+          } as unknown as AdvancedIMessage,
+        },
+      ],
+      config: {},
+      payload,
+      projectConfig: undefined,
+      respond: () => undefined,
+      store: {} as never,
+    });
+
+    expect(Array.isArray(records) ? records[0]?.content.type : undefined).toBe(
+      "reply"
+    );
+    expect(getResource).toHaveBeenCalledWith("spc-msg-reply-target");
+    expect(getDirect).not.toHaveBeenCalled();
   });
 
   it("rejects a v2 instance whose configured phone disagrees with the payload", async () => {

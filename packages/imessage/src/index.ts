@@ -85,6 +85,9 @@ import { toSpectrumMiniApp } from "./remote/app";
 import { getRemoteAttachment } from "./remote/attachments";
 import {
   availablePhones,
+  clientForAttachmentResource,
+  clientForMessageResource,
+  clientForMiniAppSession,
   clientForPhone,
   isSharedMode,
   randomPhone,
@@ -160,7 +163,11 @@ const handleEdit = async (
     }
     const url = await content.content.url();
     const layout = await content.content.layout();
-    const remote = clientForPhone(client, space.phone);
+    const remote = clientForMiniAppSession(
+      client,
+      space.phone,
+      miniAppCardSession
+    );
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -182,7 +189,11 @@ const handleEdit = async (
         "customized mini app card edits require a miniAppCardSession from the original send"
       );
     }
-    const remote = clientForPhone(client, space.phone);
+    const remote = clientForMiniAppSession(
+      client,
+      space.phone,
+      miniAppCardSession
+    );
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -205,7 +216,11 @@ const handleEdit = async (
       `only text content can be edited (got "${content.content.type}")`
     );
   }
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForMessageResource(
+    client,
+    space.phone,
+    content.target.id
+  );
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
 };
 
@@ -222,21 +237,31 @@ const handleUnsend = async (
       "iMessage polls cannot be unsent"
     );
   }
-  const remote = clientForPhone(client, space.phone);
   const targetContent = content.target.content;
   if (targetContent.type === "reaction") {
     // Tapbacks are removed via `setReaction(..., false)` against the
     // original message, not by retracting the tapback message — so pass
     // the reaction's own target (the message that was reacted to). Same
     // unknown-cast widen as the reaction send branch.
+    const reactionTarget = targetContent.target as unknown as IMessageMessage;
+    const remote = clientForMessageResource(
+      client,
+      space.phone,
+      reactionTarget.parentId ?? reactionTarget.id
+    );
     await remoteUnsendReaction(
       remote,
       space.id,
-      targetContent.target as unknown as IMessageMessage,
+      reactionTarget,
       targetContent.emoji
     );
     return;
   }
+  const remote = clientForMessageResource(
+    client,
+    space.phone,
+    content.target.id
+  );
   await remoteUnsendMessage(remote, space.id, content.target.id);
 };
 
@@ -449,7 +474,7 @@ const handleProviderControlSignal = async (
 const remoteForMessageTarget = (
   client: IMessageClient,
   space: { phone: string },
-  target: { content: { type: string } },
+  target: { content: { type: string }; id: string; parentId?: string },
   action: string,
   pollNoun: string
 ): AdvancedIMessage => {
@@ -460,7 +485,11 @@ const remoteForMessageTarget = (
       `iMessage polls do not support ${pollNoun}`
     );
   }
-  return clientForPhone(client, space.phone);
+  return clientForMessageResource(
+    client,
+    space.phone,
+    target.parentId ?? target.id
+  );
 };
 
 export const imessage = definePlatform(IMESSAGE_PLATFORM, {
@@ -519,7 +548,14 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
 
     destroyClient: async ({ client }) => {
       await disposeCloudAuth(client);
-      await Promise.all(client.map((entry) => entry.client.close()));
+      const uniqueClients = new Set<AdvancedIMessage>();
+      for (const entry of client) {
+        uniqueClients.add(entry.client);
+        if (entry.resourceClient) {
+          uniqueClients.add(entry.resourceClient);
+        }
+      }
+      await Promise.all(Array.from(uniqueClients, (remote) => remote.close()));
     },
   },
 
@@ -727,7 +763,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
 
   actions: {
     getMessage: async ({ client }, space, messageId) => {
-      const remote = clientForPhone(client, space.phone);
+      const remote = clientForMessageResource(client, space.phone, messageId);
       return remoteGetMessage(remote, space.id, messageId, space.phone);
     },
     // List a remote group chat's current participants. Remote + group only;
@@ -793,7 +829,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           `imessage.getAttachment requires a phone in multi-phone mode. Available: ${availablePhones(client).join(", ")}`
         );
       })();
-      const remote = clientForPhone(client, routedPhone);
+      const remote = clientForAttachmentResource(client, routedPhone, guid);
       return withSpan(
         "spectrum.imessage.getAttachment",
         {

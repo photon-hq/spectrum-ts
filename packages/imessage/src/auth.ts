@@ -1,4 +1,7 @@
-import { createGrpcClient } from "@photon-ai/advanced-imessage/grpc";
+import {
+  type AdvancedIMessage,
+  createGrpcClient,
+} from "@photon-ai/advanced-imessage/grpc";
 import {
   cloud,
   type DedicatedTokenData,
@@ -19,6 +22,38 @@ interface CloudAuth {
 
 const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
 
+const proxyAddress = (): string =>
+  process.env.SPECTRUM_IMESSAGE_ADDRESS ?? "imessage.spectrum.photon.codes:443";
+
+const requireProxyToken = (data: DedicatedTokenData): string => {
+  if (!data.proxyToken) {
+    throw new Error(
+      "Dedicated iMessage token response is missing proxyToken; virtual spc-* resources cannot be routed through Spectrum"
+    );
+  }
+  return data.proxyToken;
+};
+
+const requireSharedToken = (data: SharedTokenData): string => {
+  if (!data.token) {
+    throw new Error("Shared iMessage token response is missing token");
+  }
+  return data.token;
+};
+
+const requireInstanceToken = (
+  data: DedicatedTokenData,
+  instanceId: string
+): string => {
+  const token = data.auth[instanceId];
+  if (!token) {
+    throw new Error(
+      `Dedicated iMessage token response is missing auth for instance ${instanceId}`
+    );
+  }
+  return token;
+};
+
 const requirePhone = (data: DedicatedTokenData, instanceId: string): string => {
   const phone = data.numbers?.[instanceId];
   if (!phone) {
@@ -32,16 +67,34 @@ export async function createCloudClients(
   projectSecret: string
 ): Promise<RemoteClient[]> {
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+  if (tokenData.type === "dedicated") {
+    requireProxyToken(tokenData);
+  } else {
+    requireSharedToken(tokenData);
+  }
+  const tokenMode = tokenData.type;
   let lastRefreshAt = Date.now();
 
-  // The instanceId stays paired with each entry in this closure so renewal
-  // can rewrite `entry.phone` in place without leaking instanceId onto the
-  // public RemoteClient shape. Empty in shared mode.
+  // Keep the instanceId paired with each entry so renewal can validate the
+  // complete direct credential set. Stream routing captures the initial phone,
+  // so a line/topology change must rebuild the Spectrum client. Empty in
+  // shared mode.
   const records: { entry: RemoteClient; instanceId: string }[] = [];
 
-  const syncPhones = (data: DedicatedTokenData) => {
+  const validateDedicatedRecords = (data: DedicatedTokenData): void => {
     for (const { entry, instanceId } of records) {
-      entry.phone = requirePhone(data, instanceId);
+      requireInstanceToken(data, instanceId);
+      const phone = requirePhone(data, instanceId);
+      if (phone !== entry.phone) {
+        throw new Error(
+          `iMessage token refresh changed the phone for instance ${instanceId}; recreate the Spectrum client`
+        );
+      }
+    }
+    if (Object.keys(data.auth).length !== records.length) {
+      throw new Error(
+        "iMessage token refresh changed the dedicated instance set; recreate the Spectrum client"
+      );
     }
   };
 
@@ -49,11 +102,25 @@ export async function createCloudClients(
     expiresInSeconds: () => tokenData.expiresIn,
     name: "imessage",
     refresh: async () => {
-      tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-      lastRefreshAt = Date.now();
-      if (tokenData.type === "dedicated") {
-        syncPhones(tokenData);
+      const refreshed = await cloud.issueImessageTokens(
+        projectId,
+        projectSecret
+      );
+      if (refreshed.type !== tokenMode) {
+        throw new Error(
+          `iMessage token refresh changed mode from ${tokenMode} to ${refreshed.type}; recreate the Spectrum client`
+        );
       }
+      if (refreshed.type === "dedicated") {
+        requireProxyToken(refreshed);
+        validateDedicatedRecords(refreshed);
+      } else {
+        requireSharedToken(refreshed);
+      }
+      // Commit only a fully validated credential set. A malformed refresh
+      // leaves the last known-good tokens and routing together.
+      tokenData = refreshed;
+      lastRefreshAt = Date.now();
     },
   });
 
@@ -71,14 +138,11 @@ export async function createCloudClients(
   const cloudAuth: CloudAuth = { dispose: renewal.dispose, forceRefresh };
 
   if (tokenData.type === "shared") {
-    const address =
-      process.env.SPECTRUM_IMESSAGE_ADDRESS ??
-      "imessage.spectrum.photon.codes:443";
     const entries: RemoteClient[] = [
       {
         phone: SHARED_PHONE,
         client: createGrpcClient({
-          address,
+          address: proxyAddress(),
           // Auto-retry transient unary failures so a brief server blip during
           // an outbound action (send/react/reply) doesn't surface as an
           // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
@@ -88,7 +152,13 @@ export async function createCloudClients(
           tls: true,
           token: async () => {
             await renewal.refreshIfNeeded();
-            return (tokenData as SharedTokenData).token;
+            const data = tokenData;
+            if (data.type !== "shared") {
+              throw new Error(
+                "Shared iMessage token refresh returned dedicated credentials"
+              );
+            }
+            return requireSharedToken(data);
           },
         }),
       },
@@ -100,23 +170,67 @@ export async function createCloudClients(
   }
 
   const dedicated = tokenData;
-  for (const [instanceId, token] of Object.entries(dedicated.auth)) {
-    const entry: RemoteClient = {
+  const dedicatedEntries = Object.keys(dedicated.auth).map((instanceId) => {
+    requireInstanceToken(dedicated, instanceId);
+    return {
       instanceId,
       phone: requirePhone(dedicated, instanceId),
-      client: createGrpcClient({
+    };
+  });
+  if (dedicatedEntries.length === 0) {
+    const entries: RemoteClient[] = [];
+    cloudAuthState.set(entries, cloudAuth);
+    return entries;
+  }
+  const openedClients: AdvancedIMessage[] = [];
+  try {
+    const resourceClient = createGrpcClient({
+      address: proxyAddress(),
+      autoIdempotency: true,
+      retry: true,
+      tls: true,
+      token: async () => {
+        await renewal.refreshIfNeeded();
+        const data = tokenData;
+        if (data.type !== "dedicated") {
+          throw new Error(
+            "Dedicated iMessage token refresh returned shared credentials"
+          );
+        }
+        return requireProxyToken(data);
+      },
+    });
+    openedClients.push(resourceClient);
+    for (const { instanceId, phone } of dedicatedEntries) {
+      const directClient = createGrpcClient({
         address: `${instanceId}.imsg.photon.codes:443`,
         autoIdempotency: true,
         retry: true,
         tls: true,
         token: async () => {
           await renewal.refreshIfNeeded();
-          const data = tokenData as DedicatedTokenData;
-          return data.auth[instanceId] ?? token;
+          const data = tokenData;
+          if (data.type !== "dedicated") {
+            throw new Error(
+              "Dedicated iMessage token refresh returned shared credentials"
+            );
+          }
+          return requireInstanceToken(data, instanceId);
         },
-      }),
-    };
-    records.push({ entry, instanceId });
+      });
+      openedClients.push(directClient);
+      const entry: RemoteClient = {
+        client: directClient,
+        instanceId,
+        phone,
+        resourceClient,
+      };
+      records.push({ entry, instanceId });
+    }
+  } catch (error) {
+    renewal.dispose();
+    await Promise.allSettled(openedClients.map((client) => client.close()));
+    throw error;
   }
   const entries = records.map((r) => r.entry);
 

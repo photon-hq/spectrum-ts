@@ -24,6 +24,8 @@ export interface DedicatedTokenData {
   auth: Record<string, string>;
   expiresIn: number;
   numbers: Record<string, string | null>;
+  /** Project-scoped bearer for Spectrum's virtual-resource proxy. */
+  proxyToken: string;
   type: "dedicated";
 }
 

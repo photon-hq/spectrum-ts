@@ -1,0 +1,77 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "a645f8662ac1",
+  "session_id": "3d617744-b60b-49f4-84a1-1d8b71630c05",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-18T06:07:05.070031Z",
+  "branch": "fix/whatsapp-parity",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "packages/whatsapp-business/src/content/template.ts",
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/whatsapp-business/src/index.ts",
+    "packages/whatsapp-business/test/template.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "d7a501df20fe",
+  "checkpoint_transcript_start": 475,
+  "transcript_lines_at_start": 475,
+  "compact_transcript_start": 114,
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 19149,
+    "cache_read_tokens": 3233760,
+    "output_tokens": 12267,
+    "api_call_count": 17
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_0198VGXVvg5hdkR9J5s1Nn4D",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:systematic-debugging"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d7a501df20fe",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 24,
+        "end": 25,
+        "entry_ids": [
+          "d364d427-8bc2-4ac4-b70c-96c60eb0bd5d"
+        ],
+        "tool_use_id": "toolu_0198VGXVvg5hdkR9J5s1Nn4D"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0198VGXVvg5hdkR9J5s1Nn4D"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:systematic-debugging",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-18T06:07:04.978012Z",
+    "agent_lines": 217,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 217,
+    "total_lines_changed": 217,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

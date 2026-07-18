@@ -31,6 +31,7 @@ import type {
   PlatformRuntime,
   SpectrumLike,
 } from "./platform/types";
+import { assertUniquePlatformNames } from "./platform/unique-names";
 import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
@@ -322,6 +323,10 @@ export async function Spectrum<
   spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
 
   const providers = resolveConfiguredProviders(options);
+  // Platform runtimes are keyed by definePlatform name. Reject duplicates
+  // before any network I/O or createClient work so a bad composition fails
+  // closed instead of silently overwriting an earlier registration.
+  assertUniquePlatformNames(providers);
   const { options: runtimeOptions, telemetry, webhookSecret } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
   // Honor an explicit log-level override before anything logs. Applies even

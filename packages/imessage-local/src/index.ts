@@ -40,6 +40,7 @@ import {
 } from "../../imessage/src/content/contact-card";
 import { isCustomizedMiniApp } from "../../imessage/src/content/customized-mini-app";
 import { messageEffects } from "../../imessage/src/content/effect";
+import { LOCAL_IMESSAGE_PLATFORM } from "../../imessage/src/shared/errors";
 import { chatTypeFromGuid, dmChatGuid } from "./ids";
 import {
   getMessage as localGetMessage,
@@ -54,7 +55,10 @@ import {
   userSchema,
 } from "./types";
 
-const LOCAL_PLATFORM = "iMessage (local mode)";
+/** Platform id registered by this package. Distinct from cloud `"iMessage"`. */
+export { LOCAL_IMESSAGE_PLATFORM } from "../../imessage/src/shared/errors";
+
+const LOCAL_PLATFORM = LOCAL_IMESSAGE_PLATFORM;
 
 const unsupportedAction = (action: string, detail?: string): never => {
   throw UnsupportedError.action(action, LOCAL_PLATFORM, detail);
@@ -150,7 +154,12 @@ const handleLocalOnlySend = async (
   return await localSend(client, spaceId, content);
 };
 
-export const imessage = definePlatform("iMessage", {
+/**
+ * Local Messages-database transport. Distinct from cloud `"iMessage"` so both
+ * packages can be composed in one Spectrum() instance without colliding on the
+ * platform-name map (and so `message.platform` identifies the transport).
+ */
+export const imessage = definePlatform(LOCAL_PLATFORM, {
   config: configSchema,
 
   static: {

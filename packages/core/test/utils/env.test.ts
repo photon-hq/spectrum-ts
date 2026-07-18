@@ -115,6 +115,12 @@ describe("normalizePlatformName", () => {
     expect(normalizePlatformName("iMessage")).toBe("IMESSAGE");
   });
 
+  it("normalizes the local iMessage platform id", () => {
+    expect(normalizePlatformName("iMessage (local mode)")).toBe(
+      "IMESSAGE_LOCAL_MODE"
+    );
+  });
+
   it("trims leading and trailing separators", () => {
     expect(normalizePlatformName(" Slack! ")).toBe("SLACK");
   });

@@ -12,6 +12,8 @@
 
 const OFFICIAL_PROVIDER_PACKAGES: Readonly<Record<string, string>> = {
   imessage: "@spectrum-ts/imessage",
+  // definePlatform("iMessage (local mode)") → normalizePlatformKey keeps parens
+  "imessage-(local-mode)": "@spectrum-ts/imessage-local",
   slack: "@spectrum-ts/slack",
   telegram: "@spectrum-ts/telegram",
   terminal: "@spectrum-ts/terminal",

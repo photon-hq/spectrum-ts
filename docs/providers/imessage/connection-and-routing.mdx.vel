@@ -43,7 +43,9 @@ choice is made by the import, not by a config flag.
   </Tab>
   <Tab title="Local: @spectrum-ts/imessage-local">
     Reads the macOS Messages SQLite database directly. It is an explicit,
-    macOS-only install and does not require project credentials.
+    macOS-only install and does not require project credentials. Inbound
+    messages report `message.platform === "iMessage (local mode)"` (cloud uses
+    `"iMessage"`).
 
     ```bash
     bun add spectrum-ts @spectrum-ts/imessage-local
@@ -105,7 +107,7 @@ When traffic to a dedicated line approaches its per-line capacity, Spectrum can 
 
 ## Space types
 
-iMessage spaces carry a `type` field, either `"dm"` or `"group"`, and a `phone` field indicating which phone number the conversation is routed through. Both are accessible through narrowing:
+iMessage spaces carry a `type` field, either `"dm"` or `"group"`, and a `phone` field indicating which phone number the conversation is routed through. Both are accessible through narrowing. The samples below gate on cloud `"iMessage"`; local inbound uses `"iMessage (local mode)"` instead.
 
 ```ts
 for await (const [space, message] of app.messages) {

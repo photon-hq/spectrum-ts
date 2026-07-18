@@ -35,7 +35,9 @@ See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full 
 
 For direct access to the local macOS Messages database, install and import
 `@spectrum-ts/imessage-local` separately. The local provider is intentionally
-not included in the batteries-included `spectrum-ts` package.
+not included in the batteries-included `spectrum-ts` package. It registers as
+`"iMessage (local mode)"` so it does not collide with this package's
+`"iMessage"` platform id.
 
 ```sh
 bun add @spectrum-ts/imessage-local

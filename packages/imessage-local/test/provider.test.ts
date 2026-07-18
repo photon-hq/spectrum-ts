@@ -1,7 +1,11 @@
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
-import { imessage, nativeContactCard } from "@/index";
+import { imessage, LOCAL_IMESSAGE_PLATFORM, nativeContactCard } from "@/index";
+import {
+  imessage as cloudImessage,
+  IMESSAGE_PLATFORM,
+} from "../../imessage/src/index";
 
 const LOCAL_MODE_ERROR = /local mode/;
 const LOCAL_GROUP_ERROR = /local mode cannot create group chats/;
@@ -25,6 +29,17 @@ const appContent = (url: string): Content =>
   }) as Content;
 
 describe("@spectrum-ts/imessage-local", () => {
+  it("registers a platform name distinct from cloud iMessage", () => {
+    const cloud = cloudImessage.config({});
+    const local = imessage.config();
+
+    expect(LOCAL_IMESSAGE_PLATFORM).toBe("iMessage (local mode)");
+    expect(cloud.__name).toBe(IMESSAGE_PLATFORM);
+    expect(local.__name).toBe(LOCAL_IMESSAGE_PLATFORM);
+    expect(def.name).toBe(LOCAL_IMESSAGE_PLATFORM);
+    expect(cloud.__definition.name).not.toBe(local.__definition.name);
+  });
+
   it("constructs the provider with config()", () => {
     expect(imessage.config()).toMatchObject({
       __tag: "PlatformProviderConfig",

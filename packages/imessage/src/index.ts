@@ -35,6 +35,7 @@ export {
   customizedMiniApp,
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
+export { IMESSAGE_PLATFORM, LOCAL_IMESSAGE_PLATFORM } from "./shared/errors";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { getMessageCache } from "./cache";
@@ -89,6 +90,7 @@ import {
 } from "./remote/client";
 import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
 import { cacheMessage } from "./remote/inbound";
+import { IMESSAGE_PLATFORM } from "./shared/errors";
 import {
   configSchema,
   type IMessageClient,
@@ -457,7 +459,7 @@ const remoteForMessageTarget = (
   return clientForPhone(client, space.phone);
 };
 
-export const imessage = definePlatform("iMessage", {
+export const imessage = definePlatform(IMESSAGE_PLATFORM, {
   config: configSchema,
 
   static: {

@@ -2,6 +2,9 @@
 
 Local macOS iMessage provider for spectrum-ts, powered by `@photon-ai/imessage-kit`.
 
+Registers as `"iMessage (local mode)"` (not cloud `"iMessage"`), so platform
+identity stays unambiguous when both packages are installed.
+
 ```sh
 bun add spectrum-ts @spectrum-ts/imessage-local
 ```
@@ -10,7 +13,7 @@ bun add spectrum-ts @spectrum-ts/imessage-local
 import { imessage } from "@spectrum-ts/imessage-local";
 import { Spectrum } from "spectrum-ts";
 
-const spectrum = Spectrum({
+const spectrum = await Spectrum({
   platforms: [imessage.config()],
 });
 ```

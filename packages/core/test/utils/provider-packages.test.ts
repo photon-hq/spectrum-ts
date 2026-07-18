@@ -11,6 +11,9 @@ describe("normalizePlatformKey", () => {
   it("maps every spelling seen in the wild onto the manifest key", () => {
     // definePlatform labels
     expect(normalizePlatformKey("iMessage")).toBe("imessage");
+    expect(normalizePlatformKey("iMessage (local mode)")).toBe(
+      "imessage-(local-mode)"
+    );
     expect(normalizePlatformKey("Slack")).toBe("slack");
     expect(normalizePlatformKey("Terminal")).toBe("terminal");
     expect(normalizePlatformKey("WhatsApp Business")).toBe("whatsapp-business");
@@ -22,8 +25,11 @@ describe("normalizePlatformKey", () => {
 });
 
 describe("officialProviderPackage", () => {
-  it("resolves all five official providers from any spelling", () => {
+  it("resolves official providers from any spelling", () => {
     expect(officialProviderPackage("iMessage")).toBe("@spectrum-ts/imessage");
+    expect(officialProviderPackage("iMessage (local mode)")).toBe(
+      "@spectrum-ts/imessage-local"
+    );
     expect(officialProviderPackage("whatsapp_business")).toBe(
       "@spectrum-ts/whatsapp-business"
     );

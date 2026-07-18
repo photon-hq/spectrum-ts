@@ -101,9 +101,11 @@ Call each provider's `config()` method and pass the results to `platforms`:
 
 <Note>
   `@spectrum-ts/imessage-local` is not part of the aggregate import. Install it
-  explicitly and import it from its scoped package. Do not register cloud and
-  local iMessage in the same `Spectrum()` instance: both represent the
-  `"iMessage"` platform.
+  explicitly and import it from its scoped package. Cloud registers as
+  `"iMessage"`; local registers as `"iMessage (local mode)"`. `Spectrum()`
+  rejects duplicate platform names, so the two ids can coexist in one instance.
+  Prefer separate composition modules so cloud deployments never pull in the
+  native SQLite stack.
 </Note>
 
 ## Writing your own

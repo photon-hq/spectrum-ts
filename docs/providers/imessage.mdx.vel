@@ -3,20 +3,21 @@ title: "iMessage"
 description: "Choose and configure the cloud or local iMessage provider."
 ---
 
-Spectrum ships two iMessage packages. They expose the same provider name and
-the same `imessage.config()` registration pattern, but target different
-environments.
+Spectrum ships two iMessage packages. They share the `imessage.config()`
+registration pattern, but they register **distinct** platform ids so runtime
+routing never confuses cloud gRPC with the local Messages database.
 
-| Use case | Package | Included in `spectrum-ts`? | Runtime |
-|---|---|---|---|
-| Managed Spectrum Cloud lines | `@spectrum-ts/imessage` | Yes | Node.js or Bun |
-| This Mac's Messages database | `@spectrum-ts/imessage-local` | No | macOS with Bun or Node.js |
+| Use case | Package | Platform id (`message.platform`) | Included in `spectrum-ts`? | Runtime |
+|---|---|---|---|---|
+| Managed Spectrum Cloud lines | `@spectrum-ts/imessage` | `"iMessage"` | Yes | Node.js or Bun |
+| This Mac's Messages database | `@spectrum-ts/imessage-local` | `"iMessage (local mode)"` | No | macOS with Bun or Node.js |
 
-<Warning>
-  Choose one iMessage package per `Spectrum()` instance. Both packages register
-  the `"iMessage"` platform, so registering both would create an ambiguous
-  platform configuration.
-</Warning>
+<Note>
+  `Spectrum()` rejects duplicate platform names. Cloud and local iMessage can
+  coexist in one instance because their ids differ. Prefer separate composition
+  modules anyway so cloud deployments never pull in the native SQLite stack
+  (see [Keep deployment entrypoints separate](#keep-deployment-entrypoints-separate)).
+</Note>
 
 ## Cloud quick start
 

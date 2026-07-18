@@ -46,6 +46,13 @@ for await (const [space, message] of app.messages) {
 
 Narrowing a space from the wrong platform logs a structured warning at runtime. Always gate on `message.platform` (or a similar signal) first to avoid unexpected behavior.
 
+<Note>
+  Cloud iMessage reports `message.platform === "iMessage"`. The local macOS
+  package (`@spectrum-ts/imessage-local`) reports `"iMessage (local mode)"`.
+  Gate on the matching string for the provider you registered, or import
+  `IMESSAGE_PLATFORM` / `LOCAL_IMESSAGE_PLATFORM` from the provider packages.
+</Note>
+
 ## Narrowing a message
 
 Same idea for messages — useful when a provider declares a `message.schema` to attach extra properties:

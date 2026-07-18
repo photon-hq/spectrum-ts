@@ -5,10 +5,7 @@
   "branch": "fix/whatsapp-parity",
   "checkpoints_count": 5,
   "files_touched": [
-    "packages/whatsapp-business/src/content/template.ts",
-    "packages/whatsapp-business/src/index.ts",
-    "packages/whatsapp-business/src/messages.ts",
-    "packages/whatsapp-business/test/template.test.ts"
+    "packages/whatsapp-business/src/index.ts"
   ],
   "sessions": [
     {
@@ -20,10 +17,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 34,
-    "cache_creation_tokens": 19149,
-    "cache_read_tokens": 3233760,
-    "output_tokens": 12267,
-    "api_call_count": 17
+    "input_tokens": 16,
+    "cache_creation_tokens": 3987,
+    "cache_read_tokens": 1610004,
+    "output_tokens": 1840,
+    "api_call_count": 8
   }
 }

@@ -3,27 +3,24 @@
   "checkpoint_id": "a645f8662ac1",
   "session_id": "3d617744-b60b-49f4-84a1-1d8b71630c05",
   "strategy": "manual-commit",
-  "created_at": "2026-07-18T06:07:05.070031Z",
+  "created_at": "2026-07-18T06:08:29.225858Z",
   "branch": "fix/whatsapp-parity",
   "checkpoints_count": 5,
   "files_touched": [
-    "packages/whatsapp-business/src/content/template.ts",
-    "packages/whatsapp-business/src/messages.ts",
-    "packages/whatsapp-business/src/index.ts",
-    "packages/whatsapp-business/test/template.test.ts"
+    "packages/whatsapp-business/src/index.ts"
   ],
   "agent": "Claude Code",
   "model": "",
   "turn_id": "d7a501df20fe",
-  "checkpoint_transcript_start": 475,
-  "transcript_lines_at_start": 475,
-  "compact_transcript_start": 114,
+  "checkpoint_transcript_start": 586,
+  "transcript_lines_at_start": 586,
+  "compact_transcript_start": 140,
   "token_usage": {
-    "input_tokens": 34,
-    "cache_creation_tokens": 19149,
-    "cache_read_tokens": 3233760,
-    "output_tokens": 12267,
-    "api_call_count": 17
+    "input_tokens": 16,
+    "cache_creation_tokens": 3987,
+    "cache_read_tokens": 1610004,
+    "output_tokens": 1840,
+    "api_call_count": 8
   },
   "skill_events_version": 1,
   "skill_events": [
@@ -63,15 +60,15 @@
     "turn_count": 5
   },
   "initial_attribution": {
-    "calculated_at": "2026-07-18T06:07:04.978012Z",
-    "agent_lines": 217,
+    "calculated_at": "2026-07-18T06:08:29.143923Z",
+    "agent_lines": 10,
     "agent_removed": 0,
-    "human_added": 0,
+    "human_added": 208,
     "human_modified": 0,
     "human_removed": 0,
-    "total_committed": 217,
-    "total_lines_changed": 217,
-    "agent_percentage": 100,
+    "total_committed": 218,
+    "total_lines_changed": 218,
+    "agent_percentage": 4.587155963302752,
     "metric_version": 2
   }
 }

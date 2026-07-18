@@ -1,0 +1,63 @@
+[@messages.ts#L768:788](file:///Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts#L768:788)
+ extract this into like /errors/<....>
+
+<context ref="file:///Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts#L768:788">
+export class WhatsAppPartialSendError extends Error {
+  readonly sent: ProviderMessageRecord[];
+  readonly failedIndex: number;
+
+  constructor(input: {
+    sent: ProviderMessageRecord[];
+    failedIndex: number;
+    total: number;
+    cause: unknown;
+  }) {
+    super(
+      `WhatsApp group send failed at part ${input.failedIndex + 1}/${input.total}; ` +
+        `${input.sent.length} earlier part(s) were already delivered and cannot be retracted`,
+      { cause: input.cause }
+    );
+    this.name = "WhatsAppPartialSendError";
+    this.sent = input.sent;
+    this.failedIndex = input.failedIndex;
+  }
+}
+
+</context>
+
+---
+
+[@messages.ts#L732:760](file:///Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts#L732:760)
+ can we clean this up
+
+<context ref="file:///Users/riceontopp/Developer/photon-ai/spectrum-ts/packages/whatsapp-business/src/messages.ts#L732:760">
+// Meta accepts captions only on image/video/document sends.
+const captionablePair = (
+  group: Group
+):
+  | { attachment: Extract<Content, { type: "attachment" }>; caption: string }
+  | undefined => {
+  if (group.items.length !== 2) {
+    return;
+  }
+  const contents = group.items.map((item) => item.content as Content);
+  const attachment = contents.find(
+    (c): c is Extract<Content, { type: "attachment" }> =>
+      c.type === "attachment"
+  );
+  const text = contents.find(
+    (c): c is Extract<Content, { type: "text" }> => c.type === "text"
+  );
+  if (!(attachment && text)) {
+    return;
+  }
+  if (mimeToMediaType(attachment.mimeType) === "audio") {
+    return;
+  }
+  if (text.text.length > MAX_CAPTION_LENGTH) {
+    return;
+  }
+  return { attachment, caption: text.text };
+};
+
+</context>

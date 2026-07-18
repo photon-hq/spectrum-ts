@@ -1,0 +1,184 @@
+<task-notification>
+<task-id>wlpfus23m</task-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/3d617744-b60b-49f4-84a1-1d8b71630c05/tasks/wlpfus23m.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Find WhatsApp Business vs iMessage parity gaps in spectrum-ts and classify fixability" completed</summary>
+<result>{"confirmedGaps":[{"title":"WA inbound quoted-reply context dropped (known gap)","direction":"inbound","severity":"high","suspectedFixable":true,"description":"The SDK delivers msg.context (id/from of the quoted message) but mapContent never wraps content in asReply — context.id is only consulted for poll-vote matching. A user quoting a business message surfaces as plain content with the reply relationship lost, while outbound replies work fine. iMessage resolves inbound reply targets (with cache + messages.get fallback and a stub-target degrade path) into asReply.","evidence":"packages/whatsapp-business/src/messages.ts:395-445 (no asReply), :423-426 (context.id read only for polls), :678-684 (outbound reply supported); SDK index.d.ts:145-151; iMessage counterpart packages/imessage/src/remote/inbound.ts:322-413","verdict":{"isReal":true,"classification":"fixable-in-repo","effort":"small","fixSketch":"In packages/whatsapp-business/src/messages.ts, wrap the result of mapContent (call site at :343, or at the end of mapContent :395-445) in asReply when msg.context?.id is present and the mapped content is not a pollOption/reaction/unsend: target = replyTargetStub mirroring reactionTargetStub (:139-142), i.e. { id: msg.context.id, content: asCustom({ whatsapp_type: \"reply-target\", stub: true }) } — asReply's target only requires id+content (packages/core/src/content/reply.ts:6-7). Optionally enrich the stub via a small per-client LRU keyed by wamid (populated from previously mapped inbound messages and toRecord'd outbound sends), matching the cache-then-stub degrade pattern iMessage uses in packages/imessage/src/remote/inbound.ts:334-383; a live re-fetch fallback is impossible because the Cloud API has no message-get endpoint. Must skip the wrap when context.id matched the poll cache (:423-432) so poll votes stay asPollOption.","reasoning":"Every cited line verified against current code. mapContent (messages.ts:395-445) never emits asReply; msg.context is consulted only at :424-426 for poll-vote matching (repo-wide grep confirms no other context/asReply usage in the package). The SDK delivers the needed inbound data: index.d.ts:19 has InboundMessage.context and :145-151 defines MessageContext with id/from. Outbound replies already work (:678-685 routes reply content to replyToMessage; SDK replyTo at index.d.ts:405), so the asymmetry is real. iMessage does resolve inbound reply targets into a reply wrapper with cache/fetch/stub paths (inbound.ts:322-413). The Meta Cloud API genuinely sends context.{id,from} on quoted replies, so this is not a platform limitation; the only platform constraint is no historical-message fetch, which the repo already works around for reactions via reactionTargetStub + cache — the same pattern applies here, making it fixable in-repo with a stub (optionally cache-enriched) reply target."}},{"title":"WA cannot send template messages — sends outside 24h window fail","direction":"outbound","severity":"high","suspectedFixable":true,"description":"The SDK fully types template sends (TemplateInput, TemplateBuilder) but the provider never constructs one. Outside the 24-hour customer-service window the Cloud API only accepts templates, so any Spectrum send to a stale conversation fails at the API with no recourse (not even a provider-custom escape hatch).","evidence":"packages/whatsapp-business/src/messages.ts:720-895 (no template path); SDK d.ts:352-378, 398-399, 470-481","verdict":{"isReal":true,"classification":"fixable-in-repo","effort":"small","fixSketch":"Follow the iMessage provider-specific-content pattern (packages/imessage/src/content/customized-mini-app.ts + the isCustomizedMiniApp narrowing in packages/imessage/src/index.ts:171). Add packages/whatsapp-business/src/content/template.ts defining a zod schema for a \"whatsapp-template\" content value (name, languageCode, components mirroring TemplateInput from the SDK d.ts:352-378) plus a builder that can wrap the SDK's TemplateBuilder (d.ts:470-481). In packages/whatsapp-business/src/messages.ts, narrow it in `send` (before the switch at line 719) and in `replyToMessage` (line 807), and pass it straight through as `client.messages.send({ to: spaceId, template })` — the SDK's MessageContent union (d.ts:399) already accepts `{ template: TemplateInput }`. Re-export the builder from packages/whatsapp-business/src/index.ts.","reasoning":"Verified against current code: the provider send path (packages/whatsapp-business/src/messages.ts:673-894) has no template branch and no handling of core's `custom` content type — both fall to `UnsupportedError`; grep for \"template\" in the provider source returns nothing. The SDK at node_modules/@photon-ai/whatsapp-business/dist/index.d.ts fully types template sends ({ template: TemplateInput } in MessageContent at line 399, TemplateBuilder/template() at 457-481), so the capability is exposed but unmapped. Meta's Cloud API genuinely rejects free-form messages outside the 24h customer-service window (error 131047), only accepting approved templates, so stale-conversation sends fail exactly as claimed. The fix needs no SDK or server change — the iMessage package already demonstrates the provider-specific content-type pattern to copy, making this a small, self-contained repo change."}},{"title":"WA media captions are one-way: inbound group, outbound throws","direction":"outbound","severity":"high","suspectedFixable":true,"description":"Inbound captioned media is emitted as asGroup([attachment, text]), but outbound group content hits the default UnsupportedError even though SDK MediaInput.caption exists — so an inbound-shaped message cannot be echoed back and captioned sends are impossible. iMessage supports multipart group sends via sendMultipart. Fix: map group(media+text) to a single media send with caption.","evidence":"packages/whatsapp-business/src/messages.ts:400-412 (inbound group), :785-786 (outbound throw), :733-744 (caption never set); SDK d.ts:293 (MediaInput.caption); iMessage packages/imessage/src/remote/send.ts:332-357","verdict":{"isReal":true,"classification":"fixable-in-repo","effort":"small","fixSketch":"In packages/whatsapp-business/src/messages.ts, add a `case \"group\"` to the send switch (before the default at :785) and the reply switch (:814): if the group is exactly one attachment plus one text item (the inbound-produced shape) and the mime maps to image/video/document, reuse the upload logic from the attachment case (:726-745) and pass `caption: text` in the MediaInput (SDK supports it, dist/index.d.ts:292-298). For other group compositions (audio/sticker + text, or &gt;2 items), fall back to sequential per-item sends and return the record of the first/primary item, mirroring how iMessage returns a composite record in packages/imessage/src/remote/send.ts:332-357.","reasoning":"Verified in current code: inbound captioned media becomes asGroup([attachment, text]) at messages.ts:400-412, but neither outbound switch (send :719-787, reply :814-893) has a \"group\" case, so group content hits UnsupportedError at :786/:893; the attachment send path (:726-745) never sets caption. Core's sendWithFallbacks (core/src/platform/build.ts:369-397) only downgrades streamText/markdown — no group splitting — and dispatchSend converts the UnsupportedError to warn-and-skip, so the send is silently dropped. The SDK already exposes everything needed: MediaInput.caption (d.ts:293) and SendMessageParams accepting image/video/audio/document MediaInput (d.ts:383-389). iMessage handles group via sendMultipart (imessage/src/remote/send.ts:332-357), confirming the parity gap. The Meta Cloud API supports captions on image/video/document sends (not audio/sticker), so the gap is a missing mapping in this repo, not an SDK or platform limitation. Minor claim correction: the outbound \"throw\" surfaces to users as a silently dropped message (core warn-and-skip), not an exception, but the functional gap is real."}},{"title":"iMessage inbound message edits sil
+... (truncated 45768 chars, full result in /private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/3d617744-b60b-49f4-84a1-1d8b71630c05/tasks/wlpfus23m.output)</result>
+<diagnostics>Per-agent results: /Users/riceontopp/.claude/projects/-Users-riceontopp-Developer-photon-ai-spectrum-ts/3d617744-b60b-49f4-84a1-1d8b71630c05/subagents/workflows/wf_86df32b0-977/journal.jsonl — one {"type":"result",...} line per completed agent with its full return value.
+If the result above is empty or unexpected, Read this file BEFORE diagnosing — do not assume agents returned non-empty results.
+To re-run with edited post-processing: Workflow({scriptPath: '/Users/riceontopp/.claude/projects/-Users-riceontopp-Developer-photon-ai-spectrum-ts/fda4743b-7876-44c2-8616-c5aa5b9734a8/workflows/scripts/wa-imsg-parity-audit-wf_86df32b0-977.js', resumeFromRunId: 'wf_86df32b0-977'}) — agents whose (prompt, opts) are unchanged replay from cache.</diagnostics>
+<usage><agent_count>25</agent_count><agents_done>25</agents_done><agents_error>0</agents_error><agents_skipped>0</agents_skipped><agents_empty_result>0</agents_empty_result><subagent_tokens>942145</subagent_tokens><tool_uses>304</tool_uses><duration_ms>416992</duration_ms></usage>
+</task-notification>
+
+---
+
+ok can u make a new branch rq,
+
+---
+
+ok can u make a new branch rq for like whatsapp
+
+---
+
+ok no, not yet but lets make a plan, dont use superpowers for this. but lets attempt to fix all of these issues, please ask me any quesitons or wtv for this. like ask me as much questions apspossible
+
+---
+
+also ensure that like you 100% know how meta will respond and viceversa please. like we cannot have meta thoriwng errors
+
+---
+
+<task-notification>
+<task-id>a8cb4443ad4021d00</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/3d617744-b60b-49f4-84a1-1d8b71630c05/tasks/a8cb4443ad4021d00.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore test + content patterns" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Compiled. Here are the facts with references.
+
+## 1. TESTS
+
+**whatsapp-business has tests** — 8 files in `packages/whatsapp-business/test/`: `messages.test.ts`, `auth.test.ts`, `reaction-removal.test.ts`, `caption-group.test.ts`, `redact-url.test.ts`, `unsend-reaction.test.ts`, `config.test.ts`, `caption-group-actions.test.ts`. **imessage** has tests in `packages/imessage/test/` (flat: `contact-card`, `space`, `membership`, `config`, `read-actions`) plus a `packages/imessage/test/remote/` subdir (`app`, `send-markdown`, `inbound`, `markdown`, `contact-share`, `stream`, `stream-text`, `reactions`, `unsend`, `group-events`).
+
+**Test runner: Vitest, driven by Turbo.** Root `package.json:` `"test": "turbo run test:node test:bun"`. turbo.json defines `test:node` and `test:bun` tasks (both `dependsOn: ["^typecheck"]`). Per-package (`packages/whatsapp-business/package.json`): `"test:node": "vitest run"`, `"test:bun": "bun --bun vitest run"`. imessage is identical.
+
+**Commands to run one package's tests** (from repo root):
+- Node: `turbo run test:node --filter=@spectrum-ts/whatsapp-business` (or in-package: `vitest run`)
+- Bun: `turbo run test:bun --filter=@spectrum-ts/whatsapp-business` (in-package: `bun --bun vitest run`)
+
+**Vitest config:** each package has `vitest.config.ts` = `spectrumTestConfig(import.meta.dirname)` from `@spectrum-ts/test-support/vitest`. `packages/test-support/src/vitest.ts:31` defines it: aliases `@/` → `&lt;pkg&gt;/src/`, aliases workspace specifiers (`@spectrum-ts/core`, `@spectrum-ts/core/authoring`, etc.) straight to source `.ts`, and includes `test/**/*.test.ts`.
+
+**test-support exports** (package.json exports `./*` → `./src/*.ts`, so imported as `@spectrum-ts/test-support/&lt;name&gt;`):
+- `platform.ts` — fake providers via `definePlatform`: `makeManagedProvider`, `makeSchemaProvider`, `makeNativeProvider`, plus `record(id)` (fake inbound `ProviderMessage`), `makeQueue&lt;T&gt;()`, `baseConfig` (`{projectId, projectSecret}`).
+- `cloud.ts` — `stubCloud()` (prevents network on Spectrum construction).
+- `webhook.ts` — `SPECTRUM_WEBHOOK_SECRET`, `signSpectrum(...)`, `textEnvelope(...)`, types `SignedSpectrumWebhook`/`SignSpectrumOptions`.
+- `fusor.ts` — `makeSlack`, `makePresence`, `makeCtxProbe`, `encodeEvent`, plus payload types/constants.
+- Also `time.ts`, `timing.ts`.
+
+**Representative provider tests / structure:**
+- `packages/whatsapp-business/test/messages.test.ts:1` — imports `send` from `@/messages` and content authoring from `@spectrum-ts/core/authoring` (`asRead`). Mocks the SDK client by hand-rolling a minimal object cast to `WhatsAppClients`: `const clients = [{ messages: { markRead } }] as unknown as WhatsAppClients` with `vi.fn()` spies. Invokes outbound directly: `await send(clients, "15550001111", asRead({ target }))`, then asserts the spy call + that fire-and-forget returns `undefined`.
+- `packages/imessage/test/remote/inbound.test.ts:1` — imports `toInboundMessages` from `@/remote/inbound` and SDK types from `@photon-ai/advanced-imessage`. Mocks the client as `{ messages: { get: async () =&gt; throw NotFoundError } } as unknown as AdvancedIMessage`, builds fake `MessageEvent` payloads via a `receivedEvent(...)` factory, and asserts on the mapped inbound `content`. This is the inbound-mapping counterpart to whatsapp's outbound-`send` tests.
+
+## 2. PROVIDER-SPECIFIC CONTENT PATTERN (imessage customized-mini-app)
+
+`packages/imessage/src/content/customized-mini-app.ts`:
+- **Schema** (line 27): `customizedMiniAppSchema` = `z.object` with `type: literal("customized-mini-app")` and a `__platform: literal("iMessage")` tag, plus `appName`, `appStoreId?`, `extensionBundleId`, `layout` (= `appLayoutSchema` from core, line 12), `live?`, `teamId`, `url`. Deliberately **not** a member of the universal `Content` union.
+- **Type guard** (line 55): `isCustomizedMiniApp = (v): v is CustomizedMiniApp =&gt; customizedMiniAppSchema.safeParse(v).success`. Also `asCustomizedMiniApp(input)` (line 58) and the builder `customizedMiniApp(input): ContentBuilder` (line 84) whose `build()` returns `asCustomizedMiniApp(input) as unknown as Content`.
+- **Narrowing in send path** (`packages/imessage/src/index.ts`): the send switch at line 700 — `if (isCustomizedMiniApp(content)) return await handleCustomizedMiniApp(client, space, content)` (handler defined line 259, calls `remoteSendCustomizedMiniApp` and returns a real `ProviderMessageRecord`). Same guard narrows in the **edit** path at line 171 (requires a prior `miniAppCardSession`, calls `remoteUpdateCustomizedMiniApp`). The `__platform` tag lets the framework's `findUnsupportedPlatformContent` warn-and-skip on other platforms.
+- **Re-exports from package index** (`packages/imessage/src/index.ts`): line 31-36 exports the builder `customizedMiniApp` + types `CustomizedMiniApp`/`CustomizedMiniAppInput`/`CustomizedMiniAppLayout`; line 52-54 exports `CustomizedMiniApp` type and the `isCustomizedMiniApp` guard.
+
+## 3. asReply CONSTRAINTS
+
+`packages/core/src/content/reply.ts` fully read. `replySchema` (line 32):
+- `type: z.literal("reply")`.
+- `content: z.custom&lt;BaseContent&gt;(isContent, ...)` — `isContent` (line 15) only checks it's an object with a string `type` (loose; typed as `BaseContent`, not `Content`, to avoid a circular alias).
+- `target: z.custom&lt;Message&gt;(isMessage, ...)` — `isMessage` (line 6) requires an object with `id` and `content` fields.
+
+The **real restriction lives in the builder** `reply()` (line 49), not the schema: it resolves content then throws if `resolved.type` is any of `reply`, `edit`, `reaction`, `group`, `typing`, `rename`, `avatar`, `addMember`, `removeMember`, `leaveSpace`, `unsend`, `read` (line 64-79). So a reply may only wrap: `text`, `markdown`, `stream-text`, `custom`, `attachment`, `contact`, `voice`, `richlink`, `app`, `poll`, `poll-option`, `effect`. Missing target throws (line 55).
+
+**Content union** (`packages/core/src/content/types.ts`): `baseContentSchema` (line 65) is the discriminated union of everything except `reply`/`edit`/`unsend`/`read`; `contentSchema` (line 72) = base + `replySchema` + `editSchema` + `unsendSchema` + `readSchema`. `Reply.content` is typed `BaseContent` to keep `Reply ↔ Content` non-circular.
+
+**Webhook round-trip:** yes, inbound reply content round-trips. `packages/core/src/webhook/deserialize.ts:142` routes `case "reply"` → `deserializeReply` (line 281), which rebuilds `{ type: "reply", content: deserializeContent(...) , target: buildTargetRecord(...) }`. Note the target is reconstructed with only a text stand-in: `buildTargetRecord` (line 295) sets `content: { type: "text", text: contentPreview }` (target's full content is not delivered). Voice also round-trips: `case "voice"` (line 148) → `deserializeVoice` (line 241).
+
+## 4. SEND PATH STRUCTURE (whatsapp-business/src/messages.ts)
+
+**`send` (line 673)** — pre-switch guards: `reply` → delegates to `replyToMessage(...)` (line 678); `reaction` → `reactToMessage` (line 686); `typing` → no-op returns `undefined` (line 689, WA has no typing API); `read` → `markRead(parentWamid(target.id))`, returns `undefined` (line 695); `unsend` → only works if target content is a `reaction` (resends reaction with `emoji: ""`), else throws `UnsupportedError`, returns `undefined` (line 701). Then a `switch (content.type)` (line 719) on `primary(clients)`:
+- `text` (720), `attachment` (726, uploads media, doc gets filename), `contact` (746), `voice` (755, uploads audio), `poll` (770, `pollToInteractive` + `cachePoll`), `app` (778, sends bare URL as text). `default` → `throw UnsupportedError.content(content.type)` (786).
+- Each returns `toRecord(await client.messages.send({...}), spaceId, content)` → a `ProviderMessageRecord`. Fire-and-forget cases (`typing`/`read`/`unsend`) return `undefined`. Return type is `Promise&lt;ProviderMessageRecord | undefined&gt;`.
+
+**`replyToMessage` (line 807)** — returns `Promise&lt;ProviderMessageRecord&gt;` (non-optional). `switch (content.type)`: `text` (815), `attachment` (825), `contact` (846), `voice` (856), `poll` (872), `app` (881); `default` → `throw UnsupportedError.content(content.type)` (892). Every send passes `replyTo: messageId` alongside `to: spaceId`, then `toRecord(...)`.
+
+**`reactionTargetStub` (line 139):** `(reactedId) =&gt; ({ id: reactedId, content: asCustom({ whatsapp_type: "reaction-target", stub: true }) })` — a synthetic target message since WA doesn't deliver the reacted message's real content. Used at lines 365 and 389 in `mapReactionContent`.
+
+**`toRecord` (line 54):** `(result, spaceId, content) =&gt; ({ id: result.messageId, content, space: { id: spaceId }, timestamp: new Date() })`. No `sender` (outbound record).
+
+**`space.id` / phone usage:** the caller passes `spaceId` (the recipient phone number, e.g. `"15550001111"`) directly as the `to` field on every `client.messages.send`, and as `space.id` in the record. `primary(clients)` selects the sending client. (Contrast: imessage passes `space.id` + `space.phone`, resolving the client via `clientForPhone(client, space.phone)`.)
+
+## 5. WEBHOOK / INBOUND EVENT SHAPE
+
+Inbound flow (`packages/whatsapp-business/src/messages.ts`): `clientStream` (line 609) subscribes to `client.events` (`.subscribe`), filters to `type === "message"` (line 628), then in a pump loop calls `toMessages(client, event.message)` at **line 641** (wrapped in try/catch — one unmappable event is logged and skipped, never kills the stream). `messages()` (line 669) merges per-client streams via `mergeStreams`.
+
+`toMessages` (line 322) builds `WhatsAppMessage` records (`sender`/`space` both `{ id: msg.from }`), calling `mapContent` (line 395) which returns core `Content` values built via `asText`/`asGroup`/`asCustom`/`asReaction`/`asUnsend` etc. Reactions go through `mapReactionContent` (line 352). Note: **WA inbound never emits a `reply` wrapper or `voice` content** — inbound audio maps via `case "audio"` to a media attachment/group (line 400-413), not `voice`.
+
+**Downstream schema validation:** none that would reject a `reply` wrapper or `voice`. The provider `messages` stream is consumed by the platform runtime; `PlatformDefinition.messages` is typed as `EventProducer` (`packages/core/src/platform/types.ts:408`) and content is not re-parsed against `contentSchema` on the inbound path. The only inbound `.parse` in the platform layer is the space `message.schema` on `extra` (`packages/core/src/platform/build.ts:479`), not content. Content schema validation only occurs in the **webhook deserialize path** (`packages/core/src/webhook/deserialize.ts`), which explicitly handles both `reply` (line 142/281) and `voice` (line 148/241) — so neither is rejected there either.
+
+Note: I did not create a plan file — this was a read-only exploration/report task, so findings are delivered here directly.</result>
+<usage><subagent_tokens>48868</subagent_tokens><tool_uses>27</tool_uses><duration_ms>164114</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abd8bb7076da2a379</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-riceontopp-Developer-photon-ai-spectrum-ts/3d617744-b60b-49f4-84a1-1d8b71630c05/tasks/abd8bb7076da2a379.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify Meta API payload shapes" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All verification complete. Structured report follows.
+
+---
+
+# WhatsApp Cloud API verification report
+
+## Critical architectural finding (affects ALL claims)
+
+The SDK at `/Users/riceontopp/Developer/photon-ai/spectrum-ts/node_modules/@photon-ai/whatsapp-business/dist/index.js` is **not** a Graph API client. It is a gRPC/protobuf client (nice-grpc + `@bufbuild/protobuf`, see `dist/index.d.ts:1-2`) that sends camelCase proto messages to the Photon Spectrum relay; the relay — not this SDK — constructs the actual Meta HTTP payload. So "SDK maps X to Meta field Y" is true only up to the relay boundary. Notable wire-name differences the relay must translate: `previewUrl` → `preview_url`, `languageCode` (flat string) → `language: { code }`, `replyToMessageId` → `context: { message_id }`. The proto `fromJSON` decoders accept both camelCase and snake_case aliases (`preview_url` at index.js:3167, `language_code` at index.js:4493).
+
+## 1. Text link preview — CONFIRMED
+
+- **Meta**: field is `preview_url` (boolean) inside the `text` object. Doc: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages — `"text": { "preview_url": true, "body": "…link to our latest product: https://www.meta.com/quest/quest-3/" }`. URL must appear in `body` and begin with `http://`/`https://`. Body max 4096 chars.
+- **No-OG-tags behavior**: graceful degrade — "if preview rendering fails, the client renders a clickable link instead." No API error. (Behavior for pages with no OG tags specifically is not spelled out beyond this fallback.)
+- **SDK**: `mapSendParams` (index.js:6893, src/transport/mapper.ts) line 6907: `text: { body: text2.body, previewUrl: text2.previewUrl }`. `TextInput.previewUrl?: boolean` at index.d.ts:288-291. Relay must rename to `preview_url` (proto toJSON emits `previewUrl`, index.js:3175-3176).
+
+## 2. Media captions — CONFIRMED (audio error code UNCONFIRMED)
+
+- **Caption supported**: image (max 1024 — https://developers.facebook.com/docs/whatsapp/cloud-api/messages/image-messages: "Media asset caption text. Maximum 1024 characters."), video (1024 — https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/video-messages), document (1024, plus `filename` — https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/document-messages).
+- **Not supported**: audio — object allows only `id`, `link`, `voice` (https://developers.facebook.com/docs/whatsapp/cloud-api/messages/audio-messages); sticker — only `id`, `link` (https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/sticker-messages).
+- **UNCONFIRMED**: the exact error Meta returns for `audio.caption`. Official docs never state it; do not rely on a specific code (community reports say a `#100` invalid-parameter 400, but that is not from Meta docs).
+- **SDK**: `mapMediaInput` (index.js:6980-6988) passes `caption` for image/video/audio/document alike — including audio (index.js:6922-6927), so the SDK will happily forward an audio caption; guarding must happen in caller or relay. Sticker path correctly sends only `{ id, link }` (index.js:6934-6938). `MediaInput.caption` at index.d.ts:292-298. Note: outbound `audio.voice` now exists in Meta's API but the SDK's outbound `mapMediaInput` has **no voice field** — outbound voice flag is unsupported by this SDK version.
+
+## 3. Template sends — CONFIRMED (partly via indexed official content)
+
+- **Minimal payload** (official example, https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/template-messages/): `"template": { "name": "order_confirmation", "language": { "code": "en_US" }, "components": [ { "type": "body", "parameters": [ { "type": "text", "text": "Jessica" } ] } ] }`. Language is an object wrapping `code`. Body params are `{ type: "text", text: "…" }` objects.
+- **Components omittable**: yes — Meta's own hello_world example sends `"template": { "name": "hello_world", "language": { "code": "en_US" } }` with no `components` (official Meta content via get-started/auth-tokens blog, developers.facebook.com). The Message API reference schema table itself was not retrievable (JS-rendered), so "components: Optional" as an explicit schema row is confirmed only by example.
+- **Errors** (from https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes — page consistently returned HTTP 500 to direct fetch; descriptions confirmed via search-indexed content of that official page):
+  - **132000** — parameter count mismatch: "The number of variable parameter values included in the request did not match the number of variable parameters defined in the template."
+  - **132001** — "Template does not exist in the specified language or the template has not been approved."
+  - **131047** — re-engagement: "More than 24 hours have passed since the recipient last replied to the sender number" (applies to free-form sends; templates are the fix).
+- **SDK**: `template()` builder (index.js:192-194) / `TemplateBuilder` (146-191) builds `{ type: "body", parameters: [...] }` components with param helpers (`text` param → `{ type: 'text', text }` via `mapTemplateParameterInput`, index.js:7069-7073). `mapTemplateInput` (index.js:7047-7053) produces `{ name, languageCode, components: input.components?.map(...) ?? [] }` — **flat `languageCode`, no `{ code }` wrapper, and components defaults to `[]` not omitted**. The proto3 empty repeated field serializes as absent on the wire, so `[]` is safe; but any planned fix must NOT send `language: { code }` through this SDK — the proto only knows `languageCode` (TemplateContent, index.js:4439-4516).
+
+## 4. Inbound quoted-reply context — CONFIRMED
+
+- **Meta**: `context: { "from": "&lt;business display phone number&gt;", "id": "&lt;wamid of original message&gt;" }` — quoted exactly in https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/interactive/ ; forwarded flags in https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/text/ : `"context": { "forwarded": true }` (≤5 forwards) or `"frequently_forwarded": true` (&gt;5 forwards); `referred_product` (`catalog_id`, `product_retailer_id`) when originating from a "Message business" button.
+- **SDK**: `mapInboundMessage` (index.js:7184-7211), lines 7192-7201 map `context` → `{ forwarded, frequentlyForwarded, from, id, referredProduct }`. Type `MessageContext$1` at index.d.ts:145-151. All fields optional — matches Meta's conditional presence.
+
+## 5. Inbound voice flag — CONFIRMED
+
+- **Meta**: https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/audio/ — audio object = `{ id, mime_type, sha256, voice }`; `voice`: "Boolean indicating if audio is a recording made with the WhatsApp client voice recording feature (true) or not (false)." Example shows `"voice": true` with `"mime_type": "audio/ogg; codecs=opus"`.
+- **SDK**: `mapInboundMedia` (index.js:7299-7308) surfaces `voice: proto.voice`; `InboundMedia.voice?: boolean` at index.d.ts:180-187.
+
+## 6. Inbound profile name — CONFIRMED shape; "always present" UNCONFIRMED
+
+- **Meta**: `contacts: [ { "profile": { "name": "&lt;WHATSAPP_USER_PROFILE_NAME&gt;" }, "wa_id": "&lt;WHATSAPP_USER_ID&gt;" } ]` — https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages ("WhatsApp user's name as it appears in their profile in the WhatsApp client").
+- **Presence guarantee**: Meta docs do NOT state contacts[] is always present — UNCONFIRMED; treat as optional.
+- **SDK**: agrees — `contact` is optional: `contact: proto.contact ? { waId, name } : void 0` (index.js:7190); `InboundMessage$1.contact?: Contact$1` at index.d.ts:16-26, `Contact$1 { waId, name? }` at 134-137.
+
+## 7. Outbound reply context — CONFIRMED
+
+- **Meta**: https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies — `"context": { "message_id": "WAMID_TO_REPLY_TO" }` on POST `/&lt;PHONE_NUMBER_ID&gt;/messages`. If the referenced message "has been deleted or moved to long term storage (typically after 30 days)", the contextual bubble simply fails to display — **the message still sends without the quote; no documented error code** for unknown/expired ids. (No explicit statement for a completely bogus wamid — treat "sends without bubble" as the documented degradation; a hard-reject case is UNCONFIRMED.)
+- **SDK**: `params.replyTo` → `replyToMessageId` (index.js:6896); relay must translate to `context: { message_id }`.
+
+## Summary of risk flags for the planned fixes
+
+1. Do not emit `language: { code }` or omit-vs-empty `components` distinctions at the SDK layer — the proto is flat `languageCode` + repeated `components` (empty = absent on wire).
+2. Do not set `caption` on audio/sticker inputs; SDK won't stop you for audio, and Meta's error for it is undocumented.
+3. Do not assume `contacts[]`/`contact` present on every inbound message.
+4. Outbound voice-note flag is not expressible via this SDK version's `MediaInput`.
+5. Unknown/expired `replyTo` degrades to a quote-less send per docs — safe to pass through.
+
+Sources: [text messages](https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages), [image](https://developers.facebook.com/docs/whatsapp/cloud-api/messages/image-messages), [audio](https://developers.facebook.com/docs/whatsapp/cloud-api/messages/audio-messages), [video](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/video-messages), [document](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/document-messages), [sticker](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/sticker-messages), [template messages](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/template-messages/), [template fundamentals](https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview), [error codes](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes), [contextual replies](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies), [messages webhook reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages), [text webhook](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/text/), [audio webhook](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/audio/), [interactive webhook](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/interactive/)</result>
+<usage><subagent_tokens>77359</subagent_tokens><tool_uses>50</tool_uses><duration_ms>374359</duration_ms></usage>
+</task-notification>

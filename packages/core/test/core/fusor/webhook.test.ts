@@ -477,12 +477,20 @@ describe("fusor events", () => {
       expect(startSpy).toHaveBeenCalledTimes(1);
     } finally {
       startGate.resolve();
-      await settleSoon(topLevel?.return?.());
-      await settleSoon(platformLevel?.return?.());
-      await settleSoon(topLevelEvent?.catch(() => undefined));
-      await settleSoon(platformLevelEvent?.catch(() => undefined));
-      await settleSoon(spectrum?.stop());
-      startSpy.mockRestore();
+      try {
+        await Promise.all([
+          settleSoon(topLevel?.return?.()),
+          settleSoon(platformLevel?.return?.()),
+          settleSoon(topLevelEvent?.catch(() => undefined)),
+          settleSoon(platformLevelEvent?.catch(() => undefined)),
+        ]);
+      } finally {
+        try {
+          await spectrum?.stop();
+        } finally {
+          startSpy.mockRestore();
+        }
+      }
     }
   });
 
@@ -511,8 +519,11 @@ describe("fusor events", () => {
       expect(result.status).toBe(200);
       expect(startSpy).not.toHaveBeenCalled();
     } finally {
-      await settleSoon(spectrum?.stop());
-      startSpy.mockRestore();
+      try {
+        await spectrum?.stop();
+      } finally {
+        startSpy.mockRestore();
+      }
     }
   });
 
@@ -560,10 +571,18 @@ describe("fusor events", () => {
       expect(handlerCalls).toBe(0);
       expect(startSpy).toHaveBeenCalledTimes(1);
     } finally {
-      await settleSoon(presence?.return?.());
-      await settleSoon(firstPresence?.catch(() => undefined));
-      await settleSoon(spectrum?.stop());
-      startSpy.mockRestore();
+      try {
+        await Promise.all([
+          settleSoon(presence?.return?.()),
+          settleSoon(firstPresence?.catch(() => undefined)),
+        ]);
+      } finally {
+        try {
+          await spectrum?.stop();
+        } finally {
+          startSpy.mockRestore();
+        }
+      }
     }
   });
 

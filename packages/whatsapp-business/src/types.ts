@@ -25,7 +25,11 @@ export const isCloudConfig = (
   config: WhatsAppConfig
 ): config is z.infer<typeof cloudConfig> => !("accessToken" in config);
 
-export const userSchema = z.object({});
+export const userSchema = z.object({
+  // WhatsApp profile push name, delivered with inbound messages when Meta
+  // includes the contacts[] payload (not guaranteed on every webhook).
+  name: z.string().optional(),
+});
 
 export const spaceSchema = z.object({
   id: z.string(),

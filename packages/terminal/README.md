@@ -14,7 +14,7 @@ bun add spectrum-ts @spectrum-ts/terminal
 import { Spectrum } from "spectrum-ts";
 import { terminal } from "@spectrum-ts/terminal";
 
-const spectrum = Spectrum({ platforms: [terminal] });
+const spectrum = Spectrum({ providers: [terminal] });
 ```
 
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.

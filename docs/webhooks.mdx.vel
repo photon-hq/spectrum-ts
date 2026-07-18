@@ -29,7 +29,7 @@ Native Spectrum webhooks require a signing secret for HMAC verification. Pass it
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
   webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
 });
 ```
@@ -94,7 +94,7 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
     const app = await Spectrum({
       projectId: process.env.PROJECT_ID!,
       projectSecret: process.env.PROJECT_SECRET!,
-      platforms: [imessage.config()],
+      providers: [imessage.config()],
       webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
     });
 
@@ -131,7 +131,7 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
     const app = await Spectrum({
       projectId: process.env.PROJECT_ID!,
       projectSecret: process.env.PROJECT_SECRET!,
-      platforms: [imessage.config()],
+      providers: [imessage.config()],
       webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
     });
 
@@ -172,7 +172,7 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
     const app = await Spectrum({
       projectId: process.env.PROJECT_ID!,
       projectSecret: process.env.PROJECT_SECRET!,
-      platforms: [imessage.config()],
+      providers: [imessage.config()],
       webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
     });
 

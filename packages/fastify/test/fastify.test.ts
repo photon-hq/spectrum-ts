@@ -25,7 +25,7 @@ const PLATFORM = "im";
 const makeApp = (overrides: Record<string, unknown> = {}) =>
   Spectrum({
     ...baseConfig,
-    platforms: [makeManagedProvider(PLATFORM).config({})],
+    providers: [makeManagedProvider(PLATFORM).config({})],
     webhookSecret: SPECTRUM_WEBHOOK_SECRET,
     ...overrides,
   });

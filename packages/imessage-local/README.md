@@ -11,7 +11,7 @@ import { imessage } from "@spectrum-ts/imessage-local";
 import { Spectrum } from "spectrum-ts";
 
 const spectrum = Spectrum({
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
 });
 ```
 

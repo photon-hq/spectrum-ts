@@ -1,7 +1,7 @@
 import { reaction, reply, Spectrum, text } from "spectrum-ts";
 import { terminal } from "spectrum-ts/providers/terminal";
 
-const app = await Spectrum({ platforms: [terminal.config()] });
+const app = await Spectrum({ providers: [terminal.config()] });
 
 // Seed each new space with something to reply/react to.
 const seeded = new Set<string>();

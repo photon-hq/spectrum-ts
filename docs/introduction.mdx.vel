@@ -74,7 +74,7 @@ import { imessage, terminal } from "spectrum-ts/providers";
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [
+  providers: [
     imessage.config(),
     terminal.config(),
   ],

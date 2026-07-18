@@ -38,7 +38,7 @@ roadmap.
 
 ## Combining providers
 
-Call each provider's `config()` method and pass the results to `platforms`:
+Call each provider's `config()` method and pass the results to `providers`:
 
 <Tabs>
   <Tab title="Aggregate import">
@@ -49,7 +49,7 @@ Call each provider's `config()` method and pass the results to `platforms`:
     const app = await Spectrum({
       projectId: "...",
       projectSecret: "...",
-      platforms: [
+      providers: [
         imessage.config(),
         whatsappBusiness.config({
           accessToken: process.env.WA_TOKEN!,
@@ -75,7 +75,7 @@ Call each provider's `config()` method and pass the results to `platforms`:
     const app = await Spectrum({
       projectId: "...",
       projectSecret: "...",
-      platforms: [
+      providers: [
         imessage.config(),
         whatsappBusiness.config({
           accessToken: process.env.WA_TOKEN!,

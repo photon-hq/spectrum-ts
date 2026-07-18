@@ -278,7 +278,7 @@ Exported platforms work like the built-ins — register with `.config()` and use
 
 ```ts
 const app = await Spectrum({
-  platforms: [
+  providers: [
     myPlatform.config({ apiKey: process.env.MY_KEY! }),
   ],
 });

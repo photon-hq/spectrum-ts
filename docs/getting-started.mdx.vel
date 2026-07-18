@@ -55,7 +55,7 @@ import { Spectrum } from "spectrum-ts";
 import { imessage } from "@spectrum-ts/imessage-local";
 
 const app = await Spectrum({
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
 });
 ```
 
@@ -103,7 +103,7 @@ import { imessage } from "spectrum-ts/providers/imessage";
 const app = await Spectrum({
   projectId: "your-project-id",
   projectSecret: "your-project-secret",
-  platforms: [
+  providers: [
     imessage.config(),
   ],
 });
@@ -123,7 +123,7 @@ import { Spectrum } from "spectrum-ts";
 import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({
-  platforms: [terminal.config()],
+  providers: [terminal.config()],
 });
 ```
 
@@ -158,7 +158,7 @@ import { terminal } from "spectrum-ts/providers/terminal";
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [
+  providers: [
     imessage.config(),
     terminal.config(),
   ],
@@ -181,7 +181,7 @@ Spectrum emits structured logs across the core runtime and providers. Control th
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
   options: { logLevel: "debug" },
 });
 ```
@@ -196,7 +196,7 @@ Spectrum has built-in [OpenTelemetry](https://opentelemetry.io/) instrumentation
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
   telemetry: true,
 });
 ```

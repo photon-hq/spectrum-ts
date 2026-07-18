@@ -71,7 +71,7 @@ describe("space.getMembers()", () => {
     const provider = makeReadProvider("reads-members");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const space = await provider(app).space.create("u1");
@@ -92,7 +92,7 @@ describe("space.getMembers()", () => {
     const provider = makeBareProvider("reads-members-bare");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const space = await provider(app).space.create("u1");
@@ -109,7 +109,7 @@ describe("space.getAvatar()", () => {
     const provider = makeReadProvider("reads-avatar");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const space = await provider(app).space.create("u1");
@@ -127,7 +127,7 @@ describe("space.getAvatar()", () => {
     const provider = makeReadProvider("reads-avatar-none", { avatar: "none" });
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const space = await provider(app).space.create("u1");
@@ -141,7 +141,7 @@ describe("space.getAvatar()", () => {
     const provider = makeBareProvider("reads-avatar-bare");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const space = await provider(app).space.create("u1");
@@ -157,7 +157,7 @@ describe("platform instance read methods", () => {
     const provider = makeReadProvider("reads-instance");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -182,7 +182,7 @@ describe("platform instance read methods", () => {
     const provider = makeBareProvider("reads-instance-bare");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);

@@ -30,7 +30,7 @@ import { imessage } from "spectrum-ts/providers/imessage";
 const app = await Spectrum({
   projectId: process.env.SPECTRUM_PROJECT_ID!,
   projectSecret: process.env.SPECTRUM_PROJECT_SECRET!,
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
 });
 ```
 
@@ -96,7 +96,7 @@ import { Spectrum } from "spectrum-ts";
 import { imessage } from "@spectrum-ts/imessage-local";
 
 const app = await Spectrum({
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
 });
 ```
 
@@ -141,14 +141,14 @@ give them separate composition modules so bundlers see only the correct import:
 // cloud-app.ts
 import { imessage } from "@spectrum-ts/imessage";
 
-export const platforms = [imessage.config()];
+export const providers = [imessage.config()];
 ```
 
 ```ts
 // mac-app.ts
 import { imessage } from "@spectrum-ts/imessage-local";
 
-export const platforms = [imessage.config()];
+export const providers = [imessage.config()];
 ```
 
 Avoid a shared module that statically imports both packages and chooses one at
@@ -176,7 +176,7 @@ import { Spectrum } from "spectrum-ts";
 import { imessage } from "@spectrum-ts/imessage-local";
 
 const app = await Spectrum({
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
 });
 ```
 

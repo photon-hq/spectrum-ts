@@ -15,7 +15,7 @@ import { Spectrum } from "spectrum-ts";
 import { telegram } from "@spectrum-ts/telegram";
 
 const spectrum = Spectrum({
-  platforms: [telegram.config({ botToken: "..." })],
+  providers: [telegram.config({ botToken: "..." })],
 });
 ```
 

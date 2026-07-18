@@ -64,7 +64,7 @@ import { slack } from "spectrum-ts/providers/slack";
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [
+  providers: [
     slack.config({
       tokens: { TEAM_ID: process.env.SLACK_BOT_TOKEN! },
     }),

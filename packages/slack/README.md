@@ -15,7 +15,7 @@ import { Spectrum } from "spectrum-ts";
 import { slack } from "@spectrum-ts/slack";
 
 const spectrum = Spectrum({
-  platforms: [slack.config({ tokens: { T012ABCDE: "xoxb-..." } })],
+  providers: [slack.config({ tokens: { T012ABCDE: "xoxb-..." } })],
 });
 ```
 

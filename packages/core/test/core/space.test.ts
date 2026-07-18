@@ -17,7 +17,7 @@ describe("space.create", () => {
     const provider = makeManagedProvider("space-create-single");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -34,7 +34,7 @@ describe("space.create", () => {
     const provider = makeSchemaProvider("space-create-mixed");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -53,7 +53,7 @@ describe("space.create", () => {
     const provider = makeSchemaProvider("space-create-params");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -68,7 +68,7 @@ describe("space.create", () => {
     const provider = makeSchemaProvider("space-create-schema");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -86,7 +86,7 @@ describe("space.get", () => {
     const provider = makeManagedProvider("space-get-default");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -103,7 +103,7 @@ describe("space.get", () => {
     const provider = makeSchemaProvider("space-get-hook", { withGet: true });
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);
@@ -119,7 +119,7 @@ describe("space.get", () => {
     const provider = makeSchemaProvider("space-get-needs-hook");
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const instance = provider(app);

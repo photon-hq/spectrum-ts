@@ -25,7 +25,7 @@ choice is made by the import, not by a config flag.
     const app = await Spectrum({
       projectId: process.env.SPECTRUM_PROJECT_ID!,
       projectSecret: process.env.SPECTRUM_PROJECT_SECRET!,
-      platforms: [imessage.config()],
+      providers: [imessage.config()],
     });
     ```
 
@@ -54,7 +54,7 @@ choice is made by the import, not by a config flag.
     import { imessage } from "@spectrum-ts/imessage-local";
 
     const app = await Spectrum({
-      platforms: [imessage.config()],
+      providers: [imessage.config()],
     });
     ```
 

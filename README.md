@@ -42,7 +42,7 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
    const app = await Spectrum({
      projectId: process.env.PROJECT_ID,
      projectSecret: process.env.PROJECT_SECRET,
-     platforms: [imessage.config()],
+     providers: [imessage.config()],
    });
 
    for await (const [space, message] of app.messages) {

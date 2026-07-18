@@ -175,7 +175,7 @@ const spectrumConfigSchema = z.union([
   z.object({
     projectId: z.string().min(1),
     projectSecret: z.string().min(1),
-    platforms: z.array(z.custom<PlatformProviderConfig>()),
+    providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
     webhookSecret: z.string().min(1).optional(),
@@ -183,7 +183,7 @@ const spectrumConfigSchema = z.union([
   z.object({
     projectId: z.undefined().optional(),
     projectSecret: z.undefined().optional(),
-    platforms: z.array(z.custom<PlatformProviderConfig>()),
+    providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
     webhookSecret: z.string().min(1).optional(),
@@ -260,7 +260,7 @@ function resolveProjectCredentials(options: {
 
 interface SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> {
   options?: SpectrumOptions;
-  platforms: [...Providers];
+  providers: [...Providers];
   telemetry?: boolean;
   webhookSecret?: string;
 }
@@ -295,7 +295,7 @@ export async function Spectrum<
 
   const {
     options: runtimeOptions,
-    platforms,
+    providers,
     telemetry,
     webhookSecret,
   } = options;
@@ -532,11 +532,11 @@ export async function Spectrum<
   await withSpan(
     "spectrum.init",
     {
-      "spectrum.provider_count": platforms.length,
+      "spectrum.provider_count": providers.length,
       "spectrum.flatten_groups": flattenGroups,
     },
     async () => {
-      for (const provider of platforms) {
+      for (const provider of providers) {
         const providerConfig = provider as PlatformProviderConfig;
         const def = providerConfig.__definition;
         const userConfig = def.config.parse(providerConfig.config);
@@ -668,12 +668,12 @@ export async function Spectrum<
     return fusorStartPromise;
   };
 
-  const providerNames = platforms
+  const providerNames = providers
     .map((p) => (p as PlatformProviderConfig).__definition.name)
     .join(",");
 
   lifecycleLog.info("Spectrum started", {
-    "spectrum.lifecycle.provider_count": platforms.length,
+    "spectrum.lifecycle.provider_count": providers.length,
     "spectrum.lifecycle.providers": providerNames,
     "spectrum.lifecycle.telemetry": telemetry === true,
   });
@@ -1318,7 +1318,7 @@ export async function Spectrum<
   };
 
   const base = {
-    __providers: platforms,
+    __providers: providers,
     __internal: { platforms: platformStates },
     config: projectConfig,
     messages,

@@ -30,7 +30,7 @@ import { telegram } from "spectrum-ts/providers/telegram";
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
-  platforms: [
+  providers: [
     telegram.config({
       botToken: process.env.TELEGRAM_BOT_TOKEN!,
     }),

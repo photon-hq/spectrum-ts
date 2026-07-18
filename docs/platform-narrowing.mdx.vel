@@ -27,7 +27,7 @@ const space = await im.space.create(user);
 await space.send("Hello from a new conversation.");
 ```
 
-If the platform isn't registered in the `platforms` array, the type of `imessage(app)` resolves to `never` — the call is a compile-time error.
+If the platform isn't registered in the `providers` array, the type of `imessage(app)` resolves to `never` — the call is a compile-time error.
 
 ## Narrowing a space
 

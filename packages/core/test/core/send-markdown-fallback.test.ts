@@ -99,7 +99,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-text", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -125,7 +125,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-reply", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -149,7 +149,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-edit", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -176,7 +176,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-group", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -211,7 +211,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-none", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -229,7 +229,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-empty", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -254,7 +254,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-fallback-other", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);
@@ -281,7 +281,7 @@ describe("markdown plain-text fallback", () => {
     const provider = makeProvider("md-native", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space] = await firstMessage(app);

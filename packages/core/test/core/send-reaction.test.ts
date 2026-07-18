@@ -68,7 +68,7 @@ describe("reaction sends return a Message", () => {
     );
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -98,7 +98,7 @@ describe("reaction sends return a Message", () => {
     );
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [space, message] = await firstMessage(app);
@@ -122,7 +122,7 @@ describe("reaction sends return a Message", () => {
     );
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -147,7 +147,7 @@ describe("reaction sends return a Message", () => {
     );
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -200,7 +200,7 @@ describe("inbound reaction target direction", () => {
     });
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -225,7 +225,7 @@ describe("inbound reaction target direction", () => {
     });
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -282,7 +282,7 @@ describe("inbound reply target wrapping", () => {
     });
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);
@@ -321,7 +321,7 @@ describe("inbound reply target wrapping", () => {
     );
     const app = await Spectrum({
       ...baseConfig,
-      platforms: [provider.config({})],
+      providers: [provider.config({})],
     });
     try {
       const [, message] = await firstMessage(app);

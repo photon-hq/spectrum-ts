@@ -29,7 +29,7 @@ const withSpectrum = async (
 ) => {
   const spectrum = await Spectrum({
     ...baseConfig,
-    platforms: [makeManagedProvider(PLATFORM).config({})],
+    providers: [makeManagedProvider(PLATFORM).config({})],
     ...overrides,
   });
   try {
@@ -195,7 +195,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
   it("routes a protobuf body (no signature header) to the fusor path", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
-      platforms: [makeSlack().config({})],
+      providers: [makeSlack().config({})],
       webhookSecret: SPECTRUM_WEBHOOK_SECRET,
     });
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
@@ -227,7 +227,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     // a protobuf body must NOT be misrouted into the native JSON parser.
     const spectrum = await Spectrum({
       ...baseConfig,
-      platforms: [makeSlack().config({})],
+      providers: [makeSlack().config({})],
       webhookSecret: SPECTRUM_WEBHOOK_SECRET,
     });
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();

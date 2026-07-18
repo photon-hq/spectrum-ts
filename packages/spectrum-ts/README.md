@@ -15,7 +15,7 @@ import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers/imessage";
 
 const app = await Spectrum({
-  platforms: [imessage.config()],
+  providers: [imessage.config()],
 });
 ```
 

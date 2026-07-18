@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "de57b194d26b",
+  "session_id": "3d617744-b60b-49f4-84a1-1d8b71630c05",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-18T06:00:26.411758Z",
+  "branch": "fix/whatsapp-parity",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/whatsapp-business/test/inbound-voice.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "d7a501df20fe",
+  "checkpoint_transcript_start": 339,
+  "transcript_lines_at_start": 339,
+  "compact_transcript_start": 78,
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 5375,
+    "cache_read_tokens": 952390,
+    "output_tokens": 4101,
+    "api_call_count": 6
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_0198VGXVvg5hdkR9J5s1Nn4D",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:systematic-debugging"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d7a501df20fe",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 24,
+        "end": 25,
+        "entry_ids": [
+          "d364d427-8bc2-4ac4-b70c-96c60eb0bd5d"
+        ],
+        "tool_use_id": "toolu_0198VGXVvg5hdkR9J5s1Nn4D"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_0198VGXVvg5hdkR9J5s1Nn4D"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:systematic-debugging",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-18T06:00:26.342093Z",
+    "agent_lines": 98,
+    "agent_removed": 16,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 98,
+    "total_lines_changed": 114,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

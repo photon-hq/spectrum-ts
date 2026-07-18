@@ -27,6 +27,7 @@ import {
   asGroup,
   asPollOption,
   asReaction,
+  asReply,
   asText,
   asUnsend,
   createLogger,
@@ -140,6 +141,35 @@ const reactionTargetStub = (reactedId: string) => ({
   id: reactedId,
   content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
 });
+
+// The Cloud API has no endpoint to fetch a message by wamid, so a quoted
+// reply's target degrades to a stub carrying just the id — same trade-off as
+// reactionTargetStub.
+const replyTargetStub = (quotedId: string) => ({
+  id: quotedId,
+  content: asCustom({ whatsapp_type: "reply-target", stub: true }),
+});
+
+// context.id does not always mean the user quoted a message: interactive and
+// button events carry it to reference the tapped interactive/template message
+// (poll votes resolve it against the poll cache instead), and reaction events
+// target a message rather than quote one.
+const REPLY_EXEMPT_TYPES = new Set(["interactive", "button", "reaction"]);
+
+// asReply (schema-level) rather than the reply() builder: inbound captioned
+// media maps to a group, which the builder rejects but the schema accepts.
+const withReplyContext = (msg: InboundMessage, content: Content): Content => {
+  const quotedId = msg.context?.id;
+  if (quotedId === undefined || REPLY_EXEMPT_TYPES.has(msg.content.type)) {
+    return content;
+  }
+  return asReply({
+    content: content as Parameters<typeof asReply>[0]["content"],
+    target: replyTargetStub(quotedId) as Parameters<
+      typeof asReply
+    >[0]["target"],
+  });
+};
 
 const optionIndexFromId = (id: string): number | undefined => {
   if (!id.startsWith(OPTION_ID_PREFIX)) {
@@ -333,14 +363,14 @@ const toMessages = (
     return msg.content.contacts.map((card, index) => ({
       ...base,
       id: multi ? `${msg.id}:${index}` : msg.id,
-      content: waContactToSpectrum(card),
+      content: withReplyContext(msg, waContactToSpectrum(card)),
     }));
   }
   return [
     {
       ...base,
       id: msg.id,
-      content: mapContent(client, msg),
+      content: withReplyContext(msg, mapContent(client, msg)),
     },
   ];
 };

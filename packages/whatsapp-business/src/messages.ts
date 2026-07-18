@@ -913,10 +913,24 @@ export const send = async (
       cachePoll(client, result.messageId, content);
       return toRecord(result, spaceId, content);
     }
-    case "app":
-      // No mini-app surface on WhatsApp — send the bare URL as text.
+    case "richlink":
+      // WhatsApp renders link previews client-side from the URL's own OG
+      // metadata; previewUrl opts in (falls back to a plain link on failure).
       return toRecord(
-        await client.messages.send({ to: spaceId, text: await content.url() }),
+        await client.messages.send({
+          to: spaceId,
+          text: { body: content.url, previewUrl: true },
+        }),
+        spaceId,
+        content
+      );
+    case "app":
+      // No mini-app surface on WhatsApp — send the URL with a link preview.
+      return toRecord(
+        await client.messages.send({
+          to: spaceId,
+          text: { body: await content.url(), previewUrl: true },
+        }),
         spaceId,
         content
       );
@@ -1018,13 +1032,25 @@ export const replyToMessage = async (
       cachePoll(client, result.messageId, content);
       return toRecord(result, spaceId, content);
     }
-    case "app":
-      // No mini-app surface on WhatsApp — send the bare URL as text.
+    case "richlink":
+      // WhatsApp renders link previews client-side from the URL's own OG
+      // metadata; previewUrl opts in (falls back to a plain link on failure).
       return toRecord(
         await client.messages.send({
           to: spaceId,
           replyTo: messageId,
-          text: await content.url(),
+          text: { body: content.url, previewUrl: true },
+        }),
+        spaceId,
+        content
+      );
+    case "app":
+      // No mini-app surface on WhatsApp — send the URL with a link preview.
+      return toRecord(
+        await client.messages.send({
+          to: spaceId,
+          replyTo: messageId,
+          text: { body: await content.url(), previewUrl: true },
         }),
         spaceId,
         content

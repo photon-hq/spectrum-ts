@@ -31,6 +31,7 @@ import type {
   PlatformRuntime,
   SpectrumLike,
 } from "./platform/types";
+import { assertUniquePlatformNames } from "./platform/unique-names";
 import type { Message } from "./types/message";
 import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
@@ -292,6 +293,7 @@ export async function Spectrum<
 ): Promise<SpectrumInstance<Providers>> {
   const { projectId, projectSecret } = resolveProjectCredentials(options);
   spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
+  assertUniquePlatformNames(options.providers);
 
   const {
     options: runtimeOptions,

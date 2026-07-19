@@ -14,8 +14,8 @@ environments.
 
 <Warning>
   Choose one iMessage package per `Spectrum()` instance. Both packages register
-  the `"iMessage"` platform, so registering both would create an ambiguous
-  platform configuration.
+  the `"iMessage"` platform, so `Spectrum()` rejects an instance that registers
+  both.
 </Warning>
 
 ## Cloud quick start

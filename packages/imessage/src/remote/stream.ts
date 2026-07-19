@@ -2,6 +2,7 @@ import {
   type AdvancedIMessage,
   type CatchUpEvent,
   type GroupEvent,
+  type GrpcAdvancedIMessage,
   type MessageEvent,
   type PollEvent,
   ValidationError,
@@ -224,7 +225,7 @@ const isGroupEvent = (event: CatchUpEvent): event is GroupEvent =>
   event.type === "group.changed";
 
 async function* catchUpEvents<T extends MessageEvent | PollEvent | GroupEvent>(
-  client: AdvancedIMessage,
+  streams: GrpcAdvancedIMessage,
   cursor: string,
   isWanted: (event: CatchUpEvent) => event is T
 ): AsyncGenerator<T | CatchUpCompleteEvent> {
@@ -233,7 +234,7 @@ async function* catchUpEvents<T extends MessageEvent | PollEvent | GroupEvent>(
     return;
   }
 
-  for await (const event of client.events.catchUp(since)) {
+  for await (const event of streams.events.catchUp(since)) {
     if (event.type === "catchup.complete") {
       yield event;
       return;
@@ -281,12 +282,13 @@ const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
 
 const messageStream = (
   client: AdvancedIMessage,
+  streams: GrpcAdvancedIMessage,
   phone: string,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
-    fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
+    fetchMissed: (cursor) => catchUpEvents(streams, cursor, isMessageEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("messages", phone),
     recover,
@@ -313,17 +315,18 @@ const messageStream = (
               )
           ),
     subscribeLive: (cursor) =>
-      withClose(client.messages.subscribeEvents(), cursor),
+      withClose(streams.messages.subscribeEvents(), cursor),
   });
 
 const pollStream = (
   client: AdvancedIMessage,
+  streams: GrpcAdvancedIMessage,
   pollCache: PollCache,
   phone: string,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
-    fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
+    fetchMissed: (cursor) => catchUpEvents(streams, cursor, isPollEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("polls", phone),
     recover,
@@ -347,16 +350,17 @@ const pollStream = (
               )
           ),
     subscribeLive: (cursor) =>
-      withClose(client.polls.subscribeEvents(), cursor),
+      withClose(streams.polls.subscribeEvents(), cursor),
   });
 
 const groupStream = (
   client: AdvancedIMessage,
+  streams: GrpcAdvancedIMessage,
   phone: string,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
-    fetchMissed: (cursor) => catchUpEvents(client, cursor, isGroupEvent),
+    fetchMissed: (cursor) => catchUpEvents(streams, cursor, isGroupEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("groups", phone),
     recover,
@@ -373,27 +377,27 @@ const groupStream = (
             () => toGroupItem(client, event, phone, String(event.sequence))
           ),
     subscribeLive: (cursor) =>
-      withClose(client.groups.subscribeEvents(), cursor),
+      withClose(streams.groups.subscribeEvents(), cursor),
   });
 
 const clientStream = (
-  client: AdvancedIMessage,
+  entry: RemoteClient,
   pollCache: PollCache,
-  phone: string,
   includeGroupEvents: boolean,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> => {
-  const streams: ManagedStream<IMessageMessage>[] = [
-    messageStream(client, phone, onInbound, recover),
-    pollStream(client, pollCache, phone, recover),
+  const { client, streams, phone } = entry;
+  const merged: ManagedStream<IMessageMessage>[] = [
+    messageStream(client, streams, phone, onInbound, recover),
+    pollStream(client, streams, pollCache, phone, recover),
   ];
 
   if (includeGroupEvents) {
-    streams.push(groupStream(client, phone, recover));
+    merged.push(groupStream(client, streams, phone, recover));
   }
 
-  return mergeStreams(streams);
+  return mergeStreams(merged);
 };
 
 export const messages = (
@@ -418,9 +422,8 @@ export const messages = (
         ? getContactShareTracker(entry.client)
         : undefined;
       return clientStream(
-        entry.client,
+        entry,
         pollCache,
-        entry.phone,
         includeGroupEvents,
         tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
         recover

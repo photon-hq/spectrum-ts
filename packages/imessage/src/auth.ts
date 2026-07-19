@@ -1,4 +1,7 @@
-import { createClient } from "@photon-ai/advanced-imessage";
+import {
+  createGrpcClient,
+  createHttpClient,
+} from "@photon-ai/advanced-imessage";
 import {
   cloud,
   type DedicatedTokenData,
@@ -23,6 +26,17 @@ interface CloudAuth {
 }
 
 const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
+
+/**
+ * The HTTP middleware (imessage-server-v2-http) every outbound unary call
+ * dials, in both shared and dedicated modes. Dedicated routing happens
+ * server-side via the SDK's `server` option (x-photon-server), not by
+ * dialing per-instance hosts — those speak only gRPC and serve only the
+ * inbound event streams.
+ */
+export const middlewareAddress = (): string =>
+  process.env.SPECTRUM_IMESSAGE_HTTP_ADDRESS ??
+  "imessage.spectrum.photon.codes:443";
 
 const requirePhone = (data: DedicatedTokenData, instanceId: string): string => {
   const phone = data.numbers?.[instanceId];
@@ -160,26 +174,34 @@ export async function createCloudClients(
   };
   const cloudAuth: CloudAuth = { dispose, forceRefresh };
 
+  const httpAddress = middlewareAddress();
+
   if (tokenData.type === "shared") {
     const address =
       process.env.SPECTRUM_IMESSAGE_ADDRESS ??
       "imessage.spectrum.photon.codes:443";
+    const sharedToken = async () => {
+      await refreshIfNeeded();
+      return (tokenData as SharedTokenData).token;
+    };
     const entries: RemoteClient[] = [
       {
         phone: SHARED_PHONE,
-        client: createClient({
-          address,
+        client: createHttpClient({
+          address: httpAddress,
           // Auto-retry transient unary failures so a brief server blip during
           // an outbound action (send/react/reply) doesn't surface as an
           // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
-          // mutating RPCs so the retry can't double-apply.
+          // mutating calls so the retry can't double-apply.
           autoIdempotency: true,
           retry: true,
           tls: true,
-          token: async () => {
-            await refreshIfNeeded();
-            return (tokenData as SharedTokenData).token;
-          },
+          token: sharedToken,
+        }),
+        streams: createGrpcClient({
+          address,
+          tls: true,
+          token: sharedToken,
         }),
       },
     ];
@@ -191,18 +213,26 @@ export async function createCloudClients(
 
   const dedicated = tokenData;
   for (const [instanceId, token] of Object.entries(dedicated.auth)) {
+    const dedicatedToken = async () => {
+      await refreshIfNeeded();
+      const data = tokenData as DedicatedTokenData;
+      return data.auth[instanceId] ?? token;
+    };
     const entry: RemoteClient = {
       phone: requirePhone(dedicated, instanceId),
-      client: createClient({
-        address: `${instanceId}.imsg.photon.codes:443`,
+      client: createHttpClient({
+        address: httpAddress,
         autoIdempotency: true,
         retry: true,
+        // Routes every call to this dedicated instance (x-photon-server).
+        server: instanceId,
         tls: true,
-        token: async () => {
-          await refreshIfNeeded();
-          const data = tokenData as DedicatedTokenData;
-          return data.auth[instanceId] ?? token;
-        },
+        token: dedicatedToken,
+      }),
+      streams: createGrpcClient({
+        address: `${instanceId}.imsg.photon.codes:443`,
+        tls: true,
+        token: dedicatedToken,
       }),
     };
     records.push({ entry, instanceId });

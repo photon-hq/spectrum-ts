@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  GrpcAdvancedIMessage,
+} from "@photon-ai/advanced-imessage";
 import { flush, settleSoon } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
 import { messages } from "@/remote/stream";
@@ -43,11 +46,12 @@ const remoteClient = (phone: string) => {
   const subscribeToGroups = vi.fn(idleEventStream);
   const entry: RemoteClient = {
     phone,
-    client: {
+    client: {} as unknown as AdvancedIMessage,
+    streams: {
       groups: { subscribeEvents: subscribeToGroups },
       messages: { subscribeEvents: subscribeToMessages },
       polls: { subscribeEvents: subscribeToPolls },
-    } as unknown as AdvancedIMessage,
+    } as unknown as GrpcAdvancedIMessage,
   };
 
   return {
@@ -133,12 +137,13 @@ describe("remote iMessage streams", () => {
 
     const entry: RemoteClient = {
       phone: SHARED_PHONE,
-      client: {
+      client: {} as unknown as AdvancedIMessage,
+      streams: {
         messages: {
           subscribeEvents: () => eventStream([poison, valid]),
         },
         polls: { subscribeEvents: idleEventStream },
-      } as unknown as AdvancedIMessage,
+      } as unknown as GrpcAdvancedIMessage,
     };
 
     const stream = messages([entry]);
@@ -207,11 +212,12 @@ describe("remote iMessage streams", () => {
 
     const entry: RemoteClient = {
       phone: SHARED_PHONE,
-      client: {
+      client: {} as unknown as AdvancedIMessage,
+      streams: {
         // Reconnect resubscribes; the same event replays and now maps.
         messages: { subscribeEvents: () => idleAfter([flakyEvent]) },
         polls: { subscribeEvents: idleEventStream },
-      } as unknown as AdvancedIMessage,
+      } as unknown as GrpcAdvancedIMessage,
     };
 
     const stream = messages([entry]);

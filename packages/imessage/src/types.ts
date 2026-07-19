@@ -1,10 +1,19 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  GrpcAdvancedIMessage,
+} from "@photon-ai/advanced-imessage";
 import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
 export interface RemoteClient {
+  /** Outbound unary calls ride the HTTP middleware (imessage-server-v2-http). */
   client: AdvancedIMessage;
   phone: string;
+  /**
+   * Inbound event streams (`subscribeEvents` / `events.catchUp`) stay on the
+   * direct gRPC plane until Fusor delivery replaces them.
+   */
+  streams: GrpcAdvancedIMessage;
 }
 
 export type IMessageClient = RemoteClient[];
@@ -20,6 +29,17 @@ const clientEntry = z.object({
   address: z.string(),
   token: z.string(),
   phone: z.string(),
+  /**
+   * HTTP middleware address for outbound calls. Defaults to
+   * `SPECTRUM_IMESSAGE_HTTP_ADDRESS` / the production middleware — set it to
+   * keep a self-hosted config fully self-contained.
+   */
+  httpAddress: z.string().optional(),
+  /**
+   * Dedicated instance id, sent as `x-photon-server` so the HTTP middleware
+   * routes outbound calls to that instance. Omit for shared-mode tokens.
+   */
+  server: z.string().optional(),
 });
 
 export const configSchema = z.strictObject({

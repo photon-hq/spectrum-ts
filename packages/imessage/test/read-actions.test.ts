@@ -1,5 +1,6 @@
 import {
   type AdvancedIMessage,
+  type GrpcAdvancedIMessage,
   NotFoundError,
 } from "@photon-ai/advanced-imessage";
 import type { AvatarData } from "@spectrum-ts/core";
@@ -12,6 +13,9 @@ import {
 } from "@/remote/members";
 import { getDisplayName as remoteGetDisplayName } from "@/remote/rename";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
+
+// Streams are the gRPC inbound plane; these outbound tests never touch it.
+const noStreams = {} as unknown as GrpcAdvancedIMessage;
 
 const GROUP_ONLY_ERROR = /only group chats/;
 
@@ -78,6 +82,7 @@ interface ResourcesMock {
 const clientWith = (phone: string, resources: ResourcesMock): RemoteClient => ({
   phone,
   client: resources as unknown as AdvancedIMessage,
+  streams: noStreams,
 });
 
 describe("iMessage remote read wrappers", () => {

@@ -1,6 +1,7 @@
 import {
   type AdvancedIMessage,
-  createClient,
+  createGrpcClient,
+  createHttpClient,
   type MiniAppCardSession,
 } from "@photon-ai/advanced-imessage";
 import { withSpan } from "@photon-ai/otel";
@@ -36,7 +37,11 @@ export {
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
 
-import { createCloudClients, disposeCloudAuth } from "./auth";
+import {
+  createCloudClients,
+  disposeCloudAuth,
+  middlewareAddress,
+} from "./auth";
 import { getMessageCache } from "./cache";
 import {
   type Background,
@@ -476,15 +481,24 @@ export const imessage = definePlatform("iMessage", {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
+        // `address` keeps its historical meaning — the per-line gRPC plane
+        // (event streams). Outbound rides the HTTP middleware like the cloud
+        // path; dedicated static tokens set `server` for instance routing.
         return entries.map((e) => ({
           phone: e.phone,
-          client: createClient({
-            address: e.address,
+          client: createHttpClient({
+            address: e.httpAddress ?? middlewareAddress(),
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.
             autoIdempotency: true,
             retry: true,
+            server: e.server,
+            tls: true,
+            token: e.token,
+          }),
+          streams: createGrpcClient({
+            address: e.address,
             tls: true,
             token: e.token,
           }),
@@ -502,7 +516,9 @@ export const imessage = definePlatform("iMessage", {
 
     destroyClient: async ({ client }) => {
       await disposeCloudAuth(client);
-      await Promise.all(client.map((entry) => entry.client.close()));
+      await Promise.all(
+        client.flatMap((entry) => [entry.client.close(), entry.streams.close()])
+      );
     },
   },
 

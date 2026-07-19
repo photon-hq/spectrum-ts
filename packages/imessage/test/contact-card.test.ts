@@ -1,10 +1,16 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type {
+  AdvancedIMessage,
+  GrpcAdvancedIMessage,
+} from "@photon-ai/advanced-imessage";
 import type { Space } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { isContactCard } from "@/content/contact-card";
 import { imessage, nativeContactCard } from "@/index";
 import { shareContactCard as remoteShareContactCard } from "@/remote/contact-card";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
+
+// Streams are the gRPC inbound plane; these outbound tests never touch it.
+const noStreams = {} as unknown as GrpcAdvancedIMessage;
 
 const SIGNAL = {
   type: "contactCard",
@@ -25,6 +31,7 @@ const sharedClient = (
   {
     phone: SHARED_PHONE,
     client: { chats: { shareContactInfo } } as unknown as AdvancedIMessage,
+    streams: noStreams,
   },
 ];
 

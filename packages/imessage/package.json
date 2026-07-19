@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@photon-ai/advanced-imessage": "^1.0.0",
+    "@photon-ai/advanced-imessage": "^2.0.0",
     "@photon-ai/otel": "^3.1.0",
     "lru-cache": "^11.0.0",
     "marked": "^18.0.5",

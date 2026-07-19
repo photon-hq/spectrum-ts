@@ -23,9 +23,9 @@ function findHeaderEnd(bytes: Uint8Array): number {
 }
 
 /**
- * Parses an HTTP/1.1 wire-format request out of `raw_request` from
- * `RawInboundEvent`. Headers are lowercased. Multiple header values with the
- * same name are joined with ", " (RFC 7230 §3.2.2).
+ * Parses the HTTP/1.1 wire-format request carried by the WebSocket protobuf
+ * transport. HTTP JSON deliveries already contain these parsed fields. Headers
+ * are lowercased; repeated values are joined with ", " (RFC 7230 §3.2.2).
  */
 export function parseHttpRequest(bytes: Uint8Array): ParsedHttpRequest {
   const headerEnd = findHeaderEnd(bytes);

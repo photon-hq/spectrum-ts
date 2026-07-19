@@ -5,7 +5,7 @@
 // the raw request body payload bytes as a `Buffer`. Spectrum verifies the
 // native webhook's HMAC over the EXACT wire bytes
 // (`HMAC-SHA256(secret, "v0:<ts>:<rawBody>")`), so a parsed-and-re-encoded body
-// would break verification (and the fusor protobuf body would fail to decode).
+// would break native HMAC verification (and may corrupt the Fusor JSON bytes).
 //
 // ⚠️ Encapsulation: registering the content type parser inside this plugin's
 // scope ensures it only applies to this route, preventing interference with
@@ -86,7 +86,7 @@ export async function spectrum(
   fastify.removeAllContentTypeParsers();
 
   // Custom parser to capture the exact raw body bytes as a Buffer. Using "*"
-  // captures all content types (application/json, application/x-protobuf, etc.)
+  // captures all content types (application/json, text/plain, etc.)
   // under the scope of this plugin only.
   fastify.addContentTypeParser("*", (_request, payload, done) => {
     const chunks: Uint8Array[] = [];

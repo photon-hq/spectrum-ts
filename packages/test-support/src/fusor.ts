@@ -1,5 +1,10 @@
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
-import type { Content, FusorMessages, ProjectData } from "@spectrum-ts/core";
+import type {
+  Content,
+  FusorMessages,
+  FusorVerifyRequest,
+  ProjectData,
+} from "@spectrum-ts/core";
 import { definePlatform, fusor, fusorEvent } from "@spectrum-ts/core";
 import z from "zod";
 
@@ -11,6 +16,15 @@ export type SlackPayload =
   | { kind: "verify"; challenge: string }
   | { kind: "group"; texts: string[] }
   | { kind: "typing" };
+
+const captureVerifyRequest = (
+  capture: { request?: FusorVerifyRequest } | undefined,
+  request: FusorVerifyRequest
+): void => {
+  if (capture) {
+    capture.request = request;
+  }
+};
 
 // A typed `FusorMessages` reference (not an inline arrow). Overload resolution
 // keys on this: a typed reference is non-context-sensitive, so it's checked in
@@ -53,15 +67,25 @@ const slackMessages: FusorMessages<SlackPayload> = ({ payload, respond }) => {
   };
 };
 
-export const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
+export const makeSlack = (
+  opts: {
+    acceptRawBody?: boolean;
+    captureRequest?: { request?: FusorVerifyRequest };
+    verifyThrows?: boolean;
+  } = {}
+) =>
   definePlatform("slack", {
     config: z.object({}),
     lifecycle: {
       createClient: () =>
         Promise.resolve(
           fusor<SlackPayload>("slack", (req) => {
+            captureVerifyRequest(opts.captureRequest, req);
             if (opts.verifyThrows) {
               throw new Error("bad platform signature");
+            }
+            if (opts.acceptRawBody) {
+              return { kind: "typing" };
             }
             const body = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
               type: string;
@@ -91,9 +115,74 @@ export const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
     send: () => Promise.resolve(undefined),
   });
 
-// Build the protobuf POST body fusor would deliver: a RawInboundEvent whose
-// rawRequest is the platform's original HTTP/1.1 wire bytes.
+export const FUSOR_WEBHOOK_HEADERS = {
+  "ce-type": "dev.spctrm.fusor.delivery",
+  "content-type": "application/json",
+} as const;
+
+const encodeBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+};
+
+export interface TestFusorWebhookEnvelope {
+  body: unknown;
+  bodyEncoding: "base64" | "form" | "json" | "text";
+  eventId?: string;
+  headers?: Record<string, string>;
+  method?: string;
+  path?: string;
+  platform: string;
+  rawBody: Uint8Array;
+}
+
+export const encodeFusorEnvelope = (
+  input: TestFusorWebhookEnvelope
+): Uint8Array => {
+  const rawBodyBase64 = encodeBase64(input.rawBody);
+  return new TextEncoder().encode(
+    JSON.stringify({
+      schemaVersion: 1,
+      eventId: input.eventId ?? "evt-1",
+      projectId: "proj",
+      platform: input.platform,
+      receivedAt: "2026-07-19T00:00:00.000Z",
+      sourceId: "source-1",
+      prevSubjectSeq: 0,
+      request: {
+        method: input.method ?? "POST",
+        path: input.path ?? `/${input.platform}`,
+        headers: input.headers ?? { "content-type": "application/json" },
+        bodyEncoding: input.bodyEncoding,
+        body: input.body,
+        rawBodyBase64,
+      },
+    })
+  );
+};
+
+// Build the versioned JSON POST body Fusor delivers. `rawBodyBase64` preserves
+// the provider's exact request body bytes independently from normalized JSON.
 export const encodeEvent = (
+  platform: string,
+  httpBody: string,
+  eventId = "evt-1"
+): Uint8Array => {
+  const rawBody = new TextEncoder().encode(httpBody);
+  return encodeFusorEnvelope({
+    platform,
+    eventId,
+    bodyEncoding: "json",
+    body: JSON.parse(httpBody),
+    rawBody,
+  });
+};
+
+// A pre-v1 protobuf envelope, used to assert the HTTP hard cut rejects it.
+export const encodeLegacyEvent = (
   platform: string,
   httpBody: string,
   eventId = "evt-1"

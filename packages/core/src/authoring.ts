@@ -78,3 +78,8 @@ export {
   resumableOrderedStream,
 } from "./utils/resumable-stream";
 export { errorAttrs } from "./utils/telemetry";
+export {
+  createTokenRenewal,
+  type TokenRenewal,
+  type TokenRenewalOptions,
+} from "./utils/token-renewal";

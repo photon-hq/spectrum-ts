@@ -4,14 +4,9 @@ import {
   type DedicatedTokenData,
   type SharedTokenData,
 } from "@spectrum-ts/core";
-import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
+import { createTokenRenewal } from "@spectrum-ts/core/authoring";
 import { type RemoteClient, SHARED_PHONE } from "./types";
 
-const log = createLogger("spectrum.imessage.auth");
-
-const RENEWAL_RATIO = 0.8;
-const EXPIRY_BUFFER_MS = 30_000;
-const RETRY_DELAY_MS = 30_000;
 // Floor between forced re-mints so a stream reconnect storm can't hammer the
 // cloud token endpoint — well below any token TTL, just enough to coalesce the
 // message + poll streams asking at nearly the same instant.
@@ -37,11 +32,6 @@ export async function createCloudClients(
   projectSecret: string
 ): Promise<RemoteClient[]> {
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-  let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-  let disposed = false;
-  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
-  let refreshFailures = 0;
-  let refreshInFlight: Promise<void> | undefined;
   let lastRefreshAt = Date.now();
 
   // The instanceId stays paired with each entry in this closure so renewal
@@ -55,90 +45,17 @@ export async function createCloudClients(
     }
   };
 
-  const onRefreshSuccess = () => {
-    if (refreshFailures > 0) {
-      log.info("imessage token refresh recovered", {
-        "spectrum.imessage.auth.attempt": refreshFailures,
-      });
-      refreshFailures = 0;
-    }
-  };
-
-  const onRefreshFailure = (error: unknown) => {
-    refreshFailures += 1;
-    log.warn(
-      "imessage token refresh failed; retrying",
-      {
-        "spectrum.imessage.auth.attempt": refreshFailures,
-        "spectrum.imessage.auth.retry_in_ms": RETRY_DELAY_MS,
-        ...errorAttrs(error),
-      },
-      error
-    );
-  };
-
-  const refreshNow = async (): Promise<void> => {
-    tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
-    tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-    lastRefreshAt = Date.now();
-    if (tokenData.type === "dedicated") {
-      syncPhones(tokenData);
-    }
-    onRefreshSuccess();
-    scheduleRenewal();
-  };
-
-  // Coalesce concurrent re-mints: the message + poll streams and the renewal
-  // timer can all ask at once, but only one issueImessageTokens call should run.
-  const coalescedRefresh = (): Promise<void> => {
-    if (!refreshInFlight) {
-      refreshInFlight = refreshNow().finally(() => {
-        refreshInFlight = undefined;
-      });
-    }
-    return refreshInFlight;
-  };
-
-  const scheduleRenewal = () => {
-    if (disposed) {
-      return;
-    }
-    // Clear any prior timer first — refreshNow()/forceRefresh() can re-arm the
-    // schedule, and leaving the old timer running would leak overlapping renewals.
-    if (renewalTimer !== undefined) {
-      clearTimeout(renewalTimer);
-      renewalTimer = undefined;
-    }
-    const ttlMs = tokenData.expiresIn * 1000;
-    const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
-
-    const runScheduledRefresh = () => {
-      coalescedRefresh().catch((error) => {
-        onRefreshFailure(error);
-        if (disposed) {
-          return;
-        }
-        // Retry the refresh itself after RETRY_DELAY_MS. Re-running
-        // scheduleRenewal would instead wait another full renewal window (80%
-        // of TTL), leaving the token stale/expired during an outage. On
-        // success, refreshNow() re-arms the next renewal.
-        renewalTimer = setTimeout(runScheduledRefresh, RETRY_DELAY_MS);
-        renewalTimer?.unref?.();
-      });
-    };
-
-    renewalTimer = setTimeout(runScheduledRefresh, renewInMs);
-    renewalTimer?.unref?.();
-  };
-
-  scheduleRenewal();
-
-  const refreshIfNeeded = async (): Promise<void> => {
-    if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
-      return;
-    }
-    await coalescedRefresh();
-  };
+  const renewal = createTokenRenewal({
+    expiresInSeconds: () => tokenData.expiresIn,
+    name: "imessage",
+    refresh: async () => {
+      tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+      lastRefreshAt = Date.now();
+      if (tokenData.type === "dedicated") {
+        syncPhones(tokenData);
+      }
+    },
+  });
 
   // Re-mint unconditionally — wired to the stream recover hook so a token the
   // server rejects after a restart (UNAUTHENTICATED / "Invalid credentials",
@@ -148,17 +65,10 @@ export async function createCloudClients(
     if (Date.now() - lastRefreshAt < FORCE_REFRESH_MIN_INTERVAL_MS) {
       return;
     }
-    await coalescedRefresh();
+    await renewal.forceRefresh();
   };
 
-  const dispose = () => {
-    disposed = true;
-    if (renewalTimer !== undefined) {
-      clearTimeout(renewalTimer);
-      renewalTimer = undefined;
-    }
-  };
-  const cloudAuth: CloudAuth = { dispose, forceRefresh };
+  const cloudAuth: CloudAuth = { dispose: renewal.dispose, forceRefresh };
 
   if (tokenData.type === "shared") {
     const address =
@@ -177,7 +87,7 @@ export async function createCloudClients(
           retry: true,
           tls: true,
           token: async () => {
-            await refreshIfNeeded();
+            await renewal.refreshIfNeeded();
             return (tokenData as SharedTokenData).token;
           },
         }),
@@ -199,7 +109,7 @@ export async function createCloudClients(
         retry: true,
         tls: true,
         token: async () => {
-          await refreshIfNeeded();
+          await renewal.refreshIfNeeded();
           const data = tokenData as DedicatedTokenData;
           return data.auth[instanceId] ?? token;
         },

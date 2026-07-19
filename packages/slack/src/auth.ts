@@ -5,13 +5,7 @@ import {
   type TokenProvider,
 } from "@photon-ai/slack";
 import { cloud, type SlackTokenData } from "@spectrum-ts/core";
-import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
-
-const log = createLogger("spectrum.slack.auth");
-
-const RENEWAL_RATIO = 0.8;
-const EXPIRY_BUFFER_MS = 30_000;
-const RETRY_DELAY_MS = 30_000;
+import { createTokenRenewal } from "@spectrum-ts/core/authoring";
 
 interface CloudAuth {
   dispose: () => Promise<void>;
@@ -44,101 +38,17 @@ export async function createCloudClients(
   endpoint: string | undefined
 ): Promise<SlackClient> {
   let tokenData = await cloud.issueSlackTokens(projectId, projectSecret);
-  let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-  let disposed = false;
-  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
-  let refreshFailures = 0;
-
-  const clearRenewalTimer = () => {
-    if (renewalTimer !== undefined) {
-      clearTimeout(renewalTimer);
-      renewalTimer = undefined;
-    }
-  };
-
-  const refreshTokens = async (): Promise<void> => {
-    tokenData = await cloud.issueSlackTokens(projectId, projectSecret);
-    tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-  };
-
-  const onRefreshSuccess = () => {
-    if (refreshFailures > 0) {
-      log.info("slack token refresh recovered", {
-        "spectrum.slack.auth.attempt": refreshFailures,
-      });
-      refreshFailures = 0;
-    }
-  };
-
-  const onRefreshFailure = (error: unknown) => {
-    refreshFailures += 1;
-    log.warn(
-      "slack token refresh failed; retrying",
-      {
-        "spectrum.slack.auth.attempt": refreshFailures,
-        "spectrum.slack.auth.retry_in_ms": RETRY_DELAY_MS,
-        ...errorAttrs(error),
-      },
-      error
-    );
-  };
-
-  const scheduleRetry = () => {
-    if (disposed) {
-      return;
-    }
-    clearRenewalTimer();
-    renewalTimer = setTimeout(async () => {
-      if (disposed) {
-        return;
-      }
-      try {
-        await refreshTokens();
-        onRefreshSuccess();
-        scheduleRenewal();
-      } catch (retryErr) {
-        onRefreshFailure(retryErr);
-        scheduleRetry();
-      }
-    }, RETRY_DELAY_MS);
-    renewalTimer?.unref?.();
-  };
-
-  const scheduleRenewal = () => {
-    if (disposed) {
-      return;
-    }
-    clearRenewalTimer();
-    const ttlMs = tokenData.expiresIn * 1000;
-    const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
-
-    renewalTimer = setTimeout(async () => {
-      try {
-        await refreshTokens();
-        onRefreshSuccess();
-        scheduleRenewal();
-      } catch (err) {
-        onRefreshFailure(err);
-        scheduleRetry();
-      }
-    }, renewInMs);
-    renewalTimer?.unref?.();
-  };
-
-  const refreshIfNeeded = async (): Promise<void> => {
-    if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
-      return;
-    }
-    await refreshTokens();
-    onRefreshSuccess();
-    scheduleRenewal();
-  };
-
-  scheduleRenewal();
+  const renewal = createTokenRenewal({
+    expiresInSeconds: () => tokenData.expiresIn,
+    name: "slack",
+    refresh: async () => {
+      tokenData = await cloud.issueSlackTokens(projectId, projectSecret);
+    },
+  });
 
   const tokenProvider: TokenProvider = {
     async getAccessToken(teamId: string): Promise<string> {
-      await refreshIfNeeded();
+      await renewal.refreshIfNeeded();
       const token = tokenData.auth[teamId];
       if (!token) {
         throw new Error(
@@ -151,10 +61,10 @@ export async function createCloudClients(
       // Force the next `getAccessToken` to refetch by pulling expiry forward.
       // slack-ts's auth middleware calls this on UNAUTHENTICATED — clearing
       // the deadline is enough; the next call awaits refresh before stamping.
-      tokenExpiresAt = 0;
+      renewal.invalidate();
     },
     async listTeams() {
-      await refreshIfNeeded();
+      await renewal.refreshIfNeeded();
       const entries: [string, TeamMetadata][] = Object.entries(
         tokenData.teams
       ).map(([teamId, meta]) => [teamId, toTeamMetadata(meta)]);
@@ -169,8 +79,7 @@ export async function createCloudClients(
 
   cloudAuthState.set(client, {
     dispose: async () => {
-      disposed = true;
-      clearRenewalTimer();
+      renewal.dispose();
     },
   });
 

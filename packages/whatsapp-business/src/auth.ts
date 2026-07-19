@@ -6,14 +6,14 @@ import {
   type WhatsAppEvent,
 } from "@photon-ai/whatsapp-business";
 import { cloud, stream } from "@spectrum-ts/core";
-import { createLogger, errorAttrs } from "@spectrum-ts/core/authoring";
+import {
+  createLogger,
+  createTokenRenewal,
+  errorAttrs,
+} from "@spectrum-ts/core/authoring";
 
-const log = createLogger("spectrum.whatsapp.auth");
 const streamLog = createLogger("spectrum.whatsapp.stream");
 
-const RENEWAL_RATIO = 0.8;
-const EXPIRY_BUFFER_MS = 30_000;
-const RETRY_DELAY_MS = 30_000;
 const RESUBSCRIBE_BACKOFF_MS = 500;
 
 const ignoreCleanupError = () => undefined;
@@ -45,11 +45,6 @@ export async function createCloudClients(
     projectId,
     projectSecret
   );
-  let tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
-  let disposed = false;
-  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
-  let refreshFailures = 0;
-  let refreshInFlight: Promise<void> | undefined;
 
   const lines = new Map<string, LineState>();
 
@@ -68,7 +63,6 @@ export async function createCloudClients(
       projectId,
       projectSecret
     );
-    tokenExpiresAt = Date.now() + tokenData.expiresIn * 1000;
 
     for (const [phoneNumberId, state] of lines) {
       if (!tokenData.auth[phoneNumberId]) {
@@ -83,81 +77,11 @@ export async function createCloudClients(
     }
   };
 
-  const onRefreshSuccess = () => {
-    if (refreshFailures > 0) {
-      log.info("whatsapp token refresh recovered", {
-        "spectrum.whatsapp.auth.attempt": refreshFailures,
-      });
-      refreshFailures = 0;
-    }
-  };
-
-  const onRefreshFailure = (error: unknown) => {
-    refreshFailures += 1;
-    log.warn(
-      "whatsapp token refresh failed; retrying",
-      {
-        "spectrum.whatsapp.auth.attempt": refreshFailures,
-        "spectrum.whatsapp.auth.retry_in_ms": RETRY_DELAY_MS,
-        ...errorAttrs(error),
-      },
-      error
-    );
-  };
-
-  const clearRenewalTimer = () => {
-    if (renewalTimer !== undefined) {
-      clearTimeout(renewalTimer);
-      renewalTimer = undefined;
-    }
-  };
-
-  const refreshNow = async (): Promise<void> => {
-    await refreshTokens();
-    onRefreshSuccess();
-    scheduleRenewal();
-  };
-
-  const coalescedRefresh = (): Promise<void> => {
-    if (!refreshInFlight) {
-      refreshInFlight = refreshNow().finally(() => {
-        refreshInFlight = undefined;
-      });
-    }
-    return refreshInFlight;
-  };
-
-  const scheduleRenewal = () => {
-    if (disposed) {
-      return;
-    }
-    clearRenewalTimer();
-    const ttlMs = tokenData.expiresIn * 1000;
-    const renewInMs = Math.max(ttlMs * RENEWAL_RATIO, 5000);
-
-    const runScheduledRefresh = () => {
-      coalescedRefresh().catch((err) => {
-        onRefreshFailure(err);
-        if (disposed) {
-          return;
-        }
-        renewalTimer = setTimeout(runScheduledRefresh, RETRY_DELAY_MS);
-        renewalTimer?.unref?.();
-      });
-    };
-
-    renewalTimer = setTimeout(runScheduledRefresh, renewInMs);
-    renewalTimer?.unref?.();
-  };
-
-  const refreshIfNeeded = async (): Promise<void> => {
-    if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
-      return;
-    }
-    await coalescedRefresh();
-  };
-
-  scheduleRenewal();
+  const renewal = createTokenRenewal({
+    expiresInSeconds: () => tokenData.expiresIn,
+    name: "whatsapp",
+    refresh: refreshTokens,
+  });
 
   const clients: WhatsAppClient[] = Object.keys(tokenData.auth).map(
     (phoneNumberId) => {
@@ -166,14 +90,13 @@ export async function createCloudClients(
         subscriptions: new Set(),
       };
       lines.set(phoneNumberId, state);
-      return buildClientProxy(state, refreshIfNeeded);
+      return buildClientProxy(state, renewal.refreshIfNeeded);
     }
   );
 
   cloudAuthState.set(clients, {
     dispose: async () => {
-      disposed = true;
-      clearRenewalTimer();
+      renewal.dispose();
       for (const state of lines.values()) {
         for (const sub of state.subscriptions) {
           sub.close();

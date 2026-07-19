@@ -53,6 +53,7 @@ import {
   isCustomizedMiniApp,
 } from "./content/customized-mini-app";
 import { messageEffects } from "./content/effect";
+import { IMESSAGE_PLATFORM } from "./platform";
 import {
   addParticipants as remoteAddParticipants,
   editMessage as remoteEditMessage,
@@ -148,7 +149,7 @@ const handleEdit = async (
     if (!miniAppCardSession) {
       throw UnsupportedError.content(
         "edit",
-        "iMessage",
+        IMESSAGE_PLATFORM,
         "mini app card edits require a miniAppCardSession from the original send"
       );
     }
@@ -172,7 +173,7 @@ const handleEdit = async (
     if (!miniAppCardSession) {
       throw UnsupportedError.content(
         "edit",
-        "iMessage",
+        IMESSAGE_PLATFORM,
         "customized mini app card edits require a miniAppCardSession from the original send"
       );
     }
@@ -195,7 +196,7 @@ const handleEdit = async (
     // UnsupportedError so dispatchSend warn-and-skips uniformly.
     throw UnsupportedError.content(
       "edit",
-      "iMessage",
+      IMESSAGE_PLATFORM,
       `only text content can be edited (got "${content.content.type}")`
     );
   }
@@ -212,7 +213,7 @@ const handleUnsend = async (
     // The SDK has no poll delete; mirrors the reply/react poll guards.
     throw UnsupportedError.action(
       "unsend",
-      "iMessage",
+      IMESSAGE_PLATFORM,
       "iMessage polls cannot be unsent"
     );
   }
@@ -330,7 +331,7 @@ const handleRename = async (
   if (space.type !== "group") {
     throw UnsupportedError.action(
       "rename",
-      "iMessage",
+      IMESSAGE_PLATFORM,
       "only group chats can be renamed (this space is a DM)"
     );
   }
@@ -346,7 +347,7 @@ const handleAvatar = async (
   if (space.type !== "group") {
     throw UnsupportedError.action(
       "avatar",
-      "iMessage",
+      IMESSAGE_PLATFORM,
       "only group chats have avatars (this space is a DM)"
     );
   }
@@ -366,7 +367,7 @@ const remoteGroupClient = (
   detail: string
 ): AdvancedIMessage => {
   if (space.type !== "group") {
-    throw UnsupportedError.action(action, "iMessage", detail);
+    throw UnsupportedError.action(action, IMESSAGE_PLATFORM, detail);
   }
   return clientForPhone(client, space.phone);
 };
@@ -450,14 +451,14 @@ const remoteForMessageTarget = (
   if (isPollContent(target.content)) {
     throw UnsupportedError.action(
       action,
-      "iMessage",
+      IMESSAGE_PLATFORM,
       `iMessage polls do not support ${pollNoun}`
     );
   }
   return clientForPhone(client, space.phone);
 };
 
-export const imessage = definePlatform("iMessage", {
+export const imessage = definePlatform(IMESSAGE_PLATFORM, {
   config: configSchema,
 
   static: {
@@ -493,7 +494,7 @@ export const imessage = definePlatform("iMessage", {
 
       if (!(projectId && projectSecret)) {
         throw new Error(
-          "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use its imessage.config()."
+          "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use localIMessage.config()."
         );
       }
 
@@ -780,7 +781,7 @@ export const imessage = definePlatform("iMessage", {
       return withSpan(
         "spectrum.imessage.getAttachment",
         {
-          "spectrum.provider": "iMessage",
+          "spectrum.provider": IMESSAGE_PLATFORM,
           "spectrum.imessage.attachment.guid": guid,
           "spectrum.imessage.phone": routedPhone,
         },

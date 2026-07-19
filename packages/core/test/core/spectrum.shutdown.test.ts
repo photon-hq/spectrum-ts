@@ -24,7 +24,7 @@ describe("Spectrum.stop() shutdown", () => {
     const app = await Spectrum({
       ...baseConfig,
       providers: [
-        makeManagedProvider("managed-a", { withDestroy: true }).config({}),
+        makeManagedProvider("managed_a", { withDestroy: true }).config({}),
       ],
     });
     const messagesIterator = app.messages[Symbol.asyncIterator]();
@@ -39,7 +39,7 @@ describe("Spectrum.stop() shutdown", () => {
   it("managed-stream provider with no destroyClient: resolves promptly (stream self-closes)", async () => {
     const app = await Spectrum({
       ...baseConfig,
-      providers: [makeManagedProvider("managed-nodestroy").config({})],
+      providers: [makeManagedProvider("managed_nodestroy").config({})],
     });
     const messagesIterator = app.messages[Symbol.asyncIterator]();
     await messagesIterator.next();
@@ -53,8 +53,8 @@ describe("Spectrum.stop() shutdown", () => {
     const app = await Spectrum({
       ...baseConfig,
       providers: [
-        makeManagedProvider("managed-1", { withDestroy: true }).config({}),
-        makeManagedProvider("managed-2").config({}),
+        makeManagedProvider("managed_1", { withDestroy: true }).config({}),
+        makeManagedProvider("managed_2").config({}),
       ],
     });
     const messagesIterator = app.messages[Symbol.asyncIterator]();
@@ -69,7 +69,7 @@ describe("Spectrum.stop() shutdown", () => {
     const app = await Spectrum({
       ...baseConfig,
       providers: [
-        makeManagedProvider("managed-nosub", { withDestroy: true }).config({}),
+        makeManagedProvider("managed_nosub", { withDestroy: true }).config({}),
       ],
     });
     expect(await withinMs(app.stop(), PROMPT_SHUTDOWN_TIMEOUT_MS)).toBe(

@@ -59,7 +59,7 @@ describe("toSpectrumMiniApp", () => {
     const card = toSpectrumMiniApp("https://x.example/1", { caption: "C" });
     expect(card).toMatchObject({
       type: "customized-mini-app",
-      __platform: "iMessage",
+      __platform: "imessage",
       ...SPECTRUM_MINI_APP,
       url: "https://x.example/1",
       layout: { caption: "C" },

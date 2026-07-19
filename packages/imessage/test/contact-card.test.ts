@@ -8,7 +8,7 @@ import { type RemoteClient, SHARED_PHONE } from "@/types";
 
 const SIGNAL = {
   type: "contactCard",
-  __platform: "iMessage",
+  __platform: "imessage",
   __fireAndForget: true,
 } as const;
 

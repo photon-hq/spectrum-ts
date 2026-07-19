@@ -1,12 +1,12 @@
 import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
-import { imessage, nativeContactCard } from "@/index";
+import { effect, localIMessage, nativeContactCard } from "@/index";
 
 const LOCAL_MODE_ERROR = /local mode/;
 const LOCAL_GROUP_ERROR = /local mode cannot create group chats/;
 
-const def = imessage.config().__definition;
+const def = localIMessage.config().__definition;
 const localClient = (send = vi.fn((_: unknown) => Promise.resolve())) =>
   Object.assign(Object.create(IMessageSDK.prototype), { send }) as IMessageSDK;
 
@@ -26,8 +26,10 @@ const appContent = (url: string): Content =>
 
 describe("@spectrum-ts/imessage-local", () => {
   it("constructs the provider with config()", () => {
-    expect(imessage.config()).toMatchObject({
+    expect(localIMessage.config()).toMatchObject({
+      __name: "local_imessage",
       __tag: "PlatformProviderConfig",
+      __definition: { name: "local_imessage" },
     });
   });
 
@@ -106,5 +108,21 @@ describe("@spectrum-ts/imessage-local", () => {
         space: { id: "any;-;+15550123", type: "dm", phone: "" },
       })
     ).rejects.toThrow(LOCAL_MODE_ERROR);
+  });
+
+  it("tags unsupported local content with the local platform id", async () => {
+    await expect(
+      def.send({
+        ...ctx,
+        content: await effect(
+          "hello",
+          localIMessage.effect.message.slam
+        ).build(),
+        space: { id: "any;-;+15550123", type: "dm", phone: "" },
+      })
+    ).rejects.toMatchObject({
+      platform: "local_imessage",
+      detail: expect.stringContaining("local mode"),
+    });
   });
 });

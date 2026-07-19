@@ -46,6 +46,7 @@ const SPAWN_CONNECT_TIMEOUT_MS = 10_000;
 // protocol handshake gets stuck, we'd rather fail fast than hang
 // createClient indefinitely.
 const INITIALIZE_TIMEOUT_MS = 10_000;
+const PLATFORM_ID = "terminal";
 
 const commandSchema = z.object({
   name: z.string().regex(/^\/[A-Za-z0-9_-]+$/, "command must start with /"),
@@ -465,7 +466,7 @@ async function spectrumToProtocol(
   // crashes the whole process.
   throw UnsupportedError.content(
     (content as { type: string }).type,
-    "Terminal"
+    PLATFORM_ID
   );
 }
 
@@ -561,7 +562,7 @@ interface TerminalInboundMessage {
   timestamp: Date;
 }
 
-export const terminal = definePlatform("Terminal", {
+export const terminal = definePlatform(PLATFORM_ID, {
   config: z.object({
     commands: z.array(commandSchema).optional(),
   }),

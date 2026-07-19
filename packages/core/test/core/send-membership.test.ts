@@ -75,7 +75,7 @@ const recordingSend = () => {
 describe("membership sends are fire-and-forget", () => {
   it("space.add() dispatches addMember content with normalized members", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeMembershipProvider("membership-add", sendImpl);
+    const provider = makeMembershipProvider("membership_add", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -94,7 +94,7 @@ describe("membership sends are fire-and-forget", () => {
 
   it("space.add() batches an array into one dispatch", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeMembershipProvider("membership-add-batch", sendImpl);
+    const provider = makeMembershipProvider("membership_add_batch", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -117,7 +117,7 @@ describe("membership sends are fire-and-forget", () => {
 
   it("space.remove() dispatches removeMember content", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeMembershipProvider("membership-remove", sendImpl);
+    const provider = makeMembershipProvider("membership_remove", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -136,7 +136,7 @@ describe("membership sends are fire-and-forget", () => {
 
   it("space.leave() dispatches leaveSpace content", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeMembershipProvider("membership-leave", sendImpl);
+    const provider = makeMembershipProvider("membership_leave", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -153,7 +153,7 @@ describe("membership sends are fire-and-forget", () => {
 
   it("space.send(addMember(...)) resolves undefined", async () => {
     const { sendImpl } = recordingSend();
-    const provider = makeMembershipProvider("membership-canonical", sendImpl);
+    const provider = makeMembershipProvider("membership_canonical", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -168,11 +168,11 @@ describe("membership sends are fire-and-forget", () => {
 
   it("resolves silently when the platform does not support membership", async () => {
     const provider = makeMembershipProvider(
-      "membership-unsupported",
+      "membership_unsupported",
       (content) => {
         if (MEMBERSHIP_TYPES.has(content.type)) {
           return Promise.reject(
-            UnsupportedError.content(content.type, "membership-unsupported")
+            UnsupportedError.content(content.type, "membership_unsupported")
           );
         }
         return Promise.resolve({

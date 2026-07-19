@@ -20,7 +20,9 @@ export {
 } from "./content/template";
 export { WhatsAppPartialSendError } from "./errors/partial-send";
 
-export const whatsappBusiness = definePlatform("WhatsApp Business", {
+const PLATFORM_ID = "whatsapp_business";
+
+export const whatsappBusiness = definePlatform(PLATFORM_ID, {
   config: configSchema,
 
   lifecycle: {
@@ -73,7 +75,7 @@ export const whatsappBusiness = definePlatform("WhatsApp Business", {
       if (input.users.length > 1) {
         throw UnsupportedError.action(
           "space.create",
-          "WhatsApp Business",
+          PLATFORM_ID,
           "only 1:1 conversations are supported"
         );
       }

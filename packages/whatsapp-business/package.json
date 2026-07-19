@@ -33,9 +33,9 @@
     }
   },
   "spectrum": {
-    "key": "whatsapp-business",
+    "key": "whatsapp_business",
     "import": "whatsappBusiness",
-    "label": "WhatsApp Business"
+    "label": "whatsapp_business"
   },
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",

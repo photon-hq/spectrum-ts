@@ -7,11 +7,11 @@ bun add spectrum-ts @spectrum-ts/imessage-local
 ```
 
 ```ts
-import { imessage } from "@spectrum-ts/imessage-local";
+import { localIMessage } from "@spectrum-ts/imessage-local";
 import { Spectrum } from "spectrum-ts";
 
 const spectrum = Spectrum({
-  providers: [imessage.config()],
+  providers: [localIMessage.config()],
 });
 ```
 

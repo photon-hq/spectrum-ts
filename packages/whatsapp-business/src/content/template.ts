@@ -5,7 +5,7 @@ import z from "zod";
  * WhatsApp-only template message content. Lives entirely under the WhatsApp
  * Business provider — never enters the universal `Content` discriminated
  * union. The framework recognizes it via the generic content-level platform
- * contract: `__platform: "WhatsApp Business"` lets
+ * contract: `__platform: "whatsapp_business"` lets
  * `findUnsupportedPlatformContent` warn-and-skip when a different platform
  * receives it.
  *
@@ -18,7 +18,7 @@ import z from "zod";
  */
 export const whatsappTemplateSchema = z.object({
   type: z.literal("whatsapp-template"),
-  __platform: z.literal("WhatsApp Business"),
+  __platform: z.literal("whatsapp_business"),
   // Name of an approved template in the WhatsApp Business account.
   name: z.string().min(1),
   // Template language/locale code as approved, e.g. "en_US".
@@ -42,7 +42,7 @@ export const asWhatsAppTemplate = (
 ): WhatsAppTemplate =>
   whatsappTemplateSchema.parse({
     type: "whatsapp-template",
-    __platform: "WhatsApp Business",
+    __platform: "whatsapp_business",
     ...input,
   });
 

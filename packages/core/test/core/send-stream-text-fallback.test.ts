@@ -88,8 +88,8 @@ const noStreamingSend = (platform: string) => {
 
 describe("streamText plain-text fallback", () => {
   it("waits for the stream to finish and re-sends the full text", async () => {
-    const { seen, sendImpl } = noStreamingSend("stream-fallback-text");
-    const provider = makeProvider("stream-fallback-text", sendImpl);
+    const { seen, sendImpl } = noStreamingSend("stream_fallback_text");
+    const provider = makeProvider("stream_fallback_text", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -108,8 +108,8 @@ describe("streamText plain-text fallback", () => {
   });
 
   it("preserves the reply wrapper (and its target) in the fallback send", async () => {
-    const { seen, sendImpl } = noStreamingSend("stream-fallback-reply");
-    const provider = makeProvider("stream-fallback-reply", sendImpl);
+    const { seen, sendImpl } = noStreamingSend("stream_fallback_reply");
+    const provider = makeProvider("stream_fallback_reply", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -132,8 +132,8 @@ describe("streamText plain-text fallback", () => {
   });
 
   it("preserves the edit wrapper in the fallback send", async () => {
-    const { seen, sendImpl } = noStreamingSend("stream-fallback-edit");
-    const provider = makeProvider("stream-fallback-edit", sendImpl);
+    const { seen, sendImpl } = noStreamingSend("stream_fallback_edit");
+    const provider = makeProvider("stream_fallback_edit", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -159,8 +159,8 @@ describe("streamText plain-text fallback", () => {
   });
 
   it("skips the fallback when the stream produces no text", async () => {
-    const { seen, sendImpl } = noStreamingSend("stream-fallback-empty");
-    const provider = makeProvider("stream-fallback-empty", sendImpl);
+    const { seen, sendImpl } = noStreamingSend("stream_fallback_empty");
+    const provider = makeProvider("stream_fallback_empty", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -190,7 +190,7 @@ describe("streamText plain-text fallback", () => {
         }
         throw UnsupportedError.content(
           "streamText",
-          "stream-consumed",
+          "stream_consumed",
           `stream produced no text (got "${drained}")`
         );
       }
@@ -201,7 +201,7 @@ describe("streamText plain-text fallback", () => {
         timestamp: SENT_TIMESTAMP,
       };
     };
-    const provider = makeProvider("stream-consumed", sendImpl);
+    const provider = makeProvider("stream_consumed", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -224,10 +224,10 @@ describe("streamText plain-text fallback", () => {
     const sendImpl: SendImpl = (content) => {
       seen.push(content);
       return Promise.reject(
-        UnsupportedError.content(content.type, "stream-fallback-none")
+        UnsupportedError.content(content.type, "stream_fallback_none")
       );
     };
-    const provider = makeProvider("stream-fallback-none", sendImpl);
+    const provider = makeProvider("stream_fallback_none", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -244,8 +244,8 @@ describe("streamText plain-text fallback", () => {
   });
 
   it("propagates stream errors instead of swallowing them", async () => {
-    const { sendImpl } = noStreamingSend("stream-fallback-error");
-    const provider = makeProvider("stream-fallback-error", sendImpl);
+    const { sendImpl } = noStreamingSend("stream_fallback_error");
+    const provider = makeProvider("stream_fallback_error", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -265,8 +265,8 @@ describe("streamText plain-text fallback", () => {
   it("re-sends a drained markdown-formatted stream as markdown content", async () => {
     // `noStreamingSend` accepts everything except streams — so the drained
     // markdown lands natively, without a second downgrade.
-    const { seen, sendImpl } = noStreamingSend("stream-md-supported");
-    const provider = makeProvider("stream-md-supported", sendImpl);
+    const { seen, sendImpl } = noStreamingSend("stream_md_supported");
+    const provider = makeProvider("stream_md_supported", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -293,7 +293,7 @@ describe("streamText plain-text fallback", () => {
           : content;
       if (inner.type === "streamText" || inner.type === "markdown") {
         return Promise.reject(
-          UnsupportedError.content(inner.type, "stream-md-chain")
+          UnsupportedError.content(inner.type, "stream_md_chain")
         );
       }
       return Promise.resolve({
@@ -303,7 +303,7 @@ describe("streamText plain-text fallback", () => {
         timestamp: SENT_TIMESTAMP,
       });
     };
-    const provider = makeProvider("stream-md-chain", sendImpl);
+    const provider = makeProvider("stream_md_chain", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -339,7 +339,7 @@ describe("streamText plain-text fallback", () => {
       const inner = content.type === "reply" ? content.content : content;
       if (inner.type === "streamText" || inner.type === "markdown") {
         return Promise.reject(
-          UnsupportedError.content(inner.type, "stream-md-reply")
+          UnsupportedError.content(inner.type, "stream_md_reply")
         );
       }
       return Promise.resolve({
@@ -349,7 +349,7 @@ describe("streamText plain-text fallback", () => {
         timestamp: SENT_TIMESTAMP,
       });
     };
-    const provider = makeProvider("stream-md-reply", sendImpl);
+    const provider = makeProvider("stream_md_reply", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -395,7 +395,7 @@ describe("streamText plain-text fallback", () => {
         timestamp: SENT_TIMESTAMP,
       };
     };
-    const provider = makeProvider("stream-native", sendImpl);
+    const provider = makeProvider("stream_native", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],

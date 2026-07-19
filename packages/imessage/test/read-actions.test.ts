@@ -153,7 +153,7 @@ describe("iMessage actions.getMembers", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     const members = await callGetMembers(client, space);
@@ -174,7 +174,7 @@ describe("iMessage actions.getMembers", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SHARED_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     const members = await callGetMembers(client, space);
@@ -188,7 +188,7 @@ describe("iMessage actions.getMembers", () => {
       id: DM_GUID,
       type: "dm",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     await expect(callGetMembers(client, space)).rejects.toThrow(
@@ -207,7 +207,7 @@ describe("iMessage actions.getMembers", () => {
       id: GROUP_GUID,
       type: "group",
       phone: "+15550200",
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     await callGetMembers(
@@ -233,7 +233,7 @@ describe("iMessage actions.getAvatar", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     const icon = await callGetAvatar(client, space);
@@ -254,7 +254,7 @@ describe("iMessage actions.getAvatar", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     expect(await callGetAvatar(client, space)).toBeUndefined();
@@ -279,7 +279,7 @@ describe("iMessage actions.getAvatar", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     await expect(callGetAvatar(client, space)).rejects.toThrow(NotFoundError);
@@ -291,7 +291,7 @@ describe("iMessage actions.getAvatar", () => {
       id: DM_GUID,
       type: "dm",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     await expect(callGetAvatar(client, space)).rejects.toThrow(
@@ -310,7 +310,7 @@ describe("iMessage actions.getDisplayName", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     expect(await callGetDisplayName(client, space)).toBe("Team Chat");
@@ -327,7 +327,7 @@ describe("iMessage actions.getDisplayName", () => {
       id: GROUP_GUID,
       type: "group",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     expect(await callGetDisplayName(client, space)).toBeUndefined();
@@ -342,7 +342,7 @@ describe("iMessage actions.getDisplayName", () => {
       id: DM_GUID,
       type: "dm",
       phone: SELF_PHONE,
-      __platform: "iMessage",
+      __platform: "imessage",
     } as const;
 
     await expect(callGetDisplayName(client, space)).rejects.toThrow(

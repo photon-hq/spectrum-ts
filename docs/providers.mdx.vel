@@ -96,9 +96,9 @@ Call each provider's `config()` method and pass the results to `providers`:
 
 <Note>
   `@spectrum-ts/imessage-local` is not part of the aggregate import. Install it
-  explicitly and import it from its scoped package. Do not register cloud and
-  local iMessage in the same `Spectrum()` instance: both represent the
-  `"iMessage"` platform.
+  explicitly and import `localIMessage` from its scoped package. Cloud iMessage
+  uses the `"imessage"` platform ID; local iMessage uses `"local_imessage"`, so
+  a macOS application can register both when it needs both transports.
 </Note>
 
 ## Writing your own

@@ -58,7 +58,7 @@ const firstMessage = async (app: Awaited<ReturnType<typeof Spectrum>>) => {
 
 describe("reaction sends return a Message", () => {
   it("message.react resolves to the reaction Message with the built target", async () => {
-    const provider = makeReactionProvider("react-ok", (content) =>
+    const provider = makeReactionProvider("react_ok", (content) =>
       Promise.resolve({
         id: "r1",
         content,
@@ -88,7 +88,7 @@ describe("reaction sends return a Message", () => {
   });
 
   it("space.send(reaction(...)) resolves to the same shape", async () => {
-    const provider = makeReactionProvider("react-canonical", (content) =>
+    const provider = makeReactionProvider("react_canonical", (content) =>
       Promise.resolve({
         id: "r2",
         content,
@@ -117,8 +117,8 @@ describe("reaction sends return a Message", () => {
   });
 
   it("resolves undefined when the platform does not support reactions", async () => {
-    const provider = makeReactionProvider("react-unsupported", () =>
-      Promise.reject(UnsupportedError.content("reaction", "react-unsupported"))
+    const provider = makeReactionProvider("react_unsupported", () =>
+      Promise.reject(UnsupportedError.content("reaction", "react_unsupported"))
     );
     const app = await Spectrum({
       ...baseConfig,
@@ -142,7 +142,7 @@ describe("reaction sends return a Message", () => {
   });
 
   it("rejects when a provider returns no record for a reaction", async () => {
-    const provider = makeReactionProvider("react-void", () =>
+    const provider = makeReactionProvider("react_void", () =>
       Promise.resolve(undefined)
     );
     const app = await Spectrum({
@@ -191,7 +191,7 @@ describe("inbound reaction target direction", () => {
   };
 
   it("honors a provider-supplied outbound direction on a raw reaction target", async () => {
-    const provider = makeInboundReactionProvider("react-target-outbound", {
+    const provider = makeInboundReactionProvider("react_target_outbound", {
       id: "bot-message",
       content: { type: "text", text: "from the bot" },
       direction: "outbound",
@@ -217,7 +217,7 @@ describe("inbound reaction target direction", () => {
   });
 
   it("keeps the legacy inbound fallback when a raw reaction target has no direction", async () => {
-    const provider = makeInboundReactionProvider("react-target-fallback", {
+    const provider = makeInboundReactionProvider("react_target_fallback", {
       id: "unknown-message",
       content: { type: "text", text: "unknown owner" },
       space: { id: "s1" },
@@ -274,7 +274,7 @@ describe("inbound reply target wrapping", () => {
   };
 
   it("wraps a raw reply target into a Message", async () => {
-    const provider = makeInboundReplyProvider("reply-target-wrap", {
+    const provider = makeInboundReplyProvider("reply_target_wrap", {
       id: "question-1",
       content: { type: "text", text: "question" },
       space: { id: "s1" },
@@ -300,7 +300,7 @@ describe("inbound reply target wrapping", () => {
 
   it("wraps raw group items inside a reply", async () => {
     const provider = makeInboundReplyProvider(
-      "reply-inner-group-wrap",
+      "reply_inner_group_wrap",
       {
         id: "question-1",
         content: { type: "text", text: "question" },
@@ -336,7 +336,7 @@ describe("inbound reply target wrapping", () => {
       }
       const [item] = message.content.content.items;
       expect(item?.id).toBe("reply-part-1");
-      expect(item?.platform).toBe("reply-inner-group-wrap");
+      expect(item?.platform).toBe("reply_inner_group_wrap");
       expect(typeof item?.reply).toBe("function");
     } finally {
       await app.stop();

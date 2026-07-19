@@ -15,7 +15,7 @@ import z from "zod";
  * enters the universal `Content` discriminated union. The framework recognizes
  * it via two generic content-level contracts:
  *
- * 1. `__platform: "iMessage"` — `findUnsupportedPlatformContent` in
+ * 1. `__platform: "imessage"` — `findUnsupportedPlatformContent` in
  *    `platform/build.ts` reads this tag and warns-and-skips when a different
  *    platform receives it.
  * 2. `__fireAndForget: true` — `dispatchSend`'s fire-and-forget check treats
@@ -27,7 +27,7 @@ import z from "zod";
  */
 export const contactCardSchema = z.object({
   type: z.literal("contactCard"),
-  __platform: z.literal("iMessage"),
+  __platform: z.literal("imessage"),
   __fireAndForget: z.literal(true),
 });
 
@@ -59,7 +59,7 @@ export function nativeContactCard(): ContentBuilder {
     build: async () =>
       contactCardSchema.parse({
         type: "contactCard",
-        __platform: "iMessage",
+        __platform: "imessage",
         __fireAndForget: true,
       }) as unknown as Content,
   };

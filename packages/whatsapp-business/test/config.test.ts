@@ -2,10 +2,10 @@ import { envAwareConfig } from "@spectrum-ts/core/authoring";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isCloudConfig, configSchema as rawConfigSchema } from "@/types";
 
-// `definePlatform("WhatsApp Business", ...)` applies the env fallback from the
+// `definePlatform("whatsapp_business", ...)` applies the env fallback from the
 // platform id; mirror that here so the test exercises the same
 // `SPECTRUM_WHATSAPP_BUSINESS_*` resolution.
-const configSchema = envAwareConfig("WhatsApp Business", rawConfigSchema);
+const configSchema = envAwareConfig("whatsapp_business", rawConfigSchema);
 
 const ACCESS_TOKEN = "SPECTRUM_WHATSAPP_BUSINESS_ACCESS_TOKEN";
 const PHONE_NUMBER_ID = "SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID";

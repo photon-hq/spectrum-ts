@@ -2,9 +2,9 @@ import { envAwareConfig } from "@spectrum-ts/core/authoring";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isCloudConfig, configSchema as rawConfigSchema } from "@/types";
 
-// `definePlatform("Slack", ...)` applies the env fallback from the platform id;
+// `definePlatform("slack", ...)` applies the env fallback from the platform id;
 // mirror that here so the test exercises the same `SPECTRUM_SLACK_*` resolution.
-const configSchema = envAwareConfig("Slack", rawConfigSchema);
+const configSchema = envAwareConfig("slack", rawConfigSchema);
 
 const ENDPOINT = "SPECTRUM_SLACK_ENDPOINT";
 

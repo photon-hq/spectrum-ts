@@ -5,23 +5,25 @@
 // only place a user who forgot one gets told what's missing.
 //
 // Keep keys in sync with the provider packages' `package.json#spectrum.key`
-// (generate-manifest.ts validates those against each provider's source).
-// Lookup is tolerant of the three spellings that occur in the wild: the
-// `definePlatform` label ("iMessage", "WhatsApp Business"), the fusor routing
-// key ("telegram"), and the cloud platform key ("whatsapp_business").
+// (generate-manifest.ts validates those against each provider's source). Local
+// iMessage is the explicit-install exception and is intentionally not in the
+// batteries-included provider manifest.
+// Lookup remains tolerant of legacy display-name and kebab-case spellings, but
+// canonical platform ids use lowercase snake_case everywhere.
 
 const OFFICIAL_PROVIDER_PACKAGES: Readonly<Record<string, string>> = {
   imessage: "@spectrum-ts/imessage",
+  local_imessage: "@spectrum-ts/imessage-local",
   slack: "@spectrum-ts/slack",
   telegram: "@spectrum-ts/telegram",
   terminal: "@spectrum-ts/terminal",
-  "whatsapp-business": "@spectrum-ts/whatsapp-business",
+  whatsapp_business: "@spectrum-ts/whatsapp-business",
 };
 
-const SEPARATORS = /[\s_]+/g;
+const LEGACY_SEPARATORS = /[\s-]+/g;
 
 export const normalizePlatformKey = (platform: string): string =>
-  platform.trim().toLowerCase().replace(SEPARATORS, "-");
+  platform.trim().toLowerCase().replace(LEGACY_SEPARATORS, "_");
 
 export const officialProviderPackage = (platform: string): string | undefined =>
   OFFICIAL_PROVIDER_PACKAGES[normalizePlatformKey(platform)];

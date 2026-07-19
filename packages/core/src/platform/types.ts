@@ -603,7 +603,7 @@ interface ToCustomEventVariant<EventName extends string> extends Fn {
 }
 
 // ---------------------------------------------------------------------------
-// HasProvider — check if a platform name exists in providers tuple
+// HasProvider — check if a platform id exists in providers tuple
 // ---------------------------------------------------------------------------
 
 export type HasProvider<

@@ -35,6 +35,17 @@ import type {
 
 const platformLog = createLogger("spectrum.platform");
 
+const PLATFORM_ID_PATTERN = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+
+const assertValidPlatformId = (platformId: string): void => {
+  if (PLATFORM_ID_PATTERN.test(platformId)) {
+    return;
+  }
+  throw new Error(
+    `Invalid platform id "${platformId}". Platform ids must use lowercase snake_case (for example, "my_platform").`
+  );
+};
+
 type NoInferValue<T> = [T][T extends unknown ? 0 : never];
 
 type RawActionFactory = (
@@ -361,7 +372,7 @@ export function definePlatform<
   >,
   _Actions extends Record<string, InstanceActionFn> = Record<never, never>,
 >(
-  name: _Name,
+  platformId: _Name,
   def: {
     lifecycle: {
       createClient: (
@@ -434,7 +445,7 @@ export function definePlatform<
     never
   >,
 >(
-  name: _Name,
+  platformId: _Name,
   def: Omit<
     PlatformDef<
       _Name,
@@ -501,14 +512,19 @@ export function definePlatform<
 // `AnyPlatformDef` and the overload return types restore precision at the call
 // site. The runtime is identical for both modes: fusor's `messages`/`events`
 // are read off `__definition` by FusorCore, never invoked here.
-export function definePlatform(name: string, rawDef: unknown): unknown {
+export function definePlatform(platformId: string, rawDef: unknown): unknown {
+  assertValidPlatformId(platformId);
   const def = rawDef as AnyPlatformDef & {
     static?: Record<string, unknown>;
   };
   type Def = AnyPlatformDef;
 
   // Every string-leaf config field falls back to `SPECTRUM_<PLATFORM>_<KEY>`
-  const fullDef = { ...def, name, config: envAwareConfig(name, def.config) };
+  const fullDef = {
+    ...def,
+    name: platformId,
+    config: envAwareConfig(platformId, def.config),
+  };
 
   const platformCache = new WeakMap<SpectrumLike, PlatformInstance<Def>>();
 
@@ -518,9 +534,9 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
       return cached;
     }
 
-    const runtime = spectrum.__internal.platforms.get(name);
+    const runtime = spectrum.__internal.platforms.get(platformId);
     if (!runtime) {
-      throw new Error(`Platform "${name}" is not registered`);
+      throw new Error(`Platform "${platformId}" is not registered`);
     }
 
     const instance = createPlatformInstance<Def, unknown, z.ZodType<object>>(
@@ -532,9 +548,9 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
   };
 
   const narrowSpace = (input: Space) => {
-    if (input.__platform !== name) {
+    if (input.__platform !== platformId) {
       platformLog.warn("space platform mismatch; narrowing skipped", {
-        "spectrum.platform.expected": name,
+        "spectrum.platform.expected": platformId,
         "spectrum.platform.actual": input.__platform,
       });
     }
@@ -542,9 +558,9 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
   };
 
   const narrowMessage = (input: Message) => {
-    if (input.platform !== name) {
+    if (input.platform !== platformId) {
       platformLog.warn("message platform mismatch; narrowing skipped", {
-        "spectrum.platform.expected": name,
+        "spectrum.platform.expected": platformId,
         "spectrum.platform.actual": input.platform,
       });
     }
@@ -569,7 +585,7 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
     return {
       __tag: "PlatformProviderConfig" as const,
       __def: undefined as unknown as Def,
-      __name: name,
+      __name: platformId,
       config: resolvedConfig,
       __definition: fullDef as AnyPlatformDef,
     } satisfies PlatformProviderConfig<Def> as PlatformProviderConfig<Def>;
@@ -580,10 +596,10 @@ export function definePlatform(name: string, rawDef: unknown): unknown {
       return false;
     }
     if ("__platform" in input) {
-      return (input as { __platform?: unknown }).__platform === name;
+      return (input as { __platform?: unknown }).__platform === platformId;
     }
     if ("platform" in input) {
-      return (input as { platform?: unknown }).platform === name;
+      return (input as { platform?: unknown }).platform === platformId;
     }
     return false;
   }) as Platform<Def>["is"];

@@ -46,7 +46,7 @@ const firstMessage = async (app: Awaited<ReturnType<typeof Spectrum>>) => {
 
 describe("inbound membership events", () => {
   it("delivers a sender-less membership event with content intact", async () => {
-    const provider = makeInboundProvider("membership-inbound", [
+    const provider = makeInboundProvider("membership_inbound", [
       {
         id: "evt-1",
         content: { type: "addMember", members: ["+15550100"] },
@@ -74,7 +74,7 @@ describe("inbound membership events", () => {
   });
 
   it("tags an inbound membership sender with the platform", async () => {
-    const provider = makeInboundProvider("membership-inbound-sender", [
+    const provider = makeInboundProvider("membership_inbound_sender", [
       {
         id: "evt-2",
         content: { type: "removeMember", members: ["+15550100"] },
@@ -92,7 +92,7 @@ describe("inbound membership events", () => {
       expect(message.content.type).toBe("removeMember");
       expect(message.sender).toEqual({
         id: "+15550111",
-        __platform: "membership-inbound-sender",
+        __platform: "membership_inbound_sender",
       });
     } finally {
       await app.stop();
@@ -100,7 +100,7 @@ describe("inbound membership events", () => {
   });
 
   it("delivers leaveSpace with the leaver as sender", async () => {
-    const provider = makeInboundProvider("membership-inbound-leave", [
+    const provider = makeInboundProvider("membership_inbound_leave", [
       {
         id: "evt-3",
         content: { type: "leaveSpace" },

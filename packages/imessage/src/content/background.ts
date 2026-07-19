@@ -11,7 +11,7 @@ import z from "zod";
  * provider — never enters the universal `Content` discriminated union. The
  * framework recognizes it via two generic content-level contracts:
  *
- * 1. `__platform: "iMessage"` — `findUnsupportedPlatformContent` in
+ * 1. `__platform: "imessage"` — `findUnsupportedPlatformContent` in
  *    `platform/build.ts` reads this tag and warns-and-skips when a different
  *    platform receives it.
  * 2. `__fireAndForget: true` — `dispatchSend`'s fire-and-forget check
@@ -23,7 +23,7 @@ import z from "zod";
  */
 export const backgroundSchema = z.object({
   type: z.literal("background"),
-  __platform: z.literal("iMessage"),
+  __platform: z.literal("imessage"),
   __fireAndForget: z.literal(true),
   action: photoActionSchema,
 });
@@ -76,7 +76,7 @@ export function background(
     build: async () =>
       backgroundSchema.parse({
         type: "background",
-        __platform: "iMessage",
+        __platform: "imessage",
         __fireAndForget: true,
         action,
       }) as unknown as Content,

@@ -1,7 +1,7 @@
 import { UnsupportedError } from "@spectrum-ts/core";
+import { IMESSAGE_PLATFORM } from "../platform";
 
-export const IMESSAGE_PLATFORM = "iMessage";
-export const LOCAL_IMESSAGE_PLATFORM = "iMessage (local mode)";
+const LOCAL_IMESSAGE_PLATFORM = "local_imessage";
 
 export const unsupportedRemoteContent = (
   type: string,
@@ -13,4 +13,8 @@ export const unsupportedLocalContent = (
   type: string,
   detail?: string
 ): UnsupportedError =>
-  UnsupportedError.content(type, LOCAL_IMESSAGE_PLATFORM, detail);
+  UnsupportedError.content(
+    type,
+    LOCAL_IMESSAGE_PLATFORM,
+    detail ? `local mode: ${detail}` : "local mode"
+  );

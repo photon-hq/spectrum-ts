@@ -74,7 +74,7 @@ const recordingSend = () => {
 describe("read sends are fire-and-forget", () => {
   it("message.read() dispatches read content targeting the message", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeReadProvider("read-ok", sendImpl);
+    const provider = makeReadProvider("read_ok", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -94,7 +94,7 @@ describe("read sends are fire-and-forget", () => {
 
   it("space.send(read(message)) resolves undefined", async () => {
     const { sendImpl } = recordingSend();
-    const provider = makeReadProvider("read-canonical", sendImpl);
+    const provider = makeReadProvider("read_canonical", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -109,7 +109,7 @@ describe("read sends are fire-and-forget", () => {
 
   it("space.read(message) delegates to the same dispatch", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeReadProvider("read-space-sugar", sendImpl);
+    const provider = makeReadProvider("read_space_sugar", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -127,10 +127,10 @@ describe("read sends are fire-and-forget", () => {
   });
 
   it("resolves silently when the platform does not support read", async () => {
-    const provider = makeReadProvider("read-unsupported", (content) => {
+    const provider = makeReadProvider("read_unsupported", (content) => {
       if (content.type === "read") {
         return Promise.reject(
-          UnsupportedError.content("read", "read-unsupported")
+          UnsupportedError.content("read", "read_unsupported")
         );
       }
       return Promise.resolve({
@@ -155,7 +155,7 @@ describe("read sends are fire-and-forget", () => {
 
   it("rejects marking an outbound message as read", async () => {
     const { sendImpl } = recordingSend();
-    const provider = makeReadProvider("read-outbound", sendImpl);
+    const provider = makeReadProvider("read_outbound", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],

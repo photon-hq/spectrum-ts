@@ -54,10 +54,11 @@ import {
   userSchema,
 } from "./types";
 
-const LOCAL_PLATFORM = "iMessage (local mode)";
+const PLATFORM_ID = "local_imessage";
 
 const unsupportedAction = (action: string, detail?: string): never => {
-  throw UnsupportedError.action(action, LOCAL_PLATFORM, detail);
+  const localDetail = detail ? `local mode: ${detail}` : "local mode";
+  throw UnsupportedError.action(action, PLATFORM_ID, localDetail);
 };
 
 const handleLocalOnlySend = async (
@@ -150,7 +151,7 @@ const handleLocalOnlySend = async (
   return await localSend(client, spaceId, content);
 };
 
-export const imessage = definePlatform("iMessage", {
+export const localIMessage = definePlatform(PLATFORM_ID, {
   config: configSchema,
 
   static: {

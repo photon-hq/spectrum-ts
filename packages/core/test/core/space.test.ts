@@ -10,11 +10,11 @@ import { Spectrum } from "@/spectrum";
 stubCloud();
 
 const NEEDS_HOOK_ERROR =
-  /space-get-needs-hook.*cannot construct a space from an id alone[\s\S]*space\.get/;
+  /space_get_needs_hook.*cannot construct a space from an id alone[\s\S]*space\.get/;
 
 describe("space.create", () => {
   it("resolves a single string user through user.resolve and builds a full space", async () => {
-    const provider = makeManagedProvider("space-create-single");
+    const provider = makeManagedProvider("space_create_single");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -23,7 +23,7 @@ describe("space.create", () => {
       const instance = provider(app);
       const space = await instance.space.create("u42");
       expect(space.id).toBe("u42");
-      expect(space.__platform).toBe("space-create-single");
+      expect(space.__platform).toBe("space_create_single");
       expect(typeof space.send).toBe("function");
     } finally {
       await app.stop();
@@ -31,7 +31,7 @@ describe("space.create", () => {
   });
 
   it("accepts mixed string/PlatformUser arrays and resolves every entry", async () => {
-    const provider = makeSchemaProvider("space-create-mixed");
+    const provider = makeSchemaProvider("space_create_mixed");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -50,7 +50,7 @@ describe("space.create", () => {
   });
 
   it("validates params against the provider params schema", async () => {
-    const provider = makeSchemaProvider("space-create-params");
+    const provider = makeSchemaProvider("space_create_params");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -65,7 +65,7 @@ describe("space.create", () => {
   });
 
   it("validates the created space against the space schema", async () => {
-    const provider = makeSchemaProvider("space-create-schema");
+    const provider = makeSchemaProvider("space_create_schema");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -83,7 +83,7 @@ describe("space.create", () => {
 
 describe("space.get", () => {
   it("defaults to { id } when the provider has no get hook and no schema", async () => {
-    const provider = makeManagedProvider("space-get-default");
+    const provider = makeManagedProvider("space_get_default");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -92,7 +92,7 @@ describe("space.get", () => {
       const instance = provider(app);
       const space = await instance.space.get("s9");
       expect(space.id).toBe("s9");
-      expect(space.__platform).toBe("space-get-default");
+      expect(space.__platform).toBe("space_get_default");
       expect(typeof space.send).toBe("function");
     } finally {
       await app.stop();
@@ -100,7 +100,7 @@ describe("space.get", () => {
   });
 
   it("hydrates platform fields through the provider get hook", async () => {
-    const provider = makeSchemaProvider("space-get-hook", { withGet: true });
+    const provider = makeSchemaProvider("space_get_hook", { withGet: true });
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -116,7 +116,7 @@ describe("space.get", () => {
   });
 
   it("fails loudly when the schema needs fields the default { id } cannot supply", async () => {
-    const provider = makeSchemaProvider("space-get-needs-hook");
+    const provider = makeSchemaProvider("space_get_needs_hook");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],

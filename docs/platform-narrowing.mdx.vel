@@ -10,7 +10,10 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 {% set space = symbol("ts:spectrum-ts#Space") %}
 {% set message = symbol("ts:spectrum-ts#Message") %}
 
-Every platform provider exports a callable — `imessage`, `terminal`, `whatsappBusiness`, `telegram` — that **narrows** generic Spectrum types into platform-specific ones. The same function handles three different inputs.
+Every platform provider exports a callable — `imessage`, `localIMessage`,
+`slack`, `terminal`, `whatsappBusiness`, `telegram` — that **narrows** generic
+Spectrum types into platform-specific ones. The same function handles three
+different inputs.
 
 ## Narrowing the app
 
@@ -35,7 +38,7 @@ Pass an existing space to access platform-specific fields:
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.platform !== "iMessage") continue;
+  if (message.platform !== "imessage") continue;
 
   const imessageSpace = imessage(space);
   if (imessageSpace.type === "group") {
@@ -46,13 +49,17 @@ for await (const [space, message] of app.messages) {
 
 Narrowing a space from the wrong platform logs a structured warning at runtime. Always gate on `message.platform` (or a similar signal) first to avoid unexpected behavior.
 
+The local macOS provider is a separate platform. Gate on
+`message.platform === "local_imessage"` and narrow with `localIMessage(...)`;
+the cloud provider continues to use `"imessage"` and `imessage(...)`.
+
 ## Narrowing a message
 
 Same idea for messages — useful when a provider declares a `message.schema` to attach extra properties:
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.platform !== "iMessage") continue;
+  if (message.platform !== "imessage") continue;
   const imessageMessage = imessage(message);
   // imessageMessage carries any iMessage-specific fields
 }

@@ -27,7 +27,7 @@ describe("whatsapp template content", () => {
     expect(isWhatsAppTemplate(built)).toBe(true);
     expect(built).toMatchObject({
       type: "whatsapp-template",
-      __platform: "WhatsApp Business",
+      __platform: "whatsapp_business",
     });
   });
 

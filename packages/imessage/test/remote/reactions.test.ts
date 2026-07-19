@@ -210,7 +210,7 @@ describe("iMessage remote toReactionMessages", () => {
       client: [{ client: remote, phone: "+15551234567" }],
       content: await text(fromArray(["hello"])).build(),
       space: {
-        __platform: "iMessage",
+        __platform: "imessage",
         id: "s1",
         phone: "+15551234567",
         type: "dm",

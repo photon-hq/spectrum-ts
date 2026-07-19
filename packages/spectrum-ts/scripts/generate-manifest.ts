@@ -7,8 +7,8 @@
  *
  * Each entry derives from the provider package's own `package.json#spectrum`
  * field (`{ key, import, label }`), validated against the provider's source:
- * `src/index.ts` must contain `export const <import> = definePlatform(<label>)`
- * (label as string literal or resolved through a shared const). That keeps the
+ * `src/index.ts` must contain `export const <import> = definePlatform(<platformId>)`
+ * (the id may be a string literal or resolved through a shared const). That keeps the
  * hand-written metadata from drifting out of sync with the code.
  *
  * The manifest `path` is the provider's npm package name — what a consumer
@@ -40,10 +40,10 @@ const OUT_PATH = join(PKG_ROOT, "dist", "manifest.json");
 const DEFINE_PLATFORM_RE =
   /^export\s+const\s+(\w+)\s*=\s*definePlatform\(\s*(?:"([^"]+)"|(\w+))/m;
 
-// Fusor providers pass their platform name as a shared const — the single
-// source of truth for the routing key — rather than a string literal. When
-// the label isn't inline, resolve the const from the provider's own sources.
-async function resolvePlatformLabel(
+// Providers may pass their platform id as a shared const — the single source
+// of truth for routing and runtime tagging — rather than a string literal. When
+// the id isn't inline, resolve the const from the provider's own sources.
+async function resolvePlatformId(
   srcDir: string,
   constName: string
 ): Promise<string> {
@@ -78,21 +78,21 @@ async function validateAgainstSource(
   const match = source.match(DEFINE_PLATFORM_RE);
   if (!match) {
     throw new Error(
-      `${pkgName}: ${sourcePath} does not match the expected \`export const <name> = definePlatform(<label>, ...)\` pattern. If you intentionally renamed the call, update generate-manifest.ts.`
+      `${pkgName}: ${sourcePath} does not match the expected \`export const <name> = definePlatform(<platformId>, ...)\` pattern. If you intentionally renamed the call, update generate-manifest.ts.`
     );
   }
-  const [, importName, literalLabel, labelConst] = match;
+  const [, importName, literalId, idConst] = match;
   if (importName !== spectrum.import) {
     throw new Error(
       `${pkgName}: package.json#spectrum.import is "${spectrum.import}" but src/index.ts exports \`${importName}\`.`
     );
   }
-  const label =
-    literalLabel ??
-    (labelConst ? await resolvePlatformLabel(srcDir, labelConst) : undefined);
-  if (label !== spectrum.label) {
+  const platformId =
+    literalId ??
+    (idConst ? await resolvePlatformId(srcDir, idConst) : undefined);
+  if (platformId !== spectrum.label) {
     throw new Error(
-      `${pkgName}: package.json#spectrum.label is "${spectrum.label}" but definePlatform uses "${label}".`
+      `${pkgName}: package.json#spectrum.label is "${spectrum.label}" but definePlatform uses "${platformId}".`
     );
   }
 }

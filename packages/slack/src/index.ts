@@ -12,7 +12,9 @@ import {
   userSchema,
 } from "./types";
 
-export const slack = definePlatform("Slack", {
+const PLATFORM_ID = "slack";
+
+export const slack = definePlatform(PLATFORM_ID, {
   config: configSchema,
 
   lifecycle: {
@@ -71,7 +73,7 @@ export const slack = definePlatform("Slack", {
       if (input.users.length > 1) {
         throw UnsupportedError.action(
           "space.create",
-          "Slack",
+          PLATFORM_ID,
           "group DMs require an explicit channel id (Slack's conversations.open is not exposed); use space.get(channelId, { teamId })"
         );
       }

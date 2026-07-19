@@ -14,13 +14,13 @@ const ICON_BYTES = "png-bytes";
 const ICON_MIME = "image/png";
 
 const MEMBERS_UNSUPPORTED =
-  /reads-members-bare does not support action "getMembers"/;
+  /reads_members_bare does not support action "getMembers"/;
 const AVATAR_UNSUPPORTED =
-  /reads-avatar-bare does not support action "getAvatar"/;
+  /reads_avatar_bare does not support action "getAvatar"/;
 const INSTANCE_MEMBERS_UNSUPPORTED =
-  /reads-instance-bare does not support action "getMembers"/;
+  /reads_instance_bare does not support action "getMembers"/;
 const INSTANCE_AVATAR_UNSUPPORTED =
-  /reads-instance-bare does not support action "getAvatar"/;
+  /reads_instance_bare does not support action "getAvatar"/;
 
 // Shared def slots for a minimal provider. The message queue is closed
 // immediately — every test gets its space from `space.create`, not the
@@ -68,7 +68,7 @@ const makeBareProvider = (name: string) => definePlatform(name, baseSlots());
 
 describe("space.getMembers()", () => {
   it("returns provider records tagged with __platform, extras preserved", async () => {
-    const provider = makeReadProvider("reads-members");
+    const provider = makeReadProvider("reads_members");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -79,8 +79,8 @@ describe("space.getMembers()", () => {
 
       expect(members.map((m) => m.id)).toEqual(["u1", "u2"]);
       expect(members.map((m) => m.__platform)).toEqual([
-        "reads-members",
-        "reads-members",
+        "reads_members",
+        "reads_members",
       ]);
       expect((members[0] as { role?: string }).role).toBe("admin");
     } finally {
@@ -89,7 +89,7 @@ describe("space.getMembers()", () => {
   });
 
   it("throws UnsupportedError when the provider has no implementation", async () => {
-    const provider = makeBareProvider("reads-members-bare");
+    const provider = makeBareProvider("reads_members_bare");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -106,7 +106,7 @@ describe("space.getMembers()", () => {
 
 describe("space.getAvatar()", () => {
   it("passes the provider's { data, mimeType } through untouched", async () => {
-    const provider = makeReadProvider("reads-avatar");
+    const provider = makeReadProvider("reads_avatar");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -124,7 +124,7 @@ describe("space.getAvatar()", () => {
   });
 
   it("resolves undefined when the provider reports no avatar", async () => {
-    const provider = makeReadProvider("reads-avatar-none", { avatar: "none" });
+    const provider = makeReadProvider("reads_avatar_none", { avatar: "none" });
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -138,7 +138,7 @@ describe("space.getAvatar()", () => {
   });
 
   it("throws UnsupportedError when the provider has no implementation", async () => {
-    const provider = makeBareProvider("reads-avatar-bare");
+    const provider = makeBareProvider("reads_avatar_bare");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -154,7 +154,7 @@ describe("space.getAvatar()", () => {
 
 describe("platform instance read methods", () => {
   it("im.getMembers/getAvatar resolve the provider records raw", async () => {
-    const provider = makeReadProvider("reads-instance");
+    const provider = makeReadProvider("reads_instance");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -179,7 +179,7 @@ describe("platform instance read methods", () => {
     // The instance default throws synchronously (define.ts wires a plain
     // `() => { throw ... }`) — same contract as `im.getMessage` — so these
     // asserts use `toThrow`, not `rejects`.
-    const provider = makeBareProvider("reads-instance-bare");
+    const provider = makeBareProvider("reads_instance_bare");
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],

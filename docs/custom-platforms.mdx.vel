@@ -7,14 +7,20 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 {% set spaceType = symbol("ts:spectrum-ts#Space") %}
 {% set messageType = symbol("ts:spectrum-ts#Message") %}
-`definePlatform` is the entry point for building your own provider. It takes a name and a definition object, and returns a callable that:
+`definePlatform` is the entry point for building your own provider. It takes a platform ID and a definition object, and returns a callable that:
 
 - exposes a `.config()` method for registering the provider on `Spectrum()`
 - accepts the app, a <TypeTooltip name="Space" type={`{{ spaceType.signature }}`} />, or a <TypeTooltip name="Message" type={`{{ messageType.signature }}`} /> for [narrowing](/spectrum-ts/platform-narrowing)
 - carries any `static` properties you declare (like iMessage's effect constants)
 
 {% set pd = symbol("ts:spectrum-ts#PlatformDef") %}
-The core definition shape is <TypeTooltip name="PlatformDef" type={`{{ pd.signature }}`} />. You pass `name` as the first argument to `definePlatform`. The optional `static` object is an additional `definePlatform` input whose properties are copied onto the returned provider.
+The core definition shape is <TypeTooltip name="PlatformDef" type={`{{ pd.signature }}`} />. You pass the platform ID as the first argument to `definePlatform`. The optional `static` object is an additional `definePlatform` input whose properties are copied onto the returned provider.
+
+## Platform IDs
+
+Platform IDs are stable, developer-facing identifiers. Spectrum exposes the ID on `message.platform` and `__platform`, and uses it for provider registration, webhook routing, telemetry, and environment-variable prefixes.
+
+An ID must start with a lowercase letter and contain only lowercase letters, numbers, and single underscores between segments. In other words, it must match `/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/`. Examples include `discord`, `whatsapp_business`, and `my_platform`. `definePlatform` rejects invalid IDs instead of silently normalizing them, so names containing uppercase letters, spaces, or hyphens must be corrected by the platform author.
 
 ## Shape
 
@@ -22,7 +28,7 @@ The core definition shape is <TypeTooltip name="PlatformDef" type={`{{ pd.signat
 import { definePlatform } from "spectrum-ts";
 import z from "zod";
 
-export const myPlatform = definePlatform("my-platform", {
+export const myPlatform = definePlatform("my_platform", {
   // Validate provider config
   config: z.object({
     apiKey: z.string(),
@@ -195,7 +201,7 @@ Two tiers share the `actions` slot:
 - **Platform-specific actions** — free-form keys for platform ergonomics (e.g. iMessage's `getAttachment`). Only present when declared.
 
 ```ts
-export const myPlatform = definePlatform("my-platform", {
+export const myPlatform = definePlatform("my_platform", {
   // ...
   actions: {
     getMessage: async ({ client }, space, messageId) => {
@@ -224,14 +230,14 @@ When your platform receives inbound messages through webhooks (rather than a per
 import { definePlatform, fusor } from "spectrum-ts";
 import z from "zod";
 
-export const myWebhookPlatform = definePlatform("my-webhook-platform", {
+export const myWebhookPlatform = definePlatform("my_webhook_platform", {
   config: z.object({
     webhookSecret: z.string(),
   }),
 
   lifecycle: {
     createClient: async ({ config }) =>
-      fusor("my-webhook-platform", (req) => {
+      fusor("my_webhook_platform", (req) => {
         verifySignature(req.rawBody, req.headers, config.webhookSecret);
         return JSON.parse(new TextDecoder().decode(req.rawBody));
       }),

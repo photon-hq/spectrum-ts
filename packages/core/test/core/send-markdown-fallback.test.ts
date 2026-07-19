@@ -95,8 +95,8 @@ const noMarkdownSend = (platform: string) => {
 
 describe("markdown plain-text fallback", () => {
   it("re-sends the markdown as readable plain text", async () => {
-    const { seen, sendImpl } = noMarkdownSend("md-fallback-text");
-    const provider = makeProvider("md-fallback-text", sendImpl);
+    const { seen, sendImpl } = noMarkdownSend("md_fallback_text");
+    const provider = makeProvider("md_fallback_text", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -121,8 +121,8 @@ describe("markdown plain-text fallback", () => {
   });
 
   it("preserves the reply wrapper (and its target) in the fallback send", async () => {
-    const { seen, sendImpl } = noMarkdownSend("md-fallback-reply");
-    const provider = makeProvider("md-fallback-reply", sendImpl);
+    const { seen, sendImpl } = noMarkdownSend("md_fallback_reply");
+    const provider = makeProvider("md_fallback_reply", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -145,8 +145,8 @@ describe("markdown plain-text fallback", () => {
   });
 
   it("preserves the edit wrapper in the fallback send", async () => {
-    const { seen, sendImpl } = noMarkdownSend("md-fallback-edit");
-    const provider = makeProvider("md-fallback-edit", sendImpl);
+    const { seen, sendImpl } = noMarkdownSend("md_fallback_edit");
+    const provider = makeProvider("md_fallback_edit", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -172,8 +172,8 @@ describe("markdown plain-text fallback", () => {
   });
 
   it("downgrades markdown group items in place, leaving the rest untouched", async () => {
-    const { seen, sendImpl } = noMarkdownSend("md-fallback-group");
-    const provider = makeProvider("md-fallback-group", sendImpl);
+    const { seen, sendImpl } = noMarkdownSend("md_fallback_group");
+    const provider = makeProvider("md_fallback_group", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -205,10 +205,10 @@ describe("markdown plain-text fallback", () => {
     const sendImpl: SendImpl = (content) => {
       seen.push(content);
       return Promise.reject(
-        UnsupportedError.content(content.type, "md-fallback-none")
+        UnsupportedError.content(content.type, "md_fallback_none")
       );
     };
-    const provider = makeProvider("md-fallback-none", sendImpl);
+    const provider = makeProvider("md_fallback_none", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -225,8 +225,8 @@ describe("markdown plain-text fallback", () => {
   });
 
   it("warn-and-skips when the markdown renders to empty plain text", async () => {
-    const { seen, sendImpl } = noMarkdownSend("md-fallback-empty");
-    const provider = makeProvider("md-fallback-empty", sendImpl);
+    const { seen, sendImpl } = noMarkdownSend("md_fallback_empty");
+    const provider = makeProvider("md_fallback_empty", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -248,10 +248,10 @@ describe("markdown plain-text fallback", () => {
     const sendImpl: SendImpl = (content) => {
       seen.push(content);
       return Promise.reject(
-        UnsupportedError.content(content.type, "md-fallback-other")
+        UnsupportedError.content(content.type, "md_fallback_other")
       );
     };
-    const provider = makeProvider("md-fallback-other", sendImpl);
+    const provider = makeProvider("md_fallback_other", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -278,7 +278,7 @@ describe("markdown plain-text fallback", () => {
         timestamp: SENT_TIMESTAMP,
       });
     };
-    const provider = makeProvider("md-native", sendImpl);
+    const provider = makeProvider("md_native", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],

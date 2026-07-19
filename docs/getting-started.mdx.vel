@@ -52,10 +52,10 @@ bun add spectrum-ts @spectrum-ts/imessage-local
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { imessage } from "@spectrum-ts/imessage-local";
+import { localIMessage } from "@spectrum-ts/imessage-local";
 
 const app = await Spectrum({
-  providers: [imessage.config()],
+  providers: [localIMessage.config()],
 });
 ```
 

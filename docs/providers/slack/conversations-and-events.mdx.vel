@@ -24,7 +24,7 @@ Slack spaces carry a `teamId` field indicating which workspace the conversation 
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.platform !== "Slack") continue;
+  if (message.platform !== "slack") continue;
   const slackSpace = slack(space);
   console.log(slackSpace.teamId);
 }

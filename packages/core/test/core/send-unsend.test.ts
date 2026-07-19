@@ -75,7 +75,7 @@ const recordingSend = () => {
 describe("unsend sends are fire-and-forget", () => {
   it("message.unsend() dispatches unsend content targeting the message", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeUnsendProvider("unsend-ok", sendImpl);
+    const provider = makeUnsendProvider("unsend_ok", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -97,7 +97,7 @@ describe("unsend sends are fire-and-forget", () => {
 
   it("space.send(unsend(message)) resolves undefined", async () => {
     const { sendImpl } = recordingSend();
-    const provider = makeUnsendProvider("unsend-canonical", sendImpl);
+    const provider = makeUnsendProvider("unsend_canonical", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -113,7 +113,7 @@ describe("unsend sends are fire-and-forget", () => {
 
   it("space.unsend(message) delegates to the same dispatch", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeUnsendProvider("unsend-space-sugar", sendImpl);
+    const provider = makeUnsendProvider("unsend_space_sugar", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -133,7 +133,7 @@ describe("unsend sends are fire-and-forget", () => {
 
   it("unsends a reaction via the handle returned by react()", async () => {
     const { seen, sendImpl } = recordingSend();
-    const provider = makeUnsendProvider("unsend-reaction", sendImpl);
+    const provider = makeUnsendProvider("unsend_reaction", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -154,10 +154,10 @@ describe("unsend sends are fire-and-forget", () => {
   });
 
   it("resolves silently when the platform does not support unsend", async () => {
-    const provider = makeUnsendProvider("unsend-unsupported", (content) => {
+    const provider = makeUnsendProvider("unsend_unsupported", (content) => {
       if (content.type === "unsend") {
         return Promise.reject(
-          UnsupportedError.content("unsend", "unsend-unsupported")
+          UnsupportedError.content("unsend", "unsend_unsupported")
         );
       }
       return Promise.resolve({
@@ -183,7 +183,7 @@ describe("unsend sends are fire-and-forget", () => {
 
   it("rejects unsending an inbound message", async () => {
     const { sendImpl } = recordingSend();
-    const provider = makeUnsendProvider("unsend-inbound", sendImpl);
+    const provider = makeUnsendProvider("unsend_inbound", sendImpl);
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],

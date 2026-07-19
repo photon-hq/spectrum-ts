@@ -35,7 +35,7 @@
   "spectrum": {
     "key": "slack",
     "import": "slack",
-    "label": "Slack"
+    "label": "slack"
   },
   "scripts": {
     "build": "tsdown && node ../../scripts/smoke-import.mjs dist/index.js",

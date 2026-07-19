@@ -7,8 +7,9 @@ description: "Configure cloud or local iMessage packages, lines, spaces, and per
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 Use this page to choose an iMessage package and understand how Spectrum routes
-iMessage conversations. Cloud and local iMessage are separate packages; the
-choice is made by the import, not by a config flag.
+iMessage conversations. Cloud and local iMessage are separate platforms; each
+is selected by its provider import, not by a config flag. A macOS application
+can register both when it needs both transports.
 
 ## Provider packages
 
@@ -51,12 +52,15 @@ choice is made by the import, not by a config flag.
 
     ```ts
     import { Spectrum } from "spectrum-ts";
-    import { imessage } from "@spectrum-ts/imessage-local";
+    import { localIMessage } from "@spectrum-ts/imessage-local";
 
     const app = await Spectrum({
-      providers: [imessage.config()],
+      providers: [localIMessage.config()],
     });
     ```
+
+    Local messages use `"local_imessage"` in `message.platform`. Narrow local
+    spaces and messages with the same `localIMessage` export.
 
     <Note>
       Local iMessage supports receiving and sending text, attachments, and
@@ -109,7 +113,7 @@ iMessage spaces carry a `type` field, either `"dm"` or `"group"`, and a `phone` 
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.platform !== "iMessage") continue;
+  if (message.platform !== "imessage") continue;
   const im = imessage(space);
   console.log(im.phone); // the phone number handling this conversation
   if (im.type === "group") {
@@ -138,7 +142,7 @@ These fields are also available on `message.sender` after narrowing:
 
 ```ts
 for await (const [space, message] of app.messages) {
-  if (message.platform !== "iMessage") continue;
+  if (message.platform !== "imessage") continue;
   const imMsg = imessage(message);
   console.log(imMsg.sender?.service);
 }

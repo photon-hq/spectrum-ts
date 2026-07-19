@@ -3,20 +3,20 @@ title: "iMessage"
 description: "Choose and configure the cloud or local iMessage provider."
 ---
 
-Spectrum ships two iMessage packages. They expose the same provider name and
-the same `imessage.config()` registration pattern, but target different
-environments.
+Spectrum ships two independent iMessage platforms. The cloud package exports
+`imessage` with the `"imessage"` platform ID. The local package exports
+`localIMessage` with the `"local_imessage"` platform ID.
 
 | Use case | Package | Included in `spectrum-ts`? | Runtime |
 |---|---|---|---|
 | Managed Spectrum Cloud lines | `@spectrum-ts/imessage` | Yes | Node.js or Bun |
 | This Mac's Messages database | `@spectrum-ts/imessage-local` | No | macOS with Bun or Node.js |
 
-<Warning>
-  Choose one iMessage package per `Spectrum()` instance. Both packages register
-  the `"iMessage"` platform, so `Spectrum()` rejects an instance that registers
-  both.
-</Warning>
+<Note>
+  Because their platform IDs are different, a macOS application can register
+  both providers in one `Spectrum()` instance. Use `message.platform` to
+  distinguish `"imessage"` cloud messages from `"local_imessage"` messages.
+</Note>
 
 ## Cloud quick start
 
@@ -93,10 +93,10 @@ bun add spectrum-ts @spectrum-ts/imessage-local
 
 ```ts
 import { Spectrum } from "spectrum-ts";
-import { imessage } from "@spectrum-ts/imessage-local";
+import { localIMessage } from "@spectrum-ts/imessage-local";
 
 const app = await Spectrum({
-  providers: [imessage.config()],
+  providers: [localIMessage.config()],
 });
 ```
 
@@ -146,9 +146,9 @@ export const providers = [imessage.config()];
 
 ```ts
 // mac-app.ts
-import { imessage } from "@spectrum-ts/imessage-local";
+import { localIMessage } from "@spectrum-ts/imessage-local";
 
-export const providers = [imessage.config()];
+export const providers = [localIMessage.config()];
 ```
 
 Avoid a shared module that statically imports both packages and chooses one at
@@ -173,10 +173,10 @@ with the explicit local package:
 ```ts
 // After
 import { Spectrum } from "spectrum-ts";
-import { imessage } from "@spectrum-ts/imessage-local";
+import { localIMessage } from "@spectrum-ts/imessage-local";
 
 const app = await Spectrum({
-  providers: [imessage.config()],
+  providers: [localIMessage.config()],
 });
 ```
 

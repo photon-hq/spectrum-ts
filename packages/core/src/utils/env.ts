@@ -48,8 +48,8 @@ export const fromEnv = <T extends z.ZodType>(envKey: string, schema: T) =>
  * Normalize a platform id into the env-var prefix segment: upper-case, with any
  * run of non-alphanumeric characters collapsed to a single `_`. This is a
  * whole-name transform, NOT camelCase splitting, so it reproduces the prefixes
- * the adapters used by hand — `"telegram"` → `TELEGRAM`,
- * `"WhatsApp Business"` → `WHATSAPP_BUSINESS`, `"Slack"` → `SLACK`.
+ * canonical platform ids use lowercase snake_case, so `"telegram"` becomes
+ * `TELEGRAM` and `"whatsapp_business"` becomes `WHATSAPP_BUSINESS`.
  */
 const NON_ALPHANUMERIC_RUN = /[^A-Z0-9]+/;
 

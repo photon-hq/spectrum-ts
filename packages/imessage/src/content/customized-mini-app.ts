@@ -16,7 +16,7 @@ const layoutSchema = appLayoutSchema;
  * provider — never enters the universal `Content` discriminated union. The
  * framework recognizes it via the generic content-level platform contract:
  *
- * - `__platform: "iMessage"` — `findUnsupportedPlatformContent` reads this tag
+ * - `__platform: "imessage"` — `findUnsupportedPlatformContent` reads this tag
  *   and warns-and-skips when a different platform receives it.
  *
  * Unlike `background` / `read`, this content is **not** `__fireAndForget`: it
@@ -26,7 +26,7 @@ const layoutSchema = appLayoutSchema;
  */
 export const customizedMiniAppSchema = z.object({
   type: z.literal("customized-mini-app"),
-  __platform: z.literal("iMessage"),
+  __platform: z.literal("imessage"),
   // Display name of the owning app, shown by Messages fallback UI.
   appName: z.string().nonempty(),
   // Apple App Store numeric id of the owning app. Positive when set; omit to
@@ -60,7 +60,7 @@ export const asCustomizedMiniApp = (
 ): CustomizedMiniApp =>
   customizedMiniAppSchema.parse({
     type: "customized-mini-app",
-    __platform: "iMessage",
+    __platform: "imessage",
     ...input,
   });
 

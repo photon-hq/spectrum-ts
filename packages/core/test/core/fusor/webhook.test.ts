@@ -200,6 +200,9 @@ describe("spectrum.webhook", () => {
     );
 
     expect(result.status).toBe(400);
+    expect(new TextDecoder().decode(result.body)).toBe(
+      "malformed Fusor envelope"
+    );
     await spectrum.stop();
   });
 

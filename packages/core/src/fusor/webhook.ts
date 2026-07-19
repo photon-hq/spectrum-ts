@@ -1,5 +1,5 @@
 import z from "zod";
-import type { ParsedHttpRequest } from "./parse";
+import { mergeHeaderValue, type ParsedHttpRequest } from "./parse";
 
 export const FUSOR_DELIVERY_CE_TYPE = "dev.spctrm.fusor.delivery";
 
@@ -91,10 +91,7 @@ const normalizeHeaders = (
     string
   >;
   for (const [name, value] of Object.entries(input)) {
-    const lowerName = name.toLowerCase();
-    headers[lowerName] = Object.hasOwn(headers, lowerName)
-      ? `${headers[lowerName]}, ${value}`
-      : value;
+    mergeHeaderValue(headers, name, value);
   }
   return headers;
 };

@@ -1316,7 +1316,7 @@ export async function Spectrum<
       return buildWebhookResult(asWeb, {
         status: 400,
         headers: {},
-        body: new Uint8Array(0),
+        body: encodeText("malformed Fusor envelope"),
       });
     }
 

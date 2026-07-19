@@ -87,11 +87,13 @@ export type WebhookHandler = (
  * JSON/text body — native Spectrum HMAC verification is over those bytes, and
  * Fusor validates its versioned JSON envelope from them.
  *
- * `headers` are required for routing and verification. Fusor deliveries carry
- * `ce-type: dev.spctrm.fusor.delivery`; every other request is treated as a
- * native Spectrum webhook, whose `X-Spectrum-Signature` /
- * `X-Spectrum-Timestamp` are verified against `Spectrum({ webhookSecret })`.
- * The natural `{ headers: req.headers, body: req.body }` shape works for both.
+ * `headers` is optional on this raw-input type; omitted headers are treated as
+ * an empty record. Routing and verification still depend on them: Fusor
+ * deliveries carry `ce-type: dev.spctrm.fusor.delivery`; every other request is
+ * treated as a native Spectrum webhook, whose `X-Spectrum-Signature` /
+ * `X-Spectrum-Timestamp` are verified against `Spectrum({ webhookSecret })` and
+ * rejected when missing. The natural `{ headers: req.headers, body: req.body }`
+ * shape works for both.
  */
 export interface WebhookRawRequest {
   body: Uint8Array | ArrayBuffer;

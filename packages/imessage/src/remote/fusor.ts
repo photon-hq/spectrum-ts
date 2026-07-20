@@ -1,6 +1,8 @@
 import {
   decodeCatchUpEvent,
+  type GroupEvent,
   type MessageEvent,
+  type PollEvent,
 } from "@photon-ai/advanced-imessage/http";
 import {
   FusorTerminalError,
@@ -8,17 +10,36 @@ import {
   type HybridFusorMessages,
 } from "@spectrum-ts/core";
 import type z from "zod";
-import { getMessageCache } from "../cache";
+import { getMessageCache, getPollCache } from "../cache";
 import type { IMessageClient, RemoteClient } from "../types";
 import { type configSchema, SHARED_PHONE } from "../types";
 import { inspectCatchUpSequence } from "./catchup-sequence";
 import { clientEntryForPhone, isSharedMode } from "./client";
 import { getContactShareTracker } from "./contact-share";
+import { groupEventActor, toGroupEventMessages } from "./group-events";
 import { type ReceivedEvent, toInboundMessages } from "./inbound";
+import { cachePollEvent, toPollDeltaMessages } from "./polls";
+import { toReactionMessages } from "./reactions";
 
-const EVENT_PATH = "/imessage/events/messageChanged";
 const PROTOBUF_CONTENT_TYPE = "application/x-protobuf";
 type LegacyTransformVersion = "1" | "2" | "3";
+type ReactionAddedEvent = Extract<
+  MessageEvent,
+  { type: "message.reactionAdded" }
+>;
+type DedicatedImessageEvent =
+  | GroupEvent
+  | PollEvent
+  | ReactionAddedEvent
+  | ReceivedEvent;
+
+const DEDICATED_EVENT_TYPES = {
+  groupChanged: "group.changed",
+  messageChanged: "message.received",
+  pollChanged: "poll.changed",
+  reactionAdded: "message.reactionAdded",
+} as const;
+type DedicatedImessageEventType = keyof typeof DEDICATED_EVENT_TYPES;
 
 const LEGACY_TRANSFORM_VERSIONS = new Set<LegacyTransformVersion>([
   "1",
@@ -125,7 +146,8 @@ interface LegacyImessageFusorPayload {
 }
 
 interface DedicatedImessageFusorPayload {
-  event: ReceivedEvent;
+  event: DedicatedImessageEvent;
+  eventType: DedicatedImessageEventType;
   kind: "dedicated";
   lineId: string;
   phone: string;
@@ -148,15 +170,25 @@ const destinationPhone = (
     : destinationCallerId;
 };
 
-const decodeReceivedEvent = (
+const receivedChatGuid = (event: ReceivedEvent): string | undefined =>
+  event.chatGuid || event.message.chatGuids?.[0];
+
+const decodeEvent = (
   rawBody: Uint8Array,
   sourceSequence: string
-): ReceivedEvent => {
+): ReturnType<typeof decodeCatchUpEvent> => {
   const inspection = inspectCatchUpSequence(rawBody);
   if (inspection.sequenceDecimal !== sourceSequence) {
     throw new Error("Invalid iMessage Fusor event: sequence mismatch");
   }
-  const decoded = decodeCatchUpEvent(inspection.decoderBody);
+  return decodeCatchUpEvent(inspection.decoderBody);
+};
+
+const decodeReceivedEvent = (
+  rawBody: Uint8Array,
+  sourceSequence: string
+): ReceivedEvent => {
+  const decoded = decodeEvent(rawBody, sourceSequence);
   if (decoded?.type !== "message.received") {
     throw new Error("Invalid iMessage Fusor event payload");
   }
@@ -173,7 +205,7 @@ const isLegacyTransformVersion = (
   LEGACY_TRANSFORM_VERSIONS.has(value as LegacyTransformVersion);
 
 const assertBaseRequest = (request: FusorVerifyRequest): void => {
-  if (request.method !== "POST" || request.path !== EVENT_PATH) {
+  if (request.method !== "POST") {
     throw new Error("Invalid iMessage Fusor event route");
   }
   const contentType = header(request, "content-type")
@@ -183,15 +215,30 @@ const assertBaseRequest = (request: FusorVerifyRequest): void => {
   if (contentType !== PROTOBUF_CONTENT_TYPE) {
     throw new Error("Invalid iMessage Fusor event content type");
   }
-  if (header(request, "x-fusor-imessage-event-type") !== "messageChanged") {
+};
+
+const assertEventContract = (
+  request: FusorVerifyRequest,
+  eventType: string
+): void => {
+  if (
+    request.path !== `/imessage/events/${eventType}` ||
+    header(request, "x-fusor-imessage-event-type") !== eventType
+  ) {
     throw new Error("Invalid iMessage Fusor event type");
   }
 };
+
+const isDedicatedEventType = (
+  value: string
+): value is DedicatedImessageEventType =>
+  Object.hasOwn(DEDICATED_EVENT_TYPES, value);
 
 const parseLegacyPayload = (
   request: FusorVerifyRequest,
   transformVersion: LegacyTransformVersion
 ): LegacyImessageFusorPayload => {
+  assertEventContract(request, "messageChanged");
   const sourceSequence = requireHeader(request, "x-fusor-imessage-log-id");
   if (!POSITIVE_INTEGER_RE.test(sourceSequence)) {
     throw new Error("Invalid iMessage Fusor source log id");
@@ -218,6 +265,11 @@ const parseDedicatedPayload = (
       "Invalid dedicated iMessage Fusor event: physical instance id is forbidden"
     );
   }
+  const eventType = requireHeader(request, "x-fusor-imessage-event-type");
+  if (!isDedicatedEventType(eventType)) {
+    throw new Error("Invalid dedicated iMessage Fusor event type");
+  }
+  assertEventContract(request, eventType);
   const lineId = requireHeader(request, "x-fusor-imessage-line-id");
   if (!UUID_RE.test(lineId)) {
     throw new Error("Invalid dedicated iMessage Fusor line id");
@@ -233,15 +285,29 @@ const parseDedicatedPayload = (
   if (!POSITIVE_INTEGER_RE.test(sourceSequence)) {
     throw new Error("Invalid dedicated iMessage Fusor source sequence");
   }
-  const event = decodeReceivedEvent(request.rawBody, sourceSequence);
-  const destination = destinationPhone(event.message.destinationCallerId);
-  if (destination !== undefined && destination !== phone) {
+  const event = decodeEvent(request.rawBody, sourceSequence);
+  if (event?.type !== DEDICATED_EVENT_TYPES[eventType]) {
+    throw new Error("Invalid dedicated iMessage Fusor event payload");
+  }
+  if (event.type === "message.received") {
+    if (event.isFromMe || event.message.isFromMe) {
+      throw new Error("Invalid iMessage Fusor event: outbound message");
+    }
+    const destination = destinationPhone(event.message.destinationCallerId);
+    if (destination !== undefined && destination !== phone) {
+      throw new Error(
+        `Invalid dedicated iMessage Fusor destination ${destination}`
+      );
+    }
+  }
+  if (event.type !== "message.received" && !event.chatGuid) {
     throw new Error(
-      `Invalid dedicated iMessage Fusor destination ${destination}`
+      "Invalid dedicated iMessage Fusor event: missing chat guid"
     );
   }
   return {
     event,
+    eventType,
     kind: "dedicated",
     lineId,
     phone,
@@ -303,6 +369,13 @@ const selectClient = (
   }
 };
 
+const isEventFromCurrentAccount = (
+  event: Pick<DedicatedImessageEvent, "actor" | "isFromMe">,
+  phone: string
+): boolean =>
+  event.isFromMe ||
+  (event.actor?.address !== undefined && event.actor.address === phone);
+
 export const handleImessageFusorMessages: HybridFusorMessages<
   ImessageFusorPayload,
   IMessageClient,
@@ -310,14 +383,68 @@ export const handleImessageFusorMessages: HybridFusorMessages<
 > = async ({ client, payload, projectConfig }) => {
   const selected = selectClient(client, payload);
   const phone = payload.kind === "dedicated" ? payload.phone : SHARED_PHONE;
-  const messages = await toInboundMessages(
-    selected.client,
-    getMessageCache(selected.client),
-    payload.event,
-    phone
-  );
-  if (projectConfig?.profile?.imessageSynced === true) {
-    getContactShareTracker(selected.client).maybeShare(payload.event.chatGuid);
+  if (payload.event.type === "message.received") {
+    const messages = await toInboundMessages(
+      selected.client,
+      getMessageCache(selected.client),
+      payload.event,
+      phone
+    );
+    if (projectConfig?.profile?.imessageSynced === true) {
+      const chatGuid = receivedChatGuid(payload.event);
+      if (chatGuid) {
+        getContactShareTracker(selected.client).maybeShare(chatGuid);
+      }
+    }
+    return messages;
   }
-  return messages;
+
+  if (payload.kind !== "dedicated") {
+    throw new FusorTerminalError(
+      "Legacy iMessage delivery cannot contain supplemental events"
+    );
+  }
+
+  if (payload.event.type === "message.reactionAdded") {
+    if (isEventFromCurrentAccount(payload.event, phone)) {
+      return [];
+    }
+    return await toReactionMessages(
+      selected.client,
+      getMessageCache(selected.client),
+      payload.event,
+      phone,
+      payload.sourceSequence
+    );
+  }
+
+  if (payload.event.type === "poll.changed") {
+    const pollCache = getPollCache(selected.client);
+    cachePollEvent(pollCache, payload.event);
+    if (isEventFromCurrentAccount(payload.event, phone)) {
+      return [];
+    }
+    return await toPollDeltaMessages(
+      selected.client,
+      pollCache,
+      payload.event,
+      phone
+    );
+  }
+
+  const actor = groupEventActor(payload.event);
+  if (
+    isEventFromCurrentAccount(
+      { actor, isFromMe: payload.event.isFromMe },
+      phone
+    )
+  ) {
+    return [];
+  }
+  return await toGroupEventMessages(
+    selected.client,
+    payload.event,
+    phone,
+    payload.sourceSequence
+  );
 };

@@ -26,6 +26,12 @@ service can continue delivering customer webhooks by consuming that stream;
 raw Fusor envelopes are not accepted through the public `spectrum.webhook()`
 handler. The SDK no longer opens direct gRPC inbound streams.
 
+Dedicated Fusor delivery includes received messages, added reactions, poll
+changes, and group changes. Chat-only changes remain deliberate no-ops because
+they do not map to a public Spectrum message. Supplemental events keep the
+same public IDs as the former direct stream and carry the stable dedicated
+phone on their spaces.
+
 All outbound sends and unary, attachment, and file operations use Advanced
 iMessage HTTP clients. Spectrum Cloud returns each dedicated instance's token
 and assigned E.164 phone; the SDK sends the instance id to the existing HTTP

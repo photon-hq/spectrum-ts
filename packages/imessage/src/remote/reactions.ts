@@ -88,7 +88,8 @@ export const toReactionMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
   event: ReactionAddedEvent,
-  phone: string
+  phone: string,
+  sourceSequence = String(event.sequence)
 ): Promise<IMessageMessage[]> => {
   const emoji = reactionEmoji(event.reaction);
   if (!emoji) {
@@ -123,7 +124,7 @@ export const toReactionMessages = async (
         phone,
       },
       timestamp: event.occurredAt,
-      id: `${event.messageGuid}:reaction:${event.sequence}${partSuffix}`,
+      id: `${event.messageGuid}:reaction:${sourceSequence}${partSuffix}`,
       content: asProviderReaction(emoji, resolved),
     },
   ];

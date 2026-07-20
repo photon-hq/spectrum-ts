@@ -63,6 +63,39 @@ const NATIVE_FRAME = replaceAscii(
   "spc-msg-message-guid",
   NATIVE_MESSAGE_GUID
 );
+const REACTION_FRAME = Uint8Array.from(
+  Buffer.from(
+    "CCtSWQoXaU1lc3NhZ2U7LTsrMTU1NTEyMzQ1NjcSCwiA4s+qBhDAqdM6GhQKDCsxNTU1NzY1NDMyMRABGgJVU3IbChNuYXRpdmUtbWVzc2FnZS1ndWlkEAIaAggB",
+    "base64"
+  )
+);
+const POLL_FRAME = Uint8Array.from(
+  Buffer.from(
+    "CCxiYgoXaU1lc3NhZ2U7KztuYXRpdmUtZ3JvdXASEG5hdGl2ZS1wb2xsLWd1aWQaCwiA4s+qBhDAqdM6IhQKDCsxNTU1NzY1NDMyMRABGgJVU2ISChBuYXRpdmUtb3B0aW9uLWlk",
+    "base64"
+  )
+);
+const GROUP_FRAME = Uint8Array.from(
+  Buffer.from(
+    "CC1aVAoXaU1lc3NhZ2U7KztuYXRpdmUtZ3JvdXASCwiA4s+qBhDAqdM6GhQKDCsxNTU1NzY1NDMyMRABGgJVU1oWChQKDCsxNTU1MDAwOTk5ORABGgJVUw==",
+    "base64"
+  )
+);
+
+type DedicatedEventType =
+  | "groupChanged"
+  | "messageChanged"
+  | "pollChanged"
+  | "reactionAdded";
+
+const DEDICATED_FIXTURES: Readonly<
+  Record<DedicatedEventType, { body: Uint8Array; sequence: string }>
+> = {
+  groupChanged: { body: GROUP_FRAME, sequence: "45" },
+  messageChanged: { body: NATIVE_FRAME, sequence: "42" },
+  pollChanged: { body: POLL_FRAME, sequence: "44" },
+  reactionAdded: { body: REACTION_FRAME, sequence: "43" },
+};
 
 const encodeVarint = (value: bigint): Uint8Array => {
   const bytes: number[] = [];
@@ -76,8 +109,8 @@ const encodeVarint = (value: bigint): Uint8Array => {
 };
 
 const withSequence = (body: Uint8Array, sequence: bigint): Uint8Array => {
-  if (body[0] !== 8 || body[1] !== 42) {
-    throw new Error("fixture no longer starts with sequence field 1 = 42");
+  if (body[0] !== 8 || (body[1] ?? 128) >= 128) {
+    throw new Error("fixture no longer starts with a one-byte field 1");
   }
   const encoded = encodeVarint(sequence);
   const result = new Uint8Array(body.byteLength - 1 + encoded.byteLength);
@@ -111,22 +144,26 @@ const legacyRequest = (
 };
 
 const dedicatedRequest = (
-  overrides: Partial<FusorVerifyRequest> = {}
-): FusorVerifyRequest => ({
-  method: "POST",
-  path: "/imessage/events/messageChanged",
-  headers: {
-    "content-type": "application/x-protobuf",
-    "x-fusor-imessage-event-type": "messageChanged",
-    "x-fusor-imessage-line-id": LINE_ID,
-    "x-fusor-imessage-phone": LINE_PHONE,
-    "x-fusor-imessage-source-sequence": "42",
-    "x-fusor-imessage-transform-version": "4",
-    "x-fusor-source": "fusor-fanin-imessage",
-  },
-  rawBody: NATIVE_FRAME,
-  ...overrides,
-});
+  overrides: Partial<FusorVerifyRequest> = {},
+  eventType: DedicatedEventType = "messageChanged"
+): FusorVerifyRequest => {
+  const fixture = DEDICATED_FIXTURES[eventType];
+  return {
+    method: "POST",
+    path: `/imessage/events/${eventType}`,
+    headers: {
+      "content-type": "application/x-protobuf",
+      "x-fusor-imessage-event-type": eventType,
+      "x-fusor-imessage-line-id": LINE_ID,
+      "x-fusor-imessage-phone": LINE_PHONE,
+      "x-fusor-imessage-source-sequence": fixture.sequence,
+      "x-fusor-imessage-transform-version": "4",
+      "x-fusor-source": "fusor-fanin-imessage",
+    },
+    rawBody: fixture.body,
+    ...overrides,
+  };
+};
 
 const decodedFixture = (body: Uint8Array = NATIVE_FRAME): ReceivedEvent => {
   const event = decodeCatchUpEvent(body);
@@ -136,14 +173,34 @@ const decodedFixture = (body: Uint8Array = NATIVE_FRAME): ReceivedEvent => {
   return event;
 };
 
-const decodeOnceAs = (event: ReceivedEvent): void => {
+const decodeOnceAs = (
+  event: NonNullable<ReturnType<typeof decodeCatchUpEvent>>
+): void => {
   vi.mocked(decodeCatchUpEvent).mockReturnValueOnce(event);
+};
+
+type DedicatedReceivedPayload = Extract<
+  ReturnType<typeof verifyImessageFusorRequest>,
+  { kind: "dedicated" }
+> & { event: ReceivedEvent };
+
+const dedicatedReceivedPayload = (): DedicatedReceivedPayload => {
+  const payload = verifyImessageFusorRequest(dedicatedRequest());
+  if (
+    payload.kind !== "dedicated" ||
+    payload.event.type !== "message.received"
+  ) {
+    throw new Error("expected a dedicated message.received payload");
+  }
+  return payload as DedicatedReceivedPayload;
 };
 
 interface ClientSpies {
   client: AdvancedIMessage;
   downloadStream: ReturnType<typeof vi.fn>;
+  getGroupIcon: ReturnType<typeof vi.fn>;
   getMessage: ReturnType<typeof vi.fn>;
+  getPoll: ReturnType<typeof vi.fn>;
   shareContactInfo: ReturnType<typeof vi.fn>;
 }
 
@@ -162,16 +219,26 @@ const remoteClient = (overrides: Partial<ClientSpies> = {}): ClientSpies => {
   const getMessage =
     overrides.getMessage ??
     vi.fn(() => Promise.reject(new Error("message lookup not expected")));
+  const getPoll =
+    overrides.getPoll ??
+    vi.fn(() => Promise.reject(new Error("poll lookup not expected")));
+  const getGroupIcon =
+    overrides.getGroupIcon ??
+    vi.fn(() => Promise.reject(new Error("group icon lookup not expected")));
   const shareContactInfo =
     overrides.shareContactInfo ?? vi.fn(() => Promise.resolve());
   return {
     client: {
       attachments: { downloadStream },
       chats: { shareContactInfo },
+      groups: { getIcon: getGroupIcon },
       messages: { get: getMessage },
+      polls: { get: getPoll },
     } as unknown as AdvancedIMessage,
     downloadStream,
+    getGroupIcon,
     getMessage,
+    getPoll,
     shareContactInfo,
   };
 };
@@ -338,6 +405,50 @@ describe("iMessage Fusor request verification", () => {
       },
       type: "message.received",
     });
+  });
+
+  it.each([
+    ["reactionAdded", "message.reactionAdded", "43"],
+    ["pollChanged", "poll.changed", "44"],
+    ["groupChanged", "group.changed", "45"],
+  ] as const)("decodes a golden dedicated %s frame only through its exact v4 contract", (eventType, decodedType, sourceSequence) => {
+    const payload = verifyImessageFusorRequest(dedicatedRequest({}, eventType));
+
+    expect(payload).toMatchObject({
+      event: { type: decodedType },
+      eventType,
+      kind: "dedicated",
+      lineId: LINE_ID,
+      phone: LINE_PHONE,
+      sourceSequence,
+      transformVersion: "4",
+    });
+  });
+
+  it("rejects a v4 event whose exact path/header kind disagrees with the protobuf", () => {
+    const input = dedicatedRequest({}, "reactionAdded");
+    expect(() =>
+      verifyImessageFusorRequest({
+        ...input,
+        rawBody: withSequence(POLL_FRAME, 43n),
+      })
+    ).toThrow("event payload");
+  });
+
+  it("rejects chat-only and unknown v4 event kinds", () => {
+    for (const eventType of ["chatChanged", "reactionRemoved"]) {
+      const input = dedicatedRequest();
+      expect(() =>
+        verifyImessageFusorRequest({
+          ...input,
+          headers: {
+            ...input.headers,
+            "x-fusor-imessage-event-type": eventType,
+          },
+          path: `/imessage/events/${eventType}`,
+        })
+      ).toThrow("event type");
+    }
   });
 
   it("keeps an exact signed-int64 sequence above Number.MAX_SAFE_INTEGER", () => {
@@ -596,6 +707,271 @@ describe("iMessage Fusor delivery routing", () => {
     });
   });
 
+  it("maps a native reaction through only the selected phone and preserves its public id", async () => {
+    const base = decodedFixture();
+    const getMessage = vi.fn(() =>
+      Promise.resolve({
+        ...base.message,
+        content: { ...base.message.content, text: "reaction target" },
+        guid: "native-message-guid",
+      })
+    );
+    const selected = remoteClient({ getMessage });
+    const other = remoteClient();
+    const payload = verifyImessageFusorRequest(
+      dedicatedRequest({}, "reactionAdded")
+    );
+    const records = await handle(
+      [
+        {
+          client: other.client,
+          phone: OTHER_PHONE,
+        },
+        { client: selected.client, phone: LINE_PHONE },
+      ],
+      payload,
+      true
+    );
+    const record = Array.isArray(records) ? records[0] : records;
+
+    expect(record).toMatchObject({
+      id: "native-message-guid:reaction:43:2",
+      space: {
+        id: "iMessage;-;+15551234567",
+        phone: LINE_PHONE,
+      },
+    });
+    if (record?.content.type !== "reaction") {
+      throw new Error("expected reaction content");
+    }
+    expect(record.content.target).toMatchObject({
+      id: "native-message-guid",
+      space: { phone: LINE_PHONE },
+    });
+    expect(record.space).not.toHaveProperty("lineId");
+    expect(record.content.target.space).not.toHaveProperty("lineId");
+    expect(selected.getMessage).toHaveBeenCalledWith("native-message-guid");
+    expect(other.getMessage).not.toHaveBeenCalled();
+    expect(selected.shareContactInfo).not.toHaveBeenCalled();
+  });
+
+  it("maps a native poll vote through only the selected phone", async () => {
+    const getPoll = vi.fn(() =>
+      Promise.resolve({
+        chatGuid: "iMessage;+;native-group",
+        options: [
+          {
+            optionIdentifier: "native-option-id",
+            text: "Ship it",
+          },
+          {
+            optionIdentifier: "native-option-id-2",
+            text: "Wait",
+          },
+        ],
+        pollMessageGuid: "native-poll-guid",
+        title: "Release?",
+        votes: [],
+      })
+    );
+    const selected = remoteClient({ getPoll });
+    const other = remoteClient();
+    const payload = verifyImessageFusorRequest(
+      dedicatedRequest({}, "pollChanged")
+    );
+    const records = await handle(
+      [
+        {
+          client: other.client,
+          phone: OTHER_PHONE,
+        },
+        { client: selected.client, phone: LINE_PHONE },
+      ],
+      payload
+    );
+    const record = Array.isArray(records) ? records[0] : records;
+
+    expect(record).toMatchObject({
+      id: "native-poll-guid:+15557654321:native-option-id:selected:1700000000123",
+      content: { selected: true, type: "poll_option" },
+      space: {
+        id: "iMessage;+;native-group",
+        phone: LINE_PHONE,
+      },
+    });
+    expect(record?.space).not.toHaveProperty("lineId");
+    expect(selected.getPoll).toHaveBeenCalledWith("native-poll-guid");
+    expect(other.getPoll).not.toHaveBeenCalled();
+  });
+
+  it("caches self-authored poll metadata before suppressing its echo", async () => {
+    const selected = remoteClient();
+    const vote = verifyImessageFusorRequest(
+      dedicatedRequest({}, "pollChanged")
+    );
+    if (vote.kind !== "dedicated" || vote.event.type !== "poll.changed") {
+      throw new Error("expected a dedicated poll change");
+    }
+    const created = {
+      ...vote,
+      event: {
+        ...vote.event,
+        actor: { address: LINE_PHONE, service: "iMessage" as const },
+        delta: {
+          options: [
+            { optionIdentifier: "native-option-id", text: "Ship it" },
+            { optionIdentifier: "native-option-id-2", text: "Wait" },
+          ],
+          title: "Release?",
+          type: "created" as const,
+        },
+        isFromMe: true,
+      },
+    };
+    const clients = [{ client: selected.client, phone: LINE_PHONE }];
+
+    await expect(handle(clients, created)).resolves.toEqual([]);
+    const records = await handle(clients, vote);
+
+    expect(Array.isArray(records) ? records[0]?.content.type : undefined).toBe(
+      "poll_option"
+    );
+    expect(selected.getPoll).not.toHaveBeenCalled();
+  });
+
+  it("maps a native group change with the pre-migration synthetic id", async () => {
+    const selected = remoteClient();
+    const payload = verifyImessageFusorRequest(
+      dedicatedRequest({}, "groupChanged")
+    );
+    const records = await handle(
+      [{ client: selected.client, phone: LINE_PHONE }],
+      payload
+    );
+
+    expect(Array.isArray(records) ? records[0] : records).toMatchObject({
+      id: "iMessage;+;native-group:group:45",
+      content: { members: ["+15550009999"], type: "addMember" },
+      space: {
+        id: "iMessage;+;native-group",
+        phone: LINE_PHONE,
+      },
+    });
+    expect(
+      Array.isArray(records) ? records[0]?.space : records?.space
+    ).not.toHaveProperty("lineId");
+  });
+
+  it("uses the exact source sequence in supplemental ids above Number.MAX_SAFE_INTEGER", async () => {
+    const groupInput = dedicatedRequest({}, "groupChanged");
+    const groupPayload = verifyImessageFusorRequest({
+      ...groupInput,
+      headers: {
+        ...groupInput.headers,
+        "x-fusor-imessage-source-sequence": SIGNED_INT64_MAX.toString(),
+      },
+      rawBody: withSequence(GROUP_FRAME, SIGNED_INT64_MAX),
+    });
+    const groupClient = remoteClient();
+    const groupRecords = await handle(
+      [{ client: groupClient.client, phone: LINE_PHONE }],
+      groupPayload
+    );
+
+    expect(
+      Array.isArray(groupRecords) ? groupRecords[0]?.id : groupRecords?.id
+    ).toBe(`iMessage;+;native-group:group:${SIGNED_INT64_MAX}`);
+
+    const base = decodedFixture();
+    const reactionClient = remoteClient({
+      getMessage: vi.fn(() =>
+        Promise.resolve({
+          ...base.message,
+          content: { ...base.message.content, text: "reaction target" },
+          guid: "native-message-guid",
+        })
+      ),
+    });
+    const reactionInput = dedicatedRequest({}, "reactionAdded");
+    const reactionPayload = verifyImessageFusorRequest({
+      ...reactionInput,
+      headers: {
+        ...reactionInput.headers,
+        "x-fusor-imessage-source-sequence": SIGNED_INT64_MAX.toString(),
+      },
+      rawBody: withSequence(REACTION_FRAME, SIGNED_INT64_MAX),
+    });
+    const reactionRecords = await handle(
+      [{ client: reactionClient.client, phone: LINE_PHONE }],
+      reactionPayload
+    );
+
+    expect(
+      Array.isArray(reactionRecords)
+        ? reactionRecords[0]?.id
+        : reactionRecords?.id
+    ).toBe(`native-message-guid:reaction:${SIGNED_INT64_MAX}:2`);
+  });
+
+  it("suppresses supplemental self echoes with the same dedicated-line rules as the old stream", async () => {
+    const selected = remoteClient();
+
+    const reaction = verifyImessageFusorRequest(
+      dedicatedRequest({}, "reactionAdded")
+    );
+    if (
+      reaction.kind !== "dedicated" ||
+      reaction.event.type !== "message.reactionAdded"
+    ) {
+      throw new Error("expected a dedicated reaction");
+    }
+    await expect(
+      handle([{ client: selected.client, phone: LINE_PHONE }], {
+        ...reaction,
+        event: { ...reaction.event, isFromMe: true },
+      })
+    ).resolves.toEqual([]);
+
+    const poll = verifyImessageFusorRequest(
+      dedicatedRequest({}, "pollChanged")
+    );
+    if (poll.kind !== "dedicated" || poll.event.type !== "poll.changed") {
+      throw new Error("expected a dedicated poll change");
+    }
+    await expect(
+      handle([{ client: selected.client, phone: LINE_PHONE }], {
+        ...poll,
+        event: {
+          ...poll.event,
+          actor: { address: LINE_PHONE, service: "iMessage" },
+        },
+      })
+    ).resolves.toEqual([]);
+
+    const group = verifyImessageFusorRequest(
+      dedicatedRequest({}, "groupChanged")
+    );
+    if (group.kind !== "dedicated" || group.event.type !== "group.changed") {
+      throw new Error("expected a dedicated group change");
+    }
+    await expect(
+      handle([{ client: selected.client, phone: LINE_PHONE }], {
+        ...group,
+        event: {
+          ...group.event,
+          actor: undefined,
+          change: {
+            participant: { address: LINE_PHONE, service: "iMessage" },
+            type: "participantLeft",
+          },
+        },
+      })
+    ).resolves.toEqual([]);
+
+    expect(selected.getMessage).not.toHaveBeenCalled();
+    expect(selected.getPoll).not.toHaveBeenCalled();
+  });
+
   it("terminal-fails a missing dedicated phone route", async () => {
     const other = remoteClient();
     const payload = verifyImessageFusorRequest(dedicatedRequest());
@@ -623,7 +999,7 @@ describe("iMessage Fusor delivery routing", () => {
 
   it("puts the dedicated phone on every returned multipart space", async () => {
     const selected = remoteClient();
-    const decoded = verifyImessageFusorRequest(dedicatedRequest());
+    const decoded = dedicatedReceivedPayload();
     const payload = {
       ...decoded,
       event: {
@@ -669,7 +1045,7 @@ describe("iMessage Fusor delivery routing", () => {
   it("reads a native attachment through only the selected HTTP client", async () => {
     const selected = remoteClient();
     const other = remoteClient();
-    const decoded = verifyImessageFusorRequest(dedicatedRequest());
+    const decoded = dedicatedReceivedPayload();
     const payload = {
       ...decoded,
       event: {
@@ -729,7 +1105,7 @@ describe("iMessage Fusor delivery routing", () => {
     );
     const selected = remoteClient({ getMessage: selectedGet });
     const other = remoteClient();
-    const decoded = verifyImessageFusorRequest(dedicatedRequest());
+    const decoded = dedicatedReceivedPayload();
     const payload = {
       ...decoded,
       event: {
@@ -758,9 +1134,35 @@ describe("iMessage Fusor delivery routing", () => {
     expect(other.getMessage).not.toHaveBeenCalled();
   });
 
+  it("accepts a received frame whose chat guid is carried only by the message", async () => {
+    const fallbackChatGuid = "iMessage;-;+15557654321";
+    const base = decodedFixture();
+    decodeOnceAs({
+      ...base,
+      chatGuid: "",
+      message: {
+        ...base.message,
+        chatGuids: [fallbackChatGuid],
+      },
+    });
+    const payload = verifyImessageFusorRequest(dedicatedRequest());
+    const selected = remoteClient();
+
+    const records = await handle(
+      [{ client: selected.client, phone: LINE_PHONE }],
+      payload,
+      true
+    );
+
+    expect(Array.isArray(records) ? records[0]?.space.id : undefined).toBe(
+      fallbackChatGuid
+    );
+    expect(selected.shareContactInfo).toHaveBeenCalledWith(fallbackChatGuid);
+  });
+
   it("shares a synced chat only after inbound conversion succeeds", async () => {
     const successful = remoteClient();
-    const payload = verifyImessageFusorRequest(dedicatedRequest());
+    const payload = dedicatedReceivedPayload();
     await handle(
       [
         {

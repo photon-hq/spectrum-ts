@@ -36,6 +36,16 @@ const LINE_PHONE = "+15550001111";
 const OTHER_PHONE = "+15550002222";
 const NATIVE_MESSAGE_GUID = "native-guid-00000001";
 const SIGNED_INT64_MAX = 9_223_372_036_854_775_807n;
+const MESSAGE_SOURCE_SEQUENCE = "42";
+const REACTION_SOURCE_SEQUENCE = "43";
+const POLL_SOURCE_SEQUENCE = "44";
+const GROUP_SOURCE_SEQUENCE = "45";
+const REACTION_TARGET_PART_INDEX = 2;
+const POLL_EVENT_TIMESTAMP_MS = 1_700_000_000_123;
+const PROTOBUF_VARINT_BASE = 128n;
+const PROTOBUF_VARINT_CONTINUATION_FLAG = 0x80;
+const CATCH_UP_SEQUENCE_FIELD_TAG = 8;
+const SINGLE_BYTE_SEQUENCE_PREFIX_LENGTH = 2;
 
 const replaceAscii = (
   body: Uint8Array,
@@ -91,32 +101,41 @@ type DedicatedEventType =
 const DEDICATED_FIXTURES: Readonly<
   Record<DedicatedEventType, { body: Uint8Array; sequence: string }>
 > = {
-  groupChanged: { body: GROUP_FRAME, sequence: "45" },
-  messageChanged: { body: NATIVE_FRAME, sequence: "42" },
-  pollChanged: { body: POLL_FRAME, sequence: "44" },
-  reactionAdded: { body: REACTION_FRAME, sequence: "43" },
+  groupChanged: { body: GROUP_FRAME, sequence: GROUP_SOURCE_SEQUENCE },
+  messageChanged: { body: NATIVE_FRAME, sequence: MESSAGE_SOURCE_SEQUENCE },
+  pollChanged: { body: POLL_FRAME, sequence: POLL_SOURCE_SEQUENCE },
+  reactionAdded: { body: REACTION_FRAME, sequence: REACTION_SOURCE_SEQUENCE },
 };
 
 const encodeVarint = (value: bigint): Uint8Array => {
   const bytes: number[] = [];
   let remaining = value;
   do {
-    const payload = Number(remaining % 128n);
-    remaining /= 128n;
-    bytes.push(remaining === 0n ? payload : payload + 128);
+    const payload = Number(remaining % PROTOBUF_VARINT_BASE);
+    remaining /= PROTOBUF_VARINT_BASE;
+    bytes.push(
+      remaining === 0n ? payload : payload + PROTOBUF_VARINT_CONTINUATION_FLAG
+    );
   } while (remaining !== 0n);
   return Uint8Array.from(bytes);
 };
 
 const withSequence = (body: Uint8Array, sequence: bigint): Uint8Array => {
-  if (body[0] !== 8 || (body[1] ?? 128) >= 128) {
+  if (
+    body[0] !== CATCH_UP_SEQUENCE_FIELD_TAG ||
+    (body[1] ?? PROTOBUF_VARINT_CONTINUATION_FLAG) >=
+      PROTOBUF_VARINT_CONTINUATION_FLAG
+  ) {
     throw new Error("fixture no longer starts with a one-byte field 1");
   }
   const encoded = encodeVarint(sequence);
   const result = new Uint8Array(body.byteLength - 1 + encoded.byteLength);
-  result[0] = 8;
+  result[0] = CATCH_UP_SEQUENCE_FIELD_TAG;
   result.set(encoded, 1);
-  result.set(body.subarray(2), 1 + encoded.byteLength);
+  result.set(
+    body.subarray(SINGLE_BYTE_SEQUENCE_PREFIX_LENGTH),
+    1 + encoded.byteLength
+  );
   return result;
 };
 
@@ -127,7 +146,7 @@ const legacyRequest = (
   const headers: Record<string, string> = {
     "content-type": "application/x-protobuf",
     "x-fusor-imessage-event-type": "messageChanged",
-    "x-fusor-imessage-log-id": "42",
+    "x-fusor-imessage-log-id": MESSAGE_SOURCE_SEQUENCE,
     "x-fusor-imessage-transform-version": version,
     "x-fusor-source": "spectrum-imessage",
   };
@@ -278,7 +297,7 @@ describe("iMessage Fusor request verification", () => {
 
     expect(payload).toMatchObject({
       kind: "legacy",
-      sourceSequence: "42",
+      sourceSequence: MESSAGE_SOURCE_SEQUENCE,
       transformVersion: version,
     });
     if (payload.kind !== "legacy") {
@@ -294,7 +313,7 @@ describe("iMessage Fusor request verification", () => {
         guid: "spc-msg-message-guid",
         isFromMe: false,
       },
-      sequence: 42,
+      sequence: Number(MESSAGE_SOURCE_SEQUENCE),
       type: "message.received",
     });
   });
@@ -395,7 +414,7 @@ describe("iMessage Fusor request verification", () => {
       kind: "dedicated",
       lineId: LINE_ID,
       phone: LINE_PHONE,
-      sourceSequence: "42",
+      sourceSequence: MESSAGE_SOURCE_SEQUENCE,
       transformVersion: "4",
     });
     expect(payload.event).toMatchObject({
@@ -408,9 +427,9 @@ describe("iMessage Fusor request verification", () => {
   });
 
   it.each([
-    ["reactionAdded", "message.reactionAdded", "43"],
-    ["pollChanged", "poll.changed", "44"],
-    ["groupChanged", "group.changed", "45"],
+    ["reactionAdded", "message.reactionAdded", REACTION_SOURCE_SEQUENCE],
+    ["pollChanged", "poll.changed", POLL_SOURCE_SEQUENCE],
+    ["groupChanged", "group.changed", GROUP_SOURCE_SEQUENCE],
   ] as const)("decodes a golden dedicated %s frame only through its exact v4 contract", (eventType, decodedType, sourceSequence) => {
     const payload = verifyImessageFusorRequest(dedicatedRequest({}, eventType));
 
@@ -430,7 +449,7 @@ describe("iMessage Fusor request verification", () => {
     expect(() =>
       verifyImessageFusorRequest({
         ...input,
-        rawBody: withSequence(POLL_FRAME, 43n),
+        rawBody: withSequence(POLL_FRAME, BigInt(REACTION_SOURCE_SEQUENCE)),
       })
     ).toThrow("event payload");
   });
@@ -474,7 +493,7 @@ describe("iMessage Fusor request verification", () => {
         ...dedicatedRequest(),
         headers: {
           ...dedicatedRequest().headers,
-          "x-fusor-imessage-source-sequence": "43",
+          "x-fusor-imessage-source-sequence": REACTION_SOURCE_SEQUENCE,
         },
       })
     ).toThrow("sequence mismatch");
@@ -735,7 +754,7 @@ describe("iMessage Fusor delivery routing", () => {
     const record = Array.isArray(records) ? records[0] : records;
 
     expect(record).toMatchObject({
-      id: "native-message-guid:reaction:43:2",
+      id: `native-message-guid:reaction:${REACTION_SOURCE_SEQUENCE}:${REACTION_TARGET_PART_INDEX}`,
       space: {
         id: "iMessage;-;+15551234567",
         phone: LINE_PHONE,
@@ -792,7 +811,7 @@ describe("iMessage Fusor delivery routing", () => {
     const record = Array.isArray(records) ? records[0] : records;
 
     expect(record).toMatchObject({
-      id: "native-poll-guid:+15557654321:native-option-id:selected:1700000000123",
+      id: `native-poll-guid:+15557654321:native-option-id:selected:${POLL_EVENT_TIMESTAMP_MS}`,
       content: { selected: true, type: "poll_option" },
       space: {
         id: "iMessage;+;native-group",
@@ -850,7 +869,7 @@ describe("iMessage Fusor delivery routing", () => {
     );
 
     expect(Array.isArray(records) ? records[0] : records).toMatchObject({
-      id: "iMessage;+;native-group:group:45",
+      id: `iMessage;+;native-group:group:${GROUP_SOURCE_SEQUENCE}`,
       content: { members: ["+15550009999"], type: "addMember" },
       space: {
         id: "iMessage;+;native-group",
@@ -910,7 +929,9 @@ describe("iMessage Fusor delivery routing", () => {
       Array.isArray(reactionRecords)
         ? reactionRecords[0]?.id
         : reactionRecords?.id
-    ).toBe(`native-message-guid:reaction:${SIGNED_INT64_MAX}:2`);
+    ).toBe(
+      `native-message-guid:reaction:${SIGNED_INT64_MAX}:${REACTION_TARGET_PART_INDEX}`
+    );
   });
 
   it("suppresses supplemental self echoes with the same dedicated-line rules as the old stream", async () => {

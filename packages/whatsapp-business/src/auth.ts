@@ -84,6 +84,21 @@ export async function createCloudClients(
     return createClient({ accessToken, appSecret: "", phoneNumberId });
   };
 
+  const removeLine = async (
+    phoneNumberId: string,
+    state: LineState
+  ): Promise<void> => {
+    lines.delete(phoneNumberId);
+    const index = clients.findIndex((c) => c.line === phoneNumberId);
+    if (index !== -1) {
+      clients.splice(index, 1);
+    }
+    for (const sub of state.subscriptions) {
+      sub.close();
+    }
+    await state.current.close().catch(ignoreCleanupError);
+  };
+
   const refreshTokens = async (): Promise<void> => {
     tokenData = await cloud.issueWhatsappBusinessTokens(
       projectId,
@@ -93,6 +108,7 @@ export async function createCloudClients(
 
     for (const [phoneNumberId, state] of lines) {
       if (!tokenData.auth[phoneNumberId]) {
+        await removeLine(phoneNumberId, state);
         continue;
       }
       const old = state.current;

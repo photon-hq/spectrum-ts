@@ -271,6 +271,40 @@ describe("whatsapp cloud auth stream renewal", () => {
     await disposeCloudAuth(clients);
   });
 
+  it("drops a line removed from the project at runtime", async () => {
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-1", "phone-2": "token-1b" },
+      expiresIn: 0,
+    }));
+    issueWhatsappBusinessTokens.mockImplementationOnce(async () => ({
+      auth: { "phone-1": "token-2" },
+      expiresIn: 0,
+    }));
+
+    const clients = await createCloudClients("project-1", "secret-1");
+    expect(clients.map((c) => c.line)).toEqual(["phone-1", "phone-2"]);
+
+    const removedLineStream = clients[1]?.client.events.subscribe();
+    if (!removedLineStream) {
+      throw new Error("expected a WhatsApp event stream");
+    }
+    const iterator = removedLineStream[Symbol.asyncIterator]();
+    const pendingNext = iterator.next();
+
+    // expiresIn 0 → any proxy RPC refreshes first, pulling the new payload.
+    await clients[0]?.client.messages.markRead("wamid.1");
+
+    // The stale entry is gone, so outbound routing for spaces tagged with
+    // phone-2 falls back to an active line instead of a dead client.
+    expect(clients.map((c) => c.line)).toEqual(["phone-1"]);
+
+    // rawClients: raw0 = phone-1, raw1 = phone-2, raw2 = refreshed phone-1.
+    expect(rawClients[1]?.close).toHaveBeenCalledTimes(1);
+    expect((await pendingNext).done).toBe(true);
+
+    await disposeCloudAuth(clients);
+  });
+
   it("retries a failed scheduled refresh after the retry delay", async () => {
     vi.useFakeTimers();
 

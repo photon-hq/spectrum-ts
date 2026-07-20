@@ -19,7 +19,6 @@ type GroupItem = Extract<
 
 const RECEIVED_AT = new Date(1_700_000_000_000);
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
-const DEDICATED_LINE_ID = "c9e33ebd-162a-4db0-8e32-ca891dc86e1a";
 
 const client = {
   messages: {
@@ -155,8 +154,8 @@ describe("iMessage remote toInboundMessages sender", () => {
   });
 });
 
-describe("iMessage dedicated line context", () => {
-  it("adds the line id without rewriting native message or attachment ids", async () => {
+describe("iMessage dedicated native resources", () => {
+  it("keeps native message and attachment ids with phone routing", async () => {
     const [message] = await toInboundMessages(
       client,
       new MessageCache(),
@@ -169,15 +168,13 @@ describe("iMessage dedicated line context", () => {
           text: `caption ${ATTACHMENT_PLACEHOLDER}`,
         }
       ),
-      "+15550000000",
-      DEDICATED_LINE_ID
+      "+15550000000"
     );
 
     expect(message).toMatchObject({
       id: "msg-guid",
       space: {
         id: "s1",
-        lineId: DEDICATED_LINE_ID,
         phone: "+15550000000",
       },
     });
@@ -185,16 +182,13 @@ describe("iMessage dedicated line context", () => {
       throw new Error("expected grouped content");
     }
     expect(message.content.items).toHaveLength(2);
-    for (const item of message.content.items) {
-      expect(item.space).toMatchObject({ lineId: DEDICATED_LINE_ID });
-    }
     expect(message.content.items[1]?.content).toMatchObject({
       id: "native-attachment-guid",
       type: "attachment",
     });
   });
 
-  it("keeps the line id on remotely rebuilt reply targets", async () => {
+  it("keeps native ids on remotely rebuilt reply targets", async () => {
     const remote = {
       messages: {
         get: async (guid: string) => ({
@@ -221,24 +215,23 @@ describe("iMessage dedicated line context", () => {
         { text: "reply text" },
         { replyTargetGuid: "native-target-guid" }
       ),
-      "+15550000000",
-      DEDICATED_LINE_ID
+      "+15550000000"
     );
 
     expect(message).toMatchObject({
       id: "msg-guid",
-      space: { lineId: DEDICATED_LINE_ID },
+      space: { phone: "+15550000000" },
     });
     if (message?.content.type !== "reply") {
       throw new Error("expected reply content");
     }
     expect(message.content.target).toMatchObject({
       id: "native-target-guid",
-      space: { lineId: DEDICATED_LINE_ID },
+      space: { phone: "+15550000000" },
     });
   });
 
-  it("keeps the line id when getMessage rebuilds a native message", async () => {
+  it("keeps phone routing when getMessage rebuilds a native message", async () => {
     const requestedGuids: string[] = [];
     const remote = {
       messages: {
@@ -265,8 +258,7 @@ describe("iMessage dedicated line context", () => {
       remote,
       "s1",
       "native-message-guid",
-      "+15550000000",
-      DEDICATED_LINE_ID
+      "+15550000000"
     );
 
     expect(requestedGuids).toEqual(["native-message-guid"]);
@@ -274,7 +266,6 @@ describe("iMessage dedicated line context", () => {
       id: "native-message-guid",
       space: {
         id: "s1",
-        lineId: DEDICATED_LINE_ID,
         phone: "+15550000000",
       },
     });

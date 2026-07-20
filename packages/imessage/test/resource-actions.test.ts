@@ -10,12 +10,9 @@ import type { IMessageMessage, RemoteClient } from "@/types";
 
 const PHONE = "+15550100";
 const OTHER_PHONE = "+15550101";
-const LINE_ID = "2c9031e5-a26d-4707-8e52-d81241af6722";
-const OTHER_LINE_ID = "c9764f28-cd87-4305-8bf6-c586dccd7fc5";
 const CHILD_ID_PREFIX = /^p:(\d+)\//;
 const SPACE = {
   id: "any;-;+15551234",
-  lineId: LINE_ID,
   phone: PHONE,
   type: "dm",
 } as const;
@@ -26,7 +23,7 @@ const sdkMessage = (guid: string): SDKMessage =>
   ({ dateCreated: new Date(0), guid }) as SDKMessage;
 
 const clients = (client: AdvancedIMessage): RemoteClient[] => [
-  { client, lineId: LINE_ID, phone: PHONE },
+  { client, phone: PHONE },
 ];
 
 const target = (id: string, parentId?: string): IMessageMessage =>
@@ -214,7 +211,7 @@ describe("iMessage HTTP resource actions", () => {
     expect(message).toMatchObject({
       id: "p:1/native-parent",
       parentId: "native-parent",
-      space: { lineId: LINE_ID },
+      space: { phone: PHONE },
     });
     expect(attachment).toMatchObject({ id: "native-attachment" });
     expect(getMessageRemote).toHaveBeenCalledWith("native-parent");
@@ -275,7 +272,7 @@ describe("iMessage HTTP resource actions", () => {
     expect(unsend).toHaveBeenCalledWith(SPACE.id, "native-message", undefined);
   });
 
-  it("routes multi-line resource actions to the exact line and phone client", async () => {
+  it("routes multi-line resource actions by exact phone", async () => {
     const firstUnsend = vi.fn(() => Promise.resolve());
     const secondUnsend = vi.fn(() => Promise.resolve());
     const first = {
@@ -285,19 +282,15 @@ describe("iMessage HTTP resource actions", () => {
       messages: { unsend: secondUnsend },
     } as unknown as AdvancedIMessage;
     const entries: RemoteClient[] = [
-      { client: first, lineId: LINE_ID, phone: PHONE },
-      {
-        client: second,
-        lineId: OTHER_LINE_ID,
-        phone: OTHER_PHONE,
-      },
+      { client: first, phone: PHONE },
+      { client: second, phone: OTHER_PHONE },
     ];
 
     await def.send({
       ...ctx,
       client: entries,
       content: { target: target("native-message"), type: "unsend" } as never,
-      space: { ...SPACE, lineId: OTHER_LINE_ID, phone: OTHER_PHONE },
+      space: { ...SPACE, phone: OTHER_PHONE },
     });
 
     expect(secondUnsend).toHaveBeenCalledWith(
@@ -308,7 +301,7 @@ describe("iMessage HTTP resource actions", () => {
     expect(firstUnsend).not.toHaveBeenCalled();
   });
 
-  it("rejects a space whose dedicated line id and phone disagree", async () => {
+  it("routes every space by its stable phone", async () => {
     const firstUnsend = vi.fn(() => Promise.resolve());
     const secondUnsend = vi.fn(() => Promise.resolve());
     const entries: RemoteClient[] = [
@@ -316,48 +309,12 @@ describe("iMessage HTTP resource actions", () => {
         client: {
           messages: { unsend: firstUnsend },
         } as unknown as AdvancedIMessage,
-        lineId: LINE_ID,
         phone: PHONE,
       },
       {
         client: {
           messages: { unsend: secondUnsend },
         } as unknown as AdvancedIMessage,
-        lineId: OTHER_LINE_ID,
-        phone: OTHER_PHONE,
-      },
-    ];
-
-    await expect(
-      def.send({
-        ...ctx,
-        client: entries,
-        content: { target: target("native-message"), type: "unsend" } as never,
-        space: { ...SPACE, phone: OTHER_PHONE },
-      })
-    ).rejects.toThrow(
-      `No iMessage client serves line ${LINE_ID} at phone ${OTHER_PHONE}`
-    );
-    expect(firstUnsend).not.toHaveBeenCalled();
-    expect(secondUnsend).not.toHaveBeenCalled();
-  });
-
-  it("routes a pre-migration space without lineId by its unique phone", async () => {
-    const firstUnsend = vi.fn(() => Promise.resolve());
-    const secondUnsend = vi.fn(() => Promise.resolve());
-    const entries: RemoteClient[] = [
-      {
-        client: {
-          messages: { unsend: firstUnsend },
-        } as unknown as AdvancedIMessage,
-        lineId: LINE_ID,
-        phone: PHONE,
-      },
-      {
-        client: {
-          messages: { unsend: secondUnsend },
-        } as unknown as AdvancedIMessage,
-        lineId: OTHER_LINE_ID,
         phone: OTHER_PHONE,
       },
     ];
@@ -382,7 +339,7 @@ describe("iMessage HTTP resource actions", () => {
     const shared = {
       messages: { unsend },
     } as unknown as AdvancedIMessage;
-    const sharedSpace = { ...SPACE, lineId: undefined, phone: "shared" };
+    const sharedSpace = { ...SPACE, phone: "shared" };
 
     await def.send({
       ...ctx,

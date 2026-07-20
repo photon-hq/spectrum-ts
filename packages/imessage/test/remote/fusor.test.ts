@@ -32,7 +32,6 @@ const LEGACY_FRAME = Uint8Array.from(
   )
 );
 const LINE_ID = "c9e33ebd-162a-4db0-8e32-ca891dc86e1a";
-const OTHER_LINE_ID = "c9e33ebd-162a-4db0-8e32-ca891dc86e2b";
 const LINE_PHONE = "+15550001111";
 const OTHER_PHONE = "+15550002222";
 const NATIVE_MESSAGE_GUID = "native-guid-00000001";
@@ -560,7 +559,6 @@ describe("iMessage Fusor delivery routing", () => {
         [
           {
             client: dedicated.client,
-            lineId: LINE_ID,
             phone: LINE_PHONE,
           },
         ],
@@ -573,24 +571,17 @@ describe("iMessage Fusor delivery routing", () => {
     );
   });
 
-  it("selects a dedicated client by the exact line id and phone", async () => {
-    const wrongLine = remoteClient();
+  it("selects a dedicated client by its stable phone", async () => {
     const wrongPhone = remoteClient();
     const selected = remoteClient();
     const payload = verifyImessageFusorRequest(dedicatedRequest());
     const records = await handle(
       [
         {
-          client: wrongLine.client,
-          lineId: OTHER_LINE_ID,
-          phone: LINE_PHONE,
-        },
-        {
           client: wrongPhone.client,
-          lineId: LINE_ID,
           phone: OTHER_PHONE,
         },
-        { client: selected.client, lineId: LINE_ID, phone: LINE_PHONE },
+        { client: selected.client, phone: LINE_PHONE },
       ],
       payload
     );
@@ -600,23 +591,19 @@ describe("iMessage Fusor delivery routing", () => {
       id: NATIVE_MESSAGE_GUID,
       space: {
         id: "iMessage;-;+15551234567",
-        lineId: LINE_ID,
         phone: LINE_PHONE,
       },
     });
   });
 
-  it.each([
-    ["missing line", OTHER_LINE_ID, LINE_PHONE],
-    ["mismatched phone", LINE_ID, OTHER_PHONE],
-  ])("terminal-fails a dedicated %s route", async (_name, lineId, phone) => {
+  it("terminal-fails a missing dedicated phone route", async () => {
     const other = remoteClient();
     const payload = verifyImessageFusorRequest(dedicatedRequest());
 
     await expect(
-      handle([{ client: other.client, lineId, phone }], payload)
+      handle([{ client: other.client, phone: OTHER_PHONE }], payload)
     ).rejects.toMatchObject({
-      message: `No iMessage client serves Fusor line ${LINE_ID} at ${LINE_PHONE}`,
+      message: `No iMessage client serves Fusor phone ${LINE_PHONE}`,
       name: "FusorTerminalError",
     });
   });
@@ -634,7 +621,7 @@ describe("iMessage Fusor delivery routing", () => {
     );
   });
 
-  it("puts dedicated line identity on every returned multipart space", async () => {
+  it("puts the dedicated phone on every returned multipart space", async () => {
     const selected = remoteClient();
     const decoded = verifyImessageFusorRequest(dedicatedRequest());
     const payload = {
@@ -664,18 +651,18 @@ describe("iMessage Fusor delivery routing", () => {
       },
     } as unknown as typeof decoded;
     const records = await handle(
-      [{ client: selected.client, lineId: LINE_ID, phone: LINE_PHONE }],
+      [{ client: selected.client, phone: LINE_PHONE }],
       payload
     );
     const record = Array.isArray(records) ? records[0] : records;
 
-    expect(record?.space).toMatchObject({ lineId: LINE_ID, phone: LINE_PHONE });
+    expect(record?.space).toMatchObject({ phone: LINE_PHONE });
     if (record?.content.type !== "group") {
       throw new Error("expected multipart group");
     }
     expect(record.content.items).toHaveLength(2);
     for (const item of record.content.items) {
-      expect(item.space).toMatchObject({ lineId: LINE_ID, phone: LINE_PHONE });
+      expect(item.space).toMatchObject({ phone: LINE_PHONE });
     }
   });
 
@@ -713,10 +700,9 @@ describe("iMessage Fusor delivery routing", () => {
       [
         {
           client: other.client,
-          lineId: OTHER_LINE_ID,
-          phone: LINE_PHONE,
+          phone: OTHER_PHONE,
         },
-        { client: selected.client, lineId: LINE_ID, phone: LINE_PHONE },
+        { client: selected.client, phone: LINE_PHONE },
       ],
       payload
     );
@@ -758,10 +744,9 @@ describe("iMessage Fusor delivery routing", () => {
       [
         {
           client: other.client,
-          lineId: OTHER_LINE_ID,
-          phone: LINE_PHONE,
+          phone: OTHER_PHONE,
         },
-        { client: selected.client, lineId: LINE_ID, phone: LINE_PHONE },
+        { client: selected.client, phone: LINE_PHONE },
       ],
       payload
     );
@@ -780,7 +765,6 @@ describe("iMessage Fusor delivery routing", () => {
       [
         {
           client: successful.client,
-          lineId: LINE_ID,
           phone: LINE_PHONE,
         },
       ],
@@ -811,7 +795,6 @@ describe("iMessage Fusor delivery routing", () => {
         [
           {
             client: failing.client,
-            lineId: LINE_ID,
             phone: LINE_PHONE,
           },
         ],

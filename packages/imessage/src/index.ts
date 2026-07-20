@@ -86,9 +86,8 @@ import { getRemoteAttachment } from "./remote/attachments";
 import {
   availablePhones,
   clientEntryForPhone,
-  clientForRoute,
+  clientForPhone,
   isSharedMode,
-  lineIdForPhone,
   randomPhone,
 } from "./remote/client";
 import {
@@ -113,7 +112,6 @@ const isPollContent = (content: { type: string }): boolean =>
 
 interface ImessageSpaceRoute {
   id: string;
-  lineId?: string;
   phone: string;
 }
 
@@ -135,7 +133,6 @@ const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
     space: {
       ...record.space,
       id: record.space.id,
-      ...(space.lineId ? { lineId: space.lineId } : {}),
       phone: space.phone,
       type: space.type,
     },
@@ -173,7 +170,7 @@ const handleEdit = async (
     }
     const url = await content.content.url();
     const layout = await content.content.layout();
-    const remote = clientForRoute(client, space);
+    const remote = clientForPhone(client, space.phone);
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -195,7 +192,7 @@ const handleEdit = async (
         "customized mini app card edits require a miniAppCardSession from the original send"
       );
     }
-    const remote = clientForRoute(client, space);
+    const remote = clientForPhone(client, space.phone);
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -218,7 +215,7 @@ const handleEdit = async (
       `only text content can be edited (got "${content.content.type}")`
     );
   }
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
 };
 
@@ -242,7 +239,7 @@ const handleUnsend = async (
     // the reaction's own target (the message that was reacted to). Same
     // unknown-cast widen as the reaction send branch.
     const reactionTarget = targetContent.target as unknown as IMessageMessage;
-    const remote = clientForRoute(client, space);
+    const remote = clientForPhone(client, space.phone);
     await remoteUnsendReaction(
       remote,
       space.id,
@@ -251,7 +248,7 @@ const handleUnsend = async (
     );
     return;
   }
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteUnsendMessage(remote, space.id, content.target.id);
 };
 
@@ -260,7 +257,7 @@ const handleStreamText = async (
   space: TypedImessageSpaceRoute,
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   return cacheRemoteOutbound(
     remote,
     space,
@@ -273,7 +270,7 @@ const handleBackground = async (
   space: ImessageSpaceRoute,
   content: Background
 ): Promise<void> => {
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteSetBackground(remote, space.id, content);
 };
 
@@ -282,7 +279,7 @@ const handleCustomizedMiniApp = async (
   space: TypedImessageSpaceRoute,
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> => {
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   return cacheRemoteOutbound(
     remote,
     space,
@@ -302,7 +299,7 @@ const handleApp = async (
 ): Promise<ProviderMessageRecord> => {
   const url = await content.url();
   const layout = await content.layout();
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   return cacheRemoteOutbound(
     remote,
     space,
@@ -318,7 +315,7 @@ const handleRead = async (
   client: IMessageClient,
   space: ImessageSpaceRoute
 ): Promise<void> => {
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteMarkRead(remote, space.id);
 };
 
@@ -326,7 +323,7 @@ const handleShareContactCard = async (
   client: IMessageClient,
   space: ImessageSpaceRoute
 ): Promise<void> => {
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteShareContactCard(remote, space.id);
 };
 
@@ -335,7 +332,7 @@ const handleTyping = async (
   space: ImessageSpaceRoute,
   state: "start" | "stop"
 ): Promise<void> => {
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   if (state === "start") {
     await remoteStartTyping(remote, space.id);
   } else {
@@ -355,7 +352,7 @@ const handleRename = async (
       "only group chats can be renamed (this space is a DM)"
     );
   }
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteSetDisplayName(remote, space.id, content);
 };
 
@@ -371,7 +368,7 @@ const handleAvatar = async (
       "only group chats have avatars (this space is a DM)"
     );
   }
-  const remote = clientForRoute(client, space);
+  const remote = clientForPhone(client, space.phone);
   await remoteSetIcon(remote, space.id, content);
 };
 
@@ -389,7 +386,7 @@ const remoteGroupClient = (
   if (space.type !== "group") {
     throw UnsupportedError.action(action, IMESSAGE_PLATFORM, detail);
   }
-  return clientForRoute(client, space);
+  return clientForPhone(client, space.phone);
 };
 
 const handleAddMember = async (
@@ -463,7 +460,7 @@ const handleProviderControlSignal = async (
  */
 const remoteForMessageTarget = (
   client: IMessageClient,
-  space: Pick<ImessageSpaceRoute, "lineId" | "phone">,
+  space: Pick<ImessageSpaceRoute, "phone">,
   target: { content: { type: string }; id: string; parentId?: string },
   action: string,
   pollNoun: string
@@ -475,7 +472,7 @@ const remoteForMessageTarget = (
       `iMessage polls do not support ${pollNoun}`
     );
   }
-  return clientForRoute(client, space);
+  return clientForPhone(client, space.phone);
 };
 
 export const imessage = definePlatform(IMESSAGE_PLATFORM, {
@@ -562,7 +559,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
 
       // Shared mode: one identity at the SHARED_PHONE sentinel. DM guids are
       // deterministic (`any;-;{address}`), so no server call is needed — but
-      // the shared gateway cannot create group chats.
+      // the shared adapter cannot create group chats.
       if (isSharedMode(client)) {
         if (addresses.length > 1) {
           throw UnsupportedError.action(
@@ -585,7 +582,6 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
       const { chat } = await selected.client.chats.create(addresses);
       return {
         id: chat.guid,
-        ...(selected.lineId ? { lineId: selected.lineId } : {}),
         type: chat.isGroup ? ("group" as const) : ("dm" as const),
         phone,
       };
@@ -606,10 +602,8 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           `iMessage space.get requires params.phone when multiple clients are configured. Available: ${availablePhones(client).join(", ")}`
         );
       }
-      const lineId = lineIdForPhone(client, phone);
       return {
         id: input.id,
-        ...(lineId ? { lineId } : {}),
         type: chatTypeFromGuid(input.id),
         phone,
       };
@@ -741,7 +735,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     if (isCustomizedMiniApp(content)) {
       return await handleCustomizedMiniApp(client, space, content);
     }
-    const remote = clientForRoute(client, space);
+    const remote = clientForPhone(client, space.phone);
     return cacheRemoteOutbound(
       remote,
       space,
@@ -751,14 +745,8 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
 
   actions: {
     getMessage: async ({ client }, space, messageId) => {
-      const remote = clientForRoute(client, space);
-      return remoteGetMessage(
-        remote,
-        space.id,
-        messageId,
-        space.phone,
-        space.lineId
-      );
+      const remote = clientForPhone(client, space.phone);
+      return remoteGetMessage(remote, space.id, messageId, space.phone);
     },
     // List a remote group chat's current participants. Remote + group only;
     // the agent's own number is excluded. `id` is the canonical address
@@ -823,7 +811,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           `imessage.getAttachment requires a phone in multi-phone mode. Available: ${availablePhones(client).join(", ")}`
         );
       })();
-      const remote = clientForRoute(client, { phone: routedPhone });
+      const remote = clientForPhone(client, routedPhone);
       return withSpan(
         "spectrum.imessage.getAttachment",
         {

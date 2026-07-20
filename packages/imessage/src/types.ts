@@ -4,8 +4,6 @@ import z from "zod";
 
 export interface RemoteClient {
   client: AdvancedIMessage;
-  /** Stable Fusor route id; present only for auto-discovered dedicated lines. */
-  lineId?: string;
   phone: string;
 }
 
@@ -44,7 +42,6 @@ export const userSchema = z.object({
 
 export const spaceSchema = z.object({
   id: z.string(),
-  lineId: z.string().optional(),
   type: z.enum(["dm", "group"]),
   phone: z.string(),
 });

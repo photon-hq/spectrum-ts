@@ -12,7 +12,7 @@ import { getMessageCache } from "../cache";
 import type { IMessageClient, RemoteClient } from "../types";
 import { type configSchema, SHARED_PHONE } from "../types";
 import { inspectCatchUpSequence } from "./catchup-sequence";
-import { clientEntryForLine, isSharedMode } from "./client";
+import { clientEntryForPhone, isSharedMode } from "./client";
 import { getContactShareTracker } from "./contact-share";
 import { type ReceivedEvent, toInboundMessages } from "./inbound";
 
@@ -294,13 +294,13 @@ const selectClient = (
       `Dedicated iMessage line ${payload.lineId} cannot use shared mode`
     );
   }
-  const selected = clientEntryForLine(clients, payload.lineId, payload.phone);
-  if (selected) {
-    return selected;
+  try {
+    return clientEntryForPhone(clients, payload.phone);
+  } catch {
+    throw new FusorTerminalError(
+      `No iMessage client serves Fusor phone ${payload.phone}`
+    );
   }
-  throw new FusorTerminalError(
-    `No iMessage client serves Fusor line ${payload.lineId} at ${payload.phone}`
-  );
 };
 
 export const handleImessageFusorMessages: HybridFusorMessages<
@@ -310,13 +310,11 @@ export const handleImessageFusorMessages: HybridFusorMessages<
 > = async ({ client, payload, projectConfig }) => {
   const selected = selectClient(client, payload);
   const phone = payload.kind === "dedicated" ? payload.phone : SHARED_PHONE;
-  const lineId = payload.kind === "dedicated" ? payload.lineId : undefined;
   const messages = await toInboundMessages(
     selected.client,
     getMessageCache(selected.client),
     payload.event,
-    phone,
-    lineId
+    phone
   );
   if (projectConfig?.profile?.imessageSynced === true) {
     getContactShareTracker(selected.client).maybeShare(payload.event.chatGuid);

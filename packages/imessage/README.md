@@ -27,20 +27,20 @@ raw Fusor envelopes are not accepted through the public `spectrum.webhook()`
 handler. The SDK no longer opens direct gRPC inbound streams.
 
 All outbound sends and unary, attachment, and file operations use Advanced
-iMessage HTTP clients. Dedicated projects discover their lines from the Fusor
-gateway and route each operation by its stable `lineId` and E.164 phone number.
-Dedicated chat, message, and attachment GUIDs remain native and unchanged,
-including resources created before migration. New spaces carry `lineId`;
-pre-migration spaces without it continue routing by their E.164 phone. Shared
-projects retain their existing `spc-*` behavior. Explicit
-`clients` configurations also describe Advanced iMessage HTTP endpoints, but
-are outbound-only: inbound delivery requires Spectrum Cloud credentials so the
-SDK can authenticate to Fusor WebSocket.
+iMessage HTTP clients. Spectrum Cloud returns each dedicated instance's token
+and assigned E.164 phone; the SDK sends the instance id to the existing HTTP
+adapter as routing metadata and selects the client by phone. Dedicated chat,
+message, and attachment GUIDs remain native and unchanged, including resources
+created before migration. The Fusor line id is verified as inbound transport
+provenance but is not exposed on SDK spaces. Shared projects retain their
+existing `spc-*` behavior. Explicit `clients` configurations also describe
+Advanced iMessage HTTP endpoints, but are outbound-only: inbound delivery
+requires Spectrum Cloud credentials so the SDK can authenticate to Fusor
+WebSocket.
 
-Shared HTTP middleware can be overridden with
+The HTTP middleware can be overridden with
 `SPECTRUM_IMESSAGE_HTTP_ADDRESS`; this is intentionally separate from the
-legacy gRPC-only `SPECTRUM_IMESSAGE_ADDRESS`. Dedicated gateway discovery uses
-`SPECTRUM_IMESSAGE_GATEWAY_ADDRESS`.
+legacy gRPC-only `SPECTRUM_IMESSAGE_ADDRESS`.
 
 This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
 

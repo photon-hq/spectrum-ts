@@ -82,7 +82,6 @@ export const toSenderRef = (
 type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
 interface BuildContentOptions {
   cache?: MessageCache;
-  lineId?: string;
   phone: string;
   visitedReplyGuids?: ReadonlySet<string>;
 }
@@ -118,8 +117,7 @@ export const buildMessageBase = (
   message: AppleMessage,
   chatGuidHint: string | undefined,
   timestamp: Date,
-  phone: string,
-  lineId?: string
+  phone: string
 ): RemoteMessageBase => {
   const chat = resolveChatGuid(message, chatGuidHint);
   return {
@@ -127,7 +125,6 @@ export const buildMessageBase = (
     sender: toSenderRef(message.sender),
     space: {
       id: chat,
-      ...(lineId ? { lineId } : {}),
       type: chatTypeFromGuid(chat),
       phone,
     },
@@ -363,8 +360,7 @@ const resolveReplyTarget = async (
       options.phone,
       base.space.id,
       options.cache,
-      visitedReplyGuids,
-      options.lineId
+      visitedReplyGuids
     );
     if (options.cache) {
       cacheMessage(options.cache, rebuilt);
@@ -435,21 +431,13 @@ export const rebuildFromAppleMessage = async (
   phone: string,
   chatGuidHint?: string,
   cache?: MessageCache,
-  visitedReplyGuids?: ReadonlySet<string>,
-  lineId?: string
+  visitedReplyGuids?: ReadonlySet<string>
 ): Promise<IMessageMessage> => {
   const messageGuidStr = message.guid as string;
   const timestamp = message.dateCreated ?? new Date();
-  const base = buildMessageBase(
-    message,
-    chatGuidHint,
-    timestamp,
-    phone,
-    lineId
-  );
+  const base = buildMessageBase(message, chatGuidHint, timestamp, phone);
   return buildContentMessage(client, base, message, messageGuidStr, {
     cache,
-    lineId,
     phone,
     visitedReplyGuids,
   });
@@ -474,15 +462,13 @@ export const toInboundMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
   event: ReceivedEvent,
-  phone: string,
-  lineId?: string
+  phone: string
 ): Promise<IMessageMessage[]> => {
   const base = buildMessageBase(
     event.message,
     event.chatGuid,
     event.occurredAt,
-    phone,
-    lineId
+    phone
   );
   const messageGuidStr = event.message.guid as string;
   const msg = await buildContentMessage(
@@ -490,7 +476,7 @@ export const toInboundMessages = async (
     base,
     event.message,
     messageGuidStr,
-    { cache, lineId, phone }
+    { cache, phone }
   );
   cacheMessage(cache, msg);
   return [msg];
@@ -500,8 +486,7 @@ export const getMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
   msgId: string,
-  phone: string,
-  lineId?: string
+  phone: string
 ): Promise<IMessageMessage | undefined> => {
   const cache = getMessageCache(remote);
   const cached = cache.get(msgId);
@@ -520,9 +505,7 @@ export const getMessage = async (
         fetched,
         phone,
         spaceId,
-        cache,
-        undefined,
-        lineId
+        cache
       );
       cacheMessage(cache, parent);
       const group = messageGroupContent(parent);
@@ -546,9 +529,7 @@ export const getMessage = async (
       fetched,
       phone,
       spaceId,
-      cache,
-      undefined,
-      lineId
+      cache
     );
     cacheMessage(cache, rebuilt);
     return rebuilt;

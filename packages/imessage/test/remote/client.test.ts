@@ -2,13 +2,9 @@ import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { describe, expect, it, vi } from "vitest";
 import {
   availablePhones,
-  clientEntryForLine,
   clientEntryForPhone,
-  clientEntryForRoute,
   clientForPhone,
-  clientForRoute,
   isSharedMode,
-  lineIdForPhone,
   randomPhone,
 } from "@/remote/client";
 import type { RemoteClient } from "@/types";
@@ -17,11 +13,10 @@ import { SHARED_PHONE } from "@/types";
 const remote = (name: string): AdvancedIMessage =>
   ({ name }) as unknown as AdvancedIMessage;
 
-const dedicated = (
-  name: string,
-  lineId: string,
-  phone: string
-): RemoteClient => ({ client: remote(name), lineId, phone });
+const dedicated = (name: string, phone: string): RemoteClient => ({
+  client: remote(name),
+  phone,
+});
 
 describe("iMessage HTTP client routing", () => {
   it("recognizes only the single shared middleware client as shared mode", () => {
@@ -29,19 +24,15 @@ describe("iMessage HTTP client routing", () => {
 
     expect(isSharedMode([shared])).toBe(true);
     expect(isSharedMode([])).toBe(false);
-    expect(isSharedMode([dedicated("line", "line-1", "+15550100")])).toBe(
-      false
-    );
-    expect(
-      isSharedMode([shared, dedicated("line", "line-1", "+15550100")])
-    ).toBe(false);
+    expect(isSharedMode([dedicated("line", "+15550100")])).toBe(false);
+    expect(isSharedMode([shared, dedicated("line", "+15550100")])).toBe(false);
   });
 
   it("lists configured phones in client order", () => {
     expect(
       availablePhones([
-        dedicated("first", "line-1", "+15550100"),
-        dedicated("second", "line-2", "+15550200"),
+        dedicated("first", "+15550100"),
+        dedicated("second", "+15550200"),
       ])
     ).toEqual(["+15550100", "+15550200"]);
   });
@@ -51,22 +42,20 @@ describe("iMessage HTTP client routing", () => {
 
     expect(clientEntryForPhone([shared], "+15550100")).toBe(shared);
     expect(clientForPhone([shared], "+15550100")).toBe(shared.client);
-    expect(lineIdForPhone([shared], "+15550100")).toBeUndefined();
   });
 
   it("routes dedicated clients by exact phone", () => {
-    const first = dedicated("first", "line-1", "+15550100");
-    const second = dedicated("second", "line-2", "+15550200");
+    const first = dedicated("first", "+15550100");
+    const second = dedicated("second", "+15550200");
 
     expect(clientEntryForPhone([first, second], second.phone)).toBe(second);
     expect(clientForPhone([first, second], first.phone)).toBe(first.client);
-    expect(lineIdForPhone([first, second], second.phone)).toBe("line-2");
   });
 
   it("fails with the available phones when no dedicated client matches", () => {
     const clients = [
-      dedicated("first", "line-1", "+15550100"),
-      dedicated("second", "line-2", "+15550200"),
+      dedicated("first", "+15550100"),
+      dedicated("second", "+15550200"),
     ];
 
     expect(() => clientEntryForPhone(clients, "+15550999")).toThrow(
@@ -77,50 +66,11 @@ describe("iMessage HTTP client routing", () => {
     );
   });
 
-  it("matches a dedicated line only when both its id and phone agree", () => {
-    const first = dedicated("first", "line-1", "+15550100");
-    const second = dedicated("second", "line-2", "+15550200");
-    const clients = [first, second];
-
-    expect(clientEntryForLine(clients, "line-2", "+15550200")).toBe(second);
-    expect(clientEntryForLine(clients, "line-2", "+15550100")).toBeUndefined();
-    expect(clientEntryForLine(clients, "line-1", "+15550200")).toBeUndefined();
-    expect(clientEntryForLine(clients, "missing", "+15550999")).toBeUndefined();
-  });
-
-  it("requires an exact line and phone match when a space carries lineId", () => {
-    const first = dedicated("first", "line-1", "+15550100");
-    const second = dedicated("second", "line-2", "+15550200");
-    const clients = [first, second];
-
-    expect(
-      clientEntryForRoute(clients, {
-        lineId: "line-2",
-        phone: "+15550200",
-      })
-    ).toBe(second);
-    expect(
-      clientForRoute(clients, { lineId: "line-1", phone: "+15550100" })
-    ).toBe(first.client);
-    expect(() =>
-      clientEntryForRoute(clients, {
-        lineId: "line-1",
-        phone: "+15550200",
-      })
-    ).toThrow("No iMessage client serves line line-1 at phone +15550200");
-  });
-
-  it("falls back to phone only for spaces created before lineId existed", () => {
-    const entry = dedicated("line", "line-1", "+15550100");
-
-    expect(clientEntryForRoute([entry], { phone: entry.phone })).toBe(entry);
-  });
-
   it("chooses a configured dedicated phone", () => {
     const selectSecondClient = 0.75;
     const clients = [
-      dedicated("first", "line-1", "+15550100"),
-      dedicated("second", "line-2", "+15550200"),
+      dedicated("first", "+15550100"),
+      dedicated("second", "+15550200"),
     ];
     const random = vi.spyOn(Math, "random").mockReturnValue(selectSecondClient);
 

@@ -200,7 +200,6 @@ export const getMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
   msgId: string,
-  phone: string,
-  lineId?: string
+  phone: string
 ): Promise<IMessageMessage | undefined> =>
-  getRemoteMessage(remote, spaceId, msgId, phone, lineId);
+  getRemoteMessage(remote, spaceId, msgId, phone);

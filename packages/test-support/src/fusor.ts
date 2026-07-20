@@ -295,7 +295,7 @@ export const makeHybrid = (
   capture: HybridCapture,
   opts: HybridOptions = {}
 ) => {
-  const name = opts.name ?? "Hybrid Display";
+  const name = opts.name ?? "hybrid_display";
   const route = opts.route ?? "hybrid-wire";
   const client: HybridClient = { id: `${name}-client`, kind: "regular" };
   const regularMessages = makeQueue<ReturnType<typeof record>>();

@@ -27,7 +27,7 @@ describe("hybrid Fusor providers", () => {
   it("routes a wire name to a differently named provider and gives the handler its regular runtime context", async () => {
     const seen = capture();
     const fixture = makeHybrid(seen, {
-      name: "iMessage Display",
+      name: "imessage_display",
       route: "imessage-wire",
     });
     const spectrum = await Spectrum({
@@ -53,8 +53,8 @@ describe("hybrid Fusor providers", () => {
     await delivered;
 
     expect(result.status).toBe(200);
-    expect(received?.[0].__platform).toBe("iMessage Display");
-    expect(received?.[1].platform).toBe("iMessage Display");
+    expect(received?.[0].__platform).toBe("imessage_display");
+    expect(received?.[1].platform).toBe("imessage_display");
     expect(received?.[1].id).toBe("fusor-from-webhook");
     expect(seen.createClient).toBe(fixture.client);
     expect(seen.createConfig).toEqual({ token: "hybrid-token" });
@@ -134,12 +134,12 @@ describe("hybrid Fusor providers", () => {
     const firstSeen = capture();
     const failingSeen = capture();
     const first = makeHybrid(firstSeen, {
-      name: "Initialized First",
+      name: "initialized_first",
       route: "initialized-first-wire",
     });
     const failing = makeHybrid(failingSeen, {
       createError: new Error("second binding failed"),
-      name: "Fails Second",
+      name: "fails_second",
       route: "fails-second-wire",
     });
 
@@ -158,11 +158,11 @@ describe("hybrid Fusor providers", () => {
     const firstSeen = capture();
     const secondSeen = capture();
     const first = makeHybrid(firstSeen, {
-      name: "Duplicate Route One",
+      name: "duplicate_route_one",
       route: "shared-wire-route",
     });
     const second = makeHybrid(secondSeen, {
-      name: "Duplicate Route Two",
+      name: "duplicate_route_two",
       route: "shared-wire-route",
     });
 
@@ -172,7 +172,7 @@ describe("hybrid Fusor providers", () => {
         providers: [first.provider, second.provider],
       })
     ).rejects.toThrow(
-      'Fusor route "shared-wire-route" is registered by both "Duplicate Route One" and "Duplicate Route Two"'
+      'Fusor route "shared-wire-route" is registered by both "duplicate_route_one" and "duplicate_route_two"'
     );
 
     expect(firstSeen.destroyedClient).toBe(first.client);
@@ -182,7 +182,7 @@ describe("hybrid Fusor providers", () => {
   it("keeps a stream-only binding off direct webhooks and starts Fusor from provider messages", async () => {
     const seen = capture();
     const fixture = makeHybrid(seen, {
-      name: "Stream Only Hybrid",
+      name: "stream_only_hybrid",
       route: "stream-only-wire",
       streamOnly: true,
     });
@@ -269,7 +269,7 @@ describe("hybrid Fusor providers", () => {
 
   it("keeps hybrid custom events on their regular producer", async () => {
     const seen = capture();
-    const fixture = makeHybrid(seen, { name: "Hybrid Events" });
+    const fixture = makeHybrid(seen, { name: "hybrid_events" });
     const spectrum = await Spectrum({
       ...baseConfig,
       providers: [fixture.provider],
@@ -284,7 +284,7 @@ describe("hybrid Fusor providers", () => {
 
     await expect(pending).resolves.toEqual({
       done: false,
-      value: { platform: "Hybrid Events", state: "ready" },
+      value: { platform: "hybrid_events", state: "ready" },
     });
     expect(seen.regularEventProducerCalls).toBe(1);
 
@@ -300,7 +300,7 @@ describe("hybrid Fusor providers", () => {
     try {
       const seen = capture();
       const fixture = makeHybrid(seen, {
-        name: "Blocked Fusor Close",
+        name: "blocked_fusor_close",
         route: "blocked-close-wire",
       });
       const spectrum = await Spectrum({

@@ -32,7 +32,10 @@ gateway and route each operation by its stable `lineId` and E.164 phone number.
 New dedicated chat, message, and attachment GUIDs remain native and unchanged.
 Historical `spc-*` resources from before migration are routed through the
 project-scoped Spectrum HTTP middleware, so replies and resource reads keep
-working. Shared projects retain their existing `spc-*` behavior. Explicit
+working. Dedicated clients obtain that credential from Cloud's narrow
+`/imessage/resource-token` endpoint, without receiving legacy physical
+instance IDs or direct instance credentials. Shared projects retain their
+existing `spc-*` behavior. Explicit
 `clients` configurations also describe Advanced iMessage HTTP endpoints, but
 are outbound-only: inbound delivery requires Spectrum Cloud credentials so the
 SDK can authenticate to Fusor WebSocket.

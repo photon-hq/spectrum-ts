@@ -4,7 +4,7 @@ import {
 } from "@photon-ai/advanced-imessage/http";
 import {
   cloud,
-  type DedicatedTokenData,
+  type ImessageResourceTokenData,
   type SharedTokenData,
 } from "@spectrum-ts/core";
 import {
@@ -67,13 +67,13 @@ const requireSharedToken = (data: SharedTokenData): string => {
   return data.token;
 };
 
-const requireProxyToken = (data: DedicatedTokenData): string => {
-  if (!data.proxyToken) {
+const requireResourceToken = (data: ImessageResourceTokenData): string => {
+  if (!data.token) {
     throw new Error(
-      "Dedicated iMessage token response is missing proxyToken; historical spc-* resources cannot be routed through Spectrum"
+      "Dedicated iMessage resource token response is missing token; historical spc-* resources cannot be routed through Spectrum"
     );
   }
-  return data.proxyToken;
+  return data.token;
 };
 
 const readGatewayLines = async (
@@ -186,34 +186,8 @@ const createDedicatedClients = async (
   projectId: string,
   projectSecret: string
 ): Promise<RemoteClient[]> => {
-  const issued = await cloud.issueImessageTokens(projectId, projectSecret);
-  if (issued.type !== "dedicated") {
-    throw new Error(
-      "iMessage mode discovery returned dedicated but token issuance returned shared"
-    );
-  }
-  let proxyTokenData: DedicatedTokenData = issued;
-  requireProxyToken(proxyTokenData);
-
-  const proxyRenewal = createTokenRenewal({
-    expiresInSeconds: () => proxyTokenData.expiresIn,
-    name: "imessage-resource",
-    refresh: async () => {
-      const refreshed = await cloud.issueImessageTokens(
-        projectId,
-        projectSecret
-      );
-      if (refreshed.type !== "dedicated") {
-        throw new Error(
-          "Dedicated iMessage resource token refresh returned shared credentials"
-        );
-      }
-      requireProxyToken(refreshed);
-      proxyTokenData = refreshed;
-    },
-  });
-
   let tokenProvider: FusorTokenProvider | undefined;
+  let resourceRenewal: ReturnType<typeof createTokenRenewal> | undefined;
   const opened: AdvancedIMessage[] = [];
   try {
     tokenProvider = await createFusorTokenProvider(projectId, projectSecret);
@@ -221,23 +195,35 @@ const createDedicatedClients = async (
     const base = gatewayBaseUrl();
     const lines = await readGatewayLines(fusorTokens);
     if (lines.length === 0) {
-      const entries: RemoteClient[] = [];
-      cloudAuthState.set(entries, {
-        dispose: async () => {
-          proxyRenewal.dispose();
-          await fusorTokens.dispose();
-        },
-      });
-      return entries;
+      throw new Error("Dedicated iMessage gateway returned no ready lines");
     }
+
+    let resourceTokenData = await cloud.issueImessageResourceToken(
+      projectId,
+      projectSecret
+    );
+    requireResourceToken(resourceTokenData);
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => resourceTokenData.expiresIn,
+      name: "imessage-resource",
+      refresh: async () => {
+        const refreshed = await cloud.issueImessageResourceToken(
+          projectId,
+          projectSecret
+        );
+        requireResourceToken(refreshed);
+        resourceTokenData = refreshed;
+      },
+    });
+    resourceRenewal = renewal;
 
     const resourceClient = createHttpClient({
       address: sharedAddress(),
       autoIdempotency: true,
       retry: true,
       token: async () => {
-        await proxyRenewal.refreshIfNeeded();
-        return requireProxyToken(proxyTokenData);
+        await renewal.refreshIfNeeded();
+        return requireResourceToken(resourceTokenData);
       },
     });
     opened.push(resourceClient);
@@ -258,13 +244,13 @@ const createDedicatedClients = async (
     });
     cloudAuthState.set(entries, {
       dispose: async () => {
-        proxyRenewal.dispose();
+        renewal.dispose();
         await fusorTokens.dispose();
       },
     });
     return entries;
   } catch (error) {
-    proxyRenewal.dispose();
+    resourceRenewal?.dispose();
     await tokenProvider?.dispose();
     await Promise.allSettled(opened.map((client) => client.close()));
     throw error;

@@ -125,6 +125,7 @@ export type {
   DedicatedTokenData,
   FusorTokenData,
   ImessageInfoData,
+  ImessageResourceTokenData,
   PlatformStatus,
   PlatformsData,
   ProjectData,

@@ -24,8 +24,6 @@ export interface DedicatedTokenData {
   auth: Record<string, string>;
   expiresIn: number;
   numbers: Record<string, string | null>;
-  /** Project-scoped bearer for Spectrum's virtual-resource proxy. */
-  proxyToken: string;
   type: "dedicated";
 }
 
@@ -41,6 +39,11 @@ export type PlatformsData = Record<CloudPlatform, PlatformStatus>;
 
 export interface ImessageInfoData {
   type: "shared" | "dedicated";
+}
+
+export interface ImessageResourceTokenData {
+  expiresIn: number;
+  token: string;
 }
 
 export interface WhatsappBusinessTokenData {
@@ -187,6 +190,15 @@ export const cloud = {
     projectSecret: string
   ): Promise<TokenData> =>
     request(`/projects/${projectId}/imessage/tokens`, {
+      method: "POST",
+      headers: { Authorization: basicAuth(projectId, projectSecret) },
+    }),
+
+  issueImessageResourceToken: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<ImessageResourceTokenData> =>
+    request(`/projects/${projectId}/imessage/resource-token`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

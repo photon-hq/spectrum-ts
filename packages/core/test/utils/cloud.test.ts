@@ -47,3 +47,36 @@ describe("cloud.getImessageInfo", () => {
     );
   });
 });
+
+describe("cloud.issueImessageResourceToken", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("posts to the narrow endpoint with project Basic auth", async () => {
+    let requestInit: RequestInit | undefined;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((async (
+      _input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1]
+    ) => {
+      requestInit = init;
+      return Response.json({
+        data: { expiresIn: 900, token: "resource-token" },
+        succeed: true,
+      });
+    }) as typeof fetch);
+
+    await expect(
+      cloud.issueImessageResourceToken("project-id", "project-secret")
+    ).resolves.toEqual({ expiresIn: 900, token: "resource-token" });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      `${SPECTRUM_CLOUD_URL}/projects/project-id/imessage/resource-token`
+    );
+    expect(requestInit?.method).toBe("POST");
+    expect(new Headers(requestInit?.headers).get("Authorization")).toBe(
+      `Basic ${btoa("project-id:project-secret")}`
+    );
+  });
+});

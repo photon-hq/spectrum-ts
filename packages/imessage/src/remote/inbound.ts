@@ -4,7 +4,7 @@ import {
   type MessageEvent,
   NotFoundError,
   type SingleServiceAddressInfo,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import { type Content, fromVCard, type Group } from "@spectrum-ts/core";
 import {
   asAttachment,

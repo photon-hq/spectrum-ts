@@ -1,7 +1,7 @@
 import type {
   AdvancedIMessage,
   Message as SDKMessage,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import {
   type Content,
   type Message,

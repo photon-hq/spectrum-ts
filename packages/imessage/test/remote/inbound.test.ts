@@ -2,7 +2,7 @@ import {
   type AdvancedIMessage,
   type MessageEvent,
   NotFoundError,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import { describe, expect, it } from "vitest";
 import { MessageCache } from "@/cache";
 import { toInboundMessages } from "@/remote/inbound";

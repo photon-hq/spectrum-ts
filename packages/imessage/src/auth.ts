@@ -1,4 +1,4 @@
-import { createClient } from "@photon-ai/advanced-imessage";
+import { createGrpcClient } from "@photon-ai/advanced-imessage/grpc";
 import {
   cloud,
   type DedicatedTokenData,
@@ -77,7 +77,7 @@ export async function createCloudClients(
     const entries: RemoteClient[] = [
       {
         phone: SHARED_PHONE,
-        client: createClient({
+        client: createGrpcClient({
           address,
           // Auto-retry transient unary failures so a brief server blip during
           // an outbound action (send/react/reply) doesn't surface as an
@@ -103,7 +103,7 @@ export async function createCloudClients(
   for (const [instanceId, token] of Object.entries(dedicated.auth)) {
     const entry: RemoteClient = {
       phone: requirePhone(dedicated, instanceId),
-      client: createClient({
+      client: createGrpcClient({
         address: `${instanceId}.imsg.photon.codes:443`,
         autoIdempotency: true,
         retry: true,

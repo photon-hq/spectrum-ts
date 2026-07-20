@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import { addMember, leaveSpace, removeMember } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { imessage } from "@/index";

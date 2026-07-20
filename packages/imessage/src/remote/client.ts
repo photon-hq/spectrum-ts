@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import { type RemoteClient, SHARED_PHONE } from "../types";
 
 export const isSharedMode = (clients: RemoteClient[]): boolean =>

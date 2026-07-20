@@ -1,7 +1,7 @@
 import {
   type AdvancedIMessage,
   NotFoundError,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import type { Attachment } from "@spectrum-ts/core";
 import { asAttachment } from "@spectrum-ts/core/authoring";
 import { normalizeAppleAttachmentMimeType } from "../shared/audio";

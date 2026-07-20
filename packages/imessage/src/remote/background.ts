@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import type { Background } from "../content/background";
 import { toChatGuid } from "./ids";
 

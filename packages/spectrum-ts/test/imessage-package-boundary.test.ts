@@ -34,6 +34,17 @@ describe("iMessage package boundary", () => {
     expect(manifest.dependencies).not.toHaveProperty("better-sqlite3");
   });
 
+  it("installs the Advanced iMessage gRPC transport", async () => {
+    const manifest = await readManifest("imessage");
+
+    expect(manifest.dependencies).toMatchObject({
+      "@grpc/grpc-js": "^1.14.4",
+      "@photon-ai/advanced-imessage": "^2.0.2",
+      "nice-grpc": "^2.1.16",
+      "nice-grpc-common": "^2.0.3",
+    });
+  });
+
   it("installs imessage-kit only with the explicit local provider", async () => {
     const manifest = await readManifest("imessage-local");
 

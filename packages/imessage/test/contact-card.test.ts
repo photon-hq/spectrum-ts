@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import type { Space } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { isContactCard } from "@/content/contact-card";

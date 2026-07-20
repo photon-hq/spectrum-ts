@@ -1,7 +1,7 @@
 import type {
   AdvancedIMessage,
   MiniAppCardSession,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import type {
   AddMember,
   Avatar,

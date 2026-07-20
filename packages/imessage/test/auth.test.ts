@@ -20,7 +20,7 @@ const initialTokenData: FakeDedicatedTokenData = {
 
 const issueImessageTokens = vi.fn(() => Promise.resolve(initialTokenData));
 const clientOptions: FakeClientOptions[] = [];
-const createClient = vi.fn((options: FakeClientOptions) => {
+const createGrpcClient = vi.fn((options: FakeClientOptions) => {
   clientOptions.push(options);
   return {};
 });
@@ -33,7 +33,7 @@ vi.doMock("@spectrum-ts/core", async (importOriginal) => {
   };
 });
 
-vi.doMock("@photon-ai/advanced-imessage", () => ({ createClient }));
+vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({ createGrpcClient }));
 
 const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
   "@/auth"
@@ -43,7 +43,7 @@ describe("imessage cloud auth", () => {
   beforeEach(() => {
     issueImessageTokens.mockReset();
     issueImessageTokens.mockResolvedValue(initialTokenData);
-    createClient.mockClear();
+    createGrpcClient.mockClear();
     clientOptions.length = 0;
   });
 

@@ -2,7 +2,7 @@ import type {
   AdvancedIMessage,
   Message as SDKMessage,
   SettableMessageReaction,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import { describe, expect, it, vi } from "vitest";
 import { formatChildId } from "@/remote/ids";
 import { unsendReaction } from "@/remote/reactions";

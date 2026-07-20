@@ -5,7 +5,7 @@ import {
   type MessageEvent,
   type PollEvent,
   ValidationError,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import { sanitizePhone } from "@photon-ai/otel";
 import {
   type ManagedStream,

@@ -1,8 +1,8 @@
 import {
   type AdvancedIMessage,
-  createClient,
+  createGrpcClient,
   type MiniAppCardSession,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import { withSpan } from "@photon-ai/otel";
 import {
   type AddMember,
@@ -479,7 +479,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           : [config.clients];
         return entries.map((e) => ({
           phone: e.phone,
-          client: createClient({
+          client: createGrpcClient({
             address: e.address,
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action

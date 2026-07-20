@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import { flush, settleSoon } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
 import { messages } from "@/remote/stream";

@@ -2,7 +2,7 @@ import type {
   AdvancedIMessage,
   MessageEvent,
   SettableMessageReaction,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import type { Reaction as ReactionContent } from "@spectrum-ts/core";
 import {
   type ProviderMessageRecord,

@@ -2,7 +2,7 @@ import type {
   AdvancedIMessage,
   GroupEvent,
   SingleServiceAddressInfo,
-} from "@photon-ai/advanced-imessage";
+} from "@photon-ai/advanced-imessage/grpc";
 import type { Content } from "@spectrum-ts/core";
 import {
   addMemberSchema,

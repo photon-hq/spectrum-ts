@@ -184,11 +184,12 @@ describe("iMessage HTTP client routing", () => {
   });
 
   it("chooses a configured dedicated phone", () => {
+    const selectSecondClient = 0.75;
     const clients = [
       dedicated("first", "line-1", "+15550100"),
       dedicated("second", "line-2", "+15550200"),
     ];
-    const random = vi.spyOn(Math, "random").mockReturnValue(0.75);
+    const random = vi.spyOn(Math, "random").mockReturnValue(selectSecondClient);
 
     expect(randomPhone(clients)).toBe("+15550200");
 

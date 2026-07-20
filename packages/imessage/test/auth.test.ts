@@ -347,6 +347,23 @@ describe("iMessage cloud authentication", () => {
     await disposeCloudAuth(clients);
   });
 
+  it("rejects a plaintext dedicated gateway before sending a bearer token", async () => {
+    vi.stubEnv(
+      "SPECTRUM_IMESSAGE_GATEWAY_ADDRESS",
+      "http://fusor-imessage.internal"
+    );
+    getImessageInfo.mockResolvedValue({ type: "dedicated" });
+
+    await expect(
+      createCloudClients(PROJECT_ID, PROJECT_SECRET)
+    ).rejects.toThrow("Invalid dedicated iMessage gateway address");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(createHttpClient).not.toHaveBeenCalled();
+    expect(tokenProvider.dispose).toHaveBeenCalledOnce();
+    expect(renewal.dispose).toHaveBeenCalledOnce();
+  });
+
   it.each([
     {
       name: "an invalid line id",

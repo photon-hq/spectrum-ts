@@ -48,7 +48,7 @@ const gatewayBaseUrl = (): URL => {
     configured.includes("://") ? configured : `https://${configured}`
   );
   if (
-    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    url.protocol !== "https:" ||
     url.username ||
     url.password ||
     url.pathname !== "/" ||

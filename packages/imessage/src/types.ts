@@ -7,11 +7,6 @@ export interface RemoteClient {
   /** Stable Fusor route id; present only for auto-discovered dedicated lines. */
   lineId?: string;
   phone: string;
-  /**
-   * Project-scoped Spectrum HTTP proxy used only for historical `spc-*`
-   * resources. Auto-discovered dedicated entries share one client instance.
-   */
-  resourceClient?: AdvancedIMessage;
 }
 
 export type IMessageClient = RemoteClient[];

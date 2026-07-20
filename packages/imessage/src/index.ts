@@ -86,9 +86,6 @@ import { getRemoteAttachment } from "./remote/attachments";
 import {
   availablePhones,
   clientEntryForPhone,
-  clientForAttachmentResource,
-  clientForMessageResource,
-  clientForMiniAppSession,
   clientForRoute,
   isSharedMode,
   lineIdForPhone,
@@ -176,7 +173,7 @@ const handleEdit = async (
     }
     const url = await content.content.url();
     const layout = await content.content.layout();
-    const remote = clientForMiniAppSession(client, space, miniAppCardSession);
+    const remote = clientForRoute(client, space);
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -198,7 +195,7 @@ const handleEdit = async (
         "customized mini app card edits require a miniAppCardSession from the original send"
       );
     }
-    const remote = clientForMiniAppSession(client, space, miniAppCardSession);
+    const remote = clientForRoute(client, space);
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -221,7 +218,7 @@ const handleEdit = async (
       `only text content can be edited (got "${content.content.type}")`
     );
   }
-  const remote = clientForMessageResource(client, space, content.target.id);
+  const remote = clientForRoute(client, space);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
 };
 
@@ -245,11 +242,7 @@ const handleUnsend = async (
     // the reaction's own target (the message that was reacted to). Same
     // unknown-cast widen as the reaction send branch.
     const reactionTarget = targetContent.target as unknown as IMessageMessage;
-    const remote = clientForMessageResource(
-      client,
-      space,
-      reactionTarget.parentId ?? reactionTarget.id
-    );
+    const remote = clientForRoute(client, space);
     await remoteUnsendReaction(
       remote,
       space.id,
@@ -258,7 +251,7 @@ const handleUnsend = async (
     );
     return;
   }
-  const remote = clientForMessageResource(client, space, content.target.id);
+  const remote = clientForRoute(client, space);
   await remoteUnsendMessage(remote, space.id, content.target.id);
 };
 
@@ -482,7 +475,7 @@ const remoteForMessageTarget = (
       `iMessage polls do not support ${pollNoun}`
     );
   }
-  return clientForMessageResource(client, space, target.parentId ?? target.id);
+  return clientForRoute(client, space);
 };
 
 export const imessage = definePlatform(IMESSAGE_PLATFORM, {
@@ -543,9 +536,6 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
       const uniqueClients = new Set<AdvancedIMessage>();
       for (const entry of client) {
         uniqueClients.add(entry.client);
-        if (entry.resourceClient) {
-          uniqueClients.add(entry.resourceClient);
-        }
       }
       await Promise.all(Array.from(uniqueClients, (remote) => remote.close()));
     },
@@ -761,7 +751,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
 
   actions: {
     getMessage: async ({ client }, space, messageId) => {
-      const remote = clientForMessageResource(client, space, messageId);
+      const remote = clientForRoute(client, space);
       return remoteGetMessage(
         remote,
         space.id,
@@ -833,11 +823,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           `imessage.getAttachment requires a phone in multi-phone mode. Available: ${availablePhones(client).join(", ")}`
         );
       })();
-      const remote = clientForAttachmentResource(
-        client,
-        { phone: routedPhone },
-        guid
-      );
+      const remote = clientForRoute(client, { phone: routedPhone });
       return withSpan(
         "spectrum.imessage.getAttachment",
         {

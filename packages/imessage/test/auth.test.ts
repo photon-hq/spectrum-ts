@@ -36,7 +36,6 @@ const makeFakeClient = (options: HttpClientOptions): AdvancedIMessage => {
 
 const createHttpClient = vi.fn(makeFakeClient);
 const getImessageInfo = vi.fn();
-const issueImessageResourceToken = vi.fn();
 const issueImessageTokens = vi.fn();
 const fetchMock = vi.fn();
 
@@ -66,7 +65,6 @@ vi.doMock("@spectrum-ts/core", async (importOriginal) => {
     cloud: {
       ...actual.cloud,
       getImessageInfo,
-      issueImessageResourceToken,
       issueImessageTokens,
     },
   };
@@ -104,11 +102,6 @@ const dedicatedLines = () => ({
   ],
 });
 
-const resourceTokens = (token = "resource-token") => ({
-  expiresIn: 3600,
-  token,
-});
-
 const resolveClientToken = async (client: FakeClient): Promise<string> =>
   await client.options.token();
 
@@ -119,8 +112,6 @@ describe("iMessage cloud authentication", () => {
     createHttpClient.mockReset();
     createHttpClient.mockImplementation(makeFakeClient);
     getImessageInfo.mockReset();
-    issueImessageResourceToken.mockReset();
-    issueImessageResourceToken.mockResolvedValue(resourceTokens());
     issueImessageTokens.mockReset();
     createFusorTokenProvider.mockClear();
     createTokenRenewal.mockClear();
@@ -158,7 +149,6 @@ describe("iMessage cloud authentication", () => {
       PROJECT_ID,
       PROJECT_SECRET
     );
-    expect(issueImessageResourceToken).not.toHaveBeenCalled();
     expect(createFusorTokenProvider).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(clients).toEqual([
@@ -239,10 +229,6 @@ describe("iMessage cloud authentication", () => {
       PROJECT_ID,
       PROJECT_SECRET
     );
-    expect(issueImessageResourceToken).toHaveBeenCalledWith(
-      PROJECT_ID,
-      PROJECT_SECRET
-    );
     expect(issueImessageTokens).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
     const [input, init] = fetchMock.mock.calls[0] ?? [];
@@ -260,58 +246,35 @@ describe("iMessage cloud authentication", () => {
     );
     expect(clients).toEqual([
       {
-        client: issuedClients[1] as unknown as AdvancedIMessage,
+        client: issuedClients[0] as unknown as AdvancedIMessage,
         lineId: LINE_ONE_ID,
         phone: "+15550100",
-        resourceClient: issuedClients[0] as unknown as AdvancedIMessage,
       },
       {
-        client: issuedClients[2] as unknown as AdvancedIMessage,
+        client: issuedClients[1] as unknown as AdvancedIMessage,
         lineId: LINE_TWO_ID,
         phone: "+15550101",
-        resourceClient: issuedClients[0] as unknown as AdvancedIMessage,
       },
     ]);
     expect(issuedClients.map(({ options }) => options.address)).toEqual([
-      "imessage-http.photon.codes",
       `https://fusor-imessage.spectrum.photon.codes/lines/${LINE_ONE_ID}`,
       `https://fusor-imessage.spectrum.photon.codes/lines/${LINE_TWO_ID}`,
     ]);
     expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
-      "resource-token"
+      "fusor-token"
     );
     expect(await resolveClientToken(issuedClients[1] as FakeClient)).toBe(
       "fusor-token"
     );
+    expect(createHttpClient).toHaveBeenCalledTimes(2);
+    expect(createTokenRenewal).not.toHaveBeenCalled();
 
     await disposeCloudAuth(clients);
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
-    expect(renewal.dispose).toHaveBeenCalledOnce();
+    expect(renewal.dispose).not.toHaveBeenCalled();
   });
 
-  it("renews the dedicated project resource token without rebuilding clients", async () => {
-    getImessageInfo.mockResolvedValue({ type: "dedicated" });
-    issueImessageResourceToken
-      .mockResolvedValueOnce(resourceTokens("resource-token-1"))
-      .mockResolvedValueOnce(resourceTokens("resource-token-2"));
-    fetchMock.mockResolvedValue(jsonResponse(dedicatedLines()));
-
-    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
-    await renewalOptions?.refresh();
-
-    expect(renewalOptions?.name).toBe("imessage-resource");
-    expect(renewalOptions?.expiresInSeconds()).toBe(3600);
-    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
-      "resource-token-2"
-    );
-    expect(createHttpClient).toHaveBeenCalledTimes(3);
-    expect(issueImessageResourceToken).toHaveBeenCalledTimes(2);
-
-    await disposeCloudAuth(clients);
-    expect(renewal.dispose).toHaveBeenCalledOnce();
-  });
-
-  it("closes a shared dedicated resource client exactly once", async () => {
+  it("closes every dedicated line client exactly once", async () => {
     getImessageInfo.mockResolvedValue({ type: "dedicated" });
     fetchMock.mockResolvedValue(jsonResponse(dedicatedLines()));
     const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
@@ -320,12 +283,12 @@ describe("iMessage cloud authentication", () => {
 
     await destroyClient?.({ client: clients } as never);
 
-    expect(issuedClients).toHaveLength(3);
+    expect(issuedClients).toHaveLength(2);
     for (const issued of issuedClients) {
       expect(issued.close).toHaveBeenCalledOnce();
     }
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
-    expect(renewal.dispose).toHaveBeenCalledOnce();
+    expect(renewal.dispose).not.toHaveBeenCalled();
   });
 
   it("invalidates the Fusor token, retries once, and rejects an empty topology", async () => {
@@ -351,7 +314,6 @@ describe("iMessage cloud authentication", () => {
     ).toBe("Bearer fresh-token");
 
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
-    expect(issueImessageResourceToken).not.toHaveBeenCalled();
     expect(createTokenRenewal).not.toHaveBeenCalled();
     expect(renewal.dispose).not.toHaveBeenCalled();
   });
@@ -370,7 +332,6 @@ describe("iMessage cloud authentication", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(createHttpClient).not.toHaveBeenCalled();
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
-    expect(issueImessageResourceToken).not.toHaveBeenCalled();
     expect(renewal.dispose).not.toHaveBeenCalled();
   });
 
@@ -399,7 +360,6 @@ describe("iMessage cloud authentication", () => {
       createCloudClients(PROJECT_ID, PROJECT_SECRET)
     ).rejects.toThrow();
 
-    expect(issueImessageResourceToken).not.toHaveBeenCalled();
     expect(createHttpClient).not.toHaveBeenCalled();
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
     expect(renewal.dispose).not.toHaveBeenCalled();
@@ -432,7 +392,6 @@ describe("iMessage cloud authentication", () => {
 
     expect(createHttpClient).not.toHaveBeenCalled();
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
-    expect(issueImessageResourceToken).not.toHaveBeenCalled();
     expect(renewal.dispose).not.toHaveBeenCalled();
   });
 
@@ -451,22 +410,6 @@ describe("iMessage cloud authentication", () => {
 
     expect(issuedClients).toHaveLength(1);
     expect(issuedClients[0]?.close).toHaveBeenCalledOnce();
-    expect(tokenProvider.dispose).toHaveBeenCalledOnce();
-    expect(renewal.dispose).toHaveBeenCalledOnce();
-  });
-
-  it("rejects a missing historical resource token and disposes Fusor auth", async () => {
-    getImessageInfo.mockResolvedValue({ type: "dedicated" });
-    issueImessageResourceToken.mockResolvedValue(resourceTokens(""));
-    fetchMock.mockResolvedValue(jsonResponse(dedicatedLines()));
-
-    await expect(
-      createCloudClients(PROJECT_ID, PROJECT_SECRET)
-    ).rejects.toThrow("resource token response is missing token");
-
-    expect(createFusorTokenProvider).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(createHttpClient).not.toHaveBeenCalled();
     expect(tokenProvider.dispose).toHaveBeenCalledOnce();
     expect(renewal.dispose).not.toHaveBeenCalled();
   });
@@ -498,7 +441,6 @@ describe("iMessage cloud authentication", () => {
     ).rejects.toThrow("Unsupported iMessage mode returned by Spectrum Cloud");
 
     expect(issueImessageTokens).not.toHaveBeenCalled();
-    expect(issueImessageResourceToken).not.toHaveBeenCalled();
     expect(createFusorTokenProvider).not.toHaveBeenCalled();
     expect(createHttpClient).not.toHaveBeenCalled();
   });

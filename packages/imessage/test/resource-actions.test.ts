@@ -25,11 +25,9 @@ const def = imessage.config({}).__definition;
 const sdkMessage = (guid: string): SDKMessage =>
   ({ dateCreated: new Date(0), guid }) as SDKMessage;
 
-const clients = (
-  client: AdvancedIMessage,
-  resourceClient?: AdvancedIMessage,
-  phone = PHONE
-): RemoteClient[] => [{ client, lineId: LINE_ID, phone, resourceClient }];
+const clients = (client: AdvancedIMessage): RemoteClient[] => [
+  { client, lineId: LINE_ID, phone: PHONE },
+];
 
 const target = (id: string, parentId?: string): IMessageMessage =>
   ({
@@ -50,109 +48,88 @@ const appContent = (): Content =>
   }) as unknown as Content;
 
 describe("iMessage HTTP resource actions", () => {
-  it("routes replies and reactions for virtual child messages through Spectrum", async () => {
-    const directSend = vi.fn();
-    const directReaction = vi.fn();
-    const proxySend = vi.fn(() => Promise.resolve(sdkMessage("reply-guid")));
-    const proxyReaction = vi.fn(() =>
+  it("routes native replies and reactions through the selected dedicated line", async () => {
+    const sendText = vi.fn(() => Promise.resolve(sdkMessage("reply-guid")));
+    const setReaction = vi.fn(() =>
       Promise.resolve(sdkMessage("reaction-guid"))
     );
-    const direct = {
-      messages: { sendText: directSend, setReaction: directReaction },
+    const remote = {
+      messages: { sendText, setReaction },
     } as unknown as AdvancedIMessage;
-    const proxy = {
-      messages: { sendText: proxySend, setReaction: proxyReaction },
-    } as unknown as AdvancedIMessage;
-    const virtualTarget = target("p:2/spc-msg-parent", "spc-msg-parent");
+    const nativeTarget = target("p:2/native-parent", "native-parent");
 
     await def.send({
       ...ctx,
-      client: clients(direct, proxy),
+      client: clients(remote),
       content: {
         content: { text: "reply", type: "text" },
-        target: virtualTarget,
+        target: nativeTarget,
         type: "reply",
       } as never,
       space: SPACE,
     });
     await def.send({
       ...ctx,
-      client: clients(direct, proxy),
+      client: clients(remote),
       content: {
         emoji: "👍",
-        target: virtualTarget,
+        target: nativeTarget,
         type: "reaction",
       } as never,
       space: SPACE,
     });
 
-    expect(proxySend).toHaveBeenCalledWith(
+    expect(sendText).toHaveBeenCalledWith(
       SPACE.id,
       "reply",
       expect.objectContaining({
-        replyTo: { guid: "spc-msg-parent", partIndex: 2 },
+        replyTo: { guid: "native-parent", partIndex: 2 },
       })
     );
-    expect(proxyReaction).toHaveBeenCalledWith(
+    expect(setReaction).toHaveBeenCalledWith(
       SPACE.id,
-      "spc-msg-parent",
+      "native-parent",
       { kind: "like" },
       true,
       { partIndex: 2 }
     );
-    expect(directSend).not.toHaveBeenCalled();
-    expect(directReaction).not.toHaveBeenCalled();
   });
 
-  it("routes edit, unsend, and reaction removal by virtual message id", async () => {
-    const directEdit = vi.fn();
-    const directUnsend = vi.fn();
-    const directReaction = vi.fn();
-    const proxyEdit = vi.fn(() => Promise.resolve(sdkMessage("edited")));
-    const proxyUnsend = vi.fn(() => Promise.resolve());
-    const proxyReaction = vi.fn(() =>
+  it("routes native edit, unsend, and reaction removal through the selected dedicated line", async () => {
+    const edit = vi.fn(() => Promise.resolve(sdkMessage("edited")));
+    const unsend = vi.fn(() => Promise.resolve());
+    const setReaction = vi.fn(() =>
       Promise.resolve(sdkMessage("reaction-guid"))
     );
-    const direct = {
-      messages: {
-        edit: directEdit,
-        setReaction: directReaction,
-        unsend: directUnsend,
-      },
+    const remote = {
+      messages: { edit, setReaction, unsend },
     } as unknown as AdvancedIMessage;
-    const proxy = {
-      messages: {
-        edit: proxyEdit,
-        setReaction: proxyReaction,
-        unsend: proxyUnsend,
-      },
-    } as unknown as AdvancedIMessage;
-    const virtualTarget = target("p:4/spc-msg-parent", "spc-msg-parent");
+    const nativeTarget = target("p:4/native-parent", "native-parent");
 
     await def.send({
       ...ctx,
-      client: clients(direct, proxy),
+      client: clients(remote),
       content: {
         content: { text: "edited", type: "text" },
-        target: virtualTarget,
+        target: nativeTarget,
         type: "edit",
       } as never,
       space: SPACE,
     });
     await def.send({
       ...ctx,
-      client: clients(direct, proxy),
-      content: { target: virtualTarget, type: "unsend" } as never,
+      client: clients(remote),
+      content: { target: nativeTarget, type: "unsend" } as never,
       space: SPACE,
     });
     await def.send({
       ...ctx,
-      client: clients(direct, proxy),
+      client: clients(remote),
       content: {
         target: {
           content: {
             emoji: "👍",
-            target: virtualTarget,
+            target: nativeTarget,
             type: "reaction",
           },
           id: "reaction-record",
@@ -162,38 +139,30 @@ describe("iMessage HTTP resource actions", () => {
       space: SPACE,
     });
 
-    expect(proxyEdit).toHaveBeenCalledWith(
-      SPACE.id,
-      "spc-msg-parent",
-      "edited",
-      { partIndex: 4 }
-    );
-    expect(proxyUnsend).toHaveBeenCalledWith(SPACE.id, "spc-msg-parent", {
+    expect(edit).toHaveBeenCalledWith(SPACE.id, "native-parent", "edited", {
       partIndex: 4,
     });
-    expect(proxyReaction).toHaveBeenCalledWith(
+    expect(unsend).toHaveBeenCalledWith(SPACE.id, "native-parent", {
+      partIndex: 4,
+    });
+    expect(setReaction).toHaveBeenCalledWith(
       SPACE.id,
-      "spc-msg-parent",
+      "native-parent",
       { kind: "like" },
       false,
       { partIndex: 4 }
     );
-    expect(directEdit).not.toHaveBeenCalled();
-    expect(directUnsend).not.toHaveBeenCalled();
-    expect(directReaction).not.toHaveBeenCalled();
   });
 
-  it("routes getMessage and getAttachment through Spectrum for virtual ids", async () => {
-    const directGetMessage = vi.fn();
-    const directGetAttachment = vi.fn();
-    const proxyGetMessage = vi.fn(() =>
+  it("gets native messages and attachments from the selected dedicated line", async () => {
+    const getMessageRemote = vi.fn(() =>
       Promise.resolve({
         chatGuids: [SPACE.id],
         content: {
           attachments: [
             {
               fileName: "photo.png",
-              guid: "spc-att-photo",
+              guid: "native-attachment",
               isHidden: false,
               isOutgoing: false,
               isSticker: false,
@@ -208,27 +177,23 @@ describe("iMessage HTTP resource actions", () => {
           text: "hi \uFFFC",
         },
         dateCreated: new Date(0),
-        guid: "spc-msg-parent",
+        guid: "native-parent",
         isFromMe: false,
       })
     );
-    const proxyGetAttachment = vi.fn(() =>
+    const getAttachmentRemote = vi.fn(() =>
       Promise.resolve({
         fileName: "photo.png",
-        guid: "spc-att-photo",
+        guid: "native-attachment",
         mimeType: "image/png",
         totalBytes: 123,
       })
     );
-    const direct = {
-      attachments: { get: directGetAttachment },
-      messages: { get: directGetMessage },
+    const remote = {
+      attachments: { get: getAttachmentRemote },
+      messages: { get: getMessageRemote },
     } as unknown as AdvancedIMessage;
-    const proxy = {
-      attachments: { get: proxyGetAttachment },
-      messages: { get: proxyGetMessage },
-    } as unknown as AdvancedIMessage;
-    const entries = clients(direct, proxy);
+    const entries = clients(remote);
     const getMessage = def.actions?.getMessage;
     const getAttachment = def.actions?.getAttachment;
     if (!(getMessage && getAttachment)) {
@@ -238,55 +203,49 @@ describe("iMessage HTTP resource actions", () => {
     const message = await getMessage(
       { ...ctx, client: entries },
       { ...SPACE, __platform: "iMessage" },
-      "p:1/spc-msg-parent"
+      "p:1/native-parent"
     );
     const attachment = await getAttachment(
       { ...ctx, client: entries },
-      "spc-att-photo",
+      "native-attachment",
       PHONE
     );
 
     expect(message).toMatchObject({
-      id: "p:1/spc-msg-parent",
-      parentId: "spc-msg-parent",
+      id: "p:1/native-parent",
+      parentId: "native-parent",
       space: { lineId: LINE_ID },
     });
-    expect(attachment).toMatchObject({ id: "spc-att-photo" });
-    expect(proxyGetMessage).toHaveBeenCalledWith("spc-msg-parent");
-    expect(proxyGetAttachment).toHaveBeenCalledWith("spc-att-photo");
-    expect(directGetMessage).not.toHaveBeenCalled();
-    expect(directGetAttachment).not.toHaveBeenCalled();
+    expect(attachment).toMatchObject({ id: "native-attachment" });
+    expect(getMessageRemote).toHaveBeenCalledWith("native-parent");
+    expect(getAttachmentRemote).toHaveBeenCalledWith("native-attachment");
   });
 
-  it("routes virtual mini-app sessions through Spectrum", async () => {
+  it("updates native mini-app sessions through the selected dedicated line", async () => {
     const session = {
       chatGuid: SPACE.id,
-      messageGuid: "spc-msg-card",
+      messageGuid: "native-card",
       sessionId: "session-1",
-      targetMessageGuid: "spc-msg-target",
+      targetMessageGuid: "native-target",
     } satisfies MiniAppCardSession;
-    const directUpdate = vi.fn();
-    const proxyUpdate = vi.fn(() =>
+    const updateCustomizedMiniApp = vi.fn(() =>
       Promise.resolve({
         dateCreated: new Date(0),
-        guid: "spc-msg-updated",
+        guid: "native-updated",
         miniAppCardSession: session,
       })
     );
-    const direct = {
-      messages: { updateCustomizedMiniApp: directUpdate },
-    } as unknown as AdvancedIMessage;
-    const proxy = {
-      messages: { updateCustomizedMiniApp: proxyUpdate },
+    const remote = {
+      messages: { updateCustomizedMiniApp },
     } as unknown as AdvancedIMessage;
 
     await def.send({
       ...ctx,
-      client: clients(direct, proxy),
+      client: clients(remote),
       content: {
         content: appContent(),
         target: {
-          ...target("spc-msg-card"),
+          ...target("native-card"),
           miniAppCardSession: session,
         },
         type: "edit",
@@ -294,11 +253,10 @@ describe("iMessage HTTP resource actions", () => {
       space: SPACE,
     });
 
-    expect(proxyUpdate).toHaveBeenCalledWith(
+    expect(updateCustomizedMiniApp).toHaveBeenCalledWith(
       session,
       expect.objectContaining({ url: "https://example.com/card" })
     );
-    expect(directUpdate).not.toHaveBeenCalled();
   });
 
   it("passes native message ids through on the selected line", async () => {

@@ -2,11 +2,7 @@ import {
   type AdvancedIMessage,
   createHttpClient,
 } from "@photon-ai/advanced-imessage/http";
-import {
-  cloud,
-  type ImessageResourceTokenData,
-  type SharedTokenData,
-} from "@spectrum-ts/core";
+import { cloud, type SharedTokenData } from "@spectrum-ts/core";
 import {
   createFusorTokenProvider,
   createTokenRenewal,
@@ -63,15 +59,6 @@ const gatewayBaseUrl = (): URL => {
 const requireSharedToken = (data: SharedTokenData): string => {
   if (!data.token) {
     throw new Error("Shared iMessage token response is missing token");
-  }
-  return data.token;
-};
-
-const requireResourceToken = (data: ImessageResourceTokenData): string => {
-  if (!data.token) {
-    throw new Error(
-      "Dedicated iMessage resource token response is missing token; historical spc-* resources cannot be routed through Spectrum"
-    );
   }
   return data.token;
 };
@@ -187,7 +174,6 @@ const createDedicatedClients = async (
   projectSecret: string
 ): Promise<RemoteClient[]> => {
   let tokenProvider: FusorTokenProvider | undefined;
-  let resourceRenewal: ReturnType<typeof createTokenRenewal> | undefined;
   const opened: AdvancedIMessage[] = [];
   try {
     tokenProvider = await createFusorTokenProvider(projectId, projectSecret);
@@ -198,35 +184,6 @@ const createDedicatedClients = async (
       throw new Error("Dedicated iMessage gateway returned no ready lines");
     }
 
-    let resourceTokenData = await cloud.issueImessageResourceToken(
-      projectId,
-      projectSecret
-    );
-    requireResourceToken(resourceTokenData);
-    const renewal = createTokenRenewal({
-      expiresInSeconds: () => resourceTokenData.expiresIn,
-      name: "imessage-resource",
-      refresh: async () => {
-        const refreshed = await cloud.issueImessageResourceToken(
-          projectId,
-          projectSecret
-        );
-        requireResourceToken(refreshed);
-        resourceTokenData = refreshed;
-      },
-    });
-    resourceRenewal = renewal;
-
-    const resourceClient = createHttpClient({
-      address: sharedAddress(),
-      autoIdempotency: true,
-      retry: true,
-      token: async () => {
-        await renewal.refreshIfNeeded();
-        return requireResourceToken(resourceTokenData);
-      },
-    });
-    opened.push(resourceClient);
     const entries = lines.map((line): RemoteClient => {
       const client = createHttpClient({
         address: lineAddress(base, line.lineId),
@@ -239,18 +196,13 @@ const createDedicatedClients = async (
         client,
         lineId: line.lineId,
         phone: line.phoneNumber,
-        resourceClient,
       };
     });
     cloudAuthState.set(entries, {
-      dispose: async () => {
-        renewal.dispose();
-        await fusorTokens.dispose();
-      },
+      dispose: () => fusorTokens.dispose(),
     });
     return entries;
   } catch (error) {
-    resourceRenewal?.dispose();
     await tokenProvider?.dispose();
     await Promise.allSettled(opened.map((client) => client.close()));
     throw error;

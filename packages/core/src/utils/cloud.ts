@@ -41,11 +41,6 @@ export interface ImessageInfoData {
   type: "shared" | "dedicated";
 }
 
-export interface ImessageResourceTokenData {
-  expiresIn: number;
-  token: string;
-}
-
 export interface WhatsappBusinessTokenData {
   auth: Record<string, string>;
   expiresIn: number;
@@ -190,15 +185,6 @@ export const cloud = {
     projectSecret: string
   ): Promise<TokenData> =>
     request(`/projects/${projectId}/imessage/tokens`, {
-      method: "POST",
-      headers: { Authorization: basicAuth(projectId, projectSecret) },
-    }),
-
-  issueImessageResourceToken: (
-    projectId: string,
-    projectSecret: string
-  ): Promise<ImessageResourceTokenData> =>
-    request(`/projects/${projectId}/imessage/resource-token`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

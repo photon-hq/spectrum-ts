@@ -1,6 +1,5 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { type RemoteClient, SHARED_PHONE } from "../types";
-import { parseChildId } from "./ids";
 
 export const isSharedMode = (clients: RemoteClient[]): boolean =>
   clients.length === 1 && clients[0]?.phone === SHARED_PHONE;
@@ -81,69 +80,6 @@ export const lineIdForPhone = (
   clients: RemoteClient[],
   phone: string
 ): string | undefined => clientEntryForPhone(clients, phone).lineId;
-
-const virtualMessageGuid = (id: string): string =>
-  parseChildId(id)?.parentGuid ?? id;
-
-export const isVirtualMessageResource = (id: string): boolean => {
-  const guid = virtualMessageGuid(id);
-  return guid.startsWith("spc-msg-") && guid.length > "spc-msg-".length;
-};
-
-export const isVirtualAttachmentResource = (guid: string): boolean =>
-  guid.startsWith("spc-att-") && guid.length > "spc-att-".length;
-
-const virtualResourceClient = (
-  entry: RemoteClient,
-  resource: string
-): AdvancedIMessage => {
-  // Shared and explicitly configured clients already point at the caller's
-  // intended server. Only auto-discovered dedicated entries have a lineId and
-  // therefore need the project-scoped Spectrum proxy for historical spc-* ids.
-  if (!entry.lineId) {
-    return entry.client;
-  }
-  if (!entry.resourceClient) {
-    throw new Error(
-      `Cannot access virtual iMessage resource ${resource}: no Spectrum resource proxy is configured`
-    );
-  }
-  return entry.resourceClient;
-};
-
-export const clientForMessageResource = (
-  clients: RemoteClient[],
-  route: ImessageClientRoute,
-  messageId: string
-): AdvancedIMessage => {
-  const entry = clientEntryForRoute(clients, route);
-  return isVirtualMessageResource(messageId)
-    ? virtualResourceClient(entry, messageId)
-    : entry.client;
-};
-
-export const clientForAttachmentResource = (
-  clients: RemoteClient[],
-  route: ImessageClientRoute,
-  attachmentGuid: string
-): AdvancedIMessage => {
-  const entry = clientEntryForRoute(clients, route);
-  return isVirtualAttachmentResource(attachmentGuid)
-    ? virtualResourceClient(entry, attachmentGuid)
-    : entry.client;
-};
-
-export const clientForMiniAppSession = (
-  clients: RemoteClient[],
-  route: ImessageClientRoute,
-  session: { messageGuid: string; targetMessageGuid: string }
-): AdvancedIMessage => {
-  const entry = clientEntryForRoute(clients, route);
-  return isVirtualMessageResource(session.messageGuid) ||
-    isVirtualMessageResource(session.targetMessageGuid)
-    ? virtualResourceClient(entry, session.messageGuid)
-    : entry.client;
-};
 
 export const randomPhone = (clients: RemoteClient[]): string => {
   if (clients.length === 0) {

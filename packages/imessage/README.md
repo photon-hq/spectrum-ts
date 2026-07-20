@@ -29,13 +29,10 @@ handler. The SDK no longer opens direct gRPC inbound streams.
 All outbound sends and unary, attachment, and file operations use Advanced
 iMessage HTTP clients. Dedicated projects discover their lines from the Fusor
 gateway and route each operation by its stable `lineId` and E.164 phone number.
-New dedicated chat, message, and attachment GUIDs remain native and unchanged.
-Historical `spc-*` resources from before migration are routed through the
-project-scoped Spectrum HTTP middleware, so replies and resource reads keep
-working. Dedicated clients obtain that credential from Cloud's narrow
-`/imessage/resource-token` endpoint, without receiving legacy physical
-instance IDs or direct instance credentials. Shared projects retain their
-existing `spc-*` behavior. Explicit
+Dedicated chat, message, and attachment GUIDs remain native and unchanged,
+including resources created before migration. New spaces carry `lineId`;
+pre-migration spaces without it continue routing by their E.164 phone. Shared
+projects retain their existing `spc-*` behavior. Explicit
 `clients` configurations also describe Advanced iMessage HTTP endpoints, but
 are outbound-only: inbound delivery requires Spectrum Cloud credentials so the
 SDK can authenticate to Fusor WebSocket.

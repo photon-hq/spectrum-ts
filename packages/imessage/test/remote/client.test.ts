@@ -5,14 +5,9 @@ import {
   clientEntryForLine,
   clientEntryForPhone,
   clientEntryForRoute,
-  clientForAttachmentResource,
-  clientForMessageResource,
-  clientForMiniAppSession,
   clientForPhone,
   clientForRoute,
   isSharedMode,
-  isVirtualAttachmentResource,
-  isVirtualMessageResource,
   lineIdForPhone,
   randomPhone,
 } from "@/remote/client";
@@ -25,9 +20,8 @@ const remote = (name: string): AdvancedIMessage =>
 const dedicated = (
   name: string,
   lineId: string,
-  phone: string,
-  resourceClient?: AdvancedIMessage
-): RemoteClient => ({ client: remote(name), lineId, phone, resourceClient });
+  phone: string
+): RemoteClient => ({ client: remote(name), lineId, phone });
 
 describe("iMessage HTTP client routing", () => {
   it("recognizes only the single shared middleware client as shared mode", () => {
@@ -120,67 +114,6 @@ describe("iMessage HTTP client routing", () => {
     const entry = dedicated("line", "line-1", "+15550100");
 
     expect(clientEntryForRoute([entry], { phone: entry.phone })).toBe(entry);
-  });
-
-  it("routes native resources through the line-scoped client", () => {
-    const entry = dedicated("line", "line-1", "+15550100");
-    const route = { phone: entry.phone };
-
-    expect(clientForMessageResource([entry], route, "native-message")).toBe(
-      entry.client
-    );
-    expect(
-      clientForAttachmentResource([entry], route, "native-attachment")
-    ).toBe(entry.client);
-    expect(
-      clientForMiniAppSession([entry], route, {
-        messageGuid: "native-message",
-        targetMessageGuid: "native-target",
-      })
-    ).toBe(entry.client);
-  });
-
-  it("recognizes virtual parent, child, and attachment resources", () => {
-    expect(isVirtualMessageResource("spc-msg-parent")).toBe(true);
-    expect(isVirtualMessageResource("p:2/spc-msg-parent")).toBe(true);
-    expect(isVirtualMessageResource("spc-msg-")).toBe(false);
-    expect(isVirtualMessageResource("native-message")).toBe(false);
-    expect(isVirtualAttachmentResource("spc-att-file")).toBe(true);
-    expect(isVirtualAttachmentResource("spc-att-")).toBe(false);
-    expect(isVirtualAttachmentResource("native-attachment")).toBe(false);
-  });
-
-  it("routes historical dedicated virtual resources through the project proxy", () => {
-    const proxy = remote("proxy");
-    const entry = dedicated("line", "line-1", "+15550100", proxy);
-    const route = { lineId: entry.lineId, phone: entry.phone };
-
-    expect(clientForMessageResource([entry], route, "p:2/spc-msg-parent")).toBe(
-      proxy
-    );
-    expect(clientForAttachmentResource([entry], route, "spc-att-file")).toBe(
-      proxy
-    );
-    expect(
-      clientForMiniAppSession([entry], route, {
-        messageGuid: "spc-msg-card",
-        targetMessageGuid: "native-target",
-      })
-    ).toBe(proxy);
-  });
-
-  it("fails closed when a dedicated virtual resource has no project proxy", () => {
-    const entry = dedicated("line", "line-1", "+15550100");
-
-    expect(() =>
-      clientForMessageResource(
-        [entry],
-        { lineId: entry.lineId, phone: entry.phone },
-        "spc-msg-parent"
-      )
-    ).toThrow(
-      "Cannot access virtual iMessage resource spc-msg-parent: no Spectrum resource proxy is configured"
-    );
   });
 
   it("chooses a configured dedicated phone", () => {

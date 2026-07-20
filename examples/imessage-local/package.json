@@ -1,0 +1,13 @@
+{
+  "name": "@spectrum-ts/example-imessage-local",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@spectrum-ts/imessage-local": "workspace:*",
+    "spectrum-ts": "workspace:*"
+  }
+}

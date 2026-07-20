@@ -719,6 +719,12 @@ export const messages = (
   clients: WhatsAppClients
 ): ManagedStream<WhatsAppMessage> => mergeStreams(clients.map(clientStream));
 
+// Outbound-only direct mode has no appSecret, so an inbound subscribe could
+// never authenticate — surface an immediately-completed stream instead of
+// opening a subscription that would only error. Send-only, by design.
+export const noMessages = (): ManagedStream<WhatsAppMessage> =>
+  mergeStreams([]);
+
 // Meta caps media captions at 1024 characters (image/video/document docs).
 const MAX_CAPTION_LENGTH = 1024;
 

@@ -1,10 +1,11 @@
 import { createClient } from "@photon-ai/whatsapp-business";
 import { definePlatform, UnsupportedError } from "@spectrum-ts/core";
 import { createCloudClients, disposeCloudAuth } from "./auth";
-import { messages, send } from "./messages";
+import { messages, noMessages, send } from "./messages";
 import {
   configSchema,
   isCloudConfig,
+  isOutboundOnly,
   spaceSchema,
   type WhatsAppClients,
 } from "./types";
@@ -35,7 +36,10 @@ export const whatsappBusiness = definePlatform(PLATFORM_ID, {
         return [
           createClient({
             accessToken: config.accessToken,
-            appSecret: config.appSecret ?? "",
+            // Only inbound mode carries an appSecret (its type guarantees it);
+            // outbound-only sends never verify inbound signatures, so "" is
+            // fine — it never opens a subscribe (see `messages` below).
+            appSecret: config.mode === "inbound" ? config.appSecret : "",
             phoneNumberId: config.phoneNumberId,
           }),
         ];
@@ -45,7 +49,8 @@ export const whatsappBusiness = definePlatform(PLATFORM_ID, {
         throw new Error(
           "WhatsApp Business cloud mode requires projectId and projectSecret. " +
             "Either pass credentials to Spectrum(), or provide direct credentials: " +
-            "whatsappBusiness.config({ accessToken, phoneNumberId })"
+            "whatsappBusiness.config({ mode: 'inbound', accessToken, phoneNumberId, appSecret }) " +
+            "(or mode: 'outbound-only' for send-only)."
         );
       }
 
@@ -87,7 +92,10 @@ export const whatsappBusiness = definePlatform(PLATFORM_ID, {
     },
   },
 
-  messages: ({ client }) => messages(client),
+  // Outbound-only direct mode has no appSecret to authenticate a subscribe, so
+  // it produces no inbound messages; every other mode streams live events.
+  messages: ({ client, config }) =>
+    isOutboundOnly(config) ? noMessages() : messages(client),
 
   send: async ({ space, content, client }) =>
     await send(client, space.id, content),

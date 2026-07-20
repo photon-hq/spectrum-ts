@@ -508,16 +508,16 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
-        return entries.map((e) => ({
-          phone: e.phone,
+        return entries.map((configuredClient) => ({
+          phone: configuredClient.phone,
           client: createHttpClient({
-            address: e.address,
+            address: configuredClient.address,
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.
             autoIdempotency: true,
             retry: true,
-            token: e.token,
+            token: configuredClient.token,
           }),
         }));
       }

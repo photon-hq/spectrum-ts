@@ -1,7 +1,7 @@
 import {
   type AdvancedIMessage,
   NotFoundError,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { Avatar, AvatarData } from "@spectrum-ts/core";
 import { toChatGuid } from "./ids";
 

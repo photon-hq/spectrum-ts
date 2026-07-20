@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { describe, expect, it } from "vitest";
 import { imessage } from "@/index";
 import type { RemoteClient } from "@/types";
@@ -6,6 +6,7 @@ import { SHARED_PHONE } from "@/types";
 
 const SHARED_GROUP_ERROR = /shared mode cannot create group chats/;
 const MULTI_CLIENT_ERROR = /params\.phone.*\+15550100, \+15550111/;
+const LINE_ID = "11111111-1111-4111-8111-111111111111";
 
 const def = imessage.config({}).__definition;
 
@@ -124,6 +125,31 @@ describe("imessage space.create", () => {
       phone: "+15550111",
     });
   });
+
+  it("dedicated cloud mode: keeps the stable line id on the created space", async () => {
+    const client: RemoteClient[] = [
+      {
+        client: fakeRemote(() => ({
+          guid: "any;-;+15550123",
+          isGroup: false,
+        })),
+        lineId: LINE_ID,
+        phone: "+15550100",
+      },
+    ];
+    await expect(
+      def.space.create({
+        ...ctx,
+        client,
+        input: { users: [{ id: "+15550123" }] },
+      })
+    ).resolves.toEqual({
+      id: "any;-;+15550123",
+      lineId: LINE_ID,
+      type: "dm",
+      phone: "+15550100",
+    });
+  });
 });
 
 describe("imessage space.get", () => {
@@ -161,6 +187,28 @@ describe("imessage space.get", () => {
       id: "any;-;a@x.com",
       type: "dm",
       phone: "+15550111",
+    });
+  });
+
+  it("dedicated cloud mode: resolves the line id from the selected phone", async () => {
+    const client: RemoteClient[] = [
+      {
+        client: fakeRemote(),
+        lineId: LINE_ID,
+        phone: "+15550100",
+      },
+    ];
+    await expect(
+      def.space.get?.({
+        ...ctx,
+        client,
+        input: { id: "any;-;+15550123" },
+      })
+    ).resolves.toEqual({
+      id: "any;-;+15550123",
+      lineId: LINE_ID,
+      type: "dm",
+      phone: "+15550100",
     });
   });
 

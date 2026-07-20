@@ -1,8 +1,8 @@
 import {
   type AdvancedIMessage,
-  createGrpcClient,
+  createHttpClient,
   type MiniAppCardSession,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { withSpan } from "@photon-ai/otel";
 import {
   type AddMember,
@@ -17,6 +17,7 @@ import {
   type Rename,
   type Space,
   type StreamText,
+  stream,
   type Unsend,
   UnsupportedError,
 } from "@spectrum-ts/core";
@@ -64,7 +65,6 @@ import {
   leaveGroup as remoteLeaveGroup,
   listParticipants as remoteListParticipants,
   markRead as remoteMarkRead,
-  messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
   removeParticipants as remoteRemoveParticipants,
   replyToMessage as remoteReplyToMessage,
@@ -85,11 +85,13 @@ import { toSpectrumMiniApp } from "./remote/app";
 import { getRemoteAttachment } from "./remote/attachments";
 import {
   availablePhones,
+  clientEntryForPhone,
   clientForAttachmentResource,
   clientForMessageResource,
   clientForMiniAppSession,
-  clientForPhone,
+  clientForRoute,
   isSharedMode,
+  lineIdForPhone,
   randomPhone,
 } from "./remote/client";
 import {
@@ -112,9 +114,19 @@ import {
 const isPollContent = (content: { type: string }): boolean =>
   content.type === "poll" || content.type === "poll_option";
 
+interface ImessageSpaceRoute {
+  id: string;
+  lineId?: string;
+  phone: string;
+}
+
+type TypedImessageSpaceRoute = ImessageSpaceRoute & {
+  type: "dm" | "group";
+};
+
 const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
   remote: AdvancedIMessage,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   record: T
 ): T => {
   if (!record) {
@@ -126,6 +138,7 @@ const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
     space: {
       ...record.space,
       id: record.space.id,
+      ...(space.lineId ? { lineId: space.lineId } : {}),
       phone: space.phone,
       type: space.type,
     },
@@ -135,7 +148,7 @@ const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
 
 const handleEdit = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: Edit
 ): Promise<void> => {
   const miniAppCardSession = (
@@ -163,11 +176,7 @@ const handleEdit = async (
     }
     const url = await content.content.url();
     const layout = await content.content.layout();
-    const remote = clientForMiniAppSession(
-      client,
-      space.phone,
-      miniAppCardSession
-    );
+    const remote = clientForMiniAppSession(client, space, miniAppCardSession);
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -189,11 +198,7 @@ const handleEdit = async (
         "customized mini app card edits require a miniAppCardSession from the original send"
       );
     }
-    const remote = clientForMiniAppSession(
-      client,
-      space.phone,
-      miniAppCardSession
-    );
+    const remote = clientForMiniAppSession(client, space, miniAppCardSession);
     const record = cacheRemoteOutbound(
       remote,
       space,
@@ -216,17 +221,13 @@ const handleEdit = async (
       `only text content can be edited (got "${content.content.type}")`
     );
   }
-  const remote = clientForMessageResource(
-    client,
-    space.phone,
-    content.target.id
-  );
+  const remote = clientForMessageResource(client, space, content.target.id);
   await remoteEditMessage(remote, space.id, content.target.id, content.content);
 };
 
 const handleUnsend = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   content: Unsend
 ): Promise<void> => {
   if (isPollContent(content.target.content)) {
@@ -246,7 +247,7 @@ const handleUnsend = async (
     const reactionTarget = targetContent.target as unknown as IMessageMessage;
     const remote = clientForMessageResource(
       client,
-      space.phone,
+      space,
       reactionTarget.parentId ?? reactionTarget.id
     );
     await remoteUnsendReaction(
@@ -257,20 +258,16 @@ const handleUnsend = async (
     );
     return;
   }
-  const remote = clientForMessageResource(
-    client,
-    space.phone,
-    content.target.id
-  );
+  const remote = clientForMessageResource(client, space, content.target.id);
   await remoteUnsendMessage(remote, space.id, content.target.id);
 };
 
 const handleStreamText = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   return cacheRemoteOutbound(
     remote,
     space,
@@ -280,19 +277,19 @@ const handleStreamText = async (
 
 const handleBackground = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   content: Background
 ): Promise<void> => {
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   await remoteSetBackground(remote, space.id, content);
 };
 
 const handleCustomizedMiniApp = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> => {
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   return cacheRemoteOutbound(
     remote,
     space,
@@ -307,12 +304,12 @@ const handleCustomizedMiniApp = async (
  */
 const handleApp = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: App
 ): Promise<ProviderMessageRecord> => {
   const url = await content.url();
   const layout = await content.layout();
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   return cacheRemoteOutbound(
     remote,
     space,
@@ -326,26 +323,26 @@ const handleApp = async (
 
 const handleRead = async (
   client: IMessageClient,
-  space: { id: string; phone: string }
+  space: ImessageSpaceRoute
 ): Promise<void> => {
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   await remoteMarkRead(remote, space.id);
 };
 
 const handleShareContactCard = async (
   client: IMessageClient,
-  space: { id: string; phone: string }
+  space: ImessageSpaceRoute
 ): Promise<void> => {
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   await remoteShareContactCard(remote, space.id);
 };
 
 const handleTyping = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   state: "start" | "stop"
 ): Promise<void> => {
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   if (state === "start") {
     await remoteStartTyping(remote, space.id);
   } else {
@@ -355,7 +352,7 @@ const handleTyping = async (
 
 const handleRename = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: Rename
 ): Promise<void> => {
   if (space.type !== "group") {
@@ -365,13 +362,13 @@ const handleRename = async (
       "only group chats can be renamed (this space is a DM)"
     );
   }
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   await remoteSetDisplayName(remote, space.id, content);
 };
 
 const handleAvatar = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: Avatar
 ): Promise<void> => {
   if (space.type !== "group") {
@@ -381,7 +378,7 @@ const handleAvatar = async (
       "only group chats have avatars (this space is a DM)"
     );
   }
-  const remote = clientForPhone(client, space.phone);
+  const remote = clientForRoute(client, space);
   await remoteSetIcon(remote, space.id, content);
 };
 
@@ -392,19 +389,19 @@ const handleAvatar = async (
  */
 const remoteGroupClient = (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   action: string,
   detail: string
 ): AdvancedIMessage => {
   if (space.type !== "group") {
     throw UnsupportedError.action(action, IMESSAGE_PLATFORM, detail);
   }
-  return clientForPhone(client, space.phone);
+  return clientForRoute(client, space);
 };
 
 const handleAddMember = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: AddMember
 ): Promise<void> => {
   const remote = remoteGroupClient(
@@ -418,7 +415,7 @@ const handleAddMember = async (
 
 const handleRemoveMember = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: RemoveMember
 ): Promise<void> => {
   const remote = remoteGroupClient(
@@ -432,7 +429,7 @@ const handleRemoveMember = async (
 
 const handleLeaveSpace = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" }
+  space: TypedImessageSpaceRoute
 ): Promise<void> => {
   const remote = remoteGroupClient(
     client,
@@ -452,7 +449,7 @@ const handleLeaveSpace = async (
  */
 const handleProviderControlSignal = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   content: Content
 ): Promise<boolean> => {
   if (isBackground(content)) {
@@ -473,7 +470,7 @@ const handleProviderControlSignal = async (
  */
 const remoteForMessageTarget = (
   client: IMessageClient,
-  space: { phone: string },
+  space: Pick<ImessageSpaceRoute, "lineId" | "phone">,
   target: { content: { type: string }; id: string; parentId?: string },
   action: string,
   pollNoun: string
@@ -485,11 +482,7 @@ const remoteForMessageTarget = (
       `iMessage polls do not support ${pollNoun}`
     );
   }
-  return clientForMessageResource(
-    client,
-    space.phone,
-    target.parentId ?? target.id
-  );
+  return clientForMessageResource(client, space, target.parentId ?? target.id);
 };
 
 export const imessage = definePlatform(IMESSAGE_PLATFORM, {
@@ -524,14 +517,13 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           : [config.clients];
         return entries.map((e) => ({
           phone: e.phone,
-          client: createGrpcClient({
+          client: createHttpClient({
             address: e.address,
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.
             autoIdempotency: true,
             retry: true,
-            tls: true,
             token: e.token,
           }),
         }));
@@ -599,10 +591,11 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
       // Dedicated mode: DMs and groups both go through the create API so the
       // server-issued guid is authoritative.
       const phone = input.params?.phone ?? randomPhone(client);
-      const remote = clientForPhone(client, phone);
-      const { chat } = await remote.chats.create(addresses);
+      const selected = clientEntryForPhone(client, phone);
+      const { chat } = await selected.client.chats.create(addresses);
       return {
         id: chat.guid,
+        ...(selected.lineId ? { lineId: selected.lineId } : {}),
         type: chat.isGroup ? ("group" as const) : ("dm" as const),
         phone,
       };
@@ -623,8 +616,10 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           `iMessage space.get requires params.phone when multiple clients are configured. Available: ${availablePhones(client).join(", ")}`
         );
       }
+      const lineId = lineIdForPhone(client, phone);
       return {
         id: input.id,
+        ...(lineId ? { lineId } : {}),
         type: chatTypeFromGuid(input.id),
         phone,
       };
@@ -653,8 +648,11 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     schema: messageSchema,
   },
 
-  messages: ({ client, config, projectConfig }) =>
-    remoteMessages(client, projectConfig, config.clients !== undefined),
+  // Remote inbound delivery is transport-owned: Fusor WebSocket for the
+  // cloud path, and the retained Spectrum webhook for webhook deployments.
+  // Keep the provider stream empty so the SDK never opens a direct gRPC
+  // connection to spectrum-imessage.
+  messages: () => stream<IMessageMessage>((_emit, end) => end()),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {
@@ -753,7 +751,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     if (isCustomizedMiniApp(content)) {
       return await handleCustomizedMiniApp(client, space, content);
     }
-    const remote = clientForPhone(client, space.phone);
+    const remote = clientForRoute(client, space);
     return cacheRemoteOutbound(
       remote,
       space,
@@ -763,8 +761,14 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
 
   actions: {
     getMessage: async ({ client }, space, messageId) => {
-      const remote = clientForMessageResource(client, space.phone, messageId);
-      return remoteGetMessage(remote, space.id, messageId, space.phone);
+      const remote = clientForMessageResource(client, space, messageId);
+      return remoteGetMessage(
+        remote,
+        space.id,
+        messageId,
+        space.phone,
+        space.lineId
+      );
     },
     // List a remote group chat's current participants. Remote + group only;
     // the agent's own number is excluded. `id` is the canonical address
@@ -803,7 +807,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     },
     // Fetch an attachment by GUID. Returns a spectrum `Attachment` whose
     // `.read()` / `.stream()` lazily download the bytes — calling both
-    // issues two independent gRPC downloads, so cache `.read()` if you
+    // issues two independent HTTP downloads, so cache `.read()` if you
     // need the bytes more than once. Returns `undefined` for unknown
     // GUIDs.
     getAttachment: async (
@@ -829,7 +833,11 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
           `imessage.getAttachment requires a phone in multi-phone mode. Available: ${availablePhones(client).join(", ")}`
         );
       })();
-      const remote = clientForAttachmentResource(client, routedPhone, guid);
+      const remote = clientForAttachmentResource(
+        client,
+        { phone: routedPhone },
+        guid
+      );
       return withSpan(
         "spectrum.imessage.getAttachment",
         {

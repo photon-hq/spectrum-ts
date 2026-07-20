@@ -191,8 +191,16 @@ export const cloud = {
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
-  getImessageInfo: (projectId: string): Promise<ImessageInfoData> =>
-    request(`/projects/${projectId}/imessage/`),
+  getImessageInfo: (
+    projectId: string,
+    projectSecret?: string
+  ): Promise<ImessageInfoData> =>
+    request(
+      `/projects/${projectId}/imessage/`,
+      projectSecret === undefined
+        ? undefined
+        : { headers: { Authorization: basicAuth(projectId, projectSecret) } }
+    ),
 
   issueWhatsappBusinessTokens: (
     projectId: string,

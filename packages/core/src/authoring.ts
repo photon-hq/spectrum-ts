@@ -57,6 +57,13 @@ export { asRichlink } from "./content/richlink";
 export { asText } from "./content/text";
 export { asUnsend } from "./content/unsend";
 export { asVoice } from "./content/voice";
+// Fusor authentication primitives used by provider-owned transports. Keeping
+// these on the authoring surface lets providers share core's renewal behavior
+// without reaching into private source paths.
+export {
+  createFusorTokenProvider,
+  type FusorTokenProvider,
+} from "./fusor/auth";
 export type {
   ProviderMessageRecord,
   ProviderUserRecord,

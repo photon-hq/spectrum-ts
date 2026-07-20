@@ -1,15 +1,15 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
 export interface RemoteClient {
   client: AdvancedIMessage;
-  /** Cloud instance routing key; absent for explicit and shared clients. */
-  instanceId?: string;
+  /** Stable Fusor route id; present only for auto-discovered dedicated lines. */
+  lineId?: string;
   phone: string;
   /**
-   * Spectrum proxy used only for project-scoped `spc-*` resources. All
-   * auto-discovered dedicated entries share the same client instance.
+   * Project-scoped Spectrum HTTP proxy used only for historical `spc-*`
+   * resources. Auto-discovered dedicated entries share one client instance.
    */
   resourceClient?: AdvancedIMessage;
 }
@@ -49,6 +49,7 @@ export const userSchema = z.object({
 
 export const spaceSchema = z.object({
   id: z.string(),
+  lineId: z.string().optional(),
   type: z.enum(["dm", "group"]),
   phone: z.string(),
 });

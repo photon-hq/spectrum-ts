@@ -2,10 +2,10 @@ import {
   type AdvancedIMessage,
   type MessageEvent,
   NotFoundError,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { describe, expect, it } from "vitest";
 import { MessageCache } from "@/cache";
-import { toInboundMessages } from "@/remote/inbound";
+import { getMessage, toInboundMessages } from "@/remote/inbound";
 
 type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 type AttachmentContent = Extract<
@@ -19,6 +19,7 @@ type GroupItem = Extract<
 
 const RECEIVED_AT = new Date(1_700_000_000_000);
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
+const DEDICATED_LINE_ID = "c9e33ebd-162a-4db0-8e32-ca891dc86e1a";
 
 const client = {
   messages: {
@@ -151,6 +152,132 @@ describe("iMessage remote toInboundMessages sender", () => {
 
   it("falls back to an empty id when the sender is absent", async () => {
     expect(await inboundSender(undefined)).toEqual({ id: "" });
+  });
+});
+
+describe("iMessage dedicated line context", () => {
+  it("adds the line id without rewriting native message or attachment ids", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [
+            attachment("native-attachment-guid", "photo.png", "image/png"),
+          ],
+          text: `caption ${ATTACHMENT_PLACEHOLDER}`,
+        }
+      ),
+      "+15550000000",
+      DEDICATED_LINE_ID
+    );
+
+    expect(message).toMatchObject({
+      id: "msg-guid",
+      space: {
+        id: "s1",
+        lineId: DEDICATED_LINE_ID,
+        phone: "+15550000000",
+      },
+    });
+    if (message?.content.type !== "group") {
+      throw new Error("expected grouped content");
+    }
+    expect(message.content.items).toHaveLength(2);
+    for (const item of message.content.items) {
+      expect(item.space).toMatchObject({ lineId: DEDICATED_LINE_ID });
+    }
+    expect(message.content.items[1]?.content).toMatchObject({
+      id: "native-attachment-guid",
+      type: "attachment",
+    });
+  });
+
+  it("keeps the line id on remotely rebuilt reply targets", async () => {
+    const remote = {
+      messages: {
+        get: async (guid: string) => ({
+          chatGuids: ["s1"],
+          content: {
+            attachments: [],
+            formatting: [],
+            mentions: [],
+            text: "target text",
+          },
+          dateCreated: RECEIVED_AT,
+          guid,
+          isFromMe: false,
+          sender: { address: "+15557654321" },
+        }),
+      },
+    } as unknown as AdvancedIMessage;
+
+    const [message] = await toInboundMessages(
+      remote,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { replyTargetGuid: "native-target-guid" }
+      ),
+      "+15550000000",
+      DEDICATED_LINE_ID
+    );
+
+    expect(message).toMatchObject({
+      id: "msg-guid",
+      space: { lineId: DEDICATED_LINE_ID },
+    });
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
+    expect(message.content.target).toMatchObject({
+      id: "native-target-guid",
+      space: { lineId: DEDICATED_LINE_ID },
+    });
+  });
+
+  it("keeps the line id when getMessage rebuilds a native message", async () => {
+    const requestedGuids: string[] = [];
+    const remote = {
+      messages: {
+        get: async (guid: string) => {
+          requestedGuids.push(guid);
+          return {
+            chatGuids: ["s1"],
+            content: {
+              attachments: [],
+              formatting: [],
+              mentions: [],
+              text: "fetched text",
+            },
+            dateCreated: RECEIVED_AT,
+            guid,
+            isFromMe: false,
+            sender: { address: "+15557654321" },
+          };
+        },
+      },
+    } as unknown as AdvancedIMessage;
+
+    const message = await getMessage(
+      remote,
+      "s1",
+      "native-message-guid",
+      "+15550000000",
+      DEDICATED_LINE_ID
+    );
+
+    expect(requestedGuids).toEqual(["native-message-guid"]);
+    expect(message).toMatchObject({
+      id: "native-message-guid",
+      space: {
+        id: "s1",
+        lineId: DEDICATED_LINE_ID,
+        phone: "+15550000000",
+      },
+    });
   });
 });
 

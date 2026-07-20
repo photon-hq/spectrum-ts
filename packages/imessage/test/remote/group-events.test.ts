@@ -3,8 +3,8 @@ import type {
   GroupChange,
   GroupEvent,
   GroupIcon,
-} from "@photon-ai/advanced-imessage/grpc";
-import { NotFoundError } from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
+import { NotFoundError } from "@photon-ai/advanced-imessage/http";
 import { describe, expect, it, vi } from "vitest";
 import { toGroupEventMessages } from "@/remote/group-events";
 

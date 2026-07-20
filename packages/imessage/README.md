@@ -19,26 +19,28 @@ const spectrum = Spectrum({
 });
 ```
 
-With Spectrum Cloud credentials, inbound received messages arrive through
-Fusor's authenticated WebSocket transport. The provider keeps its Advanced
-iMessage clients for outbound actions, reactions, polls, and group events, so
-cloud apps still maintain supplemental direct gRPC streams; received-message
-duplicates on those streams are ignored. Synthetic iMessage envelopes are
-stream-only and are never accepted through the public `spectrum.webhook()`
-path. In cloud mode Fusor is authoritative for received messages, so Fusor
-connectivity is required even while the supplemental direct streams are
-healthy. Explicit `clients` configurations remain entirely on direct gRPC
-inbound transport, so self-hosted endpoints keep their existing behavior.
+With Spectrum Cloud credentials, the provider discovers whether the project
+uses shared or dedicated iMessage lines. Inbound messages arrive through
+Fusor's authenticated WebSocket transport. The existing `spectrum-webhook`
+service can continue delivering customer webhooks by consuming that stream;
+raw Fusor envelopes are not accepted through the public `spectrum.webhook()`
+handler. The SDK no longer opens direct gRPC inbound streams.
 
-In auto-discovered dedicated mode, native chats and resources continue to use
-their dedicated server directly. Spectrum Cloud also supplies one
-project-scoped proxy token, which all of the dedicated lines share for
-virtualized `spc-msg-*` and `spc-att-*` resources delivered by Fusor. Replies,
-reactions, edits, unsends, message/attachment reads, and mini-app updates are
-routed through that proxy only when their resource id is virtual; the proxy
-resolves the owning instance and native GUID server-side. A dedicated token
-response without `proxyToken` is rejected rather than leaking a virtual GUID
-to an instance server. Shared and explicitly configured clients are unchanged.
+All outbound sends and unary, attachment, and file operations use Advanced
+iMessage HTTP clients. Dedicated projects discover their lines from the Fusor
+gateway and route each operation by its stable `lineId` and E.164 phone number.
+New dedicated chat, message, and attachment GUIDs remain native and unchanged.
+Historical `spc-*` resources from before migration are routed through the
+project-scoped Spectrum HTTP middleware, so replies and resource reads keep
+working. Shared projects retain their existing `spc-*` behavior. Explicit
+`clients` configurations also describe Advanced iMessage HTTP endpoints, but
+are outbound-only: inbound delivery requires Spectrum Cloud credentials so the
+SDK can authenticate to Fusor WebSocket.
+
+Shared HTTP middleware can be overridden with
+`SPECTRUM_IMESSAGE_HTTP_ADDRESS`; this is intentionally separate from the
+legacy gRPC-only `SPECTRUM_IMESSAGE_ADDRESS`. Dedicated gateway discovery uses
+`SPECTRUM_IMESSAGE_GATEWAY_ADDRESS`.
 
 This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
 

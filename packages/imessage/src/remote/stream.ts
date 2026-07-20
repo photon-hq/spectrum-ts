@@ -279,13 +279,27 @@ const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
     },
   });
 
+/**
+ * Tuning for the resumable inbound streams, forwarded straight to core's
+ * `resumableOrderedStream`. Sourced from `imessage.config()` so callers can
+ * size the live buffer and catch-up page without forking the provider. Only
+ * covers the transport-agnostic buffering knobs — the gRPC subscription and
+ * catch-up fetch are untouched.
+ */
+export interface InboundStreamOptions {
+  bufferLimit?: number;
+  catchUpPageSize?: number;
+}
+
 const messageStream = (
   client: AdvancedIMessage,
   phone: string,
+  streamOptions: InboundStreamOptions,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
+    ...streamOptions,
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("messages", phone),
@@ -320,9 +334,11 @@ const pollStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
   phone: string,
+  streamOptions: InboundStreamOptions,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
+    ...streamOptions,
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("polls", phone),
@@ -353,9 +369,11 @@ const pollStream = (
 const groupStream = (
   client: AdvancedIMessage,
   phone: string,
+  streamOptions: InboundStreamOptions,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
+    ...streamOptions,
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isGroupEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("groups", phone),
@@ -381,16 +399,17 @@ const clientStream = (
   pollCache: PollCache,
   phone: string,
   includeGroupEvents: boolean,
+  streamOptions: InboundStreamOptions,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
-    messageStream(client, phone, onInbound, recover),
-    pollStream(client, pollCache, phone, recover),
+    messageStream(client, phone, streamOptions, onInbound, recover),
+    pollStream(client, pollCache, phone, streamOptions, recover),
   ];
 
   if (includeGroupEvents) {
-    streams.push(groupStream(client, phone, recover));
+    streams.push(groupStream(client, phone, streamOptions, recover));
   }
 
   return mergeStreams(streams);
@@ -398,7 +417,8 @@ const clientStream = (
 
 export const messages = (
   clients: RemoteClient[],
-  projectConfig?: ProjectData | undefined
+  projectConfig?: ProjectData | undefined,
+  streamOptions: InboundStreamOptions = {}
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
   // When the project profile opts in to iMessage sync, push the bot's contact
@@ -422,6 +442,7 @@ export const messages = (
         pollCache,
         entry.phone,
         includeGroupEvents,
+        streamOptions,
         tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
         recover
       );

@@ -47,17 +47,24 @@ import {
   send as sendRemoteMessage,
   unsendMessage as unsendRemoteMessage,
 } from "./send";
-import { messages as remoteMessages } from "./stream";
+import {
+  type InboundStreamOptions,
+  messages as remoteMessages,
+} from "./stream";
 import { sendStreamText as sendRemoteStreamText } from "./stream-text";
 import {
   startTyping as startRemoteTyping,
   stopTyping as stopRemoteTyping,
 } from "./typing";
 
+export type { InboundStreamOptions } from "./stream";
+
 export const messages = (
   clients: RemoteClient[],
-  projectConfig: ProjectData | undefined
-): ManagedStream<IMessageMessage> => remoteMessages(clients, projectConfig);
+  projectConfig: ProjectData | undefined,
+  streamOptions: InboundStreamOptions = {}
+): ManagedStream<IMessageMessage> =>
+  remoteMessages(clients, projectConfig, streamOptions);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

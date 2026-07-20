@@ -24,6 +24,20 @@ const clientEntry = z.object({
 
 export const configSchema = z.strictObject({
   clients: clientEntry.or(z.array(clientEntry)).optional(),
+  /**
+   * Max number of live inbound events buffered while catching up on missed
+   * events before the resumable stream overflows (throws
+   * `LiveBufferOverflowError`). Forwarded to core's `resumableOrderedStream`;
+   * omit to use its default. Raise it for lines that burst faster than
+   * catch-up drains.
+   */
+  bufferLimit: z.number().int().positive().optional(),
+  /**
+   * Page size for each catch-up fetch of missed inbound events after a
+   * reconnect. Forwarded to core's `resumableOrderedStream`; omit to use its
+   * default.
+   */
+  catchUpPageSize: z.number().int().positive().optional(),
 });
 
 /**

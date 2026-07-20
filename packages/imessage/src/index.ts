@@ -601,8 +601,11 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     schema: messageSchema,
   },
 
-  messages: ({ client, projectConfig }) =>
-    remoteMessages(client, projectConfig),
+  messages: ({ client, config, projectConfig }) =>
+    remoteMessages(client, projectConfig, {
+      bufferLimit: config.bufferLimit,
+      catchUpPageSize: config.catchUpPageSize,
+    }),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {

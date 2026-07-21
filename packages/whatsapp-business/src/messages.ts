@@ -144,6 +144,38 @@ const getCachedReaction = (
 ): CachedReaction | undefined =>
   reactionCaches.get(client)?.get(reactionCacheKey(reactedId, from));
 
+// Meta's typing indicator is a rider on mark-as-read, which needs the wamid
+// of an inbound message — so remember the newest inbound wamid per space.
+// Bounded LRU like the reaction cache; an evicted entry only means typing
+// silently no-ops until the next inbound message arrives.
+const MAX_INBOUND_WAMID_CACHE_SIZE = 1000;
+const inboundWamidCaches = new WeakMap<WhatsAppClient, Map<string, string>>();
+
+const rememberInboundWamid = (
+  client: WhatsAppClient,
+  spaceId: string,
+  wamid: string
+): void => {
+  let cache = inboundWamidCaches.get(client);
+  if (!cache) {
+    cache = new Map<string, string>();
+    inboundWamidCaches.set(client, cache);
+  }
+  cache.delete(spaceId);
+  cache.set(spaceId, wamid);
+  if (cache.size > MAX_INBOUND_WAMID_CACHE_SIZE) {
+    const first = cache.keys().next().value;
+    if (first !== undefined) {
+      cache.delete(first);
+    }
+  }
+};
+
+const lastInboundWamid = (
+  client: WhatsAppClient,
+  spaceId: string
+): string | undefined => inboundWamidCaches.get(client)?.get(spaceId);
+
 const reactionTargetStub = (reactedId: string) => ({
   id: reactedId,
   content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
@@ -682,6 +714,9 @@ const clientStream = (
     const pump = (async () => {
       try {
         for await (const event of eventStream) {
+          // Any inbound wamid can anchor a typing indicator (see the typing
+          // branch in `send`), so record it even if mapping fails below.
+          rememberInboundWamid(client, event.message.from, event.message.id);
           // One unmappable event must not kill the live stream: a mapping
           // throw here ends the merged stream for the whole project, and
           // nothing downstream restarts it. Skip the event and keep pumping.
@@ -836,6 +871,34 @@ const toTemplateInput = (content: WhatsAppTemplate): TemplateInput => ({
     : [],
 });
 
+// Meta shows typing as a rider on mark-as-read: it must anchor to an inbound
+// wamid, auto-dismisses after 25 seconds or on the next send, and has no stop
+// API — so "stop" is a no-op and "start" is best-effort (before the first
+// inbound message there is nothing to anchor to, and a rejected wamid must
+// not turn `space.startTyping()` into a throwing call). Side effect inherited
+// from Meta: the anchoring message (and everything before it) is marked read.
+const sendTypingIndicator = async (
+  clients: WhatsAppClients,
+  spaceId: string,
+  state: "start" | "stop"
+): Promise<void> => {
+  if (state !== "start") {
+    return;
+  }
+  for (const client of clients) {
+    const wamid = lastInboundWamid(client, spaceId);
+    if (wamid !== undefined) {
+      try {
+        await client.messages.markRead(wamid, { typingIndicator: true });
+      } catch {
+        // Typing is a hint — a stale wamid or transient relay error must not
+        // surface to bot code.
+      }
+      return;
+    }
+  }
+};
+
 export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
@@ -863,9 +926,7 @@ export const send = async (
     return await reactToMessage(clients, spaceId, content);
   }
   if (content.type === "typing") {
-    // WhatsApp Business has no typing-indicator API. Silently ignore so
-    // `space.startTyping()` / `space.responding()` work portably across
-    // platforms — typing is a hint, not a critical message.
+    await sendTypingIndicator(clients, spaceId, content.state);
     return;
   }
   if (content.type === "read") {

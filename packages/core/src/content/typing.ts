@@ -9,8 +9,9 @@ import type { ContentBuilder } from "./types";
  *
  * `space.startTyping()` / `space.stopTyping()` / `space.responding()` are
  * sugar over `space.send(typing("start" | "stop"))`. Platforms that have no
- * typing-indicator API (e.g. WhatsApp Business) silently no-op so the
- * signal is best-effort everywhere.
+ * typing-indicator API (or no way to send one yet, e.g. WhatsApp Business
+ * before the first inbound message) silently no-op so the signal is
+ * best-effort everywhere.
  */
 export const typingSchema = z.object({
   type: z.literal("typing"),

@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "6f3512958eac",
+  "session_id": "9d50c22c-3d8f-4cf9-8ffc-36c6e99e2f76",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-21T03:37:03.880033Z",
+  "branch": "feat/wa-typing-indicator",
+  "checkpoints_count": 15,
+  "files_touched": [
+    "packages/core/src/content/typing.ts",
+    "packages/whatsapp-business/package.json",
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/whatsapp-business/test/typing.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "d09d5b4a1b30",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 511,
+    "cache_creation_tokens": 666778,
+    "cache_read_tokens": 16217793,
+    "output_tokens": 72211,
+    "api_call_count": 125
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-photon-cli-2026-07-21T02:46:53.639413Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "photon-cli"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "d09d5b4a1b30",
+      "timestamp": "2026-07-21T02:46:53.639413Z",
+      "native": {
+        "command": "/photon-cli"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/photon-cli",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-21T03:37:03.812486Z",
+    "agent_lines": 424,
+    "agent_removed": 35,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 424,
+    "total_lines_changed": 459,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

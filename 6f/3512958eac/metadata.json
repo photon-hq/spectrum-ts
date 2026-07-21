@@ -3,7 +3,7 @@
   "checkpoint_id": "6f3512958eac",
   "strategy": "manual-commit",
   "branch": "feat/wa-typing-indicator",
-  "checkpoints_count": 1,
+  "checkpoints_count": 16,
   "files_touched": [
     "packages/core/src/content/typing.ts",
     "packages/whatsapp-business/package.json",
@@ -17,13 +17,20 @@
       "compact_transcript": "/6f/3512958eac/0/transcript.jsonl",
       "content_hash": "/6f/3512958eac/0/content_hash.txt",
       "prompt": "/6f/3512958eac/0/prompt.txt"
+    },
+    {
+      "metadata": "/6f/3512958eac/1/metadata.json",
+      "transcript": "/6f/3512958eac/1/full.jsonl",
+      "compact_transcript": "/6f/3512958eac/1/transcript.jsonl",
+      "content_hash": "/6f/3512958eac/1/content_hash.txt",
+      "prompt": "/6f/3512958eac/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 563,
-    "cache_creation_tokens": 956761,
-    "cache_read_tokens": 23470834,
-    "output_tokens": 86086,
-    "api_call_count": 153
+    "input_tokens": 1074,
+    "cache_creation_tokens": 1623539,
+    "cache_read_tokens": 39688627,
+    "output_tokens": 158297,
+    "api_call_count": 278
   }
 }

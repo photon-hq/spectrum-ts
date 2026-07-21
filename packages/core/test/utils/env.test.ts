@@ -139,6 +139,7 @@ describe("envAwareConfig", () => {
     "SPECTRUM_TELEGRAM_BOT_TOKEN",
     "SPECTRUM_TELEGRAM_BASE_URL",
     "SPECTRUM_WHATSAPP_BUSINESS_ACCESS_TOKEN",
+    "SPECTRUM_WHATSAPP_BUSINESS_APP_SECRET",
     "SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID",
     "SPECTRUM_DEMO_TOKENS",
     "SPECTRUM_DEMO_ITEMS",
@@ -251,5 +252,37 @@ describe("envAwareConfig", () => {
     delete process.env.SPECTRUM_WHATSAPP_BUSINESS_ACCESS_TOKEN;
     delete process.env.SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID;
     expect(schema.parse({})).toEqual({});
+  });
+
+  it("preserves discriminated-union branch errors while adding env fallback", () => {
+    const appSecretRequired = "app secret required for inbound mode";
+    const schema = envAwareConfig(
+      "WhatsApp Business",
+      z.discriminatedUnion("mode", [
+        z.strictObject({
+          mode: z.literal("inbound"),
+          accessToken: z.string().min(1),
+          appSecret: z.string({ error: appSecretRequired }).min(1),
+        }),
+        z.strictObject({
+          mode: z.literal("outbound-only"),
+          accessToken: z.string().min(1),
+        }),
+        z.strictObject({ mode: z.undefined().optional() }),
+      ])
+    );
+
+    process.env.SPECTRUM_WHATSAPP_BUSINESS_ACCESS_TOKEN = "tok";
+    const result = schema.safeParse({ mode: "inbound" });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("expected inbound config without appSecret to fail");
+    }
+    expect(result.error.issues).toHaveLength(1);
+    expect(result.error.issues[0]).toMatchObject({
+      path: ["appSecret"],
+      message: appSecretRequired,
+    });
   });
 });

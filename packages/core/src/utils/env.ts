@@ -133,8 +133,9 @@ const isStrictObject = (def: ZodInternal["def"]): boolean =>
  *   The object is only reconstructed when a field actually changed, and
  *   `.strict()` is preserved so an empty strict "cloud" branch is untouched.
  * - **union**: each option is rewritten independently, so an env value only
- *   satisfies the branch that declares that field (a direct/cloud union stays
- *   correctly discriminated).
+ *   satisfies the branch that declares that field. The original schema is
+ *   cloned with those options so discriminated unions and custom errors keep
+ *   their exact behavior.
  * - anything else is returned unchanged.
  *
  * The output type is identical to the input schema's. Only omitted fields gain
@@ -157,7 +158,7 @@ const rewrite = (prefix: string, schema: z.ZodType): z.ZodType => {
 
   if (def.type === "union" && def.options) {
     const options = def.options.map((option) => rewrite(prefix, option));
-    return z.union(options as [z.ZodType, z.ZodType, ...z.ZodType[]]);
+    return schema.clone({ ...schema.def, options } as typeof schema.def);
   }
 
   return schema;

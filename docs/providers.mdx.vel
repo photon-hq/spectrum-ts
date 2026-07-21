@@ -52,6 +52,7 @@ Call each provider's `config()` method and pass the results to `providers`:
       providers: [
         imessage.config(),
         whatsappBusiness.config({
+          mode: "inbound",
           accessToken: process.env.WA_TOKEN!,
           phoneNumberId: process.env.WA_NUMBER_ID!,
           appSecret: process.env.WA_SECRET!,
@@ -78,6 +79,7 @@ Call each provider's `config()` method and pass the results to `providers`:
       providers: [
         imessage.config(),
         whatsappBusiness.config({
+          mode: "inbound",
           accessToken: process.env.WA_TOKEN!,
           phoneNumberId: process.env.WA_NUMBER_ID!,
           appSecret: process.env.WA_SECRET!,

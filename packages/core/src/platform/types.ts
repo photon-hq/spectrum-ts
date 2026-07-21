@@ -929,17 +929,28 @@ export interface SpectrumLike<
 // Platform — the callable returned by definePlatform()
 // ---------------------------------------------------------------------------
 
-// Every string-leaf config field falls back to `SPECTRUM_<PLATFORM>_<KEY>` at
-// runtime (see `envAwareConfig`), so any declared field may be omitted and
-// supplied by the environment instead. `ConfigInput` reflects that by making the
-// top-level input keys optional. The conditional distributes over unions so a
-// `direct | cloud` config input isn't collapsed to its shared keys.
-type ConfigInput<Def extends AnyPlatformDef> =
-  z.input<Def["config"]> extends infer Input
-    ? Input extends unknown
-      ? { [K in keyof Input]?: Input[K] }
-      : never
+// Config fields may be supplied by the environment, so the public input keeps
+// the existing top-level optionality. A discriminated union is the exception:
+// its discriminator selects behavior rather than carrying a credential value,
+// and `envAwareConfig` never supplies it. Preserve that key's original required
+// or optional modifier while leaving every other key backward-compatible.
+type ConfigDiscriminator<Schema extends z.ZodType> =
+  Schema extends z.ZodDiscriminatedUnion<infer _Options, infer Discriminator>
+    ? Discriminator
     : never;
+
+type ConfigBranchInput<
+  Input,
+  Discriminator extends PropertyKey,
+> = Input extends unknown
+  ? Pick<Input, Extract<keyof Input, Discriminator>> &
+      Partial<Omit<Input, Extract<keyof Input, Discriminator>>>
+  : never;
+
+type ConfigInput<Def extends AnyPlatformDef> = ConfigBranchInput<
+  z.input<Def["config"]>,
+  ConfigDiscriminator<Def["config"]>
+>;
 
 export interface Platform<Def extends AnyPlatformDef> {
   config(

@@ -4,17 +4,55 @@ sidebarTitle: "Setup"
 description: "Configure the WhatsApp Business provider with Meta credentials."
 ---
 
-Use `whatsappBusiness.config(...)` with credentials from Meta for Developers.
+Choose cloud, inbound direct, or outbound-only direct behavior explicitly. The
+direct modes use credentials from Meta for Developers; cloud mode uses the
+Spectrum project credentials passed to `Spectrum()`.
 
 ## Config
 
+### Cloud
+
+Omit `mode` and direct credentials to use Spectrum Cloud:
+
+```ts
+whatsappBusiness.config();
+```
+
+Cloud mode requires `projectId` and `projectSecret` on `Spectrum()` (or their
+`SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET` environment fallbacks).
+
+### Inbound direct
+
+Use `mode: "inbound"` to send messages and subscribe to inbound webhooks.
+`appSecret` is required because it verifies inbound webhook signatures:
+
 ```ts
 whatsappBusiness.config({
+  mode: "inbound",
   accessToken: "your-access-token",
   phoneNumberId: "your-phone-number-id",
   appSecret: "your-app-secret",
 });
 ```
+
+### Outbound-only direct
+
+Use `mode: "outbound-only"` for a send-only provider. This mode forbids
+`appSecret` and never opens an inbound subscription:
+
+```ts
+whatsappBusiness.config({
+  mode: "outbound-only",
+  accessToken: "your-access-token",
+  phoneNumberId: "your-phone-number-id",
+});
+```
+
+| Mode | Required direct credentials | Receives messages |
+|---|---|---|
+| Cloud (`mode` omitted) | None | Yes |
+| `inbound` | `accessToken`, `phoneNumberId`, `appSecret` | Yes |
+| `outbound-only` | `accessToken`, `phoneNumberId` | No |
 
 | Option | Description | Env fallback |
 |---|---|---|
@@ -22,14 +60,28 @@ whatsappBusiness.config({
 | `phoneNumberId` | The phone number ID for the business account sending messages. | `SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID` |
 | `appSecret` | App secret used to verify webhook payload signatures. | `SPECTRUM_WHATSAPP_BUSINESS_APP_SECRET` |
 
-Each option falls back to its environment variable when omitted (an explicit
-value always wins). If you set both `SPECTRUM_WHATSAPP_BUSINESS_ACCESS_TOKEN`
-and `SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID`, calling
-`whatsappBusiness.config()` with no arguments boots the provider in direct mode
-from the environment. A partial set (only one of the two) instead falls back to
-cloud mode, which uses your `projectId`/`projectSecret`.
+Credential values fall back to their environment variables when omitted, and
+an explicit value always wins. `mode` is behavioral, so it never comes from an
+environment variable; select a direct mode in code even when every credential
+comes from the environment:
+
+```ts
+// Reads accessToken, phoneNumberId, and appSecret from the env vars above.
+whatsappBusiness.config({ mode: "inbound" });
+```
+
+Calling `whatsappBusiness.config()` with no arguments always selects cloud mode,
+even when direct credential environment variables are present. Partial or
+ambiguous configs fail during startup instead of falling back to another mode.
 
 Find these values in your WhatsApp Business app settings on [Meta for Developers](https://developers.facebook.com/).
+
+<Warning>
+  Upgrading from the old flat direct config requires adding `mode: "inbound"`
+  (or `mode: "outbound-only"` for send-only use). An env-only
+  `whatsappBusiness.config()` now means cloud mode, and inbound mode no longer
+  accepts a missing or empty `appSecret`.
+</Warning>
 
 ## Example
 
@@ -40,6 +92,7 @@ import { whatsappBusiness } from "spectrum-ts/providers/whatsapp-business";
 const app = await Spectrum({
   providers: [
     whatsappBusiness.config({
+      mode: "inbound",
       accessToken: process.env.WA_TOKEN!,
       phoneNumberId: process.env.WA_NUMBER_ID!,
       appSecret: process.env.WA_SECRET!,

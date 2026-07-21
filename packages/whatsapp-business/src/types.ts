@@ -19,7 +19,9 @@ const APP_SECRET_REQUIRED =
 const inboundConfig = z.strictObject({
   mode: z.literal("inbound"),
   accessToken: z.string().min(1),
-  appSecret: z.string({ error: APP_SECRET_REQUIRED }).min(1),
+  appSecret: z
+    .string({ error: APP_SECRET_REQUIRED })
+    .min(1, { error: APP_SECRET_REQUIRED }),
   phoneNumberId: z.string().min(1),
 });
 
@@ -28,18 +30,26 @@ const inboundConfig = z.strictObject({
 const outboundOnlyConfig = z.strictObject({
   mode: z.literal("outbound-only"),
   accessToken: z.string().min(1),
+  appSecret: z.never().optional(),
   phoneNumberId: z.string().min(1),
 });
 
 // Cloud mode: no direct credentials — Spectrum Cloud issues per-line tokens.
-const cloudConfig = z.strictObject({});
+// An optional `undefined` discriminator lets Zod select this branch for `{}`
+// without adding `mode` to the parsed output.
+const cloudConfig = z.strictObject({
+  mode: z.undefined().optional(),
+  accessToken: z.never().optional(),
+  appSecret: z.never().optional(),
+  phoneNumberId: z.never().optional(),
+});
 
 // A discriminated union on `mode`: inbound requires `appSecret`, outbound-only
 // forbids it, cloud takes neither. A partial or ambiguous config — credentials
 // without a `mode`, or inbound without `appSecret` — matches no branch and
 // fails fast at parse (before any stream starts), so it can never silently
 // resolve to a broken inbound mode.
-export const configSchema = z.union([
+export const configSchema = z.discriminatedUnion("mode", [
   inboundConfig,
   outboundOnlyConfig,
   cloudConfig,
@@ -51,14 +61,14 @@ export type WhatsAppClients = WhatsAppClient[];
 // Cloud mode is the only branch without a `mode` discriminator.
 export const isCloudConfig = (
   config: WhatsAppConfig
-): config is z.infer<typeof cloudConfig> => !("mode" in config);
+): config is z.infer<typeof cloudConfig> => config.mode === undefined;
 
 // Direct outbound-only mode never opens an inbound subscribe — it has no
 // `appSecret` to authenticate one — so its message stream stays empty.
 export const isOutboundOnly = (config: WhatsAppConfig): boolean =>
   !isCloudConfig(config) && config.mode === "outbound-only";
 
-export const userSchema = z.object({});
+const userSchema = z.object({});
 
 export const spaceSchema = z.object({
   id: z.string(),

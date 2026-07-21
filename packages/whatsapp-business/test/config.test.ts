@@ -1,5 +1,14 @@
 import { envAwareConfig } from "@spectrum-ts/core/authoring";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+} from "vitest";
+import z from "zod";
+import type { whatsappBusiness } from "@/index";
 import {
   isCloudConfig,
   isOutboundOnly,
@@ -15,9 +24,31 @@ const ACCESS_TOKEN = "SPECTRUM_WHATSAPP_BUSINESS_ACCESS_TOKEN";
 const PHONE_NUMBER_ID = "SPECTRUM_WHATSAPP_BUSINESS_PHONE_NUMBER_ID";
 const APP_SECRET = "SPECTRUM_WHATSAPP_BUSINESS_APP_SECRET";
 const ENV_KEYS = [ACCESS_TOKEN, PHONE_NUMBER_ID, APP_SECRET];
+const APP_SECRET_REQUIRED =
+  "WhatsApp Business `mode: 'inbound'` requires `appSecret` (it verifies inbound webhook signatures). Provide it, or use `mode: 'outbound-only'` for send-only.";
 
 describe("whatsapp-business config", () => {
   const saved = new Map<string, string | undefined>();
+
+  it("requires a direct mode in the public config input type", () => {
+    type ConfigInput = NonNullable<
+      Parameters<typeof whatsappBusiness.config>[0]
+    >;
+    interface LegacyFlatDirect {
+      accessToken: string;
+      appSecret: string;
+      phoneNumberId: string;
+    }
+    interface OutboundWithSecret {
+      appSecret: string;
+      mode: "outbound-only";
+    }
+
+    expectTypeOf<{ mode: "inbound" }>().toMatchTypeOf<ConfigInput>();
+    expectTypeOf<{ mode: "outbound-only" }>().toMatchTypeOf<ConfigInput>();
+    expectTypeOf<LegacyFlatDirect>().not.toMatchTypeOf<ConfigInput>();
+    expectTypeOf<OutboundWithSecret>().not.toMatchTypeOf<ConfigInput>();
+  });
 
   beforeEach(() => {
     for (const key of ENV_KEYS) {
@@ -74,13 +105,40 @@ describe("whatsapp-business config", () => {
 
   describe("partial / ambiguous configs fail fast", () => {
     it("rejects inbound mode missing appSecret with a clear message", () => {
-      expect(() =>
-        configSchema.parse({
-          mode: "inbound",
-          accessToken: "t",
-          phoneNumberId: "p",
-        })
-      ).toThrow("appSecret");
+      const result = configSchema.safeParse({
+        mode: "inbound",
+        accessToken: "t",
+        phoneNumberId: "p",
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) {
+        throw new Error("expected inbound config without appSecret to fail");
+      }
+      expect(result.error.issues).toHaveLength(1);
+      expect(result.error.issues[0]).toMatchObject({
+        path: ["appSecret"],
+        message: APP_SECRET_REQUIRED,
+      });
+      expect(z.prettifyError(result.error)).toContain(APP_SECRET_REQUIRED);
+    });
+
+    it("rejects an empty inbound appSecret with the same clear message", () => {
+      const result = configSchema.safeParse({
+        mode: "inbound",
+        accessToken: "t",
+        phoneNumberId: "p",
+        appSecret: "",
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) {
+        throw new Error("expected inbound config with empty appSecret to fail");
+      }
+      expect(result.error.issues[0]).toMatchObject({
+        path: ["appSecret"],
+        message: APP_SECRET_REQUIRED,
+      });
     });
 
     it("rejects credentials with no mode instead of inferring one", () => {

@@ -19,6 +19,23 @@ const spectrum = Spectrum({
 });
 ```
 
+### Inbound stream buffering
+
+Set `bufferLimit` to a positive integer to change how many live inbound events
+can wait while a disconnected stream catches up:
+
+```ts
+imessage.config({ bufferLimit: 2_000 });
+```
+
+The limit applies separately to each message, poll, and dedicated-line group
+stream for every configured line. Omit it to use Spectrum core's default of
+`1_000` events per stream.
+
+The cloud provider's gRPC catch-up API is a finite replay stream and does not
+support page sizing. `catchUpPageSize` is therefore not an iMessage config
+option; passing it is rejected instead of silently doing nothing.
+
 This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
 
 `nativeContactCard()` shares the bot account's own contact card (Apple's "Share Name and Photo") with a chat — remote mode only:

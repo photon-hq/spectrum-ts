@@ -282,13 +282,12 @@ const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
 /**
  * Tuning for the resumable inbound streams, forwarded straight to core's
  * `resumableOrderedStream`. Sourced from `imessage.config()` so callers can
- * size the live buffer and catch-up page without forking the provider. Only
- * covers the transport-agnostic buffering knobs — the gRPC subscription and
- * catch-up fetch are untouched.
+ * size the live buffer without forking the provider. The gRPC catch-up RPC is
+ * a finite replay stream and exposes no page-size control, so the legacy
+ * `catchUpPageSize` option is intentionally not configurable here.
  */
 export interface InboundStreamOptions {
   bufferLimit?: number;
-  catchUpPageSize?: number;
 }
 
 const messageStream = (

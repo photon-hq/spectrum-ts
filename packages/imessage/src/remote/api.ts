@@ -57,8 +57,6 @@ import {
   stopTyping as stopRemoteTyping,
 } from "./typing";
 
-export type { InboundStreamOptions } from "./stream";
-
 export const messages = (
   clients: RemoteClient[],
   projectConfig: ProjectData | undefined,

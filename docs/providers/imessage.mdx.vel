@@ -68,6 +68,25 @@ imessage.config({
 Explicit tokens are not renewed by Spectrum. The application is responsible
 for replacing them before they expire.
 
+### Inbound stream buffering
+
+Set `bufferLimit` when a line can receive live events faster than reconnect
+catch-up drains them:
+
+```ts
+imessage.config({ bufferLimit: 2_000 });
+```
+
+The value must be a positive integer. It applies separately to each message,
+poll, and dedicated-line group stream for every configured line. Omit it to use
+Spectrum core's default of `1_000` buffered events per stream.
+
+<Note>
+  The cloud provider's gRPC catch-up API is a finite replay stream and does not
+  support page sizing. `catchUpPageSize` is not an iMessage config option;
+  passing it is rejected instead of silently doing nothing.
+</Note>
+
 ## Local macOS quick start
 
 Use the local provider only when the application runs on the Mac whose Messages

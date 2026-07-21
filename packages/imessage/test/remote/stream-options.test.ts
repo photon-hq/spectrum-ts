@@ -1,88 +1,124 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
-import { describe, expect, it, vi } from "vitest";
-import { messages } from "@/remote/stream";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Spy on core's resumableOrderedStream so we can assert the tuning knobs from
-// imessage.config() (bufferLimit / catchUpPageSize) reach every inbound stream
-// the provider builds. The real implementation is replaced with an idle
-// ManagedStream so mergeStreams still has something to merge.
-const resumableSpy = vi.fn<(options: { bufferLimit?: number }) => unknown>();
-
-const idleManaged = () => {
-  let closed = false;
-  let resolveNext:
-    | ((result: IteratorResult<never, undefined>) => void)
-    | undefined;
-  const close = (): Promise<void> => {
-    closed = true;
-    resolveNext?.({ done: true, value: undefined });
-    resolveNext = undefined;
-    return Promise.resolve();
+interface CapturedResumableStreamOptions {
+  bufferLimit?: number;
+  label?: string;
+  subscribeLive: (cursor?: string) => {
+    close?: () => Promise<void> | void;
   };
-  return {
-    close,
-    [Symbol.asyncIterator]() {
-      return {
-        next: (): Promise<IteratorResult<never, undefined>> =>
-          closed
-            ? Promise.resolve({ done: true, value: undefined })
-            : new Promise((resolve) => {
-                resolveNext = resolve;
-              }),
-        return: (): Promise<IteratorResult<never, undefined>> =>
-          close().then(() => ({ done: true, value: undefined })),
-      };
-    },
-  };
-};
+}
 
-vi.mock("@spectrum-ts/core/authoring", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@spectrum-ts/core/authoring")>();
+const resumableSpy = vi.fn<(options: CapturedResumableStreamOptions) => void>();
+
+const emptyManagedStream = () => ({
+  close: () => Promise.resolve(),
+  [Symbol.asyncIterator]() {
+    return {
+      next: () => Promise.resolve({ done: true as const, value: undefined }),
+    };
+  },
+});
+
+const closeClient = vi.fn(() => Promise.resolve());
+const emptyGrpcStream = () => ({
+  close: () => Promise.resolve(),
+  [Symbol.asyncIterator]() {
+    return {
+      next: () => Promise.resolve({ done: true as const, value: undefined }),
+    };
+  },
+});
+const subscribeGroupEvents = vi.fn(emptyGrpcStream);
+const subscribeMessageEvents = vi.fn(emptyGrpcStream);
+const subscribePollEvents = vi.fn(emptyGrpcStream);
+const createGrpcClient = vi.fn(() => ({
+  close: closeClient,
+  groups: { subscribeEvents: subscribeGroupEvents },
+  messages: { subscribeEvents: subscribeMessageEvents },
+  polls: { subscribeEvents: subscribePollEvents },
+}));
+
+vi.doMock("@photon-ai/advanced-imessage/grpc", async () => {
+  const actual = await vi.importActual<
+    typeof import("@photon-ai/advanced-imessage/grpc")
+  >("@photon-ai/advanced-imessage/grpc");
+  return { ...actual, createGrpcClient };
+});
+
+vi.doMock("@spectrum-ts/core/authoring", async () => {
+  const actual = await vi.importActual<
+    typeof import("@spectrum-ts/core/authoring")
+  >("@spectrum-ts/core/authoring");
   return {
     ...actual,
-    resumableOrderedStream: (options: { bufferLimit?: number }) => {
+    resumableOrderedStream: (options: CapturedResumableStreamOptions) => {
       resumableSpy(options);
-      return idleManaged();
+      return emptyManagedStream();
     },
   };
 });
 
-const remoteClient = (phone: string) => ({
-  phone,
-  client: {
-    groups: { subscribeEvents: vi.fn() },
-    messages: { subscribeEvents: vi.fn() },
-    polls: { subscribeEvents: vi.fn() },
-  } as unknown as AdvancedIMessage,
-});
+const { Spectrum } = await import("@spectrum-ts/core");
+const { imessage } = await import("@/index");
+
+const CLIENT_CONFIG = {
+  address: "line-1.imsg.photon.codes:443",
+  phone: "+15550100",
+  token: "test-token",
+};
+
+const collectStreamOptions = async (
+  config: Parameters<typeof imessage.config>[0]
+): Promise<CapturedResumableStreamOptions[]> => {
+  const app = await Spectrum({ providers: [imessage.config(config)] });
+  try {
+    const iterator = app.messages[Symbol.asyncIterator]();
+    await iterator.next();
+    return resumableSpy.mock.calls.map(([options]) => options);
+  } finally {
+    await app.stop();
+  }
+};
 
 describe("remote iMessage stream tuning", () => {
-  it("forwards bufferLimit/catchUpPageSize to every resumable stream", async () => {
+  beforeEach(() => {
+    closeClient.mockClear();
+    createGrpcClient.mockClear();
     resumableSpy.mockClear();
-
-    // Dedicated line ⇒ message + poll + group streams are all constructed.
-    const stream = messages([remoteClient("+15550100")], undefined, {
-      bufferLimit: 7,
-      catchUpPageSize: 3,
-    });
-    await stream.close();
-
-    expect(resumableSpy).toHaveBeenCalledTimes(3);
-    for (const [options] of resumableSpy.mock.calls) {
-      expect(options).toMatchObject({ bufferLimit: 7, catchUpPageSize: 3 });
-    }
+    subscribeGroupEvents.mockClear();
+    subscribeMessageEvents.mockClear();
+    subscribePollEvents.mockClear();
   });
 
-  it("omits the knobs when config leaves them unset", async () => {
-    resumableSpy.mockClear();
+  it("forwards bufferLimit from imessage.config to every gRPC stream", async () => {
+    const options = await collectStreamOptions({
+      bufferLimit: 7,
+      clients: CLIENT_CONFIG,
+    });
 
-    const stream = messages([remoteClient("+15550100")]);
-    await stream.close();
+    expect(createGrpcClient).toHaveBeenCalledOnce();
+    expect(options).toHaveLength(3);
+    expect(options.map(({ label }) => label?.split(":")[0])).toEqual([
+      "imessage.messages",
+      "imessage.polls",
+      "imessage.groups",
+    ]);
+    for (const streamOptions of options) {
+      expect(streamOptions).toMatchObject({ bufferLimit: 7 });
+      expect(streamOptions).not.toHaveProperty("catchUpPageSize");
+      await streamOptions.subscribeLive("5").close?.();
+    }
+    expect(subscribeMessageEvents).toHaveBeenCalledOnce();
+    expect(subscribePollEvents).toHaveBeenCalledOnce();
+    expect(subscribeGroupEvents).toHaveBeenCalledOnce();
+  });
 
-    expect(resumableSpy).toHaveBeenCalledTimes(3);
-    for (const [options] of resumableSpy.mock.calls) {
-      expect(options.bufferLimit).toBeUndefined();
+  it("forwards undefined when imessage.config omits bufferLimit", async () => {
+    const options = await collectStreamOptions({ clients: CLIENT_CONFIG });
+
+    expect(options).toHaveLength(3);
+    for (const streamOptions of options) {
+      expect(streamOptions.bufferLimit).toBeUndefined();
     }
   });
 });

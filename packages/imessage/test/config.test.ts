@@ -10,15 +10,19 @@ describe("iMessage cloud config", () => {
     expect(() => configSchema.parse({ local: true })).toThrow();
   });
 
-  it("accepts resumable-stream tuning knobs", () => {
-    expect(
-      configSchema.parse({ bufferLimit: 500, catchUpPageSize: 50 })
-    ).toEqual({ bufferLimit: 500, catchUpPageSize: 50 });
+  it("accepts the resumable-stream buffer limit", () => {
+    expect(configSchema.parse({ bufferLimit: 500 })).toEqual({
+      bufferLimit: 500,
+    });
   });
 
-  it("rejects non-positive or non-integer tuning values", () => {
+  it("rejects catch-up page sizing unsupported by the gRPC transport", () => {
+    expect(() => configSchema.parse({ catchUpPageSize: 50 })).toThrow();
+  });
+
+  it("rejects non-positive or non-integer buffer limits", () => {
     expect(() => configSchema.parse({ bufferLimit: 0 })).toThrow();
-    expect(() => configSchema.parse({ catchUpPageSize: -1 })).toThrow();
+    expect(() => configSchema.parse({ bufferLimit: -1 })).toThrow();
     expect(() => configSchema.parse({ bufferLimit: 1.5 })).toThrow();
   });
 });

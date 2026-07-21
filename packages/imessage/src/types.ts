@@ -32,12 +32,6 @@ export const configSchema = z.strictObject({
    * catch-up drains.
    */
   bufferLimit: z.number().int().positive().optional(),
-  /**
-   * Page size for each catch-up fetch of missed inbound events after a
-   * reconnect. Forwarded to core's `resumableOrderedStream`; omit to use its
-   * default.
-   */
-  catchUpPageSize: z.number().int().positive().optional(),
 });
 
 /**

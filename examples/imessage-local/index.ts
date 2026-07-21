@@ -26,10 +26,11 @@ for await (const [space, message] of app.messages) {
 
   const incoming = message.content.text;
 
-  // Local mode supports plain sends but not tapbacks or threaded replies
-  // (`message.react` / `message.reply` throw UnsupportedError here — those
-  // need cloud iMessage), and it has no typing API, so `space.responding`
-  // runs the callback without a typing bubble. Reply with a fresh send.
+  // Local mode supports plain sends but not tapbacks or threaded replies.
+  // Spectrum warns and skips `message.react` / `message.reply` here, resolving
+  // them with `undefined`. Local mode also has no typing API, so
+  // `space.responding` runs the callback without a typing bubble. Reply with a
+  // fresh send.
   const answer = await space.responding(async () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     return `echo: ${incoming}`;

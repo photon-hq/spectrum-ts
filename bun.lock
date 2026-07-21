@@ -24,6 +24,25 @@
         "spectrum-ts": "workspace:*",
       },
     },
+    "examples/imessage-cloud": {
+      "name": "@spectrum-ts/example-imessage-cloud",
+      "dependencies": {
+        "spectrum-ts": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
+    "examples/imessage-local": {
+      "name": "@spectrum-ts/example-imessage-local",
+      "dependencies": {
+        "@spectrum-ts/imessage-local": "workspace:*",
+        "spectrum-ts": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5 || ^6.0.0",
+      },
+    },
     "packages/core": {
       "name": "@spectrum-ts/core",
       "version": "12.2.0",
@@ -194,12 +213,12 @@
       "name": "spectrum-ts",
       "version": "12.2.0",
       "dependencies": {
-        "@spectrum-ts/core": "8.2.1",
-        "@spectrum-ts/imessage": "8.2.1",
-        "@spectrum-ts/slack": "8.2.1",
-        "@spectrum-ts/telegram": "8.2.1",
-        "@spectrum-ts/terminal": "8.2.1",
-        "@spectrum-ts/whatsapp-business": "8.2.1",
+        "@spectrum-ts/core": "12.2.0",
+        "@spectrum-ts/imessage": "12.2.0",
+        "@spectrum-ts/slack": "12.2.0",
+        "@spectrum-ts/telegram": "12.2.0",
+        "@spectrum-ts/terminal": "12.2.0",
+        "@spectrum-ts/whatsapp-business": "12.2.0",
       },
       "devDependencies": {
         "@spectrum-ts/test-support": "workspace:*",
@@ -540,6 +559,10 @@
     "@spectrum-ts/elysia": ["@spectrum-ts/elysia@workspace:packages/elysia"],
 
     "@spectrum-ts/example-basic": ["@spectrum-ts/example-basic@workspace:examples/basic"],
+
+    "@spectrum-ts/example-imessage-cloud": ["@spectrum-ts/example-imessage-cloud@workspace:examples/imessage-cloud"],
+
+    "@spectrum-ts/example-imessage-local": ["@spectrum-ts/example-imessage-local@workspace:examples/imessage-local"],
 
     "@spectrum-ts/express": ["@spectrum-ts/express@workspace:packages/express"],
 

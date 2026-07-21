@@ -8,5 +8,8 @@
   },
   "dependencies": {
     "spectrum-ts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5 || ^6.0.0"
   }
 }

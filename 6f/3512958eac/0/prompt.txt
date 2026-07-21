@@ -1,0 +1,5 @@
+YO ok i am back to the project at hand, can we /compact this and only do it without like the whle debugging for the signoz shit, i need to get back on track
+
+---
+
+ok the backend should be published to 0.4.0 now and the sdk i think is already published LMFAO

@@ -1,0 +1,84 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "6f3512958eac",
+  "session_id": "5ec1d776-1b25-407d-9216-84d308cb0ad1",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-21T03:37:03.388735Z",
+  "branch": "feat/wa-typing-indicator",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/core/src/content/typing.ts",
+    "packages/whatsapp-business/package.json",
+    "packages/whatsapp-business/test/typing.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "2e16333c0ac4",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 563,
+    "cache_creation_tokens": 956761,
+    "cache_read_tokens": 23470834,
+    "output_tokens": 86086,
+    "api_call_count": 153
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01DXik2Vx7LNQftbzrKRjRpD",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "i-have-adhd:i-have-adhd"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2e16333c0ac4",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 590,
+        "end": 591,
+        "entry_ids": [
+          "d3ec0a95-4a13-445c-9acb-e71b62e17fe1"
+        ],
+        "tool_use_id": "toolu_01DXik2Vx7LNQftbzrKRjRpD"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DXik2Vx7LNQftbzrKRjRpD"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: i-have-adhd:i-have-adhd",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-21T03:37:03.3155Z",
+    "agent_lines": 424,
+    "agent_removed": 35,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 424,
+    "total_lines_changed": 459,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

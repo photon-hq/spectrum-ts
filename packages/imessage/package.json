@@ -47,7 +47,7 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.14.4",
     "@photon-ai/advanced-imessage": "^2.0.2",
-    "@photon-ai/otel": "^3.1.0",
+    "@photon-ai/otel": "^3.3.0",
     "lru-cache": "^11.0.0",
     "marked": "^18.0.5",
     "nice-grpc": "^2.1.16",

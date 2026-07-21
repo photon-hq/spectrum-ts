@@ -175,7 +175,7 @@ Messages from every provider merge into the single `app.messages` stream. The `m
 
 ## Logging
 
-Spectrum emits structured logs across the core runtime and providers. Control the verbosity with `logLevel`:
+Spectrum emits structured logs across the core runtime and providers. The default log level is `info`. Control the verbosity with `logLevel`:
 
 ```ts
 const app = await Spectrum({
@@ -185,6 +185,8 @@ const app = await Spectrum({
   options: { logLevel: "debug" },
 });
 ```
+
+An explicit `logLevel` takes precedence over the `LOG_LEVEL` environment variable.
 
 Log output is sanitized — sensitive fields like tokens and secrets are redacted from error attributes before they reach any log destination.
 

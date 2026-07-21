@@ -153,10 +153,10 @@ export interface SpectrumOptions {
 
   /**
    * Minimum severity emitted by the SDK's structured logger (to both the
-   * console and, when telemetry is on, OTLP). Applies process-wide. The
-   * `LOG_LEVEL` environment variable still takes precedence.
+   * console and, when telemetry is on, OTLP). Applies process-wide and takes
+   * precedence over the `LOG_LEVEL` environment variable when provided.
    *
-   * @default "debug" in development, "info" otherwise (via `DEPLOYMENT_ENV`)
+   * @default "info"
    */
   logLevel?: LogLevel;
 }
@@ -303,8 +303,8 @@ export async function Spectrum<
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
   // Honor an explicit log-level override before anything logs. Applies even
-  // when telemetry is off (the console logger respects it too); the LOG_LEVEL
-  // env var still wins inside @photon-ai/otel.
+  // when telemetry is off (the console logger respects it too) and takes
+  // precedence over LOG_LEVEL inside @photon-ai/otel.
   applyLogLevel(runtimeOptions?.logLevel);
   // The per-webhook signing secret for native Spectrum webhooks. Explicit option
   // wins; otherwise fall back to the env var so deployments can inject it.

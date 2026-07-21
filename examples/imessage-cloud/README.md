@@ -36,3 +36,14 @@ await Spectrum({
 To run against the Messages app and `chat.db` on your own Mac instead of the
 cloud (no project needed), see the sibling [`imessage-local`](../imessage-local)
 example, which uses `@spectrum-ts/imessage-local`.
+
+## Production use
+
+This example deliberately handles one message at a time so the provider APIs
+stay easy to see. It catches failures per message to keep the listener alive,
+but a production agent should move work into per-space queues and add
+debouncing, cancellation, idempotency, and durable recovery. See Photon's
+[architecture](https://photon.codes/docs/best-practices/architecture),
+[inbound pipeline](https://photon.codes/docs/best-practices/inbound-pipeline),
+and [recovery and state](https://photon.codes/docs/best-practices/recovery-and-state)
+guides.

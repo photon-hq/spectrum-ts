@@ -24,17 +24,22 @@ for await (const [space, message] of app.messages) {
     continue;
   }
 
-  const incoming = message.content.text;
+  try {
+    const incoming = message.content.text;
 
-  // Local mode supports plain sends but not tapbacks or threaded replies.
-  // Spectrum warns and skips `message.react` / `message.reply` here, resolving
-  // them with `undefined`. Local mode also has no typing API, so
-  // `space.responding` runs the callback without a typing bubble. Reply with a
-  // fresh send.
-  const answer = await space.responding(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    return `echo: ${incoming}`;
-  });
+    // Local mode supports plain sends but not tapbacks or threaded replies.
+    // Spectrum warns and skips `message.react` / `message.reply` here,
+    // resolving them with `undefined`. Local mode also has no typing API, so
+    // `space.responding` runs the callback without a typing bubble. Reply with
+    // a fresh send.
+    const answer = await space.responding(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return `echo: ${incoming}`;
+    });
 
-  await space.send(text(answer));
+    await space.send(text(answer));
+  } catch (error) {
+    // Keep listening if one handler or send fails.
+    console.error("Failed to handle incoming iMessage:", error);
+  }
 }

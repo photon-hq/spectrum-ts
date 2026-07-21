@@ -25,21 +25,26 @@ for await (const [space, message] of app.messages) {
     continue;
   }
 
-  const incoming = message.content.text;
+  try {
+    const incoming = message.content.text;
 
-  // Acknowledge with a tapback. `message.react` resolves to the reaction
-  // Message — keep it if you want to `unsend()` the tapback later.
-  await message.react("👀");
+    // Acknowledge with a tapback. `message.react` resolves to the reaction
+    // Message — keep it if you want to `unsend()` the tapback later.
+    await message.react("👀");
 
-  // Show a typing indicator for the duration of the async work. `responding`
-  // starts typing, runs the callback, and stops typing when it settles — so
-  // the bubble is visible while a real agent/LLM call is in flight.
-  const answer = await space.responding(async () => {
-    // Replace this with real work; we just pause, then echo.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    return `echo: ${incoming}`;
-  });
+    // Show a typing indicator for the duration of the async work. `responding`
+    // starts typing, runs the callback, and stops typing when it settles — so
+    // the bubble is visible while a real agent/LLM call is in flight.
+    const answer = await space.responding(async () => {
+      // Replace this with real work; we just pause, then echo.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return `echo: ${incoming}`;
+    });
 
-  // `message.reply` threads the response to the incoming message.
-  await message.reply(text(answer));
+    // `message.reply` threads the response to the incoming message.
+    await message.reply(text(answer));
+  } catch (error) {
+    // Keep listening if one reaction, handler, or reply fails.
+    console.error("Failed to handle incoming iMessage:", error);
+  }
 }

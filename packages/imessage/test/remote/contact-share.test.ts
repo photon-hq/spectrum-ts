@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import {
+  type AdvancedIMessage,
+  ValidationError,
+} from "@photon-ai/advanced-imessage/grpc";
 import { flush } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -92,6 +95,26 @@ describe("ContactShareTracker", () => {
     tracker.maybeShare("chat-retry");
     await flush();
     expect(share).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps precondition failures cached instead of retrying", async () => {
+    const error = new ValidationError("profile is not ready", {
+      code: "preconditionFailed",
+      context: {},
+      grpcCode: 9,
+      retryable: false,
+    });
+    const share = vi.fn((_: string) => Promise.reject(error));
+    const tracker = new ContactShareTracker(makeClient(share));
+
+    tracker.maybeShare("chat-precondition");
+    await flush();
+    expect(share).toHaveBeenCalledTimes(1);
+
+    // The retained entry uses ContactShareTracker's normal 24-hour cache TTL.
+    tracker.maybeShare("chat-precondition");
+    await flush();
+    expect(share).toHaveBeenCalledTimes(1);
   });
 
   it("never throws synchronously even when shareContactInfo rejects", async () => {

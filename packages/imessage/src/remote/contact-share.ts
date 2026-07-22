@@ -1,4 +1,7 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import {
+  type AdvancedIMessage,
+  ErrorCode,
+} from "@photon-ai/advanced-imessage/grpc";
 import {
   createLogger,
   errorAttrs,
@@ -10,6 +13,12 @@ const log = createLogger("spectrum.imessage.contact");
 
 const SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_TRACKED_CHATS = 10_000;
+
+const isPreconditionFailure = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === ErrorCode.preconditionFailed;
 
 /**
  * Tracks which chats this bot's line has already proactively pushed its contact
@@ -38,10 +47,12 @@ export class ContactShareTracker {
 
   /**
    * Best-effort share. The cache is set eagerly so that a burst of inbound
-   * messages for the same chat coalesces to a single API call. On failure the
-   * entry is evicted so the next inbound retries — transient errors don't
-   * permanently mute the feature for a chat. Never awaits and never throws:
-   * the receive stream must not crash on share failures.
+   * messages for the same chat coalesces to a single API call. A
+   * `preconditionFailed` response remains cached for the normal 24-hour TTL,
+   * avoiding repeated attempts when the account cannot currently share its
+   * profile. Other failures evict the entry so the next inbound retries.
+   * Never awaits and never throws: the receive stream must not crash on share
+   * failures.
    */
   maybeShare(chatGuid: string): void {
     if (this.cache.has(chatGuid)) {
@@ -58,7 +69,9 @@ export class ContactShareTracker {
         });
       })
       .catch((error: unknown) => {
-        this.cache.delete(chatGuid);
+        if (!isPreconditionFailure(error)) {
+          this.cache.delete(chatGuid);
+        }
         log.warn(
           "failed to share contact card",
           {

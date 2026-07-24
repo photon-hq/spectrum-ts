@@ -10,8 +10,8 @@ import { toChatGuid } from "./ids";
  * the dispatcher reaches here.
  *
  * On-demand and unconditional: unlike the proactive `ContactShareTracker` in
- * `contact-share.ts` (24h dedupe, gated behind the `imessageSynced` profile),
- * this fires every time the caller asks.
+ * `contact-share.ts` (24h dedupe, gated by the current line's reconciled
+ * profile state), this fires every time the caller asks.
  */
 export const shareContactCard = async (
   remote: AdvancedIMessage,

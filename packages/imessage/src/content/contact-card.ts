@@ -45,9 +45,10 @@ export const isContactCard = (v: unknown): v is ContactCard =>
  * `PlatformSpace<IMessageDef>`).
  *
  * This is an explicit, on-demand share and always fires — unlike the automatic
- * best-effort share gated behind the `imessageSynced` project profile, which
- * dedupes to once per chat per 24h (see `remote/contact-share.ts`). Works in
- * both DMs and group chats; the recipient chooses whether to accept the card.
+ * best-effort share gated by the current line's reconciled profile state,
+ * which dedupes to once per chat per 24h (see `remote/contact-share.ts`).
+ * Works in both DMs and group chats; the recipient chooses whether to accept
+ * the card.
  *
  * `ContactCard` is intentionally not a member of the universal `Content`
  * union — the `as unknown as Content` cast keeps the builder shape compatible

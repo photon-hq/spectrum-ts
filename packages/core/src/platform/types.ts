@@ -154,8 +154,8 @@ export type EventProducer<
   /**
    * Spectrum Cloud project metadata, fetched once at `Spectrum()` init.
    * `undefined` when the instance was created without `projectId`/`projectSecret`
-   * (local-only setups). Providers read project-level toggles from
-   * `projectConfig.profile.<key>` — e.g. iMessage's `imessageSynced` flag.
+   * (local-only setups). Providers may read project-level settings from
+   * `projectConfig.profile.<key>`.
    */
   projectConfig: ProjectData | undefined;
   store: Store;

@@ -32,6 +32,7 @@ import {
   listParticipants as listRemoteParticipants,
   removeParticipants as removeRemoteParticipants,
 } from "./members";
+import type { ProfileSyncGate } from "./profile-sync-gate";
 import {
   reactToMessage as reactToRemoteMessage,
   unsendReaction as unsendRemoteReaction,
@@ -56,8 +57,10 @@ import {
 
 export const messages = (
   clients: RemoteClient[],
-  projectConfig: ProjectData | undefined
-): ManagedStream<IMessageMessage> => remoteMessages(clients, projectConfig);
+  projectConfig: ProjectData | undefined,
+  profileSyncGate?: ProfileSyncGate | undefined
+): ManagedStream<IMessageMessage> =>
+  remoteMessages(clients, projectConfig, profileSyncGate);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

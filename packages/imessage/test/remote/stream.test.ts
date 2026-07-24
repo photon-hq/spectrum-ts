@@ -1,6 +1,7 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import { flush, settleSoon } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
+import type { ProfileSyncGate } from "@/remote/profile-sync-gate";
 import { messages } from "@/remote/stream";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
 
@@ -36,6 +37,71 @@ const idleEventStream = () => {
     },
   };
 };
+
+const pushEventStream = <T>() => {
+  let closed = false;
+  const queued: T[] = [];
+  const waiters: ((result: IteratorResult<T, undefined>) => void)[] = [];
+
+  const close = (): Promise<void> => {
+    closed = true;
+    for (const resolve of waiters.splice(0)) {
+      resolve({ done: true, value: undefined });
+    }
+    return Promise.resolve();
+  };
+
+  const stream = {
+    close,
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<T, undefined>> {
+          const value = queued.shift();
+          if (value !== undefined) {
+            return Promise.resolve({ done: false, value });
+          }
+          if (closed) {
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          return new Promise((resolve) => {
+            waiters.push(resolve);
+          });
+        },
+        return(): Promise<IteratorResult<T, undefined>> {
+          return close().then(() => ({ done: true, value: undefined }));
+        },
+      };
+    },
+  };
+
+  return {
+    push(value: T): void {
+      const resolve = waiters.shift();
+      if (resolve) {
+        resolve({ done: false, value });
+      } else {
+        queued.push(value);
+      }
+    },
+    stream,
+  };
+};
+
+const inboundEvent = (sequence: number, chatGuid: string) => ({
+  type: "message.received",
+  sequence,
+  chatGuid,
+  isFromMe: false,
+  occurredAt: new Date(1_700_000_000_000 + sequence),
+  message: {
+    guid: `msg-${sequence}`,
+    chatGuids: [chatGuid],
+    content: { attachments: [], formatting: [], mentions: [], text: "hi" },
+    dateCreated: new Date(1_700_000_000_000 + sequence),
+    isFromMe: false,
+    sender: { address: "+15550111" },
+  },
+});
 
 const remoteClient = (phone: string) => {
   const subscribeToMessages = vi.fn(idleEventStream);
@@ -85,6 +151,93 @@ describe("remote iMessage streams", () => {
     expect(dedicated.subscribeToMessages).toHaveBeenCalledTimes(1);
     expect(dedicated.subscribeToPolls).toHaveBeenCalledTimes(1);
     expect(dedicated.subscribeToGroups).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks the dynamic gate only after the existing chat dedupe", async () => {
+    const events = pushEventStream<ReturnType<typeof inboundEvent>>();
+    const shareContactInfo = vi.fn((_: string) => Promise.resolve());
+    const gate: ProfileSyncGate = {
+      dispose: vi.fn(),
+      isEnabled: vi.fn(() => Promise.resolve(true)),
+    };
+    const entry: RemoteClient = {
+      phone: "+15550100",
+      client: {
+        chats: { shareContactInfo },
+        groups: { subscribeEvents: idleEventStream },
+        messages: { subscribeEvents: () => events.stream },
+        polls: { subscribeEvents: idleEventStream },
+      } as unknown as AdvancedIMessage,
+    };
+    const stream = messages([entry], undefined, gate);
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const firstPending = iterator.next();
+    events.push(inboundEvent(1, "chat-A"));
+    await firstPending;
+    await vi.waitFor(() => {
+      expect(shareContactInfo).toHaveBeenCalledTimes(1);
+    });
+    expect(gate.isEnabled).toHaveBeenCalledTimes(1);
+
+    const duplicatePending = iterator.next();
+    events.push(inboundEvent(2, "chat-A"));
+    await duplicatePending;
+    await flush();
+    expect(gate.isEnabled).toHaveBeenCalledTimes(1);
+    expect(shareContactInfo).toHaveBeenCalledTimes(1);
+
+    const secondChatPending = iterator.next();
+    events.push(inboundEvent(3, "chat-B"));
+    await secondChatPending;
+    await vi.waitFor(() => {
+      expect(shareContactInfo).toHaveBeenCalledTimes(2);
+    });
+    expect(gate.isEnabled).toHaveBeenCalledTimes(2);
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("does not consume the chat dedupe while the dynamic gate is false", async () => {
+    const events = pushEventStream<ReturnType<typeof inboundEvent>>();
+    const shareContactInfo = vi.fn((_: string) => Promise.resolve());
+    const isEnabled = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const gate: ProfileSyncGate = {
+      dispose: vi.fn(),
+      isEnabled,
+    };
+    const entry: RemoteClient = {
+      phone: "+15550100",
+      client: {
+        chats: { shareContactInfo },
+        groups: { subscribeEvents: idleEventStream },
+        messages: { subscribeEvents: () => events.stream },
+        polls: { subscribeEvents: idleEventStream },
+      } as unknown as AdvancedIMessage,
+    };
+    const stream = messages([entry], undefined, gate);
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const blockedPending = iterator.next();
+    events.push(inboundEvent(1, "chat-A"));
+    await blockedPending;
+    await flush();
+    expect(shareContactInfo).not.toHaveBeenCalled();
+
+    const enabledPending = iterator.next();
+    events.push(inboundEvent(2, "chat-A"));
+    await enabledPending;
+    await vi.waitFor(() => {
+      expect(shareContactInfo).toHaveBeenCalledTimes(1);
+    });
+    expect(isEnabled).toHaveBeenCalledTimes(2);
+
+    await stream.close();
+    await settleSoon(iterator.next());
   });
 
   it("skips an unmappable event instead of wedging the stream", async () => {

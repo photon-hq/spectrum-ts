@@ -91,6 +91,11 @@ import {
 import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
 import { cacheMessage } from "./remote/inbound";
 import {
+  disposeProfileSyncGate,
+  getProfileSyncGate,
+  registerProfileSyncGate,
+} from "./remote/profile-sync-gate";
+import {
   configSchema,
   type IMessageClient,
   type IMessageMessage,
@@ -470,14 +475,16 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
   lifecycle: {
     createClient: async ({
       config,
+      projectConfig,
       projectId,
       projectSecret,
     }): Promise<IMessageClient> => {
+      let clients: IMessageClient;
       if (config.clients) {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
-        return entries.map((e) => ({
+        clients = entries.map((e) => ({
           phone: e.phone,
           client: createGrpcClient({
             address: e.address,
@@ -490,18 +497,28 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
             token: e.token,
           }),
         }));
-      }
-
-      if (!(projectId && projectSecret)) {
+      } else if (projectId && projectSecret) {
+        clients = await createCloudClients(projectId, projectSecret);
+      } else {
         throw new Error(
           "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use localIMessage.config()."
         );
       }
 
-      return await createCloudClients(projectId, projectSecret);
+      if (projectId && projectSecret && projectConfig) {
+        registerProfileSyncGate(
+          clients,
+          projectId,
+          projectSecret,
+          projectConfig
+        );
+      }
+
+      return clients;
     },
 
     destroyClient: async ({ client }) => {
+      disposeProfileSyncGate(client);
       await disposeCloudAuth(client);
       await Promise.all(client.map((entry) => entry.client.close()));
     },
@@ -602,7 +619,7 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
   },
 
   messages: ({ client, projectConfig }) =>
-    remoteMessages(client, projectConfig),
+    remoteMessages(client, projectConfig, getProfileSyncGate(client)),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {

@@ -27,7 +27,10 @@ import {
   SHARED_PHONE,
 } from "../types";
 import { isSharedMode } from "./client";
-import { getContactShareTracker } from "./contact-share";
+import {
+  type ContactShareTracker,
+  getContactShareTracker,
+} from "./contact-share";
 import {
   groupEventActor,
   groupEventMessageId,
@@ -35,6 +38,7 @@ import {
 } from "./group-events";
 import { toInboundMessages } from "./inbound";
 import { cachePollEvent, toPollDeltaMessages } from "./polls";
+import type { ProfileSyncGate } from "./profile-sync-gate";
 import { toReactionMessages } from "./reactions";
 
 // The proxy rejects an unknown/pruned resume cursor with INVALID_ARGUMENT,
@@ -396,17 +400,57 @@ const clientStream = (
   return mergeStreams(streams);
 };
 
+const shareWhenProfileSynced = (
+  tracker: ContactShareTracker,
+  gate: ProfileSyncGate,
+  chatGuid: string
+): void => {
+  // The existing 24-hour Line + chat dedupe must run before the project-level
+  // Cloud gate. Repeat inbound messages therefore stay entirely local.
+  if (tracker.hasRecentlyShared(chatGuid)) {
+    return;
+  }
+
+  gate
+    .isEnabled()
+    .then((enabled) => {
+      if (enabled) {
+        // Multiple messages may have awaited the same coalesced gate refresh.
+        // maybeShare sets its cache synchronously, so only the first continues
+        // to the RPC.
+        tracker.maybeShare(chatGuid);
+      }
+    })
+    .catch((error: unknown) => {
+      // ProfileSyncGate handles expected Cloud failures and returns false.
+      // Keep this boundary defensive so a faulty gate can never break inbound
+      // message processing or create an unhandled rejection.
+      streamLog.warn(
+        "profile sync gate failed; skipping automatic contact sharing",
+        errorAttrs(error),
+        error instanceof Error ? error : undefined
+      );
+    });
+};
+
+const contactShareHandler = (
+  tracker: ContactShareTracker,
+  profileSyncGate?: ProfileSyncGate | undefined
+): OnInboundMessage =>
+  profileSyncGate
+    ? (chatGuid) => shareWhenProfileSynced(tracker, profileSyncGate, chatGuid)
+    : (chatGuid) => tracker.maybeShare(chatGuid);
+
 export const messages = (
   clients: RemoteClient[],
-  projectConfig?: ProjectData | undefined
+  projectConfig?: ProjectData | undefined,
+  profileSyncGate?: ProfileSyncGate | undefined
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
-  // When the project profile opts in to iMessage sync, push the bot's contact
-  // card to any chat we receive a new message in (24h dedupe per chat per line,
-  // fire-and-forget). The tracker is keyed per `entry.client` — same shape as
-  // `getMessageCache` — so each line dedupes independently (a DM guid encodes
-  // the peer, not the line) and multi-Spectrum setups don't cross-pollute.
-  const shareEnabled = projectConfig?.profile?.imessageSynced === true;
+  // Direct callers retain the initialization-snapshot behavior. Cloud-backed
+  // Spectrum clients also provide a refreshable project-level gate, checked
+  // only after the 24h per-Line/chat tracker says a share is eligible.
+  const staticShareEnabled = projectConfig?.profile?.imessageSynced === true;
   // Cloud clients can re-mint a rejected token; explicit/static-token clients
   // return undefined (nothing to refresh). Shared across this client array's
   // streams so the message + poll loops coalesce onto one re-mint.
@@ -414,15 +458,16 @@ export const messages = (
   const includeGroupEvents = !isSharedMode(clients);
   return mergeStreams(
     clients.map((entry) => {
-      const tracker = shareEnabled
-        ? getContactShareTracker(entry.client)
-        : undefined;
+      const tracker =
+        staticShareEnabled || profileSyncGate
+          ? getContactShareTracker(entry.client)
+          : undefined;
       return clientStream(
         entry.client,
         pollCache,
         entry.phone,
         includeGroupEvents,
-        tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
+        tracker ? contactShareHandler(tracker, profileSyncGate) : undefined,
         recover
       );
     })

@@ -46,6 +46,15 @@ export class ContactShareTracker {
   }
 
   /**
+   * Whether this line has already attempted to share with the chat during the
+   * 24-hour dedupe window. Callers use this before consulting any remote gate,
+   * so repeat inbound messages stay entirely local.
+   */
+  hasRecentlyShared(chatGuid: string): boolean {
+    return this.cache.has(chatGuid);
+  }
+
+  /**
    * Best-effort share. The cache is set eagerly so that a burst of inbound
    * messages for the same chat coalesces to a single API call. A
    * `preconditionFailed` response remains cached for the normal 24-hour TTL,

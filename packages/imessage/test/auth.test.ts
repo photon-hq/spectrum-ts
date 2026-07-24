@@ -4,6 +4,7 @@ interface FakeDedicatedTokenData {
   auth: Record<string, string>;
   expiresIn: number;
   numbers: Record<string, string | null>;
+  profileSynced?: Record<string, boolean>;
   type: "dedicated";
 }
 
@@ -15,6 +16,7 @@ const initialTokenData: FakeDedicatedTokenData = {
   auth: { "instance-1": "token-1" },
   expiresIn: 3600,
   numbers: { "instance-1": "+15550000001" },
+  profileSynced: { "instance-1": false },
   type: "dedicated",
 };
 
@@ -68,6 +70,7 @@ describe("imessage cloud auth", () => {
     );
 
     const clients = await createCloudClients("project-1", "secret-1");
+    expect(clients[0]?.profileSynced).toBe(false);
     const recover = getCloudRecover(clients);
     if (!recover) {
       throw new Error("expected cloud recovery hook");
@@ -82,12 +85,14 @@ describe("imessage cloud auth", () => {
       auth: { "instance-1": "token-2" },
       expiresIn: 3600,
       numbers: { "instance-1": "+15550000002" },
+      profileSynced: { "instance-1": true },
       type: "dedicated",
     });
     await Promise.all([first, second]);
 
     expect(issueImessageTokens).toHaveBeenCalledTimes(2);
     expect(clients[0]?.phone).toBe("+15550000002");
+    expect(clients[0]?.profileSynced).toBe(true);
     expect(await clientOptions[0]?.token()).toBe("token-2");
 
     await disposeCloudAuth(clients);

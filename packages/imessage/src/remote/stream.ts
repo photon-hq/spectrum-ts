@@ -7,11 +7,7 @@ import {
   ValidationError,
 } from "@photon-ai/advanced-imessage/grpc";
 import { sanitizePhone } from "@photon-ai/otel";
-import {
-  type ManagedStream,
-  mergeStreams,
-  type ProjectData,
-} from "@spectrum-ts/core";
+import { type ManagedStream, mergeStreams } from "@spectrum-ts/core";
 import {
   type CloseableAsyncIterable,
   createLogger,
@@ -397,16 +393,9 @@ const clientStream = (
 };
 
 export const messages = (
-  clients: RemoteClient[],
-  projectConfig?: ProjectData | undefined
+  clients: RemoteClient[]
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
-  // When the project profile opts in to iMessage sync, push the bot's contact
-  // card to any chat we receive a new message in (24h dedupe per chat per line,
-  // fire-and-forget). The tracker is keyed per `entry.client` — same shape as
-  // `getMessageCache` — so each line dedupes independently (a DM guid encodes
-  // the peer, not the line) and multi-Spectrum setups don't cross-pollute.
-  const shareEnabled = projectConfig?.profile?.imessageSynced === true;
   // Cloud clients can re-mint a rejected token; explicit/static-token clients
   // return undefined (nothing to refresh). Shared across this client array's
   // streams so the message + poll loops coalesce onto one re-mint.
@@ -414,15 +403,22 @@ export const messages = (
   const includeGroupEvents = !isSharedMode(clients);
   return mergeStreams(
     clients.map((entry) => {
-      const tracker = shareEnabled
-        ? getContactShareTracker(entry.client)
-        : undefined;
+      // Gate automatic contact-card sharing on this line's reconciled profile,
+      // not the legacy project profile. Read the mutable entry on every inbound
+      // so a Cloud token renewal can enable or disable sharing without
+      // rebuilding the streams. Missing metadata (shared or explicit clients,
+      // or an older Cloud response) fails closed.
+      const tracker = getContactShareTracker(entry.client);
       return clientStream(
         entry.client,
         pollCache,
         entry.phone,
         includeGroupEvents,
-        tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
+        (chatGuid) => {
+          if (entry.profileSynced === true) {
+            tracker.maybeShare(chatGuid);
+          }
+        },
         recover
       );
     })

@@ -5,6 +5,7 @@ import z from "zod";
 export interface RemoteClient {
   client: AdvancedIMessage;
   phone: string;
+  profileSynced?: boolean;
 }
 
 export type IMessageClient = RemoteClient[];

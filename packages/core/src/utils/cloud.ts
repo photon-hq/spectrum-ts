@@ -24,6 +24,7 @@ export interface DedicatedTokenData {
   auth: Record<string, string>;
   expiresIn: number;
   numbers: Record<string, string | null>;
+  profileSynced?: Record<string, boolean>;
   type: "dedicated";
 }
 

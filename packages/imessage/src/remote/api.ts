@@ -8,7 +8,6 @@ import type {
   AvatarData,
   Content,
   ManagedStream,
-  ProjectData,
   RemoveMember,
   Rename,
   StreamText,
@@ -55,9 +54,8 @@ import {
 } from "./typing";
 
 export const messages = (
-  clients: RemoteClient[],
-  projectConfig: ProjectData | undefined
-): ManagedStream<IMessageMessage> => remoteMessages(clients, projectConfig);
+  clients: RemoteClient[]
+): ManagedStream<IMessageMessage> => remoteMessages(clients);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

@@ -37,6 +37,71 @@ const idleEventStream = () => {
   };
 };
 
+const pushEventStream = <T>() => {
+  let closed = false;
+  const queued: T[] = [];
+  const waiters: ((result: IteratorResult<T, undefined>) => void)[] = [];
+
+  const close = (): Promise<void> => {
+    closed = true;
+    for (const resolve of waiters.splice(0)) {
+      resolve({ done: true, value: undefined });
+    }
+    return Promise.resolve();
+  };
+
+  const stream = {
+    close,
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<T, undefined>> {
+          const value = queued.shift();
+          if (value !== undefined) {
+            return Promise.resolve({ done: false, value });
+          }
+          if (closed) {
+            return Promise.resolve({ done: true, value: undefined });
+          }
+          return new Promise((resolve) => {
+            waiters.push(resolve);
+          });
+        },
+        return(): Promise<IteratorResult<T, undefined>> {
+          return close().then(() => ({ done: true, value: undefined }));
+        },
+      };
+    },
+  };
+
+  return {
+    push(value: T): void {
+      const resolve = waiters.shift();
+      if (resolve) {
+        resolve({ done: false, value });
+      } else {
+        queued.push(value);
+      }
+    },
+    stream,
+  };
+};
+
+const inboundEvent = (sequence: number, chatGuid: string) => ({
+  type: "message.received",
+  sequence,
+  chatGuid,
+  isFromMe: false,
+  occurredAt: new Date(1_700_000_000_000 + sequence),
+  message: {
+    guid: `msg-${sequence}`,
+    chatGuids: [chatGuid],
+    content: { attachments: [], formatting: [], mentions: [], text: "hi" },
+    dateCreated: new Date(1_700_000_000_000 + sequence),
+    isFromMe: false,
+    sender: { address: "+15550111" },
+  },
+});
+
 const remoteClient = (phone: string) => {
   const subscribeToMessages = vi.fn(idleEventStream);
   const subscribeToPolls = vi.fn(idleEventStream);
@@ -85,6 +150,42 @@ describe("remote iMessage streams", () => {
     expect(dedicated.subscribeToMessages).toHaveBeenCalledTimes(1);
     expect(dedicated.subscribeToPolls).toHaveBeenCalledTimes(1);
     expect(dedicated.subscribeToGroups).toHaveBeenCalledTimes(1);
+  });
+
+  it("gates automatic contact sharing on the current line sync state", async () => {
+    const messageEvents = pushEventStream<ReturnType<typeof inboundEvent>>();
+    const shareContactInfo = vi.fn((_: string) => Promise.resolve());
+    const entry: RemoteClient = {
+      phone: "+15550100",
+      profileSynced: false,
+      client: {
+        chats: { shareContactInfo },
+        groups: { subscribeEvents: idleEventStream },
+        messages: { subscribeEvents: () => messageEvents.stream },
+        polls: { subscribeEvents: idleEventStream },
+      } as unknown as AdvancedIMessage,
+    };
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const firstPending = iterator.next();
+    messageEvents.push(inboundEvent(1, "chat-before-sync"));
+    const first = await firstPending;
+    expect(first.value?.id).toBe("msg-1");
+    expect(shareContactInfo).not.toHaveBeenCalled();
+
+    // Token renewal mutates the existing line entry. The already-running
+    // stream must observe that change without being recreated.
+    entry.profileSynced = true;
+    const secondPending = iterator.next();
+    messageEvents.push(inboundEvent(2, "chat-after-sync"));
+    const second = await secondPending;
+    expect(second.value?.id).toBe("msg-2");
+    expect(shareContactInfo).toHaveBeenCalledTimes(1);
+    expect(shareContactInfo).toHaveBeenCalledWith("chat-after-sync");
+
+    await stream.close();
+    await settleSoon(iterator.next());
   });
 
   it("skips an unmappable event instead of wedging the stream", async () => {

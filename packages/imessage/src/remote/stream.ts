@@ -404,21 +404,20 @@ export const messages = (
   return mergeStreams(
     clients.map((entry) => {
       // Gate automatic contact-card sharing on this line's reconciled profile,
-      // not the legacy project profile. Read the mutable entry on every inbound
-      // so a Cloud token renewal can enable or disable sharing without
-      // rebuilding the streams. Missing metadata (shared or explicit clients,
-      // or an older Cloud response) fails closed.
-      const tracker = getContactShareTracker(entry.client);
+      // not the legacy project profile. This is the snapshot captured when the
+      // SDK initialized; auth-token renewal does not change it. Missing
+      // metadata (shared or explicit clients, or an older Cloud response)
+      // fails closed.
+      const tracker =
+        entry.autoShareEnabled === true
+          ? getContactShareTracker(entry.client)
+          : undefined;
       return clientStream(
         entry.client,
         pollCache,
         entry.phone,
         includeGroupEvents,
-        (chatGuid) => {
-          if (entry.profileSynced === true) {
-            tracker.maybeShare(chatGuid);
-          }
-        },
+        tracker ? (chatGuid) => tracker.maybeShare(chatGuid) : undefined,
         recover
       );
     })

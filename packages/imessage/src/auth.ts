@@ -35,14 +35,14 @@ export async function createCloudClients(
   let lastRefreshAt = Date.now();
 
   // The instanceId stays paired with each entry in this closure so renewal
-  // can rewrite the line metadata in place without leaking instanceId onto
-  // the public RemoteClient shape. Empty in shared mode.
+  // can rewrite the phone in place without leaking instanceId onto the public
+  // RemoteClient shape. The automatic-share decision is deliberately an
+  // initialization snapshot and is not refreshed with auth tokens.
   const records: { entry: RemoteClient; instanceId: string }[] = [];
 
-  const syncLineMetadata = (data: DedicatedTokenData) => {
+  const syncPhones = (data: DedicatedTokenData) => {
     for (const { entry, instanceId } of records) {
       entry.phone = requirePhone(data, instanceId);
-      entry.profileSynced = data.profileSynced?.[instanceId] === true;
     }
   };
 
@@ -53,7 +53,7 @@ export async function createCloudClients(
       tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
       lastRefreshAt = Date.now();
       if (tokenData.type === "dedicated") {
-        syncLineMetadata(tokenData);
+        syncPhones(tokenData);
       }
     },
   });
@@ -104,7 +104,7 @@ export async function createCloudClients(
   for (const [instanceId, token] of Object.entries(dedicated.auth)) {
     const entry: RemoteClient = {
       phone: requirePhone(dedicated, instanceId),
-      profileSynced: dedicated.profileSynced?.[instanceId] === true,
+      autoShareEnabled: dedicated.profileSynced?.[instanceId] === true,
       client: createGrpcClient({
         address: `${instanceId}.imsg.photon.codes:443`,
         autoIdempotency: true,

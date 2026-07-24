@@ -70,7 +70,7 @@ describe("imessage cloud auth", () => {
     );
 
     const clients = await createCloudClients("project-1", "secret-1");
-    expect(clients[0]?.profileSynced).toBe(false);
+    expect(clients[0]?.autoShareEnabled).toBe(false);
     const recover = getCloudRecover(clients);
     if (!recover) {
       throw new Error("expected cloud recovery hook");
@@ -92,7 +92,9 @@ describe("imessage cloud auth", () => {
 
     expect(issueImessageTokens).toHaveBeenCalledTimes(2);
     expect(clients[0]?.phone).toBe("+15550000002");
-    expect(clients[0]?.profileSynced).toBe(true);
+    // Profile sync is sampled only during initialization. Token renewal must
+    // not silently change runtime sharing behavior.
+    expect(clients[0]?.autoShareEnabled).toBe(false);
     expect(await clientOptions[0]?.token()).toBe("token-2");
 
     await disposeCloudAuth(clients);

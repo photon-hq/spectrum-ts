@@ -152,40 +152,57 @@ describe("remote iMessage streams", () => {
     expect(dedicated.subscribeToGroups).toHaveBeenCalledTimes(1);
   });
 
-  it("gates automatic contact sharing on the current line sync state", async () => {
-    const messageEvents = pushEventStream<ReturnType<typeof inboundEvent>>();
-    const shareContactInfo = vi.fn((_: string) => Promise.resolve());
-    const entry: RemoteClient = {
+  it("gates automatic contact sharing on each line's initialization state", async () => {
+    const disabledEvents = pushEventStream<ReturnType<typeof inboundEvent>>();
+    const disabledShare = vi.fn((_: string) => Promise.resolve());
+    const disabledEntry: RemoteClient = {
+      autoShareEnabled: false,
       phone: "+15550100",
-      profileSynced: false,
       client: {
-        chats: { shareContactInfo },
+        chats: { shareContactInfo: disabledShare },
         groups: { subscribeEvents: idleEventStream },
-        messages: { subscribeEvents: () => messageEvents.stream },
+        messages: { subscribeEvents: () => disabledEvents.stream },
         polls: { subscribeEvents: idleEventStream },
       } as unknown as AdvancedIMessage,
     };
-    const stream = messages([entry]);
-    const iterator = stream[Symbol.asyncIterator]();
+    const disabledStream = messages([disabledEntry]);
+    const disabledIterator = disabledStream[Symbol.asyncIterator]();
 
-    const firstPending = iterator.next();
-    messageEvents.push(inboundEvent(1, "chat-before-sync"));
+    const firstPending = disabledIterator.next();
+    disabledEvents.push(inboundEvent(1, "chat-disabled"));
     const first = await firstPending;
     expect(first.value?.id).toBe("msg-1");
-    expect(shareContactInfo).not.toHaveBeenCalled();
+    expect(disabledShare).not.toHaveBeenCalled();
 
-    // Token renewal mutates the existing line entry. The already-running
-    // stream must observe that change without being recreated.
-    entry.profileSynced = true;
-    const secondPending = iterator.next();
-    messageEvents.push(inboundEvent(2, "chat-after-sync"));
+    await disabledStream.close();
+    await settleSoon(disabledIterator.next());
+
+    const enabledEvents = pushEventStream<ReturnType<typeof inboundEvent>>();
+    const enabledShare = vi.fn((_: string) => Promise.resolve());
+    const enabledEntry: RemoteClient = {
+      autoShareEnabled: true,
+      phone: "+15550200",
+      client: {
+        chats: { shareContactInfo: enabledShare },
+        groups: { subscribeEvents: idleEventStream },
+        messages: { subscribeEvents: () => enabledEvents.stream },
+        polls: { subscribeEvents: idleEventStream },
+      } as unknown as AdvancedIMessage,
+    };
+    const enabledStream = messages([enabledEntry]);
+    const enabledIterator = enabledStream[Symbol.asyncIterator]();
+
+    const secondPending = enabledIterator.next();
+    enabledEvents.push(inboundEvent(2, "chat-enabled"));
     const second = await secondPending;
     expect(second.value?.id).toBe("msg-2");
-    expect(shareContactInfo).toHaveBeenCalledTimes(1);
-    expect(shareContactInfo).toHaveBeenCalledWith("chat-after-sync");
+    await vi.waitFor(() => {
+      expect(enabledShare).toHaveBeenCalledTimes(1);
+    });
+    expect(enabledShare).toHaveBeenCalledWith("chat-enabled");
 
-    await stream.close();
-    await settleSoon(iterator.next());
+    await enabledStream.close();
+    await settleSoon(enabledIterator.next());
   });
 
   it("skips an unmappable event instead of wedging the stream", async () => {

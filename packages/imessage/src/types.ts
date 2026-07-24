@@ -3,9 +3,9 @@ import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
 export interface RemoteClient {
+  autoShareEnabled?: boolean;
   client: AdvancedIMessage;
   phone: string;
-  profileSynced?: boolean;
 }
 
 export type IMessageClient = RemoteClient[];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { edit } from "@/content/edit";
-import { type Read, read } from "@/content/read";
+import { type Read, read, readSchema } from "@/content/read";
 import { reply } from "@/content/reply";
 import type { Message } from "@/types/message";
 
@@ -43,5 +43,29 @@ describe("read builder", () => {
     await expect(edit(inner, makeMessage("outbound")).build()).rejects.toThrow(
       EDIT_CANNOT_WRAP
     );
+  });
+});
+
+describe("readSchema", () => {
+  it("accepts a raw provider record as target", () => {
+    // Providers surfacing inbound read receipts parse raw records directly
+    // rather than going through the `read()` builder — the `isMessage` guard
+    // only requires `id` + `content`. Pinned so a future tightening of that
+    // guard can't silently break the provider path.
+    const raw = {
+      id: "m-out",
+      content: { type: "text", text: "hi" },
+      direction: "outbound",
+    };
+    const parsed = readSchema.parse({ type: "read", target: raw });
+
+    expect(parsed.type).toBe("read");
+    expect(parsed.target).toBe(raw);
+  });
+
+  it("rejects a target that is not message-shaped", () => {
+    expect(() =>
+      readSchema.parse({ type: "read", target: { id: "m1" } })
+    ).toThrow();
   });
 });

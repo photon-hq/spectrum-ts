@@ -458,6 +458,58 @@ export const cacheMessage = (
   }
 };
 
+/**
+ * Resolve a guid to the spectrum message it maps to, for events that reference
+ * their target only by guid (reactions, read receipts). Cache first — outbound
+ * sends are cached at send time by `cacheRemoteOutbound`, inbound messages when
+ * they are converted — then one `messages.get` + rebuild, which also warms the
+ * cache so sibling events for the same guid (a group's other participants) are
+ * free.
+ *
+ * Any failure drops the event: these are secondary signals and must never wedge
+ * the stream. Deliberately unlike `getMessage` below (the public
+ * `space.getMessage` action), which rethrows non-`NotFoundError` failures; and
+ * unlike it this never resolves `p:N/guid` child ids, because event payloads
+ * always carry the parent guid.
+ */
+export const resolveTargetMessage = async (
+  client: AdvancedIMessage,
+  cache: MessageCache,
+  chatGuid: string,
+  targetGuid: string,
+  phone: string
+): Promise<IMessageMessage | undefined> => {
+  const cached = cache.get(targetGuid);
+  if (cached) {
+    return cached;
+  }
+  try {
+    const fetched = await client.messages.get(toMessageGuid(targetGuid));
+    const rebuilt = await rebuildFromAppleMessage(
+      client,
+      fetched,
+      phone,
+      chatGuid
+    );
+    cacheMessage(cache, rebuilt);
+    return rebuilt;
+  } catch (error) {
+    // The drop is intentional (a secondary signal must never wedge the
+    // stream), but silently swallowing the cause makes an unresolvable target
+    // indistinguishable from a mapping bug — log it before returning.
+    log.debug(
+      "event target could not be resolved; dropping the event",
+      {
+        "spectrum.imessage.target_guid": targetGuid,
+        "spectrum.imessage.chat_guid": chatGuid,
+        ...errorAttrs(error),
+      },
+      error instanceof Error ? error : undefined
+    );
+    return;
+  }
+};
+
 export const toInboundMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,

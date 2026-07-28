@@ -50,7 +50,7 @@ export {
 } from "./content/membership";
 export { asPoll, asPollOption } from "./content/poll";
 export { asReaction, reactionSchema } from "./content/reaction";
-export { asRead } from "./content/read";
+export { asRead, readSchema } from "./content/read";
 export { renameSchema } from "./content/rename";
 export { asReply, replySchema } from "./content/reply";
 export { asRichlink } from "./content/richlink";

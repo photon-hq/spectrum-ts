@@ -1,0 +1,78 @@
+---
+title: "Read"
+description: "Mark a conversation as read, and observe when a recipient reads what you sent."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+Use `read()` to mark a conversation as read up to a message, surfacing a read receipt to the sender where the platform supports one. It is fire-and-forget: `space.send(...)` resolves to `undefined`.
+
+```ts
+import { read } from "spectrum-ts";
+
+await space.send(read(message));
+```
+
+`message.read()` and `space.read(message)` are sugar for the canonical form above.
+
+```ts
+await message.read();
+await space.read(message);
+```
+
+Only inbound messages can be marked read; passing an outbound message throws at build time, before the send pipeline runs.
+
+Granularity is per-platform:
+
+- **WhatsApp Business** — a per-message receipt, which also marks every earlier message in the conversation as read.
+- **iMessage** (remote) — chat-level: the target only identifies the chat, and **every** unread message in it is marked read. Local mode rejects with an <TypeTooltip name="UnsupportedError" type={`{{ symbol("ts:spectrum-ts#UnsupportedError").signature }}`} />.
+- **Telegram / Slack** — silently no-op. Neither surfaces read state for bot conversations, so the signal is vacuously satisfied — the same best-effort contract as `typing`.
+
+## Inbound read receipts
+
+{% set messageType = symbol("ts:spectrum-ts#Message") %}
+When a recipient reads a message the agent sent, the same content type arrives as an inbound <TypeTooltip name="Message" type={`{{ messageType.signature }}`} /> on `app.messages`. iMessage (dedicated and shared lines) reports these today.
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "read") {
+    const target = message.content.target; // the message YOU sent
+    console.log(
+      `${message.sender?.id} read "${target.id}" at ${message.timestamp.toISOString()}`
+    );
+  }
+}
+```
+
+The envelope carries the event semantics:
+
+- `message.sender` is the **reader**; `message.content.target` is the message **you** sent. Never the other way round.
+- The target is a fully-built `Message` with `direction: "outbound"`, so `target.content`, `target.edit(...)`, and `target.unsend()` are all available on it.
+- `message.timestamp` is when the reader's device marked it read — not when your process observed the event. The two diverge when a receipt arrives late via Continuity sync.
+- `message.sender` is always present on an inbound read receipt. Receipts the platform could not attribute to a reader are dropped rather than surfaced with an unknown sender, so a "who has read this" tally never counts phantom readers.
+- **Direct messages are the reliable case today.** iMessage does not report the reader's identity on a read event — it names the receiving line instead — so in a DM the reader is recovered from the conversation itself. A group conversation carries no such information, so a group receipt is dropped unless the platform names a reader other than your own line. Treat group read receipts as best-effort.
+- Where a group does report readers, it emits one message per reader, all sharing the same `content.target.id`. Aggregate by that id against `space.getMembers()` to answer "has everyone read it".
+- The agent's own actions are suppressed: `space.read(...)` does not echo back as an inbound event.
+- No direction check is needed. Outbound `read` is fire-and-forget and produces no `Message`, so `content.type === "read"` on `app.messages` is always a receipt.
+
+Aggregating across a group:
+
+```ts
+const readers = new Map<string, Set<string>>(); // target id -> reader ids
+
+for await (const [space, message] of app.messages) {
+  if (message.content.type !== "read") continue;
+
+  const targetId = message.content.target.id;
+  const seen = readers.get(targetId) ?? new Set();
+  seen.add(message.sender?.id ?? "");
+  readers.set(targetId, seen);
+
+  const members = await space.getMembers();
+  if (seen.size >= members.length - 1) {
+    console.log(`everyone read ${targetId}`);
+  }
+}
+```
+
+See [iMessage messaging features](/spectrum-ts/providers/imessage/messaging-features) for the per-provider volume and delivery caveats.

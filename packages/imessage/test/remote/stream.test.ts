@@ -103,6 +103,79 @@ const inboundEvent = (sequence: number, chatGuid: string) => ({
   },
 });
 
+const READ_DATE = new Date(1_700_000_600_000);
+
+const readEvent = (
+  sequence: number,
+  chatGuid: string,
+  actorAddress: string,
+  messageGuid = "msg-out"
+) => ({
+  type: "message.read",
+  sequence,
+  chatGuid,
+  // Deliberately `true`: for a genuine receipt the underlying message is ours.
+  // Nothing may key self-suppression off this flag.
+  isFromMe: true,
+  actor: { address: actorAddress },
+  occurredAt: new Date(1_700_000_000_000 + sequence),
+  messageGuid,
+  readAt: READ_DATE,
+});
+
+// Delivers a finite list of events, then idles so the stream stays open.
+const finiteEventStream = (events: unknown[]) => {
+  let index = 0;
+  const idle = idleEventStream();
+  return {
+    close: idle.close,
+    [Symbol.asyncIterator]() {
+      const idleIterator = idle[Symbol.asyncIterator]();
+      return {
+        next(): Promise<IteratorResult<unknown, undefined>> {
+          if (index < events.length) {
+            const value = events[index];
+            index += 1;
+            return Promise.resolve({ done: false, value });
+          }
+          return idleIterator.next();
+        },
+        return(): Promise<IteratorResult<unknown, undefined>> {
+          return idleIterator.return();
+        },
+      };
+    },
+  };
+};
+
+// An outbound message of ours, as `messages.get` returns it.
+const sentMessage = (guid: string) => ({
+  guid,
+  chatGuids: ["s1"],
+  content: { attachments: [], formatting: [], mentions: [], text: "from us" },
+  dateCreated: new Date(1_700_000_000_000),
+  isFromMe: true,
+  sender: { address: "+15550100" },
+});
+
+const readReceiptClient = (phone: string, events: unknown[]) => {
+  const get = vi.fn((_message: string) =>
+    Promise.resolve(sentMessage("msg-out"))
+  );
+  const entry: RemoteClient = {
+    phone,
+    client: {
+      messages: {
+        get,
+        subscribeEvents: () => finiteEventStream(events),
+      },
+      polls: { subscribeEvents: idleEventStream },
+      groups: { subscribeEvents: idleEventStream },
+    } as unknown as AdvancedIMessage,
+  };
+  return { entry, get };
+};
+
 const remoteClient = (phone: string) => {
   const subscribeToMessages = vi.fn(idleEventStream);
   const subscribeToPolls = vi.fn(idleEventStream);
@@ -378,4 +451,103 @@ describe("remote iMessage streams", () => {
     await stream.close();
     await settleSoon(iterator.next());
   }, 15_000);
+
+  it("surfaces an inbound read receipt", async () => {
+    const { entry } = readReceiptClient("+15550100", [
+      readEvent(1, "s1", "+15550111"),
+    ]);
+
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    const first = await iterator.next();
+
+    expect(first.done).toBe(false);
+    expect(first.value?.id).toBe("msg-out:read:1");
+    expect(first.value?.sender?.id).toBe("+15550111");
+    expect(first.value?.timestamp).toEqual(READ_DATE);
+    expect(first.value?.content.type).toBe("read");
+    if (first.value?.content.type === "read") {
+      expect(first.value.content.target.id).toBe("msg-out");
+      expect(first.value.content.target.direction).toBe("outbound");
+    }
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("surfaces a DM receipt whose actor is the line's own address", async () => {
+    // Real-line shape (ENG-2101): on `message.read` the platform reports
+    // `actor` as *our own* line even when the peer did the reading. Suppressing
+    // on that would drop every genuine receipt, so the peer is recovered from
+    // the DM chat guid instead.
+    const { entry } = readReceiptClient("+15550100", [
+      readEvent(1, "any;-;+15550111", "+15550100"),
+    ]);
+
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    const first = await iterator.next();
+
+    expect(first.value?.content.type).toBe("read");
+    expect(first.value?.sender?.id).toBe("+15550111");
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("advances the cursor past a receipt with no identifiable reader", async () => {
+    // A dropped receipt must not wedge the stream: the event after it still
+    // has to be delivered. Same shape as the unmappable-event test above.
+    // A group guid carries no participants, so an actor of our own line leaves
+    // the reader unknown.
+    const { entry } = readReceiptClient("+15550100", [
+      readEvent(1, "iMessage;+;chat9", "+15550100"),
+      inboundEvent(2, "s1"),
+    ]);
+
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    const first = await iterator.next();
+
+    expect(first.done).toBe(false);
+    expect(first.value?.content).toMatchObject({ type: "text", text: "hi" });
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("drops a receipt targeting one of their inbound messages", async () => {
+    // The echo of our own `chats.markRead()`: it marks *their* messages, so
+    // the resolved target is inbound and must not surface.
+    const entry: RemoteClient = {
+      phone: "+15550100",
+      client: {
+        messages: {
+          get: vi.fn((_message: string) =>
+            Promise.resolve({
+              ...sentMessage("msg-theirs"),
+              isFromMe: false,
+              sender: { address: "+15550111" },
+            })
+          ),
+          subscribeEvents: () =>
+            finiteEventStream([
+              readEvent(1, "s1", "+15550111", "msg-theirs"),
+              inboundEvent(2, "s1"),
+            ]),
+        },
+        polls: { subscribeEvents: idleEventStream },
+        groups: { subscribeEvents: idleEventStream },
+      } as unknown as AdvancedIMessage,
+    };
+
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    const first = await iterator.next();
+
+    expect(first.value?.id).toBe("msg-2");
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
 });

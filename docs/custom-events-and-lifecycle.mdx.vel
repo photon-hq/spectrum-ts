@@ -7,7 +7,7 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 ## Custom events
 
-Platform providers can emit events beyond messages — typing indicators, read receipts, delivery status, whatever the provider chooses to surface. Spectrum exposes each event as a flat async iterable on the app instance:
+Platform providers can emit events beyond messages — typing indicators, presence, delivery status, whatever the provider chooses to surface. Spectrum exposes each event as a flat async iterable on the app instance:
 
 ```ts
 for await (const event of app.typing) {
@@ -39,7 +39,7 @@ Use the flat form on `app` when you want a merged feed across platforms; use the
 ### Fusor custom events
 
 {% set fusorEventType = symbol("ts:spectrum-ts#FusorEvent") %}
-Fusor-backed providers can emit non-message events (presence, read receipts, delivery status) into typed event streams using `fusorEvent`. The helper returns a <TypeTooltip name="FusorEvent" type={`{{ fusorEventType.signature }}`} /> envelope. Return a `fusorEvent(name, data)` from a Fusor `messages` handler to push it into an `app.<name>` stream:
+Fusor-backed providers can emit non-message events (presence, delivery status) into typed event streams using `fusorEvent`. The helper returns a <TypeTooltip name="FusorEvent" type={`{{ fusorEventType.signature }}`} /> envelope. Return a `fusorEvent(name, data)` from a Fusor `messages` handler to push it into an `app.<name>` stream:
 
 ```ts
 import { fusorEvent } from "spectrum-ts";

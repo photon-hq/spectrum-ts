@@ -139,6 +139,8 @@ const mapContent = (
       return deserializeContact(raw);
     case "reaction":
       return deserializeReaction(raw, spaceRef);
+    case "read":
+      return deserializeRead(raw, spaceRef);
     case "reply":
       return deserializeReply(raw, platform, spaceRef, ctx);
     case "group":
@@ -276,6 +278,22 @@ const deserializeReaction = (
     type: "reaction",
     emoji: asString(raw.emoji),
     target: buildTargetRecord(raw.target, spaceRef),
+  }) as unknown as Content;
+
+const deserializeRead = (
+  raw: Record<string, unknown>,
+  spaceRef: SpaceRef
+): Content =>
+  // An inbound read receipt: someone read a message *we* sent. The reader
+  // rides on the envelope (`message.sender`); `target` is our message.
+  // `direction: "outbound"` marks it as ours so `wrapNestedContent`'s read arm
+  // builds it with the outbound affordances.
+  ({
+    type: "read",
+    target: {
+      ...buildTargetRecord(raw.target, spaceRef),
+      direction: "outbound" as const,
+    },
   }) as unknown as Content;
 
 const deserializeReply = (

@@ -35,6 +35,7 @@
         "spectrum-ts/content/replies",
         "spectrum-ts/content/edits",
         "spectrum-ts/content/unsend",
+        "spectrum-ts/content/read",
         "spectrum-ts/content/typing-indicators",
         "spectrum-ts/content/rename",
         "spectrum-ts/content/avatar",

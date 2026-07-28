@@ -177,6 +177,42 @@ Semantics to rely on:
 - Icon-change events carry a snapshot of the icon fetched at event time; an icon that was already replaced or removed by then is skipped (the follow-up event carries the current state).
 - On dedicated lines, group events ride the same durable catch-up log as messages and polls, so changes that happen while the app is down are replayed on reconnect. After a cursor gap, reconcile with `space.getMembers()` / `space.getAvatar()`.
 
+## Inbound read receipts
+
+When someone reads a message the agent sent, it arrives on `app.messages` as a `read` message. Unlike group events this needs no dedicated line — receipts ride the message stream that every mode already consumes.
+
+<Warning>
+  Read receipts are high-volume. A group emits **one message per reader per
+  message read**, and because marking a chat read clears *every* unread message
+  in it, one recipient opening a chat with several unread agent messages can
+  produce a burst. Make sure your `for await` loop handles `"read"` explicitly —
+  a `default:` arm that replies to the user will reply to every receipt.
+</Warning>
+
+| Someone… | `content.type` | `message.sender` | `message.content.target` |
+|---|---|---|---|
+| reads a message you sent | `"read"` | the reader | the message that was read (`direction: "outbound"`) |
+
+```ts
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "read") {
+    const target = message.content.target;
+    console.log(`${message.sender?.id} read ${target.id} at ${message.timestamp.toISOString()}`);
+  }
+}
+```
+
+Semantics to rely on:
+
+- `message.sender` is the **reader** and is always present — receipts Apple could not attribute are dropped rather than surfaced with an unknown sender. `message.content.target` is always *your* message.
+- **DMs are the reliable case.** Apple does not name the reader on a read event: the event's actor is the *receiving line*, not the person who read. In a DM the reader is recovered from the conversation, which is unambiguous. A group conversation carries no participant information, so a group receipt is dropped unless Apple names an actor other than your own line — treat group read receipts as best-effort.
+- `message.timestamp` is the reader's read time, propagated from their device — not when your process observed the event.
+- Where readers are reported, it is one message per reader. Aggregate by `message.content.target.id` against `space.getMembers()` to answer "has everyone read it".
+
+If receipts are not arriving, run with `LOG_LEVEL=debug` (or `Spectrum({ options: { logLevel: "debug" } })`). Every receipt logs its outcome under `spectrum.imessage.read`, and each drop states its reason — no reader identified, target unresolved, or a target that is not one of yours. If nothing logs at all, the platform is not sending the event: check that the recipient has **Send Read Receipts** enabled on their device, which is off by default and is what Apple gates the whole signal on.
+- The agent's own reads never echo back: `space.read(...)` and `message.read()` are suppressed from the inbound stream.
+- Receipts ride the same durable catch-up log as messages, so those that arrive while the app is down are replayed on reconnect. A receipt whose target can no longer be resolved (an old message evicted from the in-process cache and since deleted upstream) is dropped rather than surfaced with a stub.
+
 ## Chat backgrounds
 
 Set or clear the chat background image. Import `background` from the iMessage provider and use the sugar method on a narrowed space:

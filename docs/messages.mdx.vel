@@ -103,7 +103,7 @@ for await (const [space, message] of app.messages) {
   | `"reply"` | `content:` <TypeTooltip name="Content" type={`{{ content.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />, `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — threaded reply wrapping inner content |
   | `"edit"` | `content:` <TypeTooltip name="Content" type={`{{ content.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />, `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — rewrite of a previously-sent message |
   | `"unsend"` | `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — retraction of a previously-sent message |
-  | `"read"` | `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — mark the conversation read through the target message |
+  | `"read"` | `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> — outbound: mark the conversation read through the target. Inbound: `sender` read `target`, a message you sent |
   | `"typing"` | `state: "start" \| "stop"` — typing indicator signal |
   | `"streamText"` | `stream: () => AsyncIterable<string>`, `format?: "plain" \| "markdown"` — streaming text content |
   | `"app"` | `url()`, `layout()`, `live?: boolean` — app-style link card |
@@ -113,6 +113,8 @@ for await (const [space, message] of app.messages) {
 Outgoing-only variants like `"effect"` (an iMessage screen effect wrapping inner content) appear on messages you sent and are echoed by the platform; see [iMessage](/spectrum-ts/providers/imessage) for the builder.
 
 Group-management events (`rename`, `avatar`, `addMember`, `removeMember`, `leaveSpace`) arrive with `message.sender` set to the acting user — or `undefined` when the platform recorded no actor — so narrow with `message.sender?.id`. The agent's own actions (e.g. `space.add(...)`) are not echoed back.
+
+`read` is the other bidirectional arm: inbound, it means someone read a message you sent, with `message.sender` the reader and `content.target` your message. See [Read](/spectrum-ts/content/read).
 
 ## Filtering out your own messages
 

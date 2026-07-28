@@ -12,9 +12,8 @@ import type { MessageCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid, toChatGuid, toMessageGuid } from "./ids";
 import {
-  cacheMessage,
   isIMessageMessage,
-  rebuildFromAppleMessage,
+  resolveTargetMessage,
   toSenderRef,
 } from "./inbound";
 
@@ -63,16 +62,19 @@ const resolveReactionTarget = async (
   partIndex: number | undefined,
   phone: string
 ): Promise<IMessageMessage | undefined> => {
-  let candidate = cache.get(targetGuid);
+  const candidate = await resolveTargetMessage(
+    client,
+    cache,
+    chat,
+    targetGuid,
+    phone
+  );
   if (!candidate) {
-    try {
-      const fetched = await client.messages.get(toMessageGuid(targetGuid));
-      candidate = await rebuildFromAppleMessage(client, fetched, phone, chat);
-      cacheMessage(cache, candidate);
-    } catch {
-      return;
-    }
+    return;
   }
+  // Tapbacks address an ordered part inside a multi-part message; read
+  // receipts have no `targetPartIndex`, so part drilling stays here rather
+  // than in the shared resolver.
   if (candidate.content.type === "group") {
     const items = candidate.content.items;
     if (!Array.isArray(items)) {

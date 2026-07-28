@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Attachment } from "@/content/attachment";
 import type { Reaction } from "@/content/reaction";
+import type { Read } from "@/content/read";
 import type { Reply } from "@/content/reply";
 import type { Voice } from "@/content/voice";
 import {
@@ -298,6 +299,32 @@ describe("deserializeSpectrumMessage", () => {
   it("maps leaveSpace content", () => {
     const { record } = deserialize({ type: "leaveSpace" });
     expect(record.content).toEqual({ type: "leaveSpace" });
+  });
+
+  it("maps read content with a stub target marked outbound", () => {
+    const { record } = deserialize({
+      type: "read",
+      target: { id: "m-out", contentPreview: "hello" },
+    });
+
+    expect(record.content.type).toBe("read");
+    const target = (record.content as unknown as { target: Read["target"] })
+      .target;
+    expect(target.id).toBe("m-out");
+    expect(target.content).toEqual({ type: "text", text: "hello" });
+    // Marks the target as ours so `wrapNestedContent` builds it outbound.
+    expect(target.direction).toBe("outbound");
+    expect(target.space).toEqual({ id: "s1", platform: PLATFORM });
+  });
+
+  it("defaults a read target with no contentPreview to empty text", () => {
+    // Must not throw through to the `custom` degradation.
+    const { record } = deserialize({ type: "read", target: { id: "m-out" } });
+
+    expect(record.content.type).toBe("read");
+    const target = (record.content as unknown as { target: Read["target"] })
+      .target;
+    expect(target.content).toEqual({ type: "text", text: "" });
   });
 
   it("maps rename content and degrades an empty displayName to custom", () => {

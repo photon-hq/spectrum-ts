@@ -4,6 +4,7 @@ import {
   type GroupEvent,
   type MessageEvent,
   type PollEvent,
+  type SingleServiceAddressInfo,
   ValidationError,
 } from "@photon-ai/advanced-imessage/grpc";
 import { sanitizePhone } from "@photon-ai/otel";
@@ -40,6 +41,7 @@ import { toInboundMessages } from "./inbound";
 import { cachePollEvent, toPollDeltaMessages } from "./polls";
 import type { ProfileSyncGate } from "./profile-sync-gate";
 import { toReactionMessages } from "./reactions";
+import { readReceiptMessageId, toReadReceiptMessages } from "./read-receipts";
 
 // The proxy rejects an unknown/pruned resume cursor with INVALID_ARGUMENT,
 // which the client surfaces as ValidationError — the only ValidationError the
@@ -53,14 +55,23 @@ const streamLabel = (
 ): string =>
   `imessage.${kind}:${phone === SHARED_PHONE ? phone : sanitizePhone(phone)}`;
 
+// The acting party's identity, without the `isFromMe` half. Split out because
+// `message.read`'s `isFromMe` is undocumented and most plausibly describes the
+// *underlying message* — ours, for a genuine receipt — so trusting it there
+// would suppress every receipt worth surfacing. Vacuous in shared mode: the
+// sentinel never matches a real address.
+const isActorCurrentAccount = (
+  actor: SingleServiceAddressInfo | undefined,
+  phone: string
+): boolean =>
+  phone !== SHARED_PHONE &&
+  actor?.address !== undefined &&
+  actor.address === phone;
+
 const isEventFromCurrentAccount = (
   event: Pick<MessageEvent | PollEvent | GroupEvent, "actor" | "isFromMe">,
   phone: string
-): boolean =>
-  event.isFromMe ||
-  (phone !== SHARED_PHONE &&
-    event.actor?.address !== undefined &&
-    event.actor.address === phone);
+): boolean => event.isFromMe || isActorCurrentAccount(event.actor, phone);
 
 const streamLog = createLogger("spectrum.imessage.stream");
 
@@ -152,6 +163,48 @@ const toMessageItem = async (
       values: await toReactionMessages(client, cache, event, phone),
     };
   }
+
+  if (event.type === "message.read") {
+    const id = readReceiptMessageId(event);
+    // Logged before any filtering: if this never fires, the upstream stream is
+    // not delivering `message.read` at all and nothing downstream can be at
+    // fault. Every drop below logs its own reason.
+    streamLog.debug("received a read event", {
+      "spectrum.imessage.read.message_guid": event.messageGuid,
+      "spectrum.imessage.read.sequence": event.sequence,
+      "spectrum.imessage.read.chat_guid": event.chatGuid,
+      "spectrum.imessage.read.actor": event.actor?.address
+        ? sanitizePhone(event.actor.address)
+        : "none",
+      "spectrum.imessage.read.is_from_me": event.isFromMe,
+      "spectrum.imessage.read.line": phone,
+    });
+    // No actor-based self-check here, unlike reactions. Verified against a
+    // live line: on this arm `actor` is *our own* line's address even when the
+    // peer is the one who read, so `isEventFromCurrentAccount` (or its actor
+    // half) would suppress every genuine receipt. `isFromMe` is no better —
+    // it came back `false` for a peer read, the opposite of the reaction arm.
+    //
+    // Self-suppression is instead carried entirely by `toReadReceiptMessages`,
+    // which requires the resolved target to be one of *our* outbound messages.
+    // That holds regardless of what `actor`/`isFromMe` mean: our own
+    // `chats.markRead()` marks *their* inbound messages, so its echo resolves
+    // to an inbound target and is dropped.
+    const cache = getMessageCache(client);
+    return {
+      cursor,
+      id,
+      values: await toReadReceiptMessages(client, cache, event, phone),
+    };
+  }
+
+  // Consumed for the cursor but not surfaced (edits, unsends, sticker
+  // placements, reaction removals). Logged so "the stream is alive but this
+  // event type never arrives" is distinguishable from "the stream is dead".
+  streamLog.debug("message event consumed without mapping", {
+    "spectrum.imessage.event_type": event.type,
+    "spectrum.imessage.sequence": event.sequence,
+  });
 
   return {
     cursor,

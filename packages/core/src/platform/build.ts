@@ -582,6 +582,25 @@ const wrapNestedContent = (
     }
     return content;
   }
+  if (content.type === "read") {
+    const target = content.target as unknown;
+    if (isRawProviderRecord(target)) {
+      // A read receipt's target is always one of *our* messages — the one the
+      // reader just read — so wrap it outbound, same as `edit`, and its
+      // `.edit`/`.unsend` affordances stay available downstream. Providers that
+      // resolved the real target set `target.direction` and
+      // `wrapProviderMessage` honors it; the literal here is the fallback for
+      // providers (e.g. the native webhook) that only have a stub.
+      //
+      // Inert on the outbound path: `read(message)` always targets an
+      // already-built Message, which `isRawProviderRecord` rejects.
+      return {
+        ...content,
+        target: wrapProviderMessage(target, ctx, "outbound"),
+      };
+    }
+    return content;
+  }
   if (content.type === "group") {
     const items = content.items.map((item) => {
       const raw = item as unknown;

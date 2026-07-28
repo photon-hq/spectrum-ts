@@ -163,6 +163,24 @@ describe("iMessage remote toReactionMessages", () => {
     }
   });
 
+  it("drops the reaction when the target cannot be fetched", async () => {
+    // Regression guard for the shared `resolveTargetMessage` extraction: a
+    // failed fetch must keep dropping the event rather than propagating.
+    const get = vi.fn((_message: string) => Promise.reject(new Error("gone")));
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+
+    const messages = await toReactionMessages(
+      remote,
+      new MessageCache(),
+      reactionEvent(),
+      "+15551234567"
+    );
+
+    expect(messages).toEqual([]);
+  });
+
   it("carries the actor's address, country, and service onto the reaction sender", async () => {
     const get = vi.fn((_message: string) => Promise.resolve(sdkMessage()));
     const remote = {

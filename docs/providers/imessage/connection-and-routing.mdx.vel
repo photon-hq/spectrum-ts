@@ -65,10 +65,10 @@ can register both when it needs both transports.
     <Note>
       Local iMessage supports receiving and sending text, attachments, and
       contacts. Universal app content degrades to its URL. Reactions, threaded
-      replies, edits, unsend, read receipts, effects, group creation, streaming
-      text, chat backgrounds, renaming, avatars, contact-card sharing, and
-      membership operations are unavailable. Typing signals are accepted as a
-      no-op.
+      replies, edits, unsend, read receipts (both sending them and observing
+      inbound ones), effects, group creation, streaming text, chat backgrounds,
+      renaming, avatars, contact-card sharing, and membership operations are
+      unavailable. Typing signals are accepted as a no-op.
     </Note>
   </Tab>
 </Tabs>

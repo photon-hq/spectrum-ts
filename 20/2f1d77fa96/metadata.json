@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "202f1d77fa96",
+  "strategy": "manual-commit",
+  "branch": "ryan/eng-2101-surface-inbound-read-receipts-advanced-imessage-messageread",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/imessage/src/remote/read-receipts.ts",
+    "packages/imessage/test/remote/read-receipts.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/20/2f1d77fa96/0/metadata.json",
+      "transcript": "/20/2f1d77fa96/0/full.jsonl",
+      "compact_transcript": "/20/2f1d77fa96/0/transcript.jsonl",
+      "content_hash": "/20/2f1d77fa96/0/content_hash.txt",
+      "prompt": "/20/2f1d77fa96/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 44,
+    "cache_creation_tokens": 25003,
+    "cache_read_tokens": 7403483,
+    "output_tokens": 15278,
+    "api_call_count": 22
+  }
+}

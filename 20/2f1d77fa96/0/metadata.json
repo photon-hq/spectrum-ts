@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "202f1d77fa96",
+  "session_id": "8c4ba3fe-1be8-4e0f-9844-1b9a58c5c8a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-28T03:05:08.229878Z",
+  "branch": "ryan/eng-2101-surface-inbound-read-receipts-advanced-imessage-messageread",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "packages/imessage/src/remote/read-receipts.ts",
+    "packages/imessage/test/remote/read-receipts.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "5d3a40fd7bdf",
+  "checkpoint_transcript_start": 705,
+  "transcript_lines_at_start": 705,
+  "compact_transcript_start": 218,
+  "token_usage": {
+    "input_tokens": 44,
+    "cache_creation_tokens": 25003,
+    "cache_read_tokens": 7403483,
+    "output_tokens": 15278,
+    "api_call_count": 22
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-28T03:05:08.129345Z",
+    "agent_lines": 139,
+    "agent_removed": 24,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 139,
+    "total_lines_changed": 163,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    }
+  ]
+}

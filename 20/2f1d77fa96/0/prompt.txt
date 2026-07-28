@@ -1,0 +1,1 @@
+valid if this is a real issue: https://github.com/photon-hq/spectrum-ts/pull/222#discussion_r3662285915

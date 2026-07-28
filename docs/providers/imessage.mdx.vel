@@ -47,6 +47,9 @@ import { imessage } from "@spectrum-ts/imessage";
 
 Cloud mode discovers every line owned by the project and renews its tokens
 automatically. Most applications should use the empty `imessage.config()` call.
+Lines provisioned while the app is running are picked up at the next token
+renewal — see [when line changes reach a running
+app](/providers/imessage/connection-and-routing#when-line-changes-reach-a-running-app).
 
 ### Explicit cloud clients
 

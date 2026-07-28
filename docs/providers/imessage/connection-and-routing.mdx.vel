@@ -92,6 +92,19 @@ DM delivery is identical across both cloud line models. The developer-facing dif
 
 When traffic to a dedicated line approaches its per-line capacity, Spectrum can automatically provision an additional line so deliverability isn't affected. Auto-scale is an opt-in feature on the Business plan. Enable it in your project settings if you'd rather not get paged when a line saturates.
 
+### When line changes reach a running app
+
+The SDK learns about your lines from the credentials it mints, and it re-mints them on a schedule — so a line provisioned (or deprovisioned) while your app is running is picked up at the next token renewal, not immediately.
+
+Until that renewal lands, a newly provisioned line is invisible to the process: it receives no inbound messages, and `space.create()` cannot route through it. Messages sent to it in that window are not delayed, they are not delivered to your app at all. Restart the process if you need a new line to take effect right away.
+
+<Note>
+  Two routing behaviors change the moment a second line appears, whether that happens at startup or mid-run:
+
+  - `space.get(chatGuid)` starts requiring `params.phone`. With exactly one line the SDK can infer it; with two or more it cannot.
+  - `space.create()` without an explicit `phone` starts picking at random from the larger set.
+</Note>
+
 <Note>
   These are Spectrum Cloud features. With `@spectrum-ts/imessage-local`, you
   provide the Messages account on the Mac and managed-line concepts do not

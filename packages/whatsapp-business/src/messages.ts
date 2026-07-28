@@ -10,7 +10,6 @@ import {
   type Content,
   type Group,
   type ManagedStream,
-  mergeStreams,
   type Poll,
   type Reaction,
   type ContactAddress as SpectrumContactAddress,
@@ -34,6 +33,7 @@ import {
   asUnsend,
   asVoice,
   createLogger,
+  createStreamGroup,
   errorAttrs,
   type ProviderMessageRecord,
   tracedFetch,
@@ -41,6 +41,7 @@ import {
 import { extension as mimeExtension } from "mime-types";
 import { isWhatsAppTemplate, type WhatsAppTemplate } from "./content/template";
 import { WhatsAppPartialSendError } from "./errors/partial-send";
+import { addLineObserver, lineKey } from "./lines";
 import { pollOptionId, pollToInteractive } from "./poll";
 import type { WhatsAppClients, WhatsAppMessage } from "./types";
 
@@ -715,9 +716,28 @@ const clientStream = (
   });
 };
 
+// A group rather than `mergeStreams`, because the line set changes underneath
+// us: the cloud token refresh reconciles newly provisioned and deprovisioned
+// lines into the same array, and those have to reach a running stream.
 export const messages = (
   clients: WhatsAppClients
-): ManagedStream<WhatsAppMessage> => mergeStreams(clients.map(clientStream));
+): ManagedStream<WhatsAppMessage> => {
+  const group = createStreamGroup<WhatsAppMessage>({
+    label: "whatsapp.messages",
+  });
+  for (const client of clients) {
+    group.add(lineKey(client), () => clientStream(client));
+  }
+
+  addLineObserver(clients, {
+    attach: (client) => {
+      group.add(lineKey(client), () => clientStream(client));
+    },
+    detach: (client) => group.remove(lineKey(client)).then(() => undefined),
+  });
+
+  return group;
+};
 
 // Meta caps media captions at 1024 characters (image/video/document docs).
 const MAX_CAPTION_LENGTH = 1024;

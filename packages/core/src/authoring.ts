@@ -82,6 +82,16 @@ export {
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "./utils/resumable-stream";
+// Fan-in over a source set that changes while the stream runs — the shape a
+// provider needs when its line/workspace inventory is discovered at runtime
+// rather than fixed at startup. Use `mergeStreams` for a fixed set; see the
+// contract comparison on `createStreamGroup`.
+export {
+  createStreamGroup,
+  type StreamGroup,
+  type StreamGroupOptions,
+  type StreamGroupSource,
+} from "./utils/stream-group";
 export { errorAttrs } from "./utils/telemetry";
 export {
   createTokenRenewal,

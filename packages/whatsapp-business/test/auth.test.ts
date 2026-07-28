@@ -133,6 +133,7 @@ vi.doMock("@photon-ai/whatsapp-business", () => ({
 }));
 
 const { createCloudClients, disposeCloudAuth } = await import("@/auth");
+const { addLineObserver } = await import("@/lines");
 
 const waitFor = async (
   predicate: () => boolean,
@@ -265,6 +266,108 @@ describe("whatsapp cloud auth stream renewal", () => {
     expect(createClient).toHaveBeenCalledTimes(2);
     expect(rawClients[0]?.close).toHaveBeenCalledTimes(1);
     expect(rawClients[1]?.options.accessToken).toBe("token-2");
+
+    await disposeCloudAuth(clients);
+  });
+});
+
+describe("whatsapp cloud line reconciliation", () => {
+  beforeEach(() => {
+    rawClients.length = 0;
+    tokenIssueCount = 0;
+    issueWhatsappBusinessTokens.mockReset();
+    createClient.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // `expiresIn: 0` makes every proxied RPC refresh, so `markRead` is the cheapest
+  // way to drive the same closure the renewal timer runs.
+  const respondWith = (auth: Record<string, string>): void => {
+    issueWhatsappBusinessTokens.mockImplementation(async () => ({
+      auth,
+      expiresIn: 0,
+    }));
+  };
+
+  it("attaches a line provisioned after startup", async () => {
+    respondWith({ "phone-1": "token-1" });
+    const clients = await createCloudClients("project-1", "secret-1");
+    const arrayRef = clients;
+    expect(clients).toHaveLength(1);
+
+    respondWith({ "phone-1": "token-1b", "phone-2": "token-2" });
+    await clients[0]?.messages.markRead("wamid.1");
+
+    expect(clients).toHaveLength(2);
+    // The array is mutated, never replaced: the cloud-auth state is keyed by
+    // its identity.
+    expect(clients).toBe(arrayRef);
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("detaches a deprovisioned line and closes it", async () => {
+    respondWith({ "phone-1": "token-1", "phone-2": "token-2" });
+    const clients = await createCloudClients("project-1", "secret-1");
+    expect(clients).toHaveLength(2);
+
+    respondWith({ "phone-1": "token-1b" });
+    await clients[0]?.messages.markRead("wamid.1");
+
+    expect(clients).toHaveLength(1);
+    // rawClients[1] is the deprovisioned line's underlying client.
+    await waitFor(
+      () => rawClients[1]?.close.mock.calls.length === 1,
+      "deprovisioned line was not closed"
+    );
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("keeps the current set when the response reports no lines", async () => {
+    respondWith({ "phone-1": "token-1" });
+    const clients = await createCloudClients("project-1", "secret-1");
+
+    respondWith({});
+    await clients[0]?.messages.markRead("wamid.1");
+
+    expect(clients).toHaveLength(1);
+    expect(rawClients[0]?.close).not.toHaveBeenCalled();
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("notifies observers about attached and detached lines", async () => {
+    respondWith({ "phone-1": "token-1" });
+    const clients = await createCloudClients("project-1", "secret-1");
+    // Records whether the array already agreed with the notification when the
+    // observer ran — an observer must never see a half-applied array.
+    const attached: boolean[] = [];
+    const detached: boolean[] = [];
+    addLineObserver(clients, {
+      attach: (client) => {
+        attached.push(clients.includes(client));
+      },
+      detach: (client) => {
+        detached.push(clients.includes(client));
+      },
+    });
+
+    respondWith({ "phone-1": "token-1b", "phone-2": "token-2" });
+    await clients[0]?.messages.markRead("wamid.1");
+    // Both lines are attached: the existing one is re-asserted (which is what
+    // revives a line whose stream died) and the new one is added.
+    expect(attached).toEqual([true, true]);
+
+    respondWith({ "phone-2": "token-2b" });
+    await clients[0]?.messages.markRead("wamid.2");
+    await waitFor(() => detached.length === 1, "detach was not observed");
+    // Spliced out before the observer runs, mirroring the attach ordering.
+    expect(detached).toEqual([false]);
+    expect(clients).toHaveLength(1);
 
     await disposeCloudAuth(clients);
   });

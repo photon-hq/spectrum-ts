@@ -107,6 +107,15 @@ export function stream<T>(
   });
 }
 
+/**
+ * Merges a fixed set of streams. The result represents all of them: it ends
+ * once every member has ended — immediately, for an empty set — and one
+ * member's error ends the whole merge.
+ *
+ * For a set that changes while the stream runs, use `createStreamGroup`
+ * (`@spectrum-ts/core/authoring`), which ends only on `close()` and drops a
+ * failed member instead of tearing down its siblings.
+ */
 export function mergeStreams<T>(
   streams: readonly ManagedStream<T>[]
 ): ManagedStream<T> {

@@ -31,6 +31,14 @@ cloud mode, which uses your `projectId`/`projectSecret`.
 
 Find these values in your WhatsApp Business app settings on [Meta for Developers](https://developers.facebook.com/).
 
+## Line discovery in cloud mode
+
+Cloud mode discovers every line owned by the project from the credentials it
+mints, and re-mints them on a schedule. A line added to (or removed from) the
+project while your app is running is therefore picked up at the next token
+renewal, not immediately — until then a newly added line receives no inbound
+messages. Restart the process if you need a new line to take effect right away.
+
 ## Example
 
 ```ts

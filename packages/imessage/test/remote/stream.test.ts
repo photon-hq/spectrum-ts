@@ -1,6 +1,12 @@
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
-import { flush, settleSoon } from "@spectrum-ts/test-support/timing";
+import {
+  flush,
+  NO_MESSAGE_WAIT_MS,
+  settleSoon,
+  withinMs,
+} from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
+import { notifyLineAttached, notifyLineDetached } from "@/lines";
 import type { ProfileSyncGate } from "@/remote/profile-sync-gate";
 import { messages } from "@/remote/stream";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
@@ -549,5 +555,189 @@ describe("remote iMessage streams", () => {
 
     await stream.close();
     await settleSoon(iterator.next());
+  });
+});
+
+// A line whose message events the test drives by hand.
+const pushableClient = (phone: string) => {
+  const events = pushEventStream<ReturnType<typeof inboundEvent>>();
+  const subscribeToMessages = vi.fn(() => events.stream);
+  const subscribeToPolls = vi.fn(idleEventStream);
+  const subscribeToGroups = vi.fn(idleEventStream);
+  const entry: RemoteClient = {
+    phone,
+    client: {
+      groups: { subscribeEvents: subscribeToGroups },
+      messages: { subscribeEvents: subscribeToMessages },
+      polls: { subscribeEvents: subscribeToPolls },
+    } as unknown as AdvancedIMessage,
+  };
+
+  return { entry, push: events.push, subscribeToMessages };
+};
+
+// The reconcile contract from `auth.ts`: the array is mutated in place, then
+// observers are notified synchronously.
+const attachLine = (
+  clients: RemoteClient[],
+  entry: RemoteClient
+): RemoteClient[] => {
+  clients.push(entry);
+  notifyLineAttached(clients, entry);
+  return clients;
+};
+
+const detachLine = async (
+  clients: RemoteClient[],
+  entry: RemoteClient
+): Promise<void> => {
+  const index = clients.indexOf(entry);
+  if (index >= 0) {
+    clients.splice(index, 1);
+  }
+  await Promise.all(notifyLineDetached(clients, entry));
+};
+
+describe("iMessage line reconciliation", () => {
+  it("subscribes and delivers from a line attached while running", async () => {
+    const first = pushableClient("+15550100");
+    const second = pushableClient("+15550200");
+    const clients = [first.entry];
+
+    const stream = messages(clients);
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const firstPending = iterator.next();
+    first.push(inboundEvent(1, "chat-A"));
+    expect((await firstPending).value?.space).toMatchObject({
+      phone: "+15550100",
+    });
+
+    attachLine(clients, second.entry);
+    await vi.waitFor(() => {
+      expect(second.subscribeToMessages).toHaveBeenCalledTimes(1);
+    });
+
+    const secondPending = iterator.next();
+    second.push(inboundEvent(2, "chat-B"));
+    expect((await secondPending).value?.space).toMatchObject({
+      phone: "+15550200",
+    });
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("subscribes a line attached before the stream is first pulled", async () => {
+    const first = pushableClient("+15550100");
+    const second = pushableClient("+15550200");
+    const clients = [first.entry];
+
+    const stream = messages(clients);
+    attachLine(clients, second.entry);
+
+    const iterator = stream[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await flush();
+
+    expect(first.subscribeToMessages).toHaveBeenCalledTimes(1);
+    expect(second.subscribeToMessages).toHaveBeenCalledTimes(1);
+
+    await stream.close();
+    await settleSoon(pending);
+  });
+
+  it("stops delivering from a detached line without disturbing the rest", async () => {
+    const kept = pushableClient("+15550100");
+    const removed = pushableClient("+15550200");
+    const clients = [kept.entry, removed.entry];
+
+    const stream = messages(clients);
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const primed = iterator.next();
+    kept.push(inboundEvent(1, "chat-A"));
+    await primed;
+
+    await detachLine(clients, removed.entry);
+
+    const afterDetach = iterator.next();
+    removed.push(inboundEvent(2, "chat-B"));
+    expect(await withinMs(afterDetach, NO_MESSAGE_WAIT_MS)).toBe("timeout");
+
+    kept.push(inboundEvent(3, "chat-A"));
+    expect((await afterDetach).value?.space).toMatchObject({
+      phone: "+15550100",
+    });
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("stays open after its last line is detached", async () => {
+    const only = pushableClient("+15550100");
+    const clients = [only.entry];
+
+    const stream = messages(clients);
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const primed = iterator.next();
+    only.push(inboundEvent(1, "chat-A"));
+    await primed;
+
+    await detachLine(clients, only.entry);
+
+    // `mergeStreams` would have ended here — the whole point of the group.
+    const pending = iterator.next();
+    expect(await withinMs(pending, NO_MESSAGE_WAIT_MS)).toBe("timeout");
+
+    const replacement = pushableClient("+15550300");
+    attachLine(clients, replacement.entry);
+    replacement.push(inboundEvent(2, "chat-C"));
+    expect((await pending).value?.space).toMatchObject({
+      phone: "+15550300",
+    });
+
+    await stream.close();
+    await settleSoon(iterator.next());
+  });
+
+  it("ignores line notifications in shared mode", async () => {
+    const shared = pushableClient(SHARED_PHONE);
+    const extra = pushableClient("+15550100");
+    const clients = [shared.entry];
+
+    const stream = messages(clients);
+    const iterator = stream[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await flush();
+
+    attachLine(clients, extra.entry);
+    await flush();
+
+    expect(extra.subscribeToMessages).not.toHaveBeenCalled();
+
+    await stream.close();
+    await settleSoon(pending);
+  });
+
+  it("subscribes a line once when attached twice", async () => {
+    const first = pushableClient("+15550100");
+    const second = pushableClient("+15550200");
+    const clients = [first.entry];
+
+    const stream = messages(clients);
+    const iterator = stream[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await flush();
+
+    attachLine(clients, second.entry);
+    notifyLineAttached(clients, second.entry);
+    await flush();
+
+    expect(second.subscribeToMessages).toHaveBeenCalledTimes(1);
+
+    await stream.close();
+    await settleSoon(pending);
   });
 });

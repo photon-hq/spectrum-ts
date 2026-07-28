@@ -11,10 +11,21 @@ import {
   createTokenRenewal,
   errorAttrs,
 } from "@spectrum-ts/core/authoring";
+import {
+  clearLineObservers,
+  notifyLineAttached,
+  notifyLineDetached,
+  setLineId,
+} from "./lines";
 
 const streamLog = createLogger("spectrum.whatsapp.stream");
+const authLog = createLogger("spectrum.whatsapp.auth");
 
 const RESUBSCRIBE_BACKOFF_MS = 500;
+
+const lineAttrs = (phoneNumberId: string) => ({
+  "spectrum.whatsapp.line": phoneNumberId,
+});
 
 const ignoreCleanupError = () => undefined;
 
@@ -47,6 +58,12 @@ export async function createCloudClients(
   );
 
   const lines = new Map<string, LineState>();
+  // This array object is never replaced — only `push`/`splice`. Callers read it
+  // live, and the cloud-auth state is keyed by its identity.
+  const clients: WhatsAppClient[] = [];
+  // phoneNumberId -> the public proxy, so a refresh can tell an existing line
+  // from a newly provisioned one.
+  const records = new Map<string, WhatsAppClient>();
 
   const buildRawClient = (phoneNumberId: string): WhatsAppClient => {
     const accessToken = tokenData.auth[phoneNumberId];
@@ -56,6 +73,92 @@ export async function createCloudClients(
       );
     }
     return createClient({ accessToken, appSecret: "", phoneNumberId });
+  };
+
+  const attachLine = (phoneNumberId: string): void => {
+    const state: LineState = {
+      current: buildRawClient(phoneNumberId),
+      subscriptions: new Set(),
+    };
+    lines.set(phoneNumberId, state);
+    const proxy = buildClientProxy(state, renewal.refreshIfNeeded);
+    setLineId(proxy, phoneNumberId);
+    records.set(phoneNumberId, proxy);
+    clients.push(proxy);
+    // Synchronous, and adjacent to the push, so an observer can never see a
+    // half-applied array.
+    notifyLineAttached(clients, proxy);
+  };
+
+  // Detach the stream before closing the line: the proxy's close tears down its
+  // subscriptions and underlying client. Never awaited by the refresh — a
+  // wedged close must not stall token renewal.
+  const retire = async (proxy: WhatsAppClient): Promise<void> => {
+    await Promise.allSettled(notifyLineDetached(clients, proxy));
+    await proxy.close();
+  };
+
+  const removeMissing = (auth: Record<string, string>): number => {
+    let removed = 0;
+    for (const [phoneNumberId, proxy] of records) {
+      if (auth[phoneNumberId]) {
+        continue;
+      }
+      records.delete(phoneNumberId);
+      lines.delete(phoneNumberId);
+      const index = clients.indexOf(proxy);
+      if (index >= 0) {
+        clients.splice(index, 1);
+      }
+      removed += 1;
+      retire(proxy).catch((error: unknown) => {
+        authLog.warn(
+          "failed to retire whatsapp line",
+          { ...lineAttrs(phoneNumberId), ...errorAttrs(error) },
+          error instanceof Error ? error : undefined
+        );
+      });
+    }
+    return removed;
+  };
+
+  /**
+   * Brings the client set in line with the token payload, which is the only
+   * line inventory the cloud exposes: keys present but untracked are newly
+   * provisioned, tracked keys that vanished were deprovisioned.
+   */
+  const reconcile = (auth: Record<string, string>): void => {
+    const next = Object.keys(auth ?? {});
+    if (next.length === 0) {
+      // Never wipe a working set on a degenerate response. At startup `records`
+      // is empty, so this still yields an empty array.
+      authLog.warn(
+        "whatsapp token response contained no lines; keeping the current set"
+      );
+      return;
+    }
+    const removed = removeMissing(auth);
+    let added = 0;
+    for (const phoneNumberId of next) {
+      const existing = records.get(phoneNumberId);
+      if (existing) {
+        // Re-assert the subscription rather than assuming it survived. The
+        // stream layer drops a line whose stream died, and attaching is
+        // idempotent, so this is what revives it — otherwise a dropped line
+        // would stay dark for the life of the process.
+        notifyLineAttached(clients, existing);
+        continue;
+      }
+      attachLine(phoneNumberId);
+      added += 1;
+    }
+    if (added > 0 || removed > 0) {
+      authLog.info("whatsapp lines reconciled", {
+        "spectrum.whatsapp.lines.added": added,
+        "spectrum.whatsapp.lines.removed": removed,
+        "spectrum.whatsapp.lines.total": clients.length,
+      });
+    }
   };
 
   const refreshTokens = async (): Promise<void> => {
@@ -75,6 +178,19 @@ export async function createCloudClients(
       }
       await old.close().catch(() => undefined);
     }
+
+    try {
+      reconcile(tokenData.auth);
+    } catch (error) {
+      // Rejecting here would leave the renewal's expiry unadvanced, and
+      // `refreshIfNeeded` runs before every RPC, so every call on every line
+      // would then re-enter the refresh. Reconcile failures stay contained.
+      authLog.error(
+        "whatsapp line reconcile failed",
+        errorAttrs(error),
+        error instanceof Error ? error : undefined
+      );
+    }
   };
 
   const renewal = createTokenRenewal({
@@ -83,16 +199,9 @@ export async function createCloudClients(
     refresh: refreshTokens,
   });
 
-  const clients: WhatsAppClient[] = Object.keys(tokenData.auth).map(
-    (phoneNumberId) => {
-      const state: LineState = {
-        current: buildRawClient(phoneNumberId),
-        subscriptions: new Set(),
-      };
-      lines.set(phoneNumberId, state);
-      return buildClientProxy(state, renewal.refreshIfNeeded);
-    }
-  );
+  // Startup is the same reconcile against an empty set, so there is one code
+  // path building lines.
+  reconcile(tokenData.auth);
 
   cloudAuthState.set(clients, {
     dispose: async () => {
@@ -115,6 +224,7 @@ export async function createCloudClients(
 export async function disposeCloudAuth(
   clients: WhatsAppClient[]
 ): Promise<void> {
+  clearLineObservers(clients);
   const auth = cloudAuthState.get(clients);
   if (!auth) {
     return;

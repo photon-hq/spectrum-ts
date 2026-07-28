@@ -1,0 +1,17 @@
+Verify each finding against current code. Fix only still-valid issues, skip the
+rest with a brief reason, keep changes minimal, and validate.
+
+Inline comments:
+In `@packages/test-support/src/timing.ts`:
+- Around line 51-63: Update the iterator-consumption loop around iterator.next()
+so rejected iteration triggers source.close() before propagating the failure,
+while normal timeout and EOF paths close at most once. Add a regression test
+covering iterator.next() rejection and verifying the source is closed.
+
+---
+
+also since grpc might broke or whatever, we should retry based on situatuon to make sure the long libe stream works
+
+---
+
+just follow what we have before

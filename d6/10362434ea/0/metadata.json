@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "d610362434ea",
+  "session_id": "e661ac56-c7e4-4f34-9c6e-6c386ce96b93",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-28T22:50:32.34346Z",
+  "branch": "ryan/eng-2102-newly-provisioned-imessage-line-is-not-picked-up-by-a",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "packages/core/test/utils/collect-until-idle.test.ts",
+    "packages/test-support/src/timing.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "0c9f3bd1bce0",
+  "checkpoint_transcript_start": 820,
+  "transcript_lines_at_start": 820,
+  "compact_transcript_start": 229,
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 8925,
+    "cache_read_tokens": 2549171,
+    "output_tokens": 7465,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-28T22:50:32.248376Z",
+    "agent_lines": 71,
+    "agent_removed": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 71,
+    "total_lines_changed": 81,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    }
+  ]
+}

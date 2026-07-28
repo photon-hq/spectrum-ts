@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "9353670d081d",
+  "strategy": "manual-commit",
+  "branch": "ryan/eng-2101-surface-inbound-read-receipts-advanced-imessage-messageread",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "docs/content/read.mdx.vel",
+    "docs/custom-events-and-lifecycle.mdx.vel",
+    "docs/messages.mdx.vel",
+    "docs/nav.json",
+    "docs/providers/imessage.mdx.vel",
+    "docs/providers/imessage/connection-and-routing.mdx.vel",
+    "docs/providers/imessage/messaging-features.mdx.vel",
+    "packages/core/src/authoring.ts",
+    "packages/core/src/platform/build.ts",
+    "packages/core/src/webhook/deserialize.ts",
+    "packages/core/test/content/read.test.ts",
+    "packages/core/test/core/receive-read.test.ts",
+    "packages/core/test/webhook/deserialize.test.ts",
+    "packages/imessage/src/remote/ids.ts",
+    "packages/imessage/src/remote/inbound.ts",
+    "packages/imessage/src/remote/reactions.ts",
+    "packages/imessage/src/remote/read-receipts.ts",
+    "packages/imessage/src/remote/stream.ts",
+    "packages/imessage/test/remote/reactions.test.ts",
+    "packages/imessage/test/remote/read-receipts.test.ts",
+    "packages/imessage/test/remote/stream.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/93/53670d081d/0/metadata.json",
+      "transcript": "/93/53670d081d/0/full.jsonl",
+      "compact_transcript": "/93/53670d081d/0/transcript.jsonl",
+      "content_hash": "/93/53670d081d/0/content_hash.txt",
+      "prompt": "/93/53670d081d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19945,
+    "cache_creation_tokens": 839864,
+    "cache_read_tokens": 37798044,
+    "output_tokens": 117249,
+    "api_call_count": 178
+  }
+}

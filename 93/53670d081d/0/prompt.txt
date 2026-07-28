@@ -1,0 +1,76 @@
+do we support inbound read events now? or we didn't wrie it up from advanced imessage ts
+
+---
+
+add a linear issue on this
+
+---
+
+plan for supporing this feature in imessage. show code, consumer dev see shapes in the plan. plan in best practice. consider this is an sdk used by large companeis and devs
+
+---
+
+if (message.direction !== "inbound") break; -> it should always be inbound. so this line is useless
+
+---
+
+[@imessage-scratch.ts#L49:52](file:///Users/ryanzhu/Projects/spectrum-ts/tmp/imessage-scratch.ts#L49:52)
+ why this doesn't work? can u add more logs so we can know if this is logic error on our side or on advacned imessage ts side
+
+<context ref="file:///Users/ryanzhu/Projects/spectrum-ts/tmp/imessage-scratch.ts#L49:52">
+    case "read": {
+      console.log("  read:", message.content.target.content);
+      break;
+    }
+</context>
+
+---
+
+spectrum-ts/tmp on  ryan/eng-2101-surface-inbound-read-receipts-advanced-imessage-messageread [$!?] via  v24.18.0 took 4m41s
+❯ bun imessage-scratch.ts
+[spectrum.lifecycle] INFO Spectrum started {
+  "spectrum.lifecycle.provider_count": 1,
+  "spectrum.lifecycle.providers": "imessage",
+  "spectrum.lifecycle.telemetry": true,
+}
+{
+  name: "TestAvatar",
+  slug: "testavatar",
+  profile: {
+    firstName: "Test123",
+    lastName: "",
+    avatarUrl: "https://spectrum-cloud-avatars-staging.s3.us-east-1.amazonaws.com/avatars/13764d32-4b46-41ba-bbc8-eb6520504576/48ef07ec-592f-4a36-b75e-8f0ac1cd296a.png",
+    imessageSynced: true,
+  },
+}
+[received] text
+  text: hi
+[sent] mini app
+[spectrum.imessage.contact] INFO shared contact card {
+  "spectrum.imessage.contact.chat": "any;-;+133xxxx3374",
+}
+
+---
+
+[received] text
+  text: Hi
+[spectrum.imessage.contact] INFO shared contact card {
+  "spectrum.imessage.contact.chat": "any;-;+133xxxx3374",
+}
+[sent] mini app
+[spectrum.imessage.stream] DEBUG received a read event {
+  "spectrum.imessage.read.message_guid": "84A7908E-C1C2-49B6-88E5-B9EC1D1BCE94",
+  "spectrum.imessage.read.sequence": 786,
+  "spectrum.imessage.read.chat_guid": "any;-;+13322593374",
+  "spectrum.imessage.read.actor": "+141xxxx6063",
+  "spectrum.imessage.read.is_from_me": false,
+  "spectrum.imessage.read.line": "+14155956063",
+}
+[spectrum.imessage.stream] DEBUG read receipt dropped: actor is this line {
+  "spectrum.imessage.read.message_guid": "84A7908E-C1C2-49B6-88E5-B9EC1D1BCE94",
+  "spectrum.imessage.read.sequence": 786,
+}
+
+---
+
+it is working now. for logs, should we preserve it? since we have the log system, and the develoeprs can set log level.

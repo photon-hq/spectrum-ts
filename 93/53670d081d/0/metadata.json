@@ -1,0 +1,111 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "9353670d081d",
+  "session_id": "8c4ba3fe-1be8-4e0f-9844-1b9a58c5c8a6",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-28T02:13:03.51786Z",
+  "branch": "ryan/eng-2101-surface-inbound-read-receipts-advanced-imessage-messageread",
+  "checkpoints_count": 7,
+  "save_step_count": 5,
+  "files_touched": [
+    "docs/content/read.mdx.vel",
+    "docs/custom-events-and-lifecycle.mdx.vel",
+    "docs/messages.mdx.vel",
+    "docs/nav.json",
+    "docs/providers/imessage.mdx.vel",
+    "docs/providers/imessage/connection-and-routing.mdx.vel",
+    "docs/providers/imessage/messaging-features.mdx.vel",
+    "packages/core/src/authoring.ts",
+    "packages/core/src/platform/build.ts",
+    "packages/core/src/webhook/deserialize.ts",
+    "packages/core/test/content/read.test.ts",
+    "packages/core/test/core/receive-read.test.ts",
+    "packages/core/test/webhook/deserialize.test.ts",
+    "packages/imessage/src/remote/ids.ts",
+    "packages/imessage/src/remote/inbound.ts",
+    "packages/imessage/src/remote/reactions.ts",
+    "packages/imessage/src/remote/read-receipts.ts",
+    "packages/imessage/src/remote/stream.ts",
+    "packages/imessage/test/remote/reactions.test.ts",
+    "packages/imessage/test/remote/read-receipts.test.ts",
+    "packages/imessage/test/remote/stream.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "caeeda81b47d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 19945,
+    "cache_creation_tokens": 839864,
+    "cache_read_tokens": 37798044,
+    "output_tokens": 117249,
+    "api_call_count": 178
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-28T02:13:03.428898Z",
+    "agent_lines": 1128,
+    "agent_removed": 25,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1128,
+    "total_lines_changed": 1153,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 968,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1043,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1043,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 64,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1135,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 64
+      }
+    }
+  ]
+}

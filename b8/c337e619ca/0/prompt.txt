@@ -1,0 +1,7 @@
+fix this:
+
+https://github.com/photon-hq/spectrum-ts/pull/223#discussion_r3669562648
+
+---
+
+if empty auth that probabbly means no lines

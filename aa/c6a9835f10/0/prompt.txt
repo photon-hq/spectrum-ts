@@ -1,0 +1,21 @@
+if we provision a new line whenre there is a running spectrum-ts client, while that line be pick up without shutdown and rerun?
+
+---
+
+can add this as an issue in linear
+
+---
+
+but why? i though why call issue token and build the clients?
+
+---
+
+ok plan for improvment. what is the best practice here. consider this is an sdk used by devs in various env like serverless, docker, k8s, etc.
+
+---
+
+since we have StreamGroup -> should we unify all into StreamGroup?
+
+---
+
+will this broke the behaviour like when a stream faield we reconnect etc

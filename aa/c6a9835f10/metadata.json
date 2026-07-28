@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "aac6a9835f10",
+  "strategy": "manual-commit",
+  "branch": "ryan/eng-2102-newly-provisioned-imessage-line-is-not-picked-up-by-a",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/providers/imessage.mdx.vel",
+    "docs/providers/imessage/connection-and-routing.mdx.vel",
+    "docs/providers/whatsapp-business/setup.mdx.vel",
+    "packages/core/src/authoring.ts",
+    "packages/core/src/utils/stream-group.ts",
+    "packages/core/src/utils/stream.ts",
+    "packages/core/test/utils/stream-group.test.ts",
+    "packages/core/test/utils/stream.test.ts",
+    "packages/imessage/src/auth.ts",
+    "packages/imessage/src/lines.ts",
+    "packages/imessage/src/remote/stream.ts",
+    "packages/imessage/test/auth.test.ts",
+    "packages/imessage/test/remote/stream.test.ts",
+    "packages/whatsapp-business/src/auth.ts",
+    "packages/whatsapp-business/src/lines.ts",
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/whatsapp-business/test/auth.test.ts",
+    "packages/whatsapp-business/test/reaction-removal.test.ts",
+    "packages/whatsapp-business/test/reply-context.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/c6a9835f10/0/metadata.json",
+      "transcript": "/aa/c6a9835f10/0/full.jsonl",
+      "compact_transcript": "/aa/c6a9835f10/0/transcript.jsonl",
+      "content_hash": "/aa/c6a9835f10/0/content_hash.txt",
+      "prompt": "/aa/c6a9835f10/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10645,
+    "cache_creation_tokens": 746709,
+    "cache_read_tokens": 33749753,
+    "output_tokens": 141472,
+    "api_call_count": 152
+  }
+}

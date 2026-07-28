@@ -1,0 +1,57 @@
+Verify each finding against current code. Fix only still-valid issues, skip the
+rest with a brief reason, keep changes minimal, and validate.
+
+Inline comments:
+In `@docs/providers/imessage.mdx.vel`:
+- Around line 50-52: Update the “when line changes reach a running app” link in
+the documentation text to include the documented /spectrum-ts route prefix,
+matching the existing provider links in this file.
+
+In `@docs/providers/imessage/connection-and-routing.mdx.vel`:
+- Around line 101-106: Update the routing note so both behavior changes are
+explicitly scoped to multiple dedicated lines, excluding shared-pool mode.
+Revise the space.get example to include params.phone, or clearly state that it
+applies only to a single-line account, while preserving the later
+per-phone-routing guidance.
+
+In `@packages/core/src/utils/stream-group.ts`:
+- Around line 126-152: Clear the spawn callback during the base stream teardown
+so late add operations cannot invoke the factory with the dead emit function.
+Update the cleanup function returned by stream around the existing
+attached-member shutdown, ensuring spawn is reset before cleanup completes while
+preserving the current source and worker awaiting behavior.
+
+In `@packages/imessage/src/remote/stream.ts`:
+- Around line 543-550: Update the observer setup around addLineObserver in
+packages/imessage/src/remote/stream.ts#L543-L550 and
+packages/whatsapp-business/src/messages.ts#L732-L737 so each call captures the
+returned disposer and invokes it when the corresponding group closes. Wrap or
+extend the group close handling without changing attach/detach behavior,
+ensuring both providers deregister observers and release their closures after
+messages() groups are closed.
+
+---
+
+Nitpick comments:
+In `@packages/imessage/src/auth.ts`:
+- Around line 65-69: Update the token callback around tokenData and
+DedicatedTokenData to narrow tokenData with an appropriate runtime/type guard
+before accessing auth, rather than asserting its type. When the refreshed
+payload is not dedicated or has no auth entry for instanceId, return
+initialToken; preserve the existing per-instance token lookup for valid
+dedicated payloads.
+
+In `@packages/imessage/src/lines.ts`:
+- Around line 51-65: The observer registries retain observers after individual
+message streams close. In packages/imessage/src/lines.ts#L51-L65 and
+packages/whatsapp-business/src/lines.ts#L49-L63, update addLineObserver to
+return a disposer that removes only its registered observer and deletes the
+client entry when empty; wire that disposer into each provider’s messages()
+cleanup, while preserving clearLineObservers for whole-array cleanup.
+
+In `@packages/whatsapp-business/test/reply-context.test.ts`:
+- Around line 172-189: Extract the duplicated async collection loop from the
+test into a shared collectUntilIdle(stream) helper in `@spectrum-ts/test-support`,
+preserving its timeout-based idle detection, stream.close(), pending-iterator
+settlement, and received-message behavior. Update this test and the existing
+receiveAll logic in reaction-removal.test.ts to reuse the helper.

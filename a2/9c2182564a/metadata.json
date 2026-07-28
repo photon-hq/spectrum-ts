@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "a29c2182564a",
+  "strategy": "manual-commit",
+  "branch": "ryan/eng-2102-newly-provisioned-imessage-line-is-not-picked-up-by-a",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/providers/imessage.mdx.vel",
+    "docs/providers/imessage/connection-and-routing.mdx.vel",
+    "packages/core/src/utils/stream-group.ts",
+    "packages/core/test/utils/stream-group.test.ts",
+    "packages/imessage/src/auth.ts",
+    "packages/imessage/src/lines.ts",
+    "packages/imessage/src/remote/stream.ts",
+    "packages/imessage/test/remote/stream.test.ts",
+    "packages/test-support/src/timing.ts",
+    "packages/whatsapp-business/src/lines.ts",
+    "packages/whatsapp-business/src/messages.ts",
+    "packages/whatsapp-business/test/reaction-removal.test.ts",
+    "packages/whatsapp-business/test/reply-context.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a2/9c2182564a/0/metadata.json",
+      "transcript": "/a2/9c2182564a/0/full.jsonl",
+      "compact_transcript": "/a2/9c2182564a/0/transcript.jsonl",
+      "content_hash": "/a2/9c2182564a/0/content_hash.txt",
+      "prompt": "/a2/9c2182564a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 27163,
+    "cache_read_tokens": 10449048,
+    "output_tokens": 18091,
+    "api_call_count": 31
+  }
+}

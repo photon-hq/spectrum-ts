@@ -332,6 +332,27 @@ describe("createStreamGroup", () => {
     spy.mockRestore();
   });
 
+  it("refuses to add after the consumer walks away", async () => {
+    const a = controllable<string>();
+    const group = createStreamGroup<string>();
+    group.add("a", () => a.source);
+
+    const iterator = group[Symbol.asyncIterator]();
+    a.push("a1");
+    expect((await takeNext(iterator)).value).toBe("a1");
+
+    // Teardown without close(): the consumer abandoning the iterator stops the
+    // stream, so `emit` is dead even though close() was never called.
+    await iterator.return?.(undefined);
+
+    const b = controllable<string>();
+    const factory = vi.fn(() => b.source);
+    expect(group.add("b", factory)).toBe(false);
+    expect(factory).not.toHaveBeenCalled();
+
+    await group.close();
+  });
+
   it("refuses to add after close and never builds the source", async () => {
     const a = controllable<string>();
     const factory = vi.fn(() => a.source);

@@ -99,10 +99,12 @@ The SDK learns about your lines from the credentials it mints, and it re-mints t
 Until that renewal lands, a newly provisioned line is invisible to the process: it receives no inbound messages, and `space.create()` cannot route through it. Messages sent to it in that window are not delayed, they are not delivered to your app at all. Restart the process if you need a new line to take effect right away.
 
 <Note>
-  Two routing behaviors change the moment a second line appears, whether that happens at startup or mid-run:
+  On dedicated lines, two routing behaviors change the moment a second line appears, whether that happens at startup or mid-run:
 
-  - `space.get(chatGuid)` starts requiring `params.phone`. With exactly one line the SDK can infer it; with two or more it cannot.
+  - `space.get(chatGuid)` starts requiring `params.phone`. With exactly one dedicated line the SDK can infer it; with two or more it cannot.
   - `space.create()` without an explicit `phone` starts picking at random from the larger set.
+
+  Neither applies to shared-pool mode, which always routes through a single shared identity.
 </Note>
 
 <Note>
@@ -183,7 +185,14 @@ To look up an existing conversation by its chat GUID, use `space.get(id)`:
 
 ```ts
 const existing = await im.space.get("any;-;+15551111111");
+
+// With two or more dedicated lines, name the line that owns the conversation.
+const onLine = await im.space.get("any;-;+15551111111", {
+  phone: "+15559999999",
+});
 ```
+
+The first form works in shared-pool mode and on a single dedicated line, where the SDK can infer the line. With multiple dedicated lines it throws — pass `params.phone`, as covered in [per-phone routing](#per-phone-routing).
 
 DM creation works with the cloud package. The local package can construct a
 deterministic DM reference, but it cannot create a group because the local

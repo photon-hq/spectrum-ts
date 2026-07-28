@@ -64,8 +64,13 @@ export async function createCloudClients(
       tls: true,
       token: async () => {
         await renewal.refreshIfNeeded();
-        const data = tokenData as DedicatedTokenData;
-        return data.auth[instanceId] ?? initialToken;
+        // Narrowed, not asserted: a refresh can in principle come back shared
+        // (a plan change), where `auth` does not exist at all — reading through
+        // it would reject every RPC on this line.
+        if (tokenData.type !== "dedicated") {
+          return initialToken;
+        }
+        return tokenData.auth[instanceId] ?? initialToken;
       },
     }),
   });

@@ -48,16 +48,31 @@ export const lineKey = (entry: RemoteClient): string => {
   return generated;
 };
 
+/**
+ * Registers `observer` and returns a disposer that removes just this one, so a
+ * closed message stream stops being called into. `clearLineObservers` remains
+ * the whole-array teardown used when the client itself is destroyed.
+ */
 export const addLineObserver = (
   clients: RemoteClient[],
   observer: LineObserver
-): void => {
+): (() => void) => {
   const existing = observers.get(clients);
   if (existing) {
     existing.add(observer);
-    return;
+  } else {
+    observers.set(clients, new Set([observer]));
   }
-  observers.set(clients, new Set([observer]));
+
+  return () => {
+    const current = observers.get(clients);
+    if (!current?.delete(observer)) {
+      return;
+    }
+    if (current.size === 0) {
+      observers.delete(clients);
+    }
+  };
 };
 
 export const clearLineObservers = (clients: RemoteClient[]): void => {

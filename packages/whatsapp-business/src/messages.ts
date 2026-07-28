@@ -729,14 +729,22 @@ export const messages = (
     group.add(lineKey(client), () => clientStream(client));
   }
 
-  addLineObserver(clients, {
+  const disposeObserver = addLineObserver(clients, {
     attach: (client) => {
       group.add(lineKey(client), () => clientStream(client));
     },
     detach: (client) => group.remove(lineKey(client)).then(() => undefined),
   });
 
-  return group;
+  // Drop the observer when the stream closes: it holds this group, and a later
+  // reconcile must not keep calling into a group that can no longer emit.
+  const closeGroup = group.close.bind(group);
+  return Object.assign(group, {
+    close: async (): Promise<void> => {
+      disposeObserver();
+      await closeGroup();
+    },
+  });
 };
 
 // Meta caps media captions at 1024 characters (image/video/document docs).

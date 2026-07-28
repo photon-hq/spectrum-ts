@@ -6,7 +6,11 @@ import {
   withinMs,
 } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
-import { notifyLineAttached, notifyLineDetached } from "@/lines";
+import {
+  addLineObserver,
+  notifyLineAttached,
+  notifyLineDetached,
+} from "@/lines";
 import type { ProfileSyncGate } from "@/remote/profile-sync-gate";
 import { messages } from "@/remote/stream";
 import { type RemoteClient, SHARED_PHONE } from "@/types";
@@ -719,6 +723,51 @@ describe("iMessage line reconciliation", () => {
 
     await stream.close();
     await settleSoon(pending);
+  });
+
+  it("disposes only the observer that registered it", () => {
+    const clients: RemoteClient[] = [];
+    const kept: string[] = [];
+    const dropped: string[] = [];
+    const disposeDropped = addLineObserver(clients, {
+      attach: (entry) => {
+        dropped.push(entry.phone);
+      },
+      detach: () => undefined,
+    });
+    addLineObserver(clients, {
+      attach: (entry) => {
+        kept.push(entry.phone);
+      },
+      detach: () => undefined,
+    });
+
+    disposeDropped();
+    notifyLineAttached(clients, pushableClient("+15550100").entry);
+
+    expect(dropped).toEqual([]);
+    expect(kept).toEqual(["+15550100"]);
+  });
+
+  it("stops observing lines once the stream is closed", async () => {
+    const first = pushableClient("+15550100");
+    const later = pushableClient("+15550200");
+    const clients = [first.entry];
+
+    const stream = messages(clients);
+    const iterator = stream[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await flush();
+
+    await stream.close();
+    await settleSoon(pending);
+
+    // The observer holds the closed group; a reconcile after teardown must not
+    // reach it, and must never open a subscription that nothing will close.
+    attachLine(clients, later.entry);
+    await flush();
+
+    expect(later.subscribeToMessages).not.toHaveBeenCalled();
   });
 
   it("subscribes a line once when attached twice", async () => {

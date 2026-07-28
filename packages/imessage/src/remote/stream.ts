@@ -540,14 +540,24 @@ export const messages = (
     group.add(lineKey(entry), build(entry));
   }
 
-  if (!shared) {
-    addLineObserver(clients, {
-      attach: (entry) => {
-        group.add(lineKey(entry), build(entry));
-      },
-      detach: (entry) => group.remove(lineKey(entry)).then(() => undefined),
-    });
+  if (shared) {
+    return group;
   }
 
-  return group;
+  const disposeObserver = addLineObserver(clients, {
+    attach: (entry) => {
+      group.add(lineKey(entry), build(entry));
+    },
+    detach: (entry) => group.remove(lineKey(entry)).then(() => undefined),
+  });
+
+  // Drop the observer when the stream closes: it holds this group, and a later
+  // reconcile must not keep calling into a group that can no longer emit.
+  const closeGroup = group.close.bind(group);
+  return Object.assign(group, {
+    close: async (): Promise<void> => {
+      disposeObserver();
+      await closeGroup();
+    },
+  });
 };

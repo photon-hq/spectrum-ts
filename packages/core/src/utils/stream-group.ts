@@ -133,6 +133,13 @@ export function createStreamGroup<T>(
     }
 
     return async () => {
+      // Teardown is terminal, and it also runs when the consumer simply walks
+      // away from the iterator — a path that never goes through `close()`. Mark
+      // the group closed and drop `spawn` here so a late `add` can neither
+      // build a source nor hand one an `emit` that is already dead.
+      closed = true;
+      spawn = undefined;
+
       const attached = Array.from(members.values());
       // Teardown is not a fault. Marking every member detached first keeps a
       // normal shutdown — `close()` or the consumer walking away — from

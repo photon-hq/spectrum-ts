@@ -28,30 +28,53 @@ const asProviderRead = (target: IMessageMessage): ReadContent =>
   readSchema.parse({ target, type: "read" });
 
 /**
+ * Whether the reader could be identified at all, decided without resolving
+ * the target. A DM always can (the peer is in the guid); a group only if the
+ * platform named an actor. Lets an unattributable group receipt drop before
+ * paying for an RPC.
+ */
+const isAttributable = (event: ReadEvent): boolean =>
+  dmPeerFromChatGuid(event.chatGuid) !== undefined ||
+  event.actor?.address !== undefined;
+
+/**
  * Identify the reader.
  *
  * `event.actor` is **not** the reader on this arm. Verified against a live
  * line: in a DM where the peer read our message, `actor` came back as *our
- * own* line's address, not theirs. So `actor` is only trusted when it names
- * somebody other than us — the shape a group receipt would need if the
- * platform ever populates it — and otherwise the reader is the DM peer
- * encoded in the chat guid.
+ * own* line's address, not theirs.
  *
- * A group receipt whose actor is us (or absent) is not attributable at all:
- * a group guid carries no participant list. Those are dropped rather than
- * surfaced with a wrong or missing reader, because the reader's identity is
- * the entire payload of a receipt.
+ * So the chat guid comes first. In a DM there are exactly two participants
+ * and the target is already known to be ours, which makes the reader
+ * definitionally the other one — no address comparison needed, and therefore
+ * correct on pooled lines too, where `phone` is the `"shared"` sentinel and
+ * comparing it against a real address is meaningless.
+ *
+ * A group guid carries no participant list, so there `actor` is the only
+ * possible attribution. It is trusted only when it names neither this line
+ * nor the target's own sender; the latter is what catches the shared-mode
+ * case, since the sentinel never equals a real address. An unattributable
+ * receipt is dropped rather than surfaced with a wrong reader — the reader's
+ * identity is the entire payload.
  */
 const toReader = (
   event: ReadEvent,
+  target: IMessageMessage,
   phone: string
 ): ReturnType<typeof toSenderRef> | undefined => {
+  const peer = dmPeerFromChatGuid(event.chatGuid);
+  if (peer) {
+    return { id: peer, address: peer };
+  }
   const actor = event.actor;
-  if (actor?.address && actor.address !== phone) {
+  if (
+    actor?.address &&
+    actor.address !== phone &&
+    actor.address !== target.sender?.address
+  ) {
     return toSenderRef(actor);
   }
-  const peer = dmPeerFromChatGuid(event.chatGuid);
-  return peer ? { id: peer, address: peer } : undefined;
+  return;
 };
 
 /**
@@ -60,11 +83,12 @@ const toReader = (
  *
  * Two guards, cheapest first:
  *
- * 1. **No actor -> drop.** Unlike a membership change (where the state change
- *    itself is the payload and `sender: undefined` still carries meaning), the
- *    reader's identity *is* the payload of a receipt. A senderless receipt in a
- *    group is indistinguishable noise and would corrupt any "N of M have read"
- *    tally. Same call as `toReactionMessages`.
+ * 1. **The reader must be identifiable -> else drop.** Unlike a membership
+ *    change (where the state change itself is the payload and
+ *    `sender: undefined` still carries meaning), the reader's identity *is*
+ *    the payload of a receipt. An unattributed receipt in a group is
+ *    indistinguishable noise and would corrupt any "N of M have read" tally.
+ *    Same call as `toReactionMessages`. See `toReader`.
  *
  * 2. **The target must be one of ours.** `event.isFromMe` is not trustworthy
  *    here: the proto carries no comment for it on this arm, and it most
@@ -82,13 +106,12 @@ export const toReadReceiptMessages = async (
   event: ReadEvent,
   phone: string
 ): Promise<IMessageMessage[]> => {
-  const reader = toReader(event, phone);
-  if (!reader) {
+  if (!isAttributable(event)) {
     log.debug("read receipt dropped: reader could not be identified", {
       "spectrum.imessage.read.message_guid": event.messageGuid,
       "spectrum.imessage.read.sequence": event.sequence,
       "spectrum.imessage.read.chat_guid": event.chatGuid,
-      "spectrum.imessage.read.has_actor": event.actor?.address !== undefined,
+      "spectrum.imessage.read.has_actor": false,
     });
     return [];
   }
@@ -115,6 +138,19 @@ export const toReadReceiptMessages = async (
       "spectrum.imessage.read.message_guid": event.messageGuid,
       "spectrum.imessage.read.sequence": event.sequence,
       "spectrum.imessage.read.target_direction": target.direction ?? "unset",
+    });
+    return [];
+  }
+
+  // Resolved after the target: validating a group's `actor` needs the target's
+  // own sender to compare against (see `toReader`).
+  const reader = toReader(event, target, phone);
+  if (!reader) {
+    log.debug("read receipt dropped: reader could not be identified", {
+      "spectrum.imessage.read.message_guid": event.messageGuid,
+      "spectrum.imessage.read.sequence": event.sequence,
+      "spectrum.imessage.read.chat_guid": event.chatGuid,
+      "spectrum.imessage.read.has_actor": true,
     });
     return [];
   }

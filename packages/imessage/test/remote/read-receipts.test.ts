@@ -6,7 +6,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { MessageCache } from "@/cache";
 import { toReadReceiptMessages } from "@/remote/read-receipts";
-import type { IMessageMessage } from "@/types";
+import { type IMessageMessage, SHARED_PHONE } from "@/types";
 
 const SENT_DATE = new Date(1_700_000_000_000);
 const READ_DATE = new Date(1_700_000_600_000);
@@ -166,9 +166,29 @@ describe("iMessage remote toReadReceiptMessages", () => {
     expect(messages[0]?.sender?.id).toBe("+15559998888");
   });
 
-  it("drops a group receipt with no identifiable reader", async () => {
-    // A group guid carries no participant list, so an actor of our own line
-    // leaves the reader unknown — and the reader is the whole payload.
+  it("attributes a shared-mode DM receipt to the peer, not the pool line", async () => {
+    // On a pooled line `phone` is the "shared" sentinel, so `actor.address !==
+    // phone` is vacuously true and an actor-first lookup would name our own
+    // pool line as the reader. The DM guid has to win outright.
+    const remote = remoteWith(() => Promise.resolve(sdkMessage()));
+
+    const messages = await toReadReceiptMessages(
+      remote,
+      new MessageCache(),
+      readEvent({
+        actor: { address: "+14155956063" },
+        chatGuid: "any;-;+13322593374",
+      } as Partial<ReadEvent>),
+      SHARED_PHONE
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.sender?.id).toBe("+13322593374");
+  });
+
+  it("drops a group receipt whose actor is this line", async () => {
+    // A group guid carries no participant list, so an actor naming our own
+    // line leaves the reader unknown — and the reader is the whole payload.
     const remote = remoteWith(() => Promise.resolve(sdkMessage()));
 
     const messages = await toReadReceiptMessages(
@@ -182,8 +202,67 @@ describe("iMessage remote toReadReceiptMessages", () => {
     );
 
     expect(messages).toEqual([]);
-    // The reader guard must short-circuit before the RPC.
+  });
+
+  it("drops a shared-mode group receipt whose actor is the sending line", async () => {
+    // The sentinel never equals a real address, so the `phone` comparison
+    // cannot catch this — the target's own sender is what identifies the
+    // actor as us.
+    const remote = remoteWith(() =>
+      Promise.resolve(
+        sdkMessage({
+          sender: { address: "+14155956063" },
+        } as Partial<SDKMessage>)
+      )
+    );
+
+    const messages = await toReadReceiptMessages(
+      remote,
+      new MessageCache(),
+      readEvent({
+        actor: { address: "+14155956063" },
+        chatGuid: "iMessage;+;chat9",
+      } as Partial<ReadEvent>),
+      SHARED_PHONE
+    );
+
+    expect(messages).toEqual([]);
+  });
+
+  it("drops a group receipt with no actor before resolving the target", async () => {
+    const remote = remoteWith(() => Promise.resolve(sdkMessage()));
+
+    const messages = await toReadReceiptMessages(
+      remote,
+      new MessageCache(),
+      readEvent({
+        actor: undefined,
+        chatGuid: "iMessage;+;chat9",
+      } as Partial<ReadEvent>),
+      PHONE
+    );
+
+    expect(messages).toEqual([]);
+    // Unattributable without an actor, so it must not pay for an RPC.
     expect(getMock(remote)).not.toHaveBeenCalled();
+  });
+
+  it("attributes a group receipt to a third-party actor", async () => {
+    const remote = remoteWith(() => Promise.resolve(sdkMessage()));
+
+    const messages = await toReadReceiptMessages(
+      remote,
+      new MessageCache(),
+      readEvent({
+        actor: { address: "+15559998888" },
+        chatGuid: "iMessage;+;chat9",
+      } as Partial<ReadEvent>),
+      PHONE
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.sender?.id).toBe("+15559998888");
+    expect(messages[0]?.space.type).toBe("group");
   });
 
   it("drops a receipt whose target is one of their inbound messages", async () => {

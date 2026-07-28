@@ -48,18 +48,36 @@ export const collectUntilIdle = async <T>(
 ): Promise<T[]> => {
   const iterator = source[Symbol.asyncIterator]();
   const received: T[] = [];
-  for (;;) {
-    const next = iterator.next();
-    if ((await withinMs(next, NO_MESSAGE_WAIT_MS)) === "timeout") {
-      await source.close();
-      await settleSoon(next);
-      break;
+  let closed = false;
+  // Idempotent: the timeout path closes, and a `next` that rejects afterwards
+  // reaches the catch below, which must not close a second time.
+  const close = async (): Promise<void> => {
+    if (closed) {
+      return;
     }
-    const result = await next;
-    if (result.done) {
-      break;
+    closed = true;
+    await source.close();
+  };
+
+  try {
+    for (;;) {
+      const next = iterator.next();
+      if ((await withinMs(next, NO_MESSAGE_WAIT_MS)) === "timeout") {
+        await close();
+        await settleSoon(next);
+        break;
+      }
+      const result = await next;
+      if (result.done) {
+        break;
+      }
+      received.push(result.value);
     }
-    received.push(result.value);
+  } catch (error) {
+    // A failing stream still has to be released, or the caller leaks it and the
+    // real failure gets buried under a hanging suite.
+    await close();
+    throw error;
   }
   return received;
 };

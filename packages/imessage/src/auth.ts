@@ -153,16 +153,14 @@ export async function createCloudClients(
    * Brings the client set in line with the token payload, which is the only
    * inventory the cloud exposes: keys present but untracked are newly
    * provisioned, tracked keys that vanished were deprovisioned.
+   *
+   * An empty payload means the project has no lines, not that the response is
+   * suspect — keeping entries the payload no longer covers would leave the
+   * client routing through channels whose tokens have stopped being refreshed.
+   * A genuinely malformed payload (no `auth` at all) throws instead, which the
+   * caller contains before any line is removed.
    */
   const reconcile = (data: DedicatedTokenData): void => {
-    if (Object.keys(data.auth ?? {}).length === 0) {
-      // Never wipe a working set on a degenerate response. At startup `records`
-      // is empty, so this still yields an empty array.
-      authLog.warn(
-        "imessage token response contained no lines; keeping the current set"
-      );
-      return;
-    }
     const removed = removeMissing(data);
     const added = addOrSync(data);
     if (added > 0 || removed > 0) {

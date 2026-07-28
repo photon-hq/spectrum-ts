@@ -260,16 +260,17 @@ describe("imessage cloud auth", () => {
     await disposeCloudAuth(clients);
   });
 
-  it("keeps the current set when the response reports no lines", async () => {
+  it("removes every line when the response reports no lines", async () => {
     const { clients, refresh } = await startClients(
       dedicated({ "instance-1": "+15550000001" })
     );
 
+    // No lines is a real inventory, not a suspect response: holding the entry
+    // would keep routing through a channel whose token no longer refreshes.
     await refresh(dedicated({}));
 
-    expect(clients).toHaveLength(1);
-    expect(clients[0]?.phone).toBe("+15550000001");
-    expect(fakeClients[0]?.close).not.toHaveBeenCalled();
+    expect(clients).toEqual([]);
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
 
     await disposeCloudAuth(clients);
   });

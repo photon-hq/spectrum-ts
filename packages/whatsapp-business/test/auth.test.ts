@@ -327,15 +327,20 @@ describe("whatsapp cloud line reconciliation", () => {
     await disposeCloudAuth(clients);
   });
 
-  it("keeps the current set when the response reports no lines", async () => {
+  it("removes every line when the response reports no lines", async () => {
     respondWith({ "phone-1": "token-1" });
     const clients = await createCloudClients("project-1", "secret-1");
 
+    // No lines is a real inventory, not a suspect response: holding the entry
+    // would keep routing through a line whose token no longer refreshes.
     respondWith({});
     await clients[0]?.messages.markRead("wamid.1");
 
-    expect(clients).toHaveLength(1);
-    expect(rawClients[0]?.close).not.toHaveBeenCalled();
+    expect(clients).toEqual([]);
+    await waitFor(
+      () => rawClients[0]?.close.mock.calls.length === 1,
+      "removed line was not closed"
+    );
 
     await disposeCloudAuth(clients);
   });

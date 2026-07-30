@@ -309,14 +309,49 @@ describe("hybrid Fusor providers", () => {
       });
 
       const stopping = spectrum.stop();
-      await vi.advanceTimersByTimeAsync(5000);
-      await stopping;
+      const repeatedStop = spectrum.stop();
+      const rejected = expect(stopping).rejects.toThrow(
+        "fusor core close timed out after 5000ms"
+      );
 
+      expect(repeatedStop).toBe(stopping);
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
+
+      expect(spectrum.stop()).toBe(stopping);
       expect(closeSpy).toHaveBeenCalledTimes(1);
       expect(seen.destroyedClient).toBe(fixture.client);
     } finally {
       closeSpy.mockRestore();
       vi.useRealTimers();
+    }
+  });
+
+  it("finishes teardown before surfacing a Fusor close failure", async () => {
+    const closeError = new Error("durable checkpoint did not flush");
+    const closeSpy = vi
+      .spyOn(FusorCore.prototype, "close")
+      .mockRejectedValue(closeError);
+    try {
+      const seen = capture();
+      const fixture = makeHybrid(seen, {
+        name: "failed_fusor_close",
+        route: "failed-close-wire",
+      });
+      const spectrum = await Spectrum({
+        ...baseConfig,
+        providers: [fixture.provider],
+      });
+      const stopping = spectrum.stop();
+
+      expect(spectrum.stop()).toBe(stopping);
+      await expect(stopping).rejects.toBe(closeError);
+
+      expect(spectrum.stop()).toBe(stopping);
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+      expect(seen.destroyedClient).toBe(fixture.client);
+    } finally {
+      closeSpy.mockRestore();
     }
   });
 });

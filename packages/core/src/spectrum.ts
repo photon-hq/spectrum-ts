@@ -80,6 +80,8 @@ const FUSOR_CLOSE_TIMEOUT_MS = 5000;
 const lifecycleLog = createLogger("spectrum.lifecycle");
 
 const ignoreCleanupError = () => undefined;
+const normalizeError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
 
 // ---------------------------------------------------------------------------
 // SpectrumInstance — the typed return of Spectrum()
@@ -580,6 +582,7 @@ export async function Spectrum<
   const customEventStreams = new Map<string, ManagedStream<unknown>>();
 
   let stopped = false;
+  let stopPromise: Promise<void> | undefined;
   let fusorCore: FusorCore | undefined;
   let fusorStartPromise: Promise<void> | undefined;
 
@@ -1137,12 +1140,7 @@ export async function Spectrum<
 
   const messagesStream = createMessagesStream();
 
-  const stopOnce = async () => {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-
+  const stopImpl = async (): Promise<void> => {
     const streamShutdowns = [
       messagesStream.close(),
       ...Array.from(customEventStreams.values(), (eventStream) =>
@@ -1183,9 +1181,11 @@ export async function Spectrum<
 
     // Phase 2: fusor core shutdown (only when active)
     let fusorCloseMs = 0;
+    let fusorCloseError: unknown;
     if (fusorCore) {
       const fusorCloseStart = performance.now();
       const closeAttempt = fusorCore.close().catch((error) => {
+        fusorCloseError ??= normalizeError(error);
         lifecycleLog.warn("fusor core close failed", errorAttrs(error), error);
       });
       const closed = await waitForCloseWithin(
@@ -1193,6 +1193,9 @@ export async function Spectrum<
         FUSOR_CLOSE_TIMEOUT_MS
       );
       if (!closed) {
+        fusorCloseError ??= new Error(
+          `fusor core close timed out after ${FUSOR_CLOSE_TIMEOUT_MS}ms`
+        );
         lifecycleLog.warn(
           "fusor core close timed out; proceeding to provider teardown",
           {
@@ -1229,9 +1232,36 @@ export async function Spectrum<
       "spectrum.lifecycle.fusor_close_ms": fusorCloseMs,
       "spectrum.lifecycle.client_close_ms": clientCloseMs,
     });
+    let telemetryShutdownError: unknown;
     if (otelHandle) {
-      await otelHandle.shutdown();
+      try {
+        await otelHandle.shutdown();
+      } catch (error) {
+        telemetryShutdownError = normalizeError(error);
+      }
     }
+    if (fusorCloseError !== undefined && telemetryShutdownError !== undefined) {
+      throw new AggregateError(
+        [fusorCloseError, telemetryShutdownError],
+        "Spectrum shutdown failed"
+      );
+    }
+    if (fusorCloseError !== undefined) {
+      throw fusorCloseError;
+    }
+    if (telemetryShutdownError !== undefined) {
+      throw telemetryShutdownError;
+    }
+  };
+
+  // Publish the shared promise before teardown starts so concurrent or
+  // re-entrant callers observe the same completion (including any failure).
+  const stopOnce = (): Promise<void> => {
+    if (!stopPromise) {
+      stopped = true;
+      stopPromise = Promise.resolve().then(stopImpl);
+    }
+    return stopPromise;
   };
 
   const handleSignal = () => {

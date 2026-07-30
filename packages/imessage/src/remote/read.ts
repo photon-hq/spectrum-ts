@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { toChatGuid } from "./ids";
 
 /**

@@ -6,6 +6,7 @@ export interface ManagedStream<T> extends AsyncIterable<T> {
 
 export interface AsyncQueue<T> {
   close(): void;
+  fail(error: unknown): void;
   iterable: AsyncIterable<T>;
   push(value: T): void;
 }
@@ -17,16 +18,21 @@ export interface AsyncQueue<T> {
  */
 export function createAsyncQueue<T>(): AsyncQueue<T> {
   const buffer: T[] = [];
-  const resolvers: ((result: IteratorResult<T, undefined>) => void)[] = [];
+  const waiters: {
+    reject: (error: unknown) => void;
+    resolve: (result: IteratorResult<T, undefined>) => void;
+  }[] = [];
   let closed = false;
+  let failure: unknown;
+  let failed = false;
 
   const push = (value: T): void => {
     if (closed) {
       return;
     }
-    const resolver = resolvers.shift();
-    if (resolver) {
-      resolver({ value, done: false });
+    const waiter = waiters.shift();
+    if (waiter) {
+      waiter.resolve({ value, done: false });
     } else {
       buffer.push(value);
     }
@@ -37,9 +43,21 @@ export function createAsyncQueue<T>(): AsyncQueue<T> {
       return;
     }
     closed = true;
-    while (resolvers.length > 0) {
-      const resolver = resolvers.shift();
-      resolver?.({ value: undefined, done: true });
+    while (waiters.length > 0) {
+      const waiter = waiters.shift();
+      waiter?.resolve({ value: undefined, done: true });
+    }
+  };
+
+  const fail = (error: unknown): void => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    failed = true;
+    failure = error;
+    while (waiters.length > 0) {
+      waiters.shift()?.reject(error);
     }
   };
 
@@ -51,11 +69,14 @@ export function createAsyncQueue<T>(): AsyncQueue<T> {
             const value = buffer.shift() as T;
             return Promise.resolve({ value, done: false });
           }
+          if (failed) {
+            return Promise.reject(failure);
+          }
           if (closed) {
             return Promise.resolve({ value: undefined, done: true });
           }
-          return new Promise((resolve) => {
-            resolvers.push(resolve);
+          return new Promise((resolve, reject) => {
+            waiters.push({ reject, resolve });
           });
         },
         return(): Promise<IteratorResult<T, undefined>> {
@@ -66,7 +87,7 @@ export function createAsyncQueue<T>(): AsyncQueue<T> {
     },
   };
 
-  return { iterable, push, close };
+  return { iterable, push, close, fail };
 }
 
 type StreamCleanup = void | (() => void | Promise<void>);

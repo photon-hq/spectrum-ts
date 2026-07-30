@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
 
@@ -18,8 +18,9 @@ export const SHARED_PHONE = "shared";
 
 const clientEntry = z.object({
   address: z.string(),
-  token: z.string(),
   phone: z.string(),
+  server: z.string().optional(),
+  token: z.string(),
 });
 
 export const configSchema = z.strictObject({

@@ -175,7 +175,11 @@ Semantics to rely on:
 - `message.sender` may be `undefined` — Apple does not always record the actor. The affected member is always present (in `members`, or as the sender for `leaveSpace`).
 - The agent's own actions never echo back: `space.add(...)`, `space.rename(...)`, and friends are suppressed from the inbound stream, matching how self-sent messages behave.
 - Icon-change events carry a snapshot of the icon fetched at event time; an icon that was already replaced or removed by then is skipped (the follow-up event carries the current state).
-- On dedicated lines, group events ride the same durable catch-up log as messages and polls, so changes that happen while the app is down are replayed on reconnect. After a cursor gap, reconcile with `space.getMembers()` / `space.getAvatar()`.
+- On dedicated lines, group events ride the same ordered Fusor feed as messages
+  and polls. Reconnects within a running process resume from its last
+  checkpoint. Replay across a process restart requires
+  `options.fusorCursorStore`; after an unrecoverable cursor gap, reconcile with
+  `space.getMembers()` / `space.getAvatar()`.
 
 ## Inbound read receipts
 
@@ -211,7 +215,11 @@ Semantics to rely on:
 
 If receipts are not arriving, run with `LOG_LEVEL=debug` (or `Spectrum({ options: { logLevel: "debug" } })`). Every receipt logs its outcome under `spectrum.imessage.read`, and each drop states its reason — no reader identified, target unresolved, or a target that is not one of yours. If nothing logs at all, the platform is not sending the event: check that the recipient has **Send Read Receipts** enabled on their device, which is off by default and is what Apple gates the whole signal on.
 - The agent's own reads never echo back: `space.read(...)` and `message.read()` are suppressed from the inbound stream.
-- Receipts ride the same durable catch-up log as messages, so those that arrive while the app is down are replayed on reconnect. A receipt whose target can no longer be resolved (an old message evicted from the in-process cache and since deleted upstream) is dropped rather than surfaced with a stub.
+- Receipts ride the same ordered Fusor feed as messages. Reconnects within a
+  running process resume from the last checkpoint; replay across a process
+  restart requires `options.fusorCursorStore`. A receipt whose target can no
+  longer be resolved (an old message evicted from the in-process cache and
+  since deleted upstream) is dropped rather than surfaced with a stub.
 
 ## Chat backgrounds
 

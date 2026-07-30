@@ -1,7 +1,7 @@
 import {
   type AdvancedIMessage,
   NotFoundError,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { Attachment } from "@spectrum-ts/core";
 import { asAttachment } from "@spectrum-ts/core/authoring";
 import { normalizeAppleAttachmentMimeType } from "../shared/audio";
@@ -9,7 +9,8 @@ import { normalizeAppleAttachmentMimeType } from "../shared/audio";
 /**
  * Stream the primary file bytes of an attachment as a `ReadableStream`.
  * Skips header and Live Photo companion frames; emits only `primaryChunk`
- * payloads. Cleans up the underlying gRPC iterator on cancel and on error.
+ * payloads. Cleans up the underlying HTTP event-stream iterator on cancel and
+ * on error.
  */
 export const downloadPrimaryAttachmentStream = (
   client: AdvancedIMessage,
@@ -82,7 +83,7 @@ export const downloadPrimaryAttachment = async (
 /**
  * Fetch an attachment by GUID and wrap it as a spectrum `Attachment`. The
  * returned object is lazy: `.read()` triggers a Buffer download, `.stream()`
- * opens a fresh byte stream. Calling both issues two independent gRPC
+ * opens a fresh byte stream. Calling both issues two independent HTTP
  * downloads — cache `.read()` if you need the bytes more than once.
  *
  * Returns `undefined` when the GUID is unknown to the server.

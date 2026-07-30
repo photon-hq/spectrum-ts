@@ -1,7 +1,14 @@
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
-import type { Content, FusorMessages, ProjectData } from "@spectrum-ts/core";
+import type {
+  Content,
+  FusorMessages,
+  HybridFusorMessages,
+  ProjectData,
+  Store,
+} from "@spectrum-ts/core";
 import { definePlatform, fusor, fusorEvent } from "@spectrum-ts/core";
 import z from "zod";
+import { makeQueue, record } from "./platform";
 
 // A minimal fusor-mode provider standing in for a real platform (Slack-ish).
 // Its verify() parses the inner HTTP body to a typed payload; messages() turns
@@ -244,3 +251,132 @@ export const makeCtxProbe = (capture: CtxProbeCapture) =>
     messages: ctxProbeMessages(capture),
     send: () => Promise.resolve(undefined),
   });
+
+// ---------------------------------------------------------------------------
+// Hybrid Fusor provider — regular lifecycle client + optional Fusor messages
+// ---------------------------------------------------------------------------
+
+export interface HybridClient {
+  id: string;
+  kind: "regular";
+}
+
+export interface HybridPayload {
+  text: string;
+}
+
+const hybridConfig = z.object({ token: z.string() });
+type HybridConfig = z.infer<typeof hybridConfig>;
+
+export interface HybridCapture {
+  createClient?: HybridClient;
+  createConfig?: HybridConfig;
+  destroyedClient?: HybridClient;
+  handlerClient?: HybridClient;
+  handlerConfig?: HybridConfig;
+  handlerProjectConfig?: ProjectData | undefined;
+  handlerStore?: Store;
+  handlerStoreRoundTrip?: string;
+  regularEventProducerCalls: number;
+  regularMessagesCalls: number;
+  sendClient?: HybridClient;
+}
+
+export interface HybridOptions {
+  createError?: Error;
+  enabled?: boolean;
+  name?: string;
+  regularMessageId?: string;
+  route?: string;
+  streamOnly?: boolean;
+}
+
+export const makeHybrid = (
+  capture: HybridCapture,
+  opts: HybridOptions = {}
+) => {
+  const name = opts.name ?? "hybrid_display";
+  const route = opts.route ?? "hybrid-wire";
+  const client: HybridClient = { id: `${name}-client`, kind: "regular" };
+  const regularMessages = makeQueue<ReturnType<typeof record>>();
+  const regularEvents = makeQueue<{ state: string }>();
+  if (opts.regularMessageId) {
+    regularMessages.push(record(opts.regularMessageId));
+  }
+
+  const hybridMessages: HybridFusorMessages<
+    HybridPayload,
+    HybridClient,
+    HybridConfig
+  > = ({ client: handlerClient, config, payload, projectConfig, store }) => {
+    capture.handlerClient = handlerClient;
+    capture.handlerConfig = config;
+    capture.handlerProjectConfig = projectConfig;
+    capture.handlerStore = store;
+    store.set("hybrid.lastText", payload.text);
+    capture.handlerStoreRoundTrip = store.string("hybrid.lastText");
+    return {
+      ...record(`fusor-${payload.text}`),
+      content: { type: "text", text: payload.text },
+    };
+  };
+
+  const platform = definePlatform(name, {
+    config: hybridConfig,
+    lifecycle: {
+      createClient: () => Promise.resolve(client),
+      destroyClient: ({ client: destroyedClient }) => {
+        capture.destroyedClient = destroyedClient;
+        regularMessages.close();
+        regularEvents.close();
+        return Promise.resolve();
+      },
+    },
+    fusor: {
+      streamOnly: opts.streamOnly,
+      create: ({ client: createClient, config }) => {
+        capture.createClient = createClient;
+        capture.createConfig = config;
+        if (opts.createError) {
+          throw opts.createError;
+        }
+        return opts.enabled === false
+          ? undefined
+          : fusor<HybridPayload>(route, (req) => {
+              const body = JSON.parse(
+                new TextDecoder().decode(req.rawBody)
+              ) as { text?: string };
+              return { text: body.text ?? "" };
+            });
+      },
+      messages: hybridMessages,
+    },
+    user: { resolve: ({ input }) => Promise.resolve({ id: input.userID }) },
+    space: {
+      create: ({ input }) =>
+        Promise.resolve({ id: input.users[0]?.id ?? "space" }),
+    },
+    events: {
+      status: () => {
+        capture.regularEventProducerCalls += 1;
+        return regularEvents.iter;
+      },
+    },
+    messages: () => {
+      capture.regularMessagesCalls += 1;
+      return regularMessages.iter;
+    },
+    send: ({ client: sendClient }) => {
+      capture.sendClient = sendClient;
+      return Promise.resolve(record("hybrid-sent"));
+    },
+  });
+
+  return {
+    client,
+    platform,
+    provider: platform.config({ token: "hybrid-token" }),
+    pushEvent: (state: string) => regularEvents.push({ state }),
+    pushRegularMessage: (id: string) => regularMessages.push(record(id)),
+  };
+};

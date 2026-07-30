@@ -2,7 +2,7 @@ import type {
   AdvancedIMessage,
   GroupEvent,
   SingleServiceAddressInfo,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { Content } from "@spectrum-ts/core";
 import {
   addMemberSchema,
@@ -25,8 +25,10 @@ const log = createLogger("spectrum.imessage.group");
  * (the dedup key across live/catch-up) and the surfaced message. `sequence`
  * is monotonic per line, so the id is unique across all change kinds.
  */
-export const groupEventMessageId = (event: GroupEvent): string =>
-  `${event.chatGuid}:group:${event.sequence}`;
+export const groupEventMessageId = (
+  event: GroupEvent,
+  sourceSequence = String(event.sequence)
+): string => `${event.chatGuid}:group:${sourceSequence}`;
 
 /**
  * The acting party of a group change. For `participantLeft` that is the
@@ -136,7 +138,8 @@ const toGroupChangeContent = async (
 export const toGroupEventMessages = async (
   client: AdvancedIMessage,
   event: GroupEvent,
-  phone: string
+  phone: string,
+  sourceSequence = String(event.sequence)
 ): Promise<IMessageMessage[]> => {
   const content = await toGroupChangeContent(client, event);
   if (!content) {
@@ -146,7 +149,7 @@ export const toGroupEventMessages = async (
     {
       // No `direction`: the stream path defaults provider records to inbound
       // (the agent's own echoes are suppressed before conversion).
-      id: groupEventMessageId(event),
+      id: groupEventMessageId(event, sourceSequence),
       content,
       sender: toOptionalSenderRef(groupEventActor(event)),
       space: {

@@ -1,3 +1,4 @@
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface FakeDedicatedTokenData {
@@ -15,48 +16,58 @@ interface FakeSharedTokenData {
 
 type FakeTokenData = FakeDedicatedTokenData | FakeSharedTokenData;
 
-interface FakeClientOptions {
+interface HttpClientOptions {
   address: string;
-  autoIdempotency?: boolean;
-  retry?: boolean;
-  tls?: boolean;
+  autoIdempotency: boolean;
+  retry: boolean;
+  server?: string;
   token: () => Promise<string>;
 }
 
 interface FakeClient {
   close: ReturnType<typeof vi.fn>;
+  options: HttpClientOptions;
 }
 
-const initialTokenData: FakeDedicatedTokenData = {
-  auth: { "instance-1": "token-1" },
-  expiresIn: 3600,
-  numbers: { "instance-1": "+15550000001" },
-  type: "dedicated",
+interface RenewalOptions {
+  expiresInSeconds: () => number;
+  name: string;
+  refresh: () => Promise<void>;
+}
+
+const INSTANCE_ONE = "instance-one";
+const INSTANCE_TWO = "instance-two";
+const INSTANCE_THREE = "instance-three";
+const PHONE_ONE = "+15550100";
+const PHONE_TWO = "+15550101";
+const PHONE_THREE = "+15550102";
+const PROJECT_ID = "project-1";
+const PROJECT_SECRET = "secret-1";
+const FORCE_REFRESH_FLOOR_MS = 5000;
+
+const issuedClients: FakeClient[] = [];
+const makeFakeClient = (options: HttpClientOptions): AdvancedIMessage => {
+  const client: FakeClient = {
+    close: vi.fn(() => Promise.resolve()),
+    options,
+  };
+  issuedClients.push(client);
+  return client as unknown as AdvancedIMessage;
 };
 
-// Builds a dedicated payload from instanceId -> phone, so each test reads as
-// the line inventory it is asserting against.
-const dedicated = (
-  numbers: Record<string, string | null>
-): FakeDedicatedTokenData => ({
-  auth: Object.fromEntries(
-    Object.keys(numbers).map((id) => [id, `token-${id}`])
-  ),
-  expiresIn: 3600,
-  numbers,
-  type: "dedicated",
-});
+const createHttpClient = vi.fn(makeFakeClient);
+const issueImessageTokens = vi.fn<() => Promise<FakeTokenData>>();
 
-const issueImessageTokens = vi.fn(
-  (): Promise<FakeTokenData> => Promise.resolve(initialTokenData)
-);
-const clientOptions: FakeClientOptions[] = [];
-const fakeClients: FakeClient[] = [];
-const createGrpcClient = vi.fn((options: FakeClientOptions) => {
-  clientOptions.push(options);
-  const client: FakeClient = { close: vi.fn(() => Promise.resolve()) };
-  fakeClients.push(client);
-  return client;
+const renewal = {
+  dispose: vi.fn(),
+  forceRefresh: vi.fn<() => Promise<void>>(),
+  invalidate: vi.fn(),
+  refreshIfNeeded: vi.fn(() => Promise.resolve()),
+};
+let renewalOptions: RenewalOptions | undefined;
+const createTokenRenewal = vi.fn((options: RenewalOptions) => {
+  renewalOptions = options;
+  return renewal;
 });
 
 vi.doMock("@spectrum-ts/core", async (importOriginal) => {
@@ -67,272 +78,662 @@ vi.doMock("@spectrum-ts/core", async (importOriginal) => {
   };
 });
 
-vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({ createGrpcClient }));
+vi.doMock("@spectrum-ts/core/authoring", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@spectrum-ts/core/authoring")>();
+  return { ...actual, createTokenRenewal };
+});
+
+vi.doMock("@photon-ai/advanced-imessage/http", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@photon-ai/advanced-imessage/http")>();
+  return { ...actual, createHttpClient };
+});
 
 const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
   "@/auth"
 );
-const { addLineObserver } = await import("@/lines");
 
-// The recover hook runs the same closure the renewal timer does, so it is the
-// cheapest way to drive a refresh. It is throttled to one re-mint per 5s.
-const FORCE_REFRESH_FLOOR_MS = 5000;
+const dedicatedTokens = (
+  overrides: Partial<{
+    auth: Record<string, string>;
+    expiresIn: number;
+    numbers: Record<string, string | null>;
+  }> = {}
+): FakeDedicatedTokenData => ({
+  auth: {
+    [INSTANCE_ONE]: "token-one",
+    [INSTANCE_TWO]: "token-two",
+  },
+  expiresIn: 3600,
+  numbers: {
+    [INSTANCE_ONE]: PHONE_ONE,
+    [INSTANCE_TWO]: PHONE_TWO,
+  },
+  type: "dedicated",
+  ...overrides,
+});
 
-const startClients = async (initial: FakeTokenData) => {
-  vi.useFakeTimers();
-  vi.setSystemTime(0);
-  issueImessageTokens.mockResolvedValueOnce(initial);
-  const clients = await createCloudClients("project-1", "secret-1");
-  const recover = getCloudRecover(clients);
-  if (!recover) {
-    throw new Error("expected cloud recovery hook");
+const dedicatedInventory = (
+  numbers: Record<string, string | null>
+): FakeDedicatedTokenData => ({
+  auth: Object.fromEntries(
+    Object.keys(numbers).map((instanceId) => [
+      instanceId,
+      `token-${instanceId}`,
+    ])
+  ),
+  expiresIn: 3600,
+  numbers,
+  type: "dedicated",
+});
+
+const resolveClientToken = async (client: FakeClient): Promise<string> =>
+  await client.options.token();
+
+const refreshWith = async (next: FakeTokenData): Promise<void> => {
+  issueImessageTokens.mockResolvedValueOnce(next);
+  if (!renewalOptions) {
+    throw new Error("expected renewal options");
   }
-
-  const refresh = async (next: FakeTokenData): Promise<void> => {
-    issueImessageTokens.mockResolvedValueOnce(next);
-    await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
-    await recover();
-    // Settle the fire-and-forget retire of any removed line.
-    await vi.advanceTimersByTimeAsync(0);
-  };
-
-  return { clients, refresh };
+  await renewalOptions.refresh();
 };
 
-describe("imessage cloud auth", () => {
+describe("iMessage cloud authentication", () => {
   beforeEach(() => {
+    issuedClients.length = 0;
+    renewalOptions = undefined;
+    createHttpClient.mockReset();
+    createHttpClient.mockImplementation(makeFakeClient);
     issueImessageTokens.mockReset();
-    issueImessageTokens.mockResolvedValue(initialTokenData);
-    createGrpcClient.mockClear();
-    clientOptions.length = 0;
-    fakeClients.length = 0;
+    issueImessageTokens.mockResolvedValue(dedicatedTokens());
+    createTokenRenewal.mockClear();
+    renewal.dispose.mockClear();
+    renewal.forceRefresh.mockReset();
+    renewal.forceRefresh.mockImplementation(async () => {
+      if (!renewalOptions) {
+        throw new Error("expected renewal options");
+      }
+      await renewalOptions.refresh();
+    });
+    renewal.invalidate.mockClear();
+    renewal.refreshIfNeeded.mockClear();
+    renewal.refreshIfNeeded.mockResolvedValue();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
-  it("coalesces forced recovery and updates dedicated clients in place", async () => {
+  it("uses the Cloud token and shared HTTP endpoint in shared mode", async () => {
+    issueImessageTokens.mockResolvedValue({
+      expiresIn: 3600,
+      token: "shared-token",
+      type: "shared",
+    });
+
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    expect(issueImessageTokens).toHaveBeenCalledWith(
+      PROJECT_ID,
+      PROJECT_SECRET
+    );
+    expect(clients).toEqual([
+      {
+        client: issuedClients[0] as unknown as AdvancedIMessage,
+        phone: "shared",
+      },
+    ]);
+    expect(issuedClients[0]?.options).toEqual({
+      address: "imessage-http.photon.codes",
+      autoIdempotency: true,
+      retry: true,
+      token: expect.any(Function),
+    });
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "shared-token"
+    );
+    expect(renewal.refreshIfNeeded).toHaveBeenCalledOnce();
+
+    await disposeCloudAuth(clients);
+    expect(renewal.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("uses the HTTP adapter override for dedicated clients", async () => {
+    vi.stubEnv(
+      "SPECTRUM_IMESSAGE_HTTP_ADDRESS",
+      "https://staging-imessage-http.photon.codes"
+    );
+
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    expect(issuedClients.map(({ options }) => options.address)).toEqual([
+      "https://staging-imessage-http.photon.codes",
+      "https://staging-imessage-http.photon.codes",
+    ]);
+    await disposeCloudAuth(clients);
+  });
+
+  it("uses refreshed shared credentials without rebuilding the client", async () => {
+    issueImessageTokens.mockResolvedValueOnce({
+      expiresIn: 60,
+      token: "shared-token-1",
+      type: "shared",
+    });
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    await refreshWith({
+      expiresIn: 3600,
+      token: "shared-token-2",
+      type: "shared",
+    });
+
+    expect(renewalOptions?.name).toBe("imessage");
+    expect(renewalOptions?.expiresInSeconds()).toBe(3600);
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "shared-token-2"
+    );
+    expect(createHttpClient).toHaveBeenCalledOnce();
+    await disposeCloudAuth(clients);
+  });
+
+  it("creates one direct HTTP client per Cloud instance", async () => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    expect(clients).toEqual([
+      {
+        client: issuedClients[0] as unknown as AdvancedIMessage,
+        phone: PHONE_ONE,
+      },
+      {
+        client: issuedClients[1] as unknown as AdvancedIMessage,
+        phone: PHONE_TWO,
+      },
+    ]);
+    expect(issuedClients.map(({ options }) => options)).toEqual([
+      {
+        address: "imessage-http.photon.codes",
+        autoIdempotency: true,
+        retry: true,
+        server: INSTANCE_ONE,
+        token: expect.any(Function),
+      },
+      {
+        address: "imessage-http.photon.codes",
+        autoIdempotency: true,
+        retry: true,
+        server: INSTANCE_TWO,
+        token: expect.any(Function),
+      },
+    ]);
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "token-one"
+    );
+    expect(await resolveClientToken(issuedClients[1] as FakeClient)).toBe(
+      "token-two"
+    );
+    await disposeCloudAuth(clients);
+  });
+
+  it("rotates dedicated tokens without rebuilding clients", async () => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    await refreshWith(
+      dedicatedTokens({
+        auth: {
+          [INSTANCE_ONE]: "token-one-refreshed",
+          [INSTANCE_TWO]: "token-two-refreshed",
+        },
+      })
+    );
+
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "token-one-refreshed"
+    );
+    expect(await resolveClientToken(issuedClients[1] as FakeClient)).toBe(
+      "token-two-refreshed"
+    );
+    expect(createHttpClient).toHaveBeenCalledTimes(2);
+    await disposeCloudAuth(clients);
+  });
+
+  it("adds a newly provisioned line to the same live array", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const arrayIdentity = clients;
+
+    await refreshWith(
+      dedicatedInventory({
+        [INSTANCE_ONE]: PHONE_ONE,
+        [INSTANCE_TWO]: PHONE_TWO,
+      })
+    );
+
+    expect(clients).toBe(arrayIdentity);
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE, PHONE_TWO]);
+    expect(issuedClients[1]?.options.server).toBe(INSTANCE_TWO);
+    expect(await resolveClientToken(issuedClients[1] as FakeClient)).toBe(
+      `token-${INSTANCE_TWO}`
+    );
+    expect(getCloudRecover(arrayIdentity)).toBeDefined();
+    await disposeCloudAuth(clients);
+  });
+
+  it("removes and closes a deprovisioned line without replacing the array", async () => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const arrayIdentity = clients;
+
+    await refreshWith(dedicatedInventory({ [INSTANCE_TWO]: PHONE_TWO }));
+
+    expect(clients).toBe(arrayIdentity);
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_TWO]);
+    expect(issuedClients[0]?.close).toHaveBeenCalledOnce();
+    expect(issuedClients[1]?.close).not.toHaveBeenCalled();
+    await disposeCloudAuth(clients);
+  });
+
+  it("updates a changed phone on its existing instance client", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const entryIdentity = clients[0];
+
+    await refreshWith(dedicatedInventory({ [INSTANCE_ONE]: "+15550199" }));
+
+    expect(clients).toHaveLength(1);
+    expect(clients[0]).toBe(entryIdentity);
+    expect(clients[0]?.phone).toBe("+15550199");
+    expect(createHttpClient).toHaveBeenCalledOnce();
+    await disposeCloudAuth(clients);
+  });
+
+  it("skips a provisioned line until Cloud assigns its phone", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: null })
+    );
+
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    expect(clients).toEqual([]);
+    expect(createHttpClient).not.toHaveBeenCalled();
+    await disposeCloudAuth(clients);
+  });
+
+  it("discovers a previously unassigned line on refresh", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: null })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+
+    await refreshWith(dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE }));
+
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE]);
+    expect(issuedClients[0]?.options.server).toBe(INSTANCE_ONE);
+    await disposeCloudAuth(clients);
+  });
+
+  it("keeps a known line's last phone when Cloud temporarily omits it", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedTokens({
+        auth: { [INSTANCE_ONE]: "token-one" },
+        numbers: { [INSTANCE_ONE]: PHONE_ONE },
+      })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const entryIdentity = clients[0];
+
+    await refreshWith(
+      dedicatedTokens({
+        auth: { [INSTANCE_ONE]: "token-one-refreshed" },
+        numbers: { [INSTANCE_ONE]: null },
+      })
+    );
+
+    expect(clients).toEqual([entryIdentity]);
+    expect(clients[0]?.phone).toBe(PHONE_ONE);
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "token-one-refreshed"
+    );
+    expect(createHttpClient).toHaveBeenCalledOnce();
+    await disposeCloudAuth(clients);
+  });
+
+  it("forces immediate discovery once, then bounds repeated refreshes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    let resolveRefresh:
-      | ((
-          value: FakeDedicatedTokenData | PromiseLike<FakeDedicatedTokenData>
-        ) => void)
-      | undefined;
-    issueImessageTokens.mockResolvedValueOnce(initialTokenData);
-    issueImessageTokens.mockImplementationOnce(
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const recover = getCloudRecover(clients);
+    if (!recover) {
+      throw new Error("expected cloud recovery hook");
+    }
+    issueImessageTokens
+      .mockResolvedValueOnce(
+        dedicatedInventory({
+          [INSTANCE_ONE]: PHONE_ONE,
+          [INSTANCE_TWO]: PHONE_TWO,
+        })
+      )
+      .mockResolvedValueOnce(
+        dedicatedInventory({
+          [INSTANCE_ONE]: PHONE_ONE,
+          [INSTANCE_TWO]: PHONE_TWO,
+          [INSTANCE_THREE]: PHONE_THREE,
+        })
+      );
+
+    await expect(recover()).resolves.toBe(true);
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE, PHONE_TWO]);
+    expect(renewal.forceRefresh).toHaveBeenCalledOnce();
+
+    await expect(recover()).resolves.toBe(false);
+    expect(renewal.forceRefresh).toHaveBeenCalledOnce();
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE, PHONE_TWO]);
+
+    await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
+    await expect(recover()).resolves.toBe(true);
+    expect(renewal.forceRefresh).toHaveBeenCalledTimes(2);
+    expect(clients.map(({ phone }) => phone)).toEqual([
+      PHONE_ONE,
+      PHONE_TWO,
+      PHONE_THREE,
+    ]);
+    await disposeCloudAuth(clients);
+  });
+
+  it("coalesces callers onto an in-flight forced discovery", async () => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const recover = getCloudRecover(clients);
+    if (!recover) {
+      throw new Error("expected cloud recovery hook");
+    }
+    let release: (() => void) | undefined;
+    renewal.forceRefresh.mockImplementationOnce(
       () =>
-        new Promise<FakeDedicatedTokenData>((resolve) => {
-          resolveRefresh = resolve;
+        new Promise<void>((resolve) => {
+          release = resolve;
         })
     );
 
-    const clients = await createCloudClients("project-1", "secret-1");
+    const first = recover();
+    const second = recover();
+    expect(renewal.forceRefresh).toHaveBeenCalledOnce();
+    release?.();
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("reports an unsuccessful refresh as stale during the retry floor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const recover = getCloudRecover(clients);
+    if (!recover) {
+      throw new Error("expected cloud recovery hook");
+    }
+    renewal.forceRefresh.mockRejectedValueOnce(new Error("cloud unavailable"));
+
+    await expect(recover()).rejects.toThrow("cloud unavailable");
+    await expect(recover()).resolves.toBe(false);
+    expect(renewal.forceRefresh).toHaveBeenCalledOnce();
+
+    await disposeCloudAuth(clients);
+  });
+
+  it.each([
+    {
+      expected: `missing auth for instance ${INSTANCE_ONE}`,
+      response: dedicatedTokens({
+        auth: { [INSTANCE_ONE]: "" },
+        numbers: { [INSTANCE_ONE]: PHONE_ONE },
+      }),
+    },
+    {
+      expected: `instance ${INSTANCE_ONE} has no valid E.164 phone`,
+      response: dedicatedTokens({
+        auth: { [INSTANCE_ONE]: "token-one" },
+        numbers: { [INSTANCE_ONE]: "15550100" },
+      }),
+    },
+    {
+      expected: `duplicate phone ${PHONE_ONE}`,
+      response: dedicatedTokens({
+        numbers: {
+          [INSTANCE_ONE]: PHONE_ONE,
+          [INSTANCE_TWO]: PHONE_ONE,
+        },
+      }),
+    },
+  ])("rejects invalid dedicated discovery: $expected", async (testCase) => {
+    issueImessageTokens.mockResolvedValue(testCase.response);
+
+    await expect(
+      createCloudClients(PROJECT_ID, PROJECT_SECRET)
+    ).rejects.toThrow(testCase.expected);
+
+    expect(createHttpClient).not.toHaveBeenCalled();
+    expect(createTokenRenewal).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      expected: "returned shared credentials",
+      refreshed: { expiresIn: 3600, token: "shared", type: "shared" },
+    },
+    {
+      expected: `missing auth for instance ${INSTANCE_ONE}`,
+      refreshed: dedicatedTokens({
+        auth: {
+          [INSTANCE_ONE]: " ",
+          [INSTANCE_TWO]: "token-two-refreshed",
+        },
+      }),
+    },
+    {
+      expected: `instance ${INSTANCE_ONE} has no valid E.164 phone`,
+      refreshed: dedicatedTokens({
+        numbers: {
+          [INSTANCE_ONE]: "invalid",
+          [INSTANCE_TWO]: PHONE_TWO,
+        },
+      }),
+    },
+    {
+      expected: `duplicate phone ${PHONE_ONE}`,
+      refreshed: dedicatedTokens({
+        numbers: {
+          [INSTANCE_ONE]: PHONE_ONE,
+          [INSTANCE_TWO]: PHONE_ONE,
+        },
+      }),
+    },
+  ])("rejects an invalid refresh that $expected", async (testCase) => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const arrayIdentity = clients;
+
+    await expect(
+      refreshWith(testCase.refreshed as FakeTokenData)
+    ).rejects.toThrow(testCase.expected);
+
+    expect(clients).toBe(arrayIdentity);
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE, PHONE_TWO]);
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "token-one"
+    );
+    expect(await resolveClientToken(issuedClients[1] as FakeClient)).toBe(
+      "token-two"
+    );
+    expect(
+      issuedClients.every(({ close }) => close.mock.calls.length === 0)
+    ).toBe(true);
+    await disposeCloudAuth(clients);
+  });
+
+  it("preserves an empty dedicated project and discovers its first line", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedTokens({ auth: {}, numbers: {} })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const recover = getCloudRecover(clients);
+    if (!recover) {
+      throw new Error("expected cloud recovery hook");
+    }
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE })
+    );
+
+    expect(clients).toEqual([]);
+    await expect(recover()).resolves.toBe(true);
+
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE]);
+    expect(createHttpClient).toHaveBeenCalledOnce();
+    await disposeCloudAuth(clients);
+  });
+
+  it("closes already-opened clients when construction fails", async () => {
+    createHttpClient
+      .mockImplementationOnce(makeFakeClient)
+      .mockImplementationOnce(() => {
+        throw new Error("client construction failed");
+      });
+
+    await expect(
+      createCloudClients(PROJECT_ID, PROJECT_SECRET)
+    ).rejects.toThrow("client construction failed");
+
+    expect(issuedClients).toHaveLength(1);
+    expect(issuedClients[0]?.close).toHaveBeenCalledOnce();
+    expect(renewal.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("contains a removed client's close failure", async () => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    issuedClients[0]?.close.mockRejectedValueOnce(new Error("close failed"));
+
+    await expect(
+      refreshWith(dedicatedInventory({ [INSTANCE_TWO]: PHONE_TWO }))
+    ).resolves.toBeUndefined();
+
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_TWO]);
+    expect(issuedClients[0]?.close).toHaveBeenCalledOnce();
+    await disposeCloudAuth(clients);
+  });
+
+  it("disposes renewal state once and disables a retained recovery hook", async () => {
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
     const recover = getCloudRecover(clients);
     if (!recover) {
       throw new Error("expected cloud recovery hook");
     }
 
-    await vi.advanceTimersByTimeAsync(5000);
-    const first = recover();
-    const second = recover();
-    expect(issueImessageTokens).toHaveBeenCalledTimes(2);
-
-    resolveRefresh?.({
-      auth: { "instance-1": "token-2" },
-      expiresIn: 3600,
-      numbers: { "instance-1": "+15550000002" },
-      type: "dedicated",
-    });
-    await Promise.all([first, second]);
-
-    expect(issueImessageTokens).toHaveBeenCalledTimes(2);
-    expect(clients[0]?.phone).toBe("+15550000002");
-    expect(await clientOptions[0]?.token()).toBe("token-2");
-
     await disposeCloudAuth(clients);
+    await disposeCloudAuth(clients);
+    await expect(recover()).resolves.toBe(false);
+
+    expect(renewal.dispose).toHaveBeenCalledOnce();
+    expect(renewal.forceRefresh).not.toHaveBeenCalled();
     expect(getCloudRecover(clients)).toBeUndefined();
   });
 
-  it("attaches a line provisioned after startup", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001" })
+  it("does not add a line when an in-flight refresh finishes after disposal", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE })
     );
-    const arrayRef = clients;
-
-    await refresh(
-      dedicated({ "instance-1": "+15550000001", "instance-2": "+15550000002" })
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    let resolveRefresh: ((value: FakeDedicatedTokenData) => void) | undefined;
+    issueImessageTokens.mockImplementationOnce(
+      () =>
+        new Promise<FakeTokenData>((resolve) => {
+          resolveRefresh = resolve;
+        })
     );
+    if (!renewalOptions) {
+      throw new Error("expected renewal options");
+    }
 
-    expect(clients).toHaveLength(2);
-    expect(clients.map((entry) => entry.phone)).toEqual([
-      "+15550000001",
-      "+15550000002",
-    ]);
-    expect(createGrpcClient).toHaveBeenCalledTimes(2);
-    // The array is mutated, never replaced: the cloud-auth, poll-cache, and
-    // profile-sync WeakMaps are all keyed by its identity.
-    expect(clients).toBe(arrayRef);
-    expect(getCloudRecover(arrayRef)).toBeDefined();
-
+    const refreshing = renewalOptions.refresh();
     await disposeCloudAuth(clients);
+    resolveRefresh?.(
+      dedicatedInventory({
+        [INSTANCE_ONE]: PHONE_ONE,
+        [INSTANCE_TWO]: PHONE_TWO,
+      })
+    );
+    await refreshing;
+
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE]);
+    expect(createHttpClient).toHaveBeenCalledOnce();
   });
 
-  it("builds an added line with the same client options as startup", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001" })
-    );
-
-    await refresh(
-      dedicated({ "instance-1": "+15550000001", "instance-2": "+15550000002" })
-    );
-
-    const [first, second] = clientOptions;
-    const transport = (options?: FakeClientOptions) => ({
-      autoIdempotency: options?.autoIdempotency,
-      retry: options?.retry,
-      tls: options?.tls,
-    });
-    expect(transport(second)).toEqual(transport(first));
-    expect(second?.address).toBe("instance-2.imsg.photon.codes:443");
-    expect(await second?.token()).toBe("token-instance-2");
-
-    await disposeCloudAuth(clients);
-  });
-
-  it("detaches a deprovisioned line and closes its channel", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001", "instance-2": "+15550000002" })
-    );
-    expect(clients).toHaveLength(2);
-
-    await refresh(dedicated({ "instance-2": "+15550000002" }));
-
-    expect(clients).toHaveLength(1);
-    expect(clients[0]?.phone).toBe("+15550000002");
-    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
-    expect(fakeClients[1]?.close).not.toHaveBeenCalled();
-
-    await disposeCloudAuth(clients);
-  });
-
-  it("skips a line without a phone number instead of failing startup", async () => {
-    const { clients } = await startClients(dedicated({ "instance-1": null }));
-
-    expect(clients).toEqual([]);
-    expect(createGrpcClient).not.toHaveBeenCalled();
-
-    await disposeCloudAuth(clients);
-  });
-
-  it("picks up a line once its number is assigned", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": null })
-    );
-    expect(clients).toEqual([]);
-
-    await refresh(dedicated({ "instance-1": "+15550000001" }));
-
-    expect(clients).toHaveLength(1);
-    expect(clients[0]?.phone).toBe("+15550000001");
-
-    await disposeCloudAuth(clients);
-  });
-
-  it("keeps a known line usable when it loses its number mid-refresh", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001" })
-    );
-
-    await refresh(dedicated({ "instance-1": null }));
-
-    expect(clients).toHaveLength(1);
-    expect(clients[0]?.phone).toBe("+15550000001");
-
-    // The refresh must have completed normally: a rejected refresh leaves the
-    // token deadline unadvanced, and `refreshIfNeeded` runs on every RPC, so
-    // every call on every line would re-mint.
-    const calls = issueImessageTokens.mock.calls.length;
-    expect(await clientOptions[0]?.token()).toBe("token-instance-1");
-    expect(issueImessageTokens).toHaveBeenCalledTimes(calls);
-
-    await disposeCloudAuth(clients);
-  });
-
-  it("removes every line when the response reports no lines", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001" })
-    );
-
-    // No lines is a real inventory, not a suspect response: holding the entry
-    // would keep routing through a channel whose token no longer refreshes.
-    await refresh(dedicated({}));
-
-    expect(clients).toEqual([]);
-    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
-
-    await disposeCloudAuth(clients);
-  });
-
-  it("leaves shared mode untouched across a refresh", async () => {
-    const shared: FakeSharedTokenData = {
-      expiresIn: 3600,
-      token: "shared-1",
+  it("fails closed when a shared token refresh changes mode", async () => {
+    issueImessageTokens.mockResolvedValueOnce({
+      expiresIn: 60,
+      token: "shared",
       type: "shared",
-    };
-    const { clients, refresh } = await startClients(shared);
-    expect(clients).toHaveLength(1);
-    expect(clients[0]?.phone).toBe("shared");
+    });
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
 
-    await refresh({ ...shared, token: "shared-2" });
-
-    expect(clients).toHaveLength(1);
-    expect(createGrpcClient).toHaveBeenCalledTimes(1);
-    expect(await clientOptions[0]?.token()).toBe("shared-2");
-
+    await expect(refreshWith(dedicatedTokens())).rejects.toThrow(
+      "Shared iMessage token refresh returned dedicated credentials"
+    );
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "shared"
+    );
     await disposeCloudAuth(clients);
   });
 
-  it("re-asserts every known line on refresh so a dropped stream revives", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001" })
-    );
-    const attached: string[] = [];
-    addLineObserver(clients, {
-      attach: (entry) => {
-        attached.push(entry.phone);
-      },
-      detach: () => Promise.resolve(),
+  it("rejects missing shared tokens at discovery and refresh", async () => {
+    issueImessageTokens.mockResolvedValueOnce({
+      expiresIn: 3600,
+      token: " ",
+      type: "shared",
     });
+    await expect(
+      createCloudClients(PROJECT_ID, PROJECT_SECRET)
+    ).rejects.toThrow("Shared iMessage token response is missing token");
+    expect(createTokenRenewal).not.toHaveBeenCalled();
 
-    // Same line set: the stream layer drops a line whose stream died, so the
-    // refresh must re-assert it rather than assume it is still subscribed.
-    await refresh(dedicated({ "instance-1": "+15550000001" }));
-
-    expect(attached).toEqual(["+15550000001"]);
-    expect(clients).toHaveLength(1);
-
+    issueImessageTokens
+      .mockResolvedValueOnce({
+        expiresIn: 3600,
+        token: "shared",
+        type: "shared",
+      })
+      .mockResolvedValueOnce({
+        expiresIn: 3600,
+        token: "",
+        type: "shared",
+      });
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    if (!renewalOptions) {
+      throw new Error("expected renewal options");
+    }
+    await expect(renewalOptions.refresh()).rejects.toThrow(
+      "Shared iMessage token response is missing token"
+    );
+    expect(await resolveClientToken(issuedClients[0] as FakeClient)).toBe(
+      "shared"
+    );
     await disposeCloudAuth(clients);
   });
 
-  it("survives an observer that throws while attaching", async () => {
-    const { clients, refresh } = await startClients(
-      dedicated({ "instance-1": "+15550000001" })
-    );
-    addLineObserver(clients, {
-      attach: () => {
-        throw new Error("observer boom");
-      },
-      detach: () => Promise.resolve(),
-    });
+  it("fails closed when Cloud returns an unknown iMessage mode", async () => {
+    issueImessageTokens.mockResolvedValue({
+      expiresIn: 3600,
+      type: "future-mode",
+    } as unknown as FakeTokenData);
 
-    await refresh(
-      dedicated({ "instance-1": "+15550000001", "instance-2": "+15550000002" })
-    );
+    await expect(
+      createCloudClients(PROJECT_ID, PROJECT_SECRET)
+    ).rejects.toThrow("Unsupported iMessage mode returned by Spectrum Cloud");
 
-    expect(clients).toHaveLength(2);
-
-    await disposeCloudAuth(clients);
+    expect(createHttpClient).not.toHaveBeenCalled();
   });
 });

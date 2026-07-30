@@ -1,7 +1,7 @@
 import type {
   AdvancedIMessage,
   MessageEvent,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { sanitizePhone } from "@photon-ai/otel";
 import type { Read as ReadContent } from "@spectrum-ts/core";
 import { createLogger, readSchema } from "@spectrum-ts/core/authoring";
@@ -16,13 +16,16 @@ type ReadEvent = Extract<MessageEvent, { type: "message.read" }>;
 
 /**
  * Synthetic id for a `message.read` event — shared between the stream item
- * (the dedup key across live/catch-up) and the surfaced message. `sequence` is
- * monotonic per line, so N participants reading the same message produce N
- * distinct ids, and the same event replayed through catch-up produces the id
- * it produced live.
+ * (the dedup key across live/catch-up) and the surfaced message. The transport
+ * may supply the exact decimal source sequence separately because the SDK's
+ * numeric event sequence cannot represent every int64. It is monotonic per
+ * line, so N participants reading the same message produce N distinct ids and
+ * replay produces the same id.
  */
-export const readReceiptMessageId = (event: ReadEvent): string =>
-  `${event.messageGuid}:read:${event.sequence}`;
+export const readReceiptMessageId = (
+  event: ReadEvent,
+  sourceSequence = String(event.sequence)
+): string => `${event.messageGuid}:read:${sourceSequence}`;
 
 const asProviderRead = (target: IMessageMessage): ReadContent =>
   readSchema.parse({ target, type: "read" });
@@ -104,7 +107,8 @@ export const toReadReceiptMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
   event: ReadEvent,
-  phone: string
+  phone: string,
+  sourceSequence = String(event.sequence)
 ): Promise<IMessageMessage[]> => {
   if (!isAttributable(event)) {
     log.debug("read receipt dropped: reader could not be identified", {
@@ -174,7 +178,7 @@ export const toReadReceiptMessages = async (
       // No `direction` on the envelope: the stream path defaults provider
       // records to inbound. The *target* keeps its own `direction: "outbound"`,
       // which `wrapProviderMessage` honors via `rawDirection`.
-      id: readReceiptMessageId(event),
+      id: readReceiptMessageId(event, sourceSequence),
       content: asProviderRead(target),
       sender: reader,
       space: {

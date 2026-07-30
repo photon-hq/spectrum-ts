@@ -1,34 +1,40 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { type RemoteClient, SHARED_PHONE } from "../types";
 
 export const isSharedMode = (clients: RemoteClient[]): boolean =>
   clients.length === 1 && clients[0]?.phone === SHARED_PHONE;
 
 export const availablePhones = (clients: RemoteClient[]): string[] =>
-  clients.map((c) => c.phone);
+  clients.map((client) => client.phone);
 
-export const clientForPhone = (
+export const clientEntryForPhone = (
   clients: RemoteClient[],
   phone: string
-): AdvancedIMessage => {
-  // Shared mode: a single client serves every conversation regardless of
-  // the phone arg, since the SDK exposes no per-number routing in this mode.
+): RemoteClient => {
+  // Shared mode has one HTTP middleware client for every conversation. The
+  // middleware owns its internal number selection, so callers use the shared
+  // sentinel rather than a physical line.
   if (isSharedMode(clients)) {
     const entry = clients[0];
     if (!entry) {
       throw new Error("No iMessage clients configured");
     }
-    return entry.client;
+    return entry;
   }
-  const entry = clients.find((c) => c.phone === phone);
+  const entry = clients.find((candidate) => candidate.phone === phone);
   if (!entry) {
     const list = availablePhones(clients).join(", ") || "<none>";
     throw new Error(
       `No iMessage client serves phone ${phone}. Available: ${list}`
     );
   }
-  return entry.client;
+  return entry;
 };
+
+export const clientForPhone = (
+  clients: RemoteClient[],
+  phone: string
+): AdvancedIMessage => clientEntryForPhone(clients, phone).client;
 
 export const randomPhone = (clients: RemoteClient[]): string => {
   if (clients.length === 0) {

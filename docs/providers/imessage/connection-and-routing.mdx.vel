@@ -15,7 +15,7 @@ can register both when it needs both transports.
 
 <Tabs>
   <Tab title="Cloud: @spectrum-ts/imessage">
-    Authenticates with Spectrum Cloud and connects to managed iMessage infrastructure via gRPC. Supports sending, receiving, typing indicators, reactions, and replies. Group creation and inbound group-change events require a dedicated line.
+    Authenticates with Spectrum Cloud, receives inbound events through Fusor's WebSocket feed, and sends or fetches resources through Advanced iMessage HTTP. Supports sending, receiving, typing indicators, reactions, and replies. Group creation and inbound group-change events require a dedicated line.
 
     With automatic discovery, tokens are renewed at 80% of their TTL. This requires `projectId` and `projectSecret` on the `Spectrum()` call:
 
@@ -30,17 +30,23 @@ can register both when it needs both transports.
     });
     ```
 
-    Spectrum discovers all cloud lines owned by the project and renews their tokens automatically. For advanced routing, you can instead provide a subset of the project's cloud clients:
+    Spectrum discovers all cloud lines owned by the project and renews their tokens automatically. For advanced outbound routing, you can instead provide explicit Advanced iMessage HTTP clients:
 
     ```ts
     imessage.config({
       clients: [
-        { address: "line-1.imsg.photon.codes:443", token: "your-token", phone: "+15551111111" },
+        {
+          address: "https://imessage.example.com",
+          token: "your-token",
+          phone: "+15551111111",
+          // Optional when this address is a shared HTTP gateway:
+          server: "dedicated-instance-id",
+        },
       ],
     });
     ```
 
-    Explicit clients let you control which cloud-owned lines this SDK instance subscribes to. They still use the cloud package. Their tokens are not renewed by the SDK, so you are responsible for keeping them current; most applications should use automatic discovery.
+    A bare `address` defaults to HTTPS. Set `server` only when a shared gateway needs the dedicated instance id in `x-photon-server`; omit it for a direct server. Explicit tokens are not renewed by the SDK, so you are responsible for keeping them current. Without Spectrum project credentials, explicit clients are outbound/webhook-only. Supplying `projectId` and `projectSecret` also enables Fusor WebSocket inbound delivery, routed by the configured `phone`.
   </Tab>
   <Tab title="Local: @spectrum-ts/imessage-local">
     Reads the macOS Messages SQLite database directly. It is an explicit,
@@ -94,9 +100,24 @@ When traffic to a dedicated line approaches its per-line capacity, Spectrum can 
 
 ### When line changes reach a running app
 
-The SDK learns about your lines from the credentials it mints, and it re-mints them on a schedule — so a line provisioned (or deprovisioned) while your app is running is picked up at the next token renewal, not immediately.
+The SDK learns about your lines from the credentials it mints and reconciles
+them on scheduled renewal. If Fusor delivers an event for a dedicated phone the
+running process does not know yet, the SDK also forces one immediate Cloud
+inventory refresh. Concurrent events share that refresh, and repeated attempts
+are rate-limited so a bad phone cannot hammer the token endpoint. Once the
+updated inventory includes the phone, the triggering event continues normally;
+you do not need to restart the process.
 
-Until that renewal lands, a newly provisioned line is invisible to the process: it receives no inbound messages, and `space.create()` cannot route through it. Messages sent to it in that window are not delayed, they are not delivered to your app at all. Restart the process if you need a new line to take effect right away.
+Outbound routing through a newly provisioned line still becomes available only
+after discovery has updated the local inventory. A deprovisioned line is
+removed and its HTTP client is closed when renewal reconciles the change.
+
+Fusor resume and Cloud line discovery are separate concerns. By default, a new
+process subscribes at the WebSocket live tail, so it cannot recover a gap while
+the process was down. Configure `options.fusorCursorStore` for restart replay.
+The store's `save` must be monotonic when shared by multiple processes, and its
+checkpoint covers SDK normalization/enqueue rather than completion of your
+application handler.
 
 <Note>
   On dedicated lines, two routing behaviors change the moment a second line appears, whether that happens at startup or mid-run:

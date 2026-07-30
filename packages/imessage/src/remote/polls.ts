@@ -4,7 +4,7 @@ import type {
   PollOption as IMessagePollOption,
   PollChangeDelta,
   PollEvent,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { PollChoice } from "@spectrum-ts/core";
 import {
   asPoll,

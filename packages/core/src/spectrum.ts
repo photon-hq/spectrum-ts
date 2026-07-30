@@ -10,11 +10,16 @@ import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
-import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
+import {
+  FusorCore,
+  type FusorCursorStore,
+  type RegisteredFusorHandler,
+} from "./fusor/core";
 import { isFusorClient } from "./fusor/index";
 import type {
   FusorClient,
   FusorMessages,
+  HybridFusorMessages,
   WebhookHandler,
   WebhookRawRequest,
   WebhookRawResult,
@@ -68,6 +73,7 @@ const PHOTON_OTEL_ENDPOINT = "https://otlp.photon.codes";
 // (uncancellable) provider is rescued by destroyClient (Phase 3), and the
 // residual stream close is awaited at the very end — so stop() never hangs.
 const STREAM_CLOSE_TIMEOUT_MS = 5000;
+const FUSOR_CLOSE_TIMEOUT_MS = 5000;
 
 const lifecycleLog = createLogger("spectrum.lifecycle");
 
@@ -152,6 +158,15 @@ export interface SpectrumOptions {
   flattenGroups?: boolean;
 
   /**
+   * Optional storage for Fusor's last verified, normalized, and synchronously
+   * enqueued stream sequence. This is a transport checkpoint, not an
+   * acknowledgement that application code consumed the in-memory message; a
+   * crash between those steps can lose that queued record. Use a durable
+   * application sink when end-to-end delivery guarantees are required.
+   */
+  fusorCursorStore?: FusorCursorStore;
+
+  /**
    * Minimum severity emitted by the SDK's structured logger (to both the
    * console and, when telemetry is on, OTLP). Applies process-wide and takes
    * precedence over the `LOG_LEVEL` environment variable when provided.
@@ -168,6 +183,17 @@ export interface SpectrumOptions {
 const spectrumOptionsSchema = z
   .object({
     flattenGroups: z.boolean().optional(),
+    fusorCursorStore: z
+      .custom<FusorCursorStore>(
+        (value) =>
+          typeof value === "object" &&
+          value !== null &&
+          "load" in value &&
+          typeof value.load === "function" &&
+          "save" in value &&
+          typeof value.save === "function"
+      )
+      .optional(),
     logLevel: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   })
   .optional();
@@ -266,6 +292,184 @@ interface SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> {
   webhookSecret?: string;
 }
 
+interface ProviderInitializationContext {
+  config: unknown;
+  projectConfig: ProjectData | undefined;
+  projectId: string | undefined;
+  projectSecret: string | undefined;
+  store: Store;
+}
+
+interface RuntimeHybridFusorBinding {
+  client: FusorClient;
+  messages: HybridFusorMessages<unknown, unknown, unknown>;
+  streamOnly: boolean;
+}
+
+interface RuntimeFusorMessageSource {
+  mode: "hybrid" | "pure";
+  queue: AsyncQueue<ProviderMessageRecord>;
+}
+
+type FusorPlatformBinding =
+  | {
+      client: FusorClient;
+      messages: FusorMessages<unknown>;
+      mode: "pure";
+      name: string;
+      streamOnly: false;
+    }
+  | {
+      client: FusorClient;
+      messages: HybridFusorMessages<unknown, unknown, unknown>;
+      mode: "hybrid";
+      name: string;
+      streamOnly: boolean;
+    };
+
+async function initializeHybridFusorBinding(
+  bindings: Map<string, RuntimeHybridFusorBinding>,
+  definition: AnyPlatformDef,
+  client: unknown,
+  context: ProviderInitializationContext
+): Promise<void> {
+  const hybrid = definition.fusor;
+  if (!hybrid) {
+    return;
+  }
+  const fusorClient = await hybrid.create({ ...context, client });
+  if (fusorClient === undefined) {
+    return;
+  }
+  if (!isFusorClient(fusorClient)) {
+    throw new Error(
+      `Platform "${definition.name}" fusor.create() must return fusor(...) or undefined`
+    );
+  }
+  bindings.set(definition.name, {
+    client: fusorClient,
+    messages: hybrid.messages,
+    streamOnly: hybrid.streamOnly ?? false,
+  });
+}
+
+function collectFusorPlatformBindings(
+  platformStates: Map<string, PlatformRuntime>,
+  hybridBindings: Map<string, RuntimeHybridFusorBinding>
+): FusorPlatformBinding[] {
+  const bindings: FusorPlatformBinding[] = [];
+  for (const [name, state] of platformStates) {
+    const hybrid = hybridBindings.get(name);
+    if (hybrid) {
+      bindings.push({
+        name,
+        client: hybrid.client,
+        messages: hybrid.messages,
+        mode: "hybrid",
+        streamOnly: hybrid.streamOnly,
+      });
+      continue;
+    }
+    if (isFusorClient(state.client)) {
+      bindings.push({
+        name,
+        client: state.client,
+        messages: state.definition
+          .messages as unknown as FusorMessages<unknown>,
+        mode: "pure",
+        streamOnly: false,
+      });
+    }
+  }
+  return bindings;
+}
+
+function assertUniqueFusorRoutes(bindings: FusorPlatformBinding[]): void {
+  const ownerByRoute = new Map<string, string>();
+  for (const binding of bindings) {
+    const existingOwner = ownerByRoute.get(binding.client.platform);
+    if (existingOwner !== undefined) {
+      throw new Error(
+        `Fusor route "${binding.client.platform}" is registered by both "${existingOwner}" and "${binding.name}"`
+      );
+    }
+    ownerByRoute.set(binding.client.platform, binding.name);
+  }
+}
+
+async function waitForCloseWithin(
+  close: Promise<unknown>,
+  timeoutMs: number
+): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = await Promise.race([
+    close.then(() => false),
+    new Promise<true>((resolve) => {
+      timeout = setTimeout(() => resolve(true), timeoutMs);
+      timeout.unref();
+    }),
+  ]);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+  return !timedOut;
+}
+
+type DestroyableProvider = Pick<
+  PlatformRuntime,
+  "client" | "definition" | "store"
+>;
+
+async function destroyProvider(
+  state: DestroyableProvider,
+  phase: "rollback" | "stop"
+): Promise<void> {
+  const destroy = state.definition.lifecycle.destroyClient;
+  if (!destroy) {
+    return;
+  }
+  try {
+    await withSpan(
+      "spectrum.provider.destroy_client",
+      { "spectrum.provider": state.definition.name },
+      () => destroy({ client: state.client, store: state.store })
+    );
+  } catch (error) {
+    lifecycleLog.warn(
+      `spectrum: provider cleanup failed during ${phase}`,
+      {
+        "spectrum.lifecycle.platform": state.definition.name,
+        ...errorAttrs(error),
+      },
+      error
+    );
+  }
+}
+
+async function rollbackInitializedProviders(
+  states: Map<string, PlatformRuntime>
+): Promise<void> {
+  const initialized = Array.from(states.values()).reverse();
+  for (const state of initialized) {
+    await destroyProvider(state, "rollback");
+  }
+  states.clear();
+}
+
+function createFusorEventQueues(
+  binding: FusorPlatformBinding,
+  runtime: PlatformRuntime
+): Map<string, AsyncQueue<unknown>> {
+  const queues = new Map<string, AsyncQueue<unknown>>();
+  if (binding.mode === "hybrid") {
+    return queues;
+  }
+  for (const channel of Object.keys(runtime.definition.events ?? {})) {
+    queues.set(channel, createAsyncQueue<unknown>());
+  }
+  return queues;
+}
+
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
 >(
@@ -326,13 +530,19 @@ export async function Spectrum<
 
   const platformStates = new Map<string, PlatformRuntime>();
 
-  // Per-platform fusor message queues (populated only for fusor-mode platforms).
-  // When set, the message stream pulls from this queue instead of calling
-  // `def.messages({ client, config, store })`.
-  const fusorMessageSources = new Map<
-    string,
-    AsyncQueue<ProviderMessageRecord>
-  >();
+  // Optional Fusor bindings for hybrid providers. These are deliberately kept
+  // separate from `PlatformRuntime.client`: the latter remains the provider's
+  // regular SDK client for every action, producer, record wrapper, and teardown.
+  const hybridFusorBindings = new Map<string, RuntimeHybridFusorBinding>();
+
+  // A Fusor wire route need not equal the provider's public Spectrum name
+  // (`imessage` vs `iMessage`). The synchronous webhook path needs this lookup
+  // to resolve records with the same regular runtime as streaming delivery.
+  const fusorRuntimeByRoute = new Map<string, PlatformRuntime>();
+
+  // Per-platform Fusor message queues. A pure-Fusor provider reads only this
+  // queue; a hybrid provider merges it with its regular `messages` producer.
+  const fusorMessageSources = new Map<string, RuntimeFusorMessageSource>();
 
   // Per-platform message broadcasters (lazy: created on first subscribe).
   const messageBroadcasters = new Map<string, Broadcaster<[Space, Message]>>();
@@ -349,6 +559,44 @@ export async function Spectrum<
   const customEventStreams = new Map<string, ManagedStream<unknown>>();
 
   let stopped = false;
+  let fusorCore: FusorCore | undefined;
+  let fusorStartPromise: Promise<void> | undefined;
+
+  // Open the Fusor WebSocket stream on demand — exactly once, when any
+  // message subscription that consumes a Fusor source begins iterating.
+  // Webhook-only setups never call this and therefore need no stream.
+  const ensureFusorStarted = (): Promise<void> => {
+    if (!fusorCore) {
+      return Promise.resolve();
+    }
+    fusorStartPromise ??= fusorCore.start();
+    return fusorStartPromise;
+  };
+
+  // Fail every Fusor queue on a terminal transport error so current and future
+  // subscribers observe it. Ordinary stop/rollback closes and drops them.
+  const closeFusorSources = (error?: unknown) => {
+    for (const source of fusorMessageSources.values()) {
+      if (error === undefined) {
+        source.queue.close();
+      } else {
+        source.queue.fail(error);
+      }
+    }
+    for (const queues of fusorEventSources.values()) {
+      for (const queue of queues.values()) {
+        if (error === undefined) {
+          queue.close();
+        } else {
+          queue.fail(error);
+        }
+      }
+    }
+    if (error === undefined) {
+      fusorMessageSources.clear();
+      fusorEventSources.clear();
+    }
+  };
 
   // Adapt any AsyncIterable into a ManagedStream, optionally projecting each
   // source value into zero or more output values via `project`. The pump is the
@@ -358,13 +606,15 @@ export async function Spectrum<
   // which is what lets `stop()` cancel a parked read instead of deadlocking.
   const adaptIterable = <TIn, TOut = TIn>(
     iterable: AsyncIterable<TIn>,
-    project?: (value: TIn, emit: (out: TOut) => Promise<void>) => Promise<void>
+    project?: (value: TIn, emit: (out: TOut) => Promise<void>) => Promise<void>,
+    beforeRead?: () => Promise<void>
   ): ManagedStream<TOut> =>
     stream<TOut>((emit, end) => {
       const iterator = iterable[Symbol.asyncIterator]();
 
       const pump = (async () => {
         try {
+          await beforeRead?.();
           let result = await iterator.next();
           while (!result.done) {
             if (project) {
@@ -456,14 +706,32 @@ export async function Spectrum<
   }): ManagedStream<[Space, Message]> => {
     const { client, config, definition, store } = state;
     const fusorSource = fusorMessageSources.get(definition.name);
-    const raw = fusorSource
-      ? fusorSource.iterable
-      : (definition.messages({
-          client,
-          config,
-          projectConfig,
-          store,
-        }) as unknown as AsyncIterable<ProviderMessageRecord>);
+    let raw: AsyncIterable<ProviderMessageRecord>;
+    if (!fusorSource) {
+      raw = definition.messages({
+        client,
+        config,
+        projectConfig,
+        store,
+      }) as unknown as AsyncIterable<ProviderMessageRecord>;
+    } else if (fusorSource.mode === "pure") {
+      // Legacy pure-Fusor provider: `definition.messages` is the per-payload
+      // callback, not an iterable, so its queue remains the sole raw source.
+      raw = fusorSource.queue.iterable;
+    } else {
+      // Hybrid provider: Fusor owns only one inbound lane. Keep the regular
+      // producer alive alongside it for event classes that still use the SDK.
+      const regular = definition.messages({
+        client,
+        config,
+        projectConfig,
+        store,
+      }) as unknown as AsyncIterable<ProviderMessageRecord>;
+      raw = mergeStreams([
+        adaptIterable(fusorSource.queue.iterable),
+        adaptIterable(regular),
+      ]);
+    }
 
     return adaptIterable<ProviderMessageRecord, [Space, Message]>(
       raw,
@@ -477,7 +745,8 @@ export async function Spectrum<
         for (const tuple of tuples) {
           await emit(tuple);
         }
-      }
+      },
+      fusorSource ? ensureFusorStarted : undefined
     );
   };
 
@@ -519,10 +788,12 @@ export async function Spectrum<
         `Spectrum instance has been stopped; cannot subscribe to "${platform}" event "${channel}"`
       );
     }
-    const key = `${platform} ${channel}`;
+    const key = `${platform}\0${channel}`;
     let broadcaster = eventBroadcasters.get(key);
     if (!broadcaster) {
-      broadcaster = broadcast(adaptIterable(queue.iterable));
+      broadcaster = broadcast(
+        adaptIterable(queue.iterable, undefined, ensureFusorStarted)
+      );
       eventBroadcasters.set(key, broadcaster);
     }
     return broadcaster;
@@ -531,144 +802,178 @@ export async function Spectrum<
   // Initialize all provider clients eagerly. Each runtime exposes
   // `subscribeMessages()` that returns a fresh fanout consumer of the
   // platform's single upstream message stream.
-  await withSpan(
-    "spectrum.init",
-    {
-      "spectrum.provider_count": providers.length,
-      "spectrum.flatten_groups": flattenGroups,
-    },
-    async () => {
-      for (const provider of providers) {
-        const providerConfig = provider as PlatformProviderConfig;
-        const def = providerConfig.__definition;
-        const userConfig = def.config.parse(providerConfig.config);
-        const store = createStore();
+  try {
+    await withSpan(
+      "spectrum.init",
+      {
+        "spectrum.provider_count": providers.length,
+        "spectrum.flatten_groups": flattenGroups,
+      },
+      async () => {
+        for (const provider of providers) {
+          const providerConfig = provider as PlatformProviderConfig;
+          const def = providerConfig.__definition;
+          const userConfig = def.config.parse(providerConfig.config);
+          const store = createStore();
 
-        const client = await withSpan(
-          "spectrum.provider.create_client",
-          {
-            "spectrum.provider": def.name,
-          },
-          () =>
-            def.lifecycle.createClient({
-              config: userConfig,
-              projectId,
-              projectSecret,
-              projectConfig,
-              store,
-            })
-        );
+          const createContext = {
+            config: userConfig,
+            projectId,
+            projectSecret,
+            projectConfig,
+            store,
+          };
 
-        const state = {
-          client,
-          config: userConfig,
-          definition: def,
-          store,
-        };
+          const client = await withSpan(
+            "spectrum.provider.create_client",
+            {
+              "spectrum.provider": def.name,
+            },
+            () => def.lifecycle.createClient(createContext)
+          );
 
-        platformStates.set(def.name, {
-          ...state,
-          projectConfig,
-          subscribeMessages: () =>
-            getOrCreateMessageBroadcast(state).subscribe(),
-          // Fanout subscription to a fusor event channel. Returns undefined for
-          // regular platforms (no per-channel queue) — callers fall back to the
-          // producer path. Resolved lazily, after the fusor bootstrap below has
-          // created the per-(platform, channel) queues.
-          subscribeEvent: (channel: string) =>
-            getOrCreateEventBroadcast(def.name, channel)?.subscribe(),
-        });
+          try {
+            await initializeHybridFusorBinding(
+              hybridFusorBindings,
+              def,
+              client,
+              createContext
+            );
+          } catch (error) {
+            // The regular lifecycle client already exists but is not recorded
+            // in platformStates yet, so unwind it explicitly before the outer
+            // rollback handles every provider initialized earlier.
+            await destroyProvider(
+              { client, definition: def, store },
+              "rollback"
+            );
+            throw error;
+          }
+
+          const state = {
+            client,
+            config: userConfig,
+            definition: def,
+            store,
+          };
+
+          platformStates.set(def.name, {
+            ...state,
+            projectConfig,
+            subscribeMessages: () =>
+              getOrCreateMessageBroadcast(state).subscribe(),
+            // Fanout subscription to a fusor event channel. Returns undefined for
+            // regular platforms (no per-channel queue) — callers fall back to the
+            // producer path. Resolved lazily, after the fusor bootstrap below has
+            // created the per-(platform, channel) queues.
+            subscribeEvent: (channel: string) =>
+              getOrCreateEventBroadcast(def.name, channel)?.subscribe(),
+          });
+        }
       }
-    }
+    );
+  } catch (error) {
+    await rollbackInitializedProviders(platformStates);
+    hybridFusorBindings.clear();
+    await otelHandle?.shutdown().catch(ignoreCleanupError);
+    throw error;
+  }
+
+  // Bootstrap fusor: register legacy providers whose lifecycle client is a
+  // FusorClient plus enabled hybrid bindings whose separate `fusor.create`
+  // returned one. Both transports route through the same handlers. The
+  // WebSocket stream is NOT opened here — it starts lazily when a subscription
+  // begins consuming any Fusor-backed message source. spectrum.webhook()
+  // drives eligible handlers synchronously and never opens the stream.
+  const fusorPlatforms = collectFusorPlatformBindings(
+    platformStates,
+    hybridFusorBindings
   );
 
-  // Bootstrap fusor: if any provider's createClient returned a FusorClient,
-  // register a handler per platform so both transports can route to it. The
-  // gRPC stream is NOT opened here — it starts lazily on the first
-  // spectrum.messages subscription (ensureFusorStarted). spectrum.webhook()
-  // drives the same handlers synchronously and never opens the stream.
-  let fusorCore: FusorCore | undefined;
-  let fusorStartPromise: Promise<void> | undefined;
-  const fusorPlatforms: { name: string; client: FusorClient }[] = [];
-  for (const [name, state] of platformStates) {
-    if (isFusorClient(state.client)) {
-      fusorPlatforms.push({ name, client: state.client });
-    }
-  }
+  try {
+    // Detect collisions before allocating a core or any queues. A failure must
+    // unwind every regular lifecycle client created above.
+    assertUniqueFusorRoutes(fusorPlatforms);
 
-  if (fusorPlatforms.length > 0) {
-    fusorCore = new FusorCore({ projectId, projectSecret });
-    for (const { name, client } of fusorPlatforms) {
-      const queue = createAsyncQueue<ProviderMessageRecord>();
-      fusorMessageSources.set(name, queue);
+    if (fusorPlatforms.length > 0) {
+      fusorCore = new FusorCore({
+        cursorStore: runtimeOptions?.fusorCursorStore,
+        onTerminal: closeFusorSources,
+        projectId,
+        projectSecret,
+      });
+      for (const binding of fusorPlatforms) {
+        const { name, client } = binding;
+        const runtime = platformStates.get(name);
+        if (!runtime) {
+          throw new Error(`Missing runtime for Fusor provider "${name}"`);
+        }
 
-      const runtime = platformStates.get(name);
-      if (!runtime) {
-        continue;
+        const queue = createAsyncQueue<ProviderMessageRecord>();
+        fusorMessageSources.set(name, { mode: binding.mode, queue });
+
+        // One queue per declared event channel (schema-valued `events` keys).
+        // `pushEvent` routes a `fusorEvent(channel, data)` here; an undeclared
+        // channel (a typo in the handler) is warned and dropped rather than
+        // silently lost.
+        const eventQueues = createFusorEventQueues(binding, runtime);
+        fusorEventSources.set(name, eventQueues);
+
+        const handler: RegisteredFusorHandler = {
+          verify: client.verify,
+          streamOnly: binding.streamOnly,
+          // Enrich the transport-level `{ payload, respond }` ctx with the same
+          // runtime context every other platform callback receives, so fusor
+          // handlers can read config/store/projectConfig directly instead of
+          // smuggling state through the payload.
+          messages: async (ctx) => {
+            const common = {
+              ...ctx,
+              config: runtime.config,
+              store: runtime.store,
+              projectConfig: runtime.projectConfig,
+            };
+            if (binding.mode === "hybrid") {
+              return await binding.messages({
+                ...common,
+                client: runtime.client,
+              });
+            }
+            return await binding.messages(common);
+          },
+          pushMessage: (record) => queue.push(record),
+          pushEvent: (channel, data) => {
+            const eventQueue = eventQueues.get(channel);
+            if (!eventQueue) {
+              lifecycleLog.warn(
+                `spectrum: fusorEvent("${channel}", …) names a channel not declared in "${name}".events; dropping`,
+                {
+                  "spectrum.lifecycle.platform": name,
+                  "spectrum.lifecycle.channel": channel,
+                }
+              );
+              return;
+            }
+            eventQueue.push(data);
+          },
+        };
+        fusorRuntimeByRoute.set(client.platform, runtime);
+        fusorCore.register(client.platform, handler);
       }
-      const userMessages = runtime.definition
-        .messages as unknown as FusorMessages<unknown>;
-
-      // One queue per declared event channel (schema-valued `events` keys).
-      // `pushEvent` routes a `fusorEvent(channel, data)` here; an undeclared
-      // channel (a typo in the handler) is warned and dropped rather than
-      // silently lost.
-      const declaredEvents = (runtime.definition.events ?? {}) as Record<
-        string,
-        unknown
-      >;
-      const eventQueues = new Map<string, AsyncQueue<unknown>>();
-      for (const channel of Object.keys(declaredEvents)) {
-        eventQueues.set(channel, createAsyncQueue<unknown>());
-      }
-      fusorEventSources.set(name, eventQueues);
-
-      const handler: RegisteredFusorHandler = {
-        verify: client.verify,
-        // Enrich the transport-level `{ payload, respond }` ctx with the same
-        // runtime context every other platform callback receives, so fusor
-        // handlers can read config/store/projectConfig directly instead of
-        // smuggling state through the payload.
-        messages: async (ctx) =>
-          userMessages({
-            ...ctx,
-            config: runtime.config,
-            store: runtime.store,
-            projectConfig: runtime.projectConfig,
-          }),
-        pushMessage: (record) => queue.push(record),
-        pushEvent: (channel, data) => {
-          const eventQueue = eventQueues.get(channel);
-          if (!eventQueue) {
-            lifecycleLog.warn(
-              `spectrum: fusorEvent("${channel}", …) names a channel not declared in "${name}".events; dropping`,
-              {
-                "spectrum.lifecycle.platform": name,
-                "spectrum.lifecycle.channel": channel,
-              }
-            );
-            return;
-          }
-          eventQueue.push(data);
-        },
-      };
-      fusorCore.register(client.platform, handler);
     }
+  } catch (error) {
+    closeFusorSources();
+    if (fusorCore) {
+      const closing = fusorCore.close().catch(ignoreCleanupError);
+      await waitForCloseWithin(closing, FUSOR_CLOSE_TIMEOUT_MS);
+      fusorCore = undefined;
+    }
+    fusorRuntimeByRoute.clear();
+    await rollbackInitializedProviders(platformStates);
+    hybridFusorBindings.clear();
+    await otelHandle?.shutdown().catch(ignoreCleanupError);
+    throw error;
   }
-
-  // Open the fusor gRPC stream on demand — exactly once, on the first
-  // spectrum.messages subscription. Requires cloud credentials (enforced in
-  // FusorCore.start). Webhook-only setups never call this, so they never
-  // connect and don't need credentials.
-  const ensureFusorStarted = (): Promise<void> => {
-    if (!fusorCore) {
-      return Promise.resolve();
-    }
-    if (!fusorStartPromise) {
-      fusorStartPromise = fusorCore.start();
-    }
-    return fusorStartPromise;
-  };
 
   const providerNames = providers
     .map((p) => (p as PlatformProviderConfig).__definition.name)
@@ -714,10 +1019,6 @@ export async function Spectrum<
 
   const createMessagesStream = (): ManagedStream<[Space, Message]> =>
     stream<[Space, Message]>((emit, end) => {
-      // Open the fusor gRPC stream lazily on first subscription. A fatal connect
-      // failure (e.g. missing credentials) surfaces on this iterator. Non-async
-      // so subscribe stays non-blocking. Webhook-only setups never reach here.
-      ensureFusorStarted().catch((error) => end(error));
       const merged = mergeStreams(
         Array.from(platformStates.values(), (runtime) =>
           runtime.subscribeMessages()
@@ -814,22 +1115,6 @@ export async function Spectrum<
 
   const messagesStream = createMessagesStream();
 
-  // Close + drop every fusor queue (per-platform message queues and
-  // per-(platform, channel) event queues). Extracted from stopOnce to keep its
-  // cognitive complexity in check.
-  const closeFusorSources = () => {
-    for (const queue of fusorMessageSources.values()) {
-      queue.close();
-    }
-    fusorMessageSources.clear();
-    for (const queues of fusorEventSources.values()) {
-      for (const queue of queues.values()) {
-        queue.close();
-      }
-    }
-    fusorEventSources.clear();
-  };
-
   const stopOnce = async () => {
     if (stopped) {
       return;
@@ -878,39 +1163,29 @@ export async function Spectrum<
     let fusorCloseMs = 0;
     if (fusorCore) {
       const fusorCloseStart = performance.now();
-      // If a lazy gRPC start is in flight, let it finish wiring before teardown
-      // so close() doesn't race a half-built connection.
-      if (fusorStartPromise) {
-        await fusorStartPromise.catch(ignoreCleanupError);
-      }
-      await fusorCore.close().catch((error) => {
+      const closeAttempt = fusorCore.close().catch((error) => {
         lifecycleLog.warn("fusor core close failed", errorAttrs(error), error);
       });
+      const closed = await waitForCloseWithin(
+        closeAttempt,
+        FUSOR_CLOSE_TIMEOUT_MS
+      );
+      if (!closed) {
+        lifecycleLog.warn(
+          "fusor core close timed out; proceeding to provider teardown",
+          {
+            "spectrum.lifecycle.fusor_close_timeout_ms": FUSOR_CLOSE_TIMEOUT_MS,
+          }
+        );
+      }
       fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
       closeFusorSources();
     }
 
     // Phase 3: destroy clients
-    const clientShutdowns: Promise<void>[] = [];
-    for (const state of platformStates.values()) {
-      const destroy = state.definition.lifecycle.destroyClient;
-      if (!destroy) {
-        continue;
-      }
-      clientShutdowns.push(
-        withSpan(
-          "spectrum.provider.destroy_client",
-          {
-            "spectrum.provider": state.definition.name,
-          },
-          () =>
-            destroy({
-              client: state.client,
-              store: state.store,
-            })
-        )
-      );
-    }
+    const clientShutdowns = Array.from(platformStates.values(), (state) =>
+      destroyProvider(state, "stop")
+    );
     const clientCloseStart = performance.now();
     await Promise.allSettled(clientShutdowns);
     const clientCloseMs = Math.round(performance.now() - clientCloseStart);
@@ -923,6 +1198,8 @@ export async function Spectrum<
     customEventStreams.clear();
     messageBroadcasters.clear();
     eventBroadcasters.clear();
+    hybridFusorBindings.clear();
+    fusorRuntimeByRoute.clear();
     platformStates.clear();
     lifecycleLog.info("Spectrum stopped", {
       "spectrum.lifecycle.providers": providerNames,
@@ -1066,9 +1343,13 @@ export async function Spectrum<
     handler: WebhookHandler
   ): Promise<WebhookRawResult> => {
     const collected: ProviderMessageRecord[] = [];
-    const reply = await core.processEvent(event, (record) => {
-      collected.push(record);
-    });
+    const reply = await core.processEvent(
+      event,
+      (record) => {
+        collected.push(record);
+      },
+      "webhook"
+    );
 
     // A verify/parse/no-handler failure is poison — 400 (a retry won't help).
     if (reply.errorReason) {
@@ -1094,7 +1375,9 @@ export async function Spectrum<
     // never surfaced as a 500 / fusor retry. On a long-running server the event
     // loop keeps this alive; on serverless, keeping it alive past the response is
     // the caller's responsibility (e.g. enqueue + process in a separate worker).
-    const runtime = platformStates.get(event.platform);
+    const runtime =
+      fusorRuntimeByRoute.get(event.platform) ??
+      platformStates.get(event.platform);
     if (runtime && collected.length > 0) {
       // Per-message handler throws are isolated + logged inside
       // deliverWebhookMessages; this safety net only fires on a message

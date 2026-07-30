@@ -628,9 +628,11 @@ export class FusorCore {
           "stream",
           signal
         );
-        if (this.stopped || signal.aborted) {
-          return;
-        }
+        // `processEventWithOutcome` checks cancellation before synchronously
+        // routing any returned records. Once it resolves without a retryable
+        // outcome, enqueue is complete and this event owns its checkpoint even
+        // if shutdown raced this continuation. Skipping it here would replay an
+        // already-enqueued record after restart.
         if (outcome.retryableError) {
           throw outcome.retryableError;
         }

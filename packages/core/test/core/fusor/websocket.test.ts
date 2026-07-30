@@ -21,6 +21,7 @@ import {
   FUSOR_WS_MAX_PENDING_EVENTS,
   runFusorWsSession,
 } from "@/fusor/websocket";
+import type { ProviderMessageRecord } from "@/platform/types";
 import { cloud, SpectrumCloudError } from "@/utils/cloud";
 
 const PLATFORM = "tg";
@@ -1401,6 +1402,61 @@ describe("fusor websocket streaming", () => {
     } finally {
       releaseHandler?.();
       await (closePromise ?? core.close());
+    }
+  });
+
+  it("checkpoints a record enqueued as shutdown races handler completion", async () => {
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
+      token: "t1",
+      expiresIn: 900,
+    });
+    cleanups.push(() => tokenSpy.mockRestore());
+
+    const server = await makeFusorWsServer({
+      onInit: () => [
+        { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
+        eventFrame("evt-close-after-enqueue", '{"text":"last"}', false, 1),
+      ],
+    });
+    cleanups.push(server.stop);
+
+    const record = {
+      id: "last-message",
+      content: { type: "text", text: "last" },
+      space: { id: "space-one" },
+    } satisfies ProviderMessageRecord;
+    const saved: number[] = [];
+    const delivered: ProviderMessageRecord[] = [];
+    let closePromise: Promise<void> | undefined;
+    let core: FusorCore;
+    const handler = makeHandler({ payloads: [] });
+    handler.messages = () => record;
+    handler.pushMessage = (message) => {
+      delivered.push(message);
+      closePromise ??= core.close();
+    };
+    core = new FusorCore({
+      cursorStore: {
+        load: async () => 0,
+        save: async (_scope, seq) => {
+          saved.push(seq);
+        },
+      },
+      projectId: "proj",
+      projectSecret: "secret",
+      websocketEndpoint: server.url,
+    });
+    core.register(PLATFORM, handler);
+
+    try {
+      await core.start();
+      await waitFor(() => closePromise !== undefined);
+      await closePromise;
+
+      expect(delivered).toEqual([record]);
+      expect(saved).toEqual([1]);
+    } finally {
+      await core.close();
     }
   });
 

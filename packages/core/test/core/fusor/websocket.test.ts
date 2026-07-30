@@ -1345,6 +1345,60 @@ describe("fusor websocket streaming", () => {
     await expect(closePromise).rejects.toThrow("cursor store unavailable");
   });
 
+  it("surfaces a duplicate cursor-advance failure that races shutdown", async () => {
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
+      token: "t1",
+      expiresIn: 900,
+    });
+    cleanups.push(() => tokenSpy.mockRestore());
+
+    const server = await makeFusorWsServer({
+      onInit: () => [
+        { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
+        eventFrame("evt-duplicate-close", '{"text":"first"}', false, 1),
+        eventFrame("evt-duplicate-close", '{"text":"replay"}', false, 2),
+      ],
+    });
+    cleanups.push(server.stop);
+
+    const saveGate = Promise.withResolvers<void>();
+    const saves: number[] = [];
+    let duplicateSaveStarted = false;
+    const capture = { payloads: [] as unknown[] };
+    const core = new FusorCore({
+      cursorStore: {
+        load: async () => 0,
+        save: async (_scope, seq) => {
+          saves.push(seq);
+          if (seq === 2) {
+            duplicateSaveStarted = true;
+            await saveGate.promise;
+          }
+        },
+      },
+      projectId: "proj",
+      projectSecret: "secret",
+      websocketEndpoint: server.url,
+    });
+    cleanups.push(async () => {
+      saveGate.reject(new Error("cursor store unavailable"));
+      await core.close().catch(() => undefined);
+    });
+    core.register(PLATFORM, makeHandler(capture));
+    await core.start();
+    await waitFor(() => duplicateSaveStarted);
+
+    const closePromise = core.close();
+    saveGate.reject(new Error("cursor store unavailable"));
+    await expect(closePromise).rejects.toMatchObject({
+      errorCode: "checkpoint_failed",
+      message: expect.stringContaining("cursor store unavailable"),
+      retryable: true,
+    });
+    expect(capture.payloads).toEqual([{ text: "first" }]);
+    expect(saves).toEqual([1, 2]);
+  });
+
   it("close() waits for an in-flight ordered handler", async () => {
     const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
       token: "t1",
@@ -1405,7 +1459,7 @@ describe("fusor websocket streaming", () => {
     }
   });
 
-  it("checkpoints a record enqueued as shutdown races handler completion", async () => {
+  it("checkpoints an enqueued record and suppresses its reply as shutdown races completion", async () => {
     const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
       token: "t1",
       expiresIn: 900,
@@ -1415,7 +1469,7 @@ describe("fusor websocket streaming", () => {
     const server = await makeFusorWsServer({
       onInit: () => [
         { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
-        eventFrame("evt-close-after-enqueue", '{"text":"last"}', false, 1),
+        eventFrame("evt-close-after-enqueue", '{"text":"last"}', true, 1),
       ],
     });
     cleanups.push(server.stop);
@@ -1455,6 +1509,7 @@ describe("fusor websocket streaming", () => {
 
       expect(delivered).toEqual([record]);
       expect(saved).toEqual([1]);
+      expect(server.replies).toEqual([]);
     } finally {
       await core.close();
     }

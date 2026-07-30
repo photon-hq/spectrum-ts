@@ -612,7 +612,7 @@ export class FusorCore {
           // cross: the original completed already, and ordered delivery means
           // advancing to this duplicate cannot jump over unfinished work.
           if (seq > this.lastProcessedSeq) {
-            await this.rememberProcessed(event.eventId, seq);
+            await this.checkpointProcessed(event.eventId, seq);
           }
           log.debug("fusor websocket duplicate suppressed", {
             "spectrum.fusor.event_id": event.eventId,
@@ -644,17 +644,7 @@ export class FusorCore {
         // and any reply send completed. Retrying every verifier/application
         // error would poison this project-wide stream forever; only transport
         // or durable-checkpoint failures reject the ordered callback.
-        try {
-          await this.rememberProcessed(event.eventId, seq);
-        } catch (error) {
-          throw new FusorWsError(
-            `fusor durable checkpoint failed: ${errorText(error)}`,
-            undefined,
-            "checkpoint_failed",
-            undefined,
-            true
-          );
-        }
+        await this.checkpointProcessed(event.eventId, seq);
       },
     });
     this.wsSession = session;
@@ -676,6 +666,27 @@ export class FusorCore {
       return "event_id";
     }
     return;
+  }
+
+  private async checkpointProcessed(
+    eventId: string,
+    seq: number
+  ): Promise<void> {
+    try {
+      await this.rememberProcessed(eventId, seq);
+    } catch (error) {
+      // Shutdown suppresses ordinary handler failures after abort, but a
+      // failed durable save must still reject close() so the caller never
+      // mistakes an unflushed cursor (including a duplicate-id advance) for a
+      // clean stop.
+      throw new FusorWsError(
+        `fusor durable checkpoint failed: ${errorText(error)}`,
+        undefined,
+        "checkpoint_failed",
+        undefined,
+        true
+      );
+    }
   }
 
   private async rememberProcessed(eventId: string, seq: number): Promise<void> {

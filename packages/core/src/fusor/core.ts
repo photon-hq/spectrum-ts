@@ -34,6 +34,8 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 const RECONNECT_STABLE_MS = 30_000;
 const RETRY_AFTER_MAX_MS = 300_000;
+export const DEFAULT_FUSOR_CURSOR_STORE_TIMEOUT_MS = 5000;
+export const MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS = 300_000;
 const RETRYABLE_CLOUD_CLIENT_STATUSES = new Set([408, 425, 429]);
 // Event ids protect against transport redelivery at a new sequence (or an
 // overlapping reconnect). The safe sequence handles normal retained replay;
@@ -45,6 +47,60 @@ const NEVER_ABORTED_SIGNAL = new AbortController().signal;
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const ignoreLateCursorStoreError = () => undefined;
+
+class CursorLoadCancelledError extends Error {
+  constructor() {
+    super("fusor cursor store load cancelled");
+    this.name = "CursorLoadCancelledError";
+  }
+}
+
+const runCursorStoreOperation = async <T>(
+  work: Promise<T>,
+  operation: "load" | "save",
+  timeoutMs: number,
+  controller: AbortController,
+  cancellation?: Promise<never>
+): Promise<T> => {
+  // The store may ignore AbortSignal and settle after the SDK deadline. Keep a
+  // rejection handler attached so an abandoned operation can never become an
+  // unhandled rejection; the losing promise has no continuation that can
+  // mutate the in-memory cursor.
+  work.catch(ignoreLateCursorStoreError);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(
+        `fusor cursor store ${operation} timed out after ${timeoutMs}ms`
+      );
+      // Settle the SDK-owned deadline first. A store may reject synchronously
+      // from its abort listener, but that AbortError must not replace the stable
+      // timeout surfaced to callers.
+      reject(error);
+      controller.abort(error);
+    }, timeoutMs);
+    // A save only runs while an active WebSocket session already owns a live
+    // transport handle. Once shutdown's independent worker deadline detaches
+    // that save, its deadline must not keep an otherwise-stopped Node process
+    // alive. Startup loads have no such transport handle and stay referenced.
+    if (operation === "save") {
+      timer.unref?.();
+    }
+  });
+  try {
+    return await Promise.race([
+      work,
+      timeout,
+      ...(cancellation ? [cancellation] : []),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+};
 
 const isValidCursor = (value: unknown): value is number =>
   Number.isSafeInteger(value) &&
@@ -72,10 +128,25 @@ export interface FusorCursorScope {
  * does not mean an application consumed an in-memory `spectrum.messages`
  * record. A crash between save and consumption can therefore lose that queued
  * record. Use a durable application sink for end-to-end delivery guarantees.
+ * Every `save` must atomically keep the maximum sequence, even with one SDK
+ * process: a timed-out operation may ignore cancellation and finish after a
+ * newer save.
  */
 export interface FusorCursorStore {
-  load(scope: FusorCursorScope): Promise<number | undefined>;
-  save(scope: FusorCursorScope, seq: number): Promise<void>;
+  load(
+    scope: FusorCursorScope,
+    context?: FusorCursorOperationContext
+  ): Promise<number | undefined>;
+  save(
+    scope: FusorCursorScope,
+    seq: number,
+    context?: FusorCursorOperationContext
+  ): Promise<void>;
+}
+
+/** Cooperative cancellation for a bounded cursor-store operation. */
+export interface FusorCursorOperationContext {
+  readonly signal: AbortSignal;
 }
 
 export type FusorEventProvenance = "stream" | "webhook";
@@ -271,6 +342,8 @@ export interface FusorCoreOptions {
    * a bootstrap or process-restart gap.
    */
   cursorStore?: FusorCursorStore;
+  /** Maximum duration of one cursor-store load or save operation. */
+  cursorStoreTimeoutMs?: number;
   /** Maximum UTF-8 wire bytes held by admitted WebSocket event frames. */
   maxPendingBytes?: number;
   /** Maximum admitted WebSocket events, including the in-flight event. */
@@ -296,6 +369,7 @@ export interface FusorCoreOptions {
 export class FusorCore {
   private readonly options: FusorCoreOptions;
   private readonly websocketEndpoint: string;
+  private readonly cursorStoreTimeoutMs: number;
   private readonly handlers = new Map<string, RegisteredFusorHandler[]>();
   private readonly processedEventIds = new Map<string, number>();
   // Global JetStream cursor of the last event whose provider normalization and
@@ -318,9 +392,21 @@ export class FusorCore {
   // The reconnect backoff sleep, made cancelable so close() can wake it.
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private reconnectResolve?: () => void;
+  private cancelCursorLoad?: () => void;
 
   constructor(options: FusorCoreOptions) {
     this.options = options;
+    this.cursorStoreTimeoutMs =
+      options.cursorStoreTimeoutMs ?? DEFAULT_FUSOR_CURSOR_STORE_TIMEOUT_MS;
+    if (
+      !Number.isSafeInteger(this.cursorStoreTimeoutMs) ||
+      this.cursorStoreTimeoutMs <= 0 ||
+      this.cursorStoreTimeoutMs > MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS
+    ) {
+      throw new Error(
+        `fusor: cursorStoreTimeoutMs must be a positive safe integer no greater than ${MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS}`
+      );
+    }
     this.websocketEndpoint =
       options.websocketEndpoint ??
       process.env.SPECTRUM_FUSOR_WS_URL ??
@@ -361,7 +447,38 @@ export class FusorCore {
   private async startOnce(projectId: string): Promise<void> {
     const scope = this.cursorScope(projectId);
     if (this.options.cursorStore) {
-      const loaded = await this.options.cursorStore.load(scope);
+      const controller = new AbortController();
+      const cancellation = Promise.withResolvers<never>();
+      const cancelCursorLoad = (): void => {
+        const error = new CursorLoadCancelledError();
+        // Reject the SDK cancellation first so a synchronous store abort cannot
+        // replace the clean pre-ready cancellation with its own error.
+        cancellation.reject(error);
+        controller.abort(error);
+      };
+      this.cancelCursorLoad = cancelCursorLoad;
+      let loaded: number | undefined;
+      try {
+        const work = this.options.cursorStore.load(scope, {
+          signal: controller.signal,
+        });
+        loaded = await runCursorStoreOperation(
+          work,
+          "load",
+          this.cursorStoreTimeoutMs,
+          controller,
+          cancellation.promise
+        );
+      } catch (error) {
+        if (this.stopped && error instanceof CursorLoadCancelledError) {
+          return;
+        }
+        throw error;
+      } finally {
+        if (this.cancelCursorLoad === cancelCursorLoad) {
+          this.cancelCursorLoad = undefined;
+        }
+      }
       if (loaded !== undefined && !isValidCursor(loaded)) {
         throw new Error(
           "fusor: cursor store returned an invalid cursor; expected a non-negative safe integer below Number.MAX_SAFE_INTEGER"
@@ -699,7 +816,16 @@ export class FusorCore {
       // The external checkpoint is the durable boundary. If it rejects, leave
       // the process-local cursor untouched so a positive prior cursor replays
       // this event on reconnect.
-      await cursorStore.save(this.cursorScope(projectId), seq);
+      const controller = new AbortController();
+      const work = cursorStore.save(this.cursorScope(projectId), seq, {
+        signal: controller.signal,
+      });
+      await runCursorStoreOperation(
+        work,
+        "save",
+        this.cursorStoreTimeoutMs,
+        controller
+      );
     }
 
     // A session whose shutdown deadline elapsed can finish an older durable
@@ -834,6 +960,7 @@ export class FusorCore {
 
   private async closeOnce(): Promise<void> {
     this.stopped = true;
+    this.cancelCursorLoad?.();
     this.wsSession?.close();
     // Wake an in-progress reconnect backoff so the loop observes stopped and
     // exits immediately instead of waiting out the timer.

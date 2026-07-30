@@ -76,15 +76,22 @@ const app = await Spectrum({
       save: async ({ projectId, websocketEndpoint }, sequence) =>
         saveCursorMonotonically(projectId, websocketEndpoint, sequence),
     },
+    fusorCursorStoreTimeoutMs: 5_000,
   },
 });
 ```
 
-When multiple processes share a store, `save` must only move the cursor
-forward, for example with a database max/CAS update. This checkpoint means the
-SDK verified, normalized, and synchronously enqueued the event. It does not
-mean your `for await` loop finished processing it, so use a durable application
-queue or database for end-to-end delivery guarantees.
+Every `save` must atomically move the cursor forward, for example with a
+database max/CAS update. This is required even with one SDK process because a
+timed-out operation may ignore its `AbortSignal` and finish after a newer save.
+The operation deadline defaults to five seconds and is configurable with
+`fusorCursorStoreTimeoutMs` from 1 through 300,000 milliseconds. A save timeout
+reconnects from the prior cursor and may replay the event. Both callbacks also
+receive an optional final context with an `AbortSignal` for cooperative
+cancellation. This checkpoint means the SDK verified, normalized, and
+synchronously enqueued the event. It does not mean your `for await` loop
+finished processing it, so use a durable application queue or database for
+end-to-end delivery guarantees.
 
 ### Explicit HTTP clients
 

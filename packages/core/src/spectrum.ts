@@ -11,8 +11,10 @@ import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
 import {
+  DEFAULT_FUSOR_CURSOR_STORE_TIMEOUT_MS,
   FusorCore,
   type FusorCursorStore,
+  MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS,
   type RegisteredFusorHandler,
 } from "./fusor/core";
 import { isFusorClient } from "./fusor/index";
@@ -167,6 +169,16 @@ export interface SpectrumOptions {
   fusorCursorStore?: FusorCursorStore;
 
   /**
+   * Maximum duration of one Fusor cursor-store `load` or `save`. A timeout
+   * fails startup or reconnects the stream from its prior checkpoint instead
+   * of allowing custom storage to stall delivery indefinitely. Must be a whole
+   * number from 1 through 300000 milliseconds.
+   *
+   * @default 5000
+   */
+  fusorCursorStoreTimeoutMs?: number;
+
+  /**
    * Minimum severity emitted by the SDK's structured logger (to both the
    * console and, when telemetry is on, OTLP). Applies process-wide and takes
    * precedence over the `LOG_LEVEL` environment variable when provided.
@@ -193,6 +205,12 @@ const spectrumOptionsSchema = z
           "save" in value &&
           typeof value.save === "function"
       )
+      .optional(),
+    fusorCursorStoreTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS)
       .optional(),
     logLevel: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   })
@@ -506,6 +524,9 @@ export async function Spectrum<
     webhookSecret,
   } = options;
   const flattenGroups = runtimeOptions?.flattenGroups ?? false;
+  const fusorCursorStoreTimeoutMs =
+    runtimeOptions?.fusorCursorStoreTimeoutMs ??
+    DEFAULT_FUSOR_CURSOR_STORE_TIMEOUT_MS;
   // Honor an explicit log-level override before anything logs. Applies even
   // when telemetry is off (the console logger respects it too) and takes
   // precedence over LOG_LEVEL inside @photon-ai/otel.
@@ -898,6 +919,7 @@ export async function Spectrum<
     if (fusorPlatforms.length > 0) {
       fusorCore = new FusorCore({
         cursorStore: runtimeOptions?.fusorCursorStore,
+        cursorStoreTimeoutMs: fusorCursorStoreTimeoutMs,
         onTerminal: closeFusorSources,
         projectId,
         projectSecret,

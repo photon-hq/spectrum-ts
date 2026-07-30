@@ -73,6 +73,7 @@ export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
 export type {
   FusorClient,
+  FusorCursorOperationContext,
   FusorCursorScope,
   FusorCursorStore,
   FusorEvent,

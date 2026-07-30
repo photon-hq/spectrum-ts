@@ -62,12 +62,15 @@ runtime must provide a global `WebSocket` implementation; use Bun or Node.js
 
 By default, a fresh process subscribes at Fusor's live tail. To resume across
 process restarts, provide a durable cursor store through
-`Spectrum({ options: { fusorCursorStore } })`. Its `save` operation must be
-monotonic when multiple processes share the store. The cursor confirms that an
-event was verified, normalized, and synchronously enqueued inside the SDK; it
-does not confirm that application code consumed the in-memory message. Use a
-durable application queue or database when end-to-end processing guarantees
-are required.
+`Spectrum({ options: { fusorCursorStore } })`. Every `save` must atomically keep
+the maximum sequence: even one process can retry while a timed-out write
+finishes late. Cursor operations are capped at five seconds by default; set
+`options.fusorCursorStoreTimeoutMs` when the store needs a different bounded
+deadline (1–300,000 milliseconds). The cursor confirms that an event was
+verified, normalized, and synchronously enqueued inside the SDK; it does not
+confirm that application code consumed the in-memory message. Use a durable
+application queue or database when end-to-end processing guarantees are
+required.
 
 This package also exports the iMessage-specific content helpers `effect`, `read`, `background`, `customizedMiniApp`, and `nativeContactCard`.
 

@@ -1,6 +1,10 @@
 import { FUSOR_BRAND, type FusorClient, type FusorVerify } from "./types";
 
-export type { FusorCursorScope, FusorCursorStore } from "./core";
+export type {
+  FusorCursorOperationContext,
+  FusorCursorScope,
+  FusorCursorStore,
+} from "./core";
 export { type FusorEvent, fusorEvent, isFusorEvent } from "./event";
 export type {
   FusorClient,

@@ -31,6 +31,8 @@ const WAIT_POLL_MS = 10;
 // close() must return promptly: above the 2s never-opened-socket
 // failsafe, far below the 30s max reconnect backoff.
 const CLOSE_PROMPTLY_MS = 3000;
+const CURSOR_STORE_TIMEOUT_TEST_MS = 50;
+const CURSOR_LOAD_CANCEL_CEILING_MS = 500;
 const CANNOT_START_RE = /cannot start after close/;
 const INVALID_CURSOR_RE = /invalid cursor/;
 const JWT_NOT_INITIALIZED_RE = /jwt:not-initialized/;
@@ -450,6 +452,161 @@ describe("fusor websocket streaming", () => {
     // Durable side effects still need provider-level idempotency when the
     // cursor store fails after handler completion.
     expect(capture.payloads).toEqual([{ text: "retry" }, { text: "retry" }]);
+  });
+
+  it("bounds a hung cursor load and aborts the underlying operation", async () => {
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
+      token: "unused",
+      expiresIn: 900,
+    });
+    cleanups.push(() => tokenSpy.mockRestore());
+
+    const loadGate = Promise.withResolvers<number | undefined>();
+    let loadSignal: AbortSignal | undefined;
+    const core = new FusorCore({
+      cursorStore: {
+        load: async (_scope, context) => {
+          loadSignal = context?.signal;
+          return await loadGate.promise;
+        },
+        save: async () => undefined,
+      },
+      cursorStoreTimeoutMs: CURSOR_STORE_TIMEOUT_TEST_MS,
+      projectId: "proj",
+      projectSecret: "secret",
+    });
+    cleanups.push(() => core.close());
+
+    await expect(core.start()).rejects.toThrow(
+      `fusor cursor store load timed out after ${CURSOR_STORE_TIMEOUT_TEST_MS}ms`
+    );
+    expect(loadSignal?.aborted).toBe(true);
+    expect(loadSignal?.reason).toEqual(
+      expect.objectContaining({
+        message: `fusor cursor store load timed out after ${CURSOR_STORE_TIMEOUT_TEST_MS}ms`,
+      })
+    );
+    expect(tokenSpy).not.toHaveBeenCalled();
+
+    loadGate.resolve(undefined);
+    await sleep(NO_MESSAGE_WAIT_MS);
+    expect(tokenSpy).not.toHaveBeenCalled();
+  });
+
+  it("cancels a hung cursor load immediately when close starts", async () => {
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
+      token: "unused",
+      expiresIn: 900,
+    });
+    cleanups.push(() => tokenSpy.mockRestore());
+
+    const loadGate = Promise.withResolvers<number | undefined>();
+    let loadSignal: AbortSignal | undefined;
+    const core = new FusorCore({
+      cursorStore: {
+        load: async (_scope, context) => {
+          loadSignal = context?.signal;
+          return await loadGate.promise;
+        },
+        save: async () => undefined,
+      },
+      cursorStoreTimeoutMs: 5000,
+      projectId: "proj",
+      projectSecret: "secret",
+    });
+
+    const startPromise = core.start();
+    await waitFor(() => loadSignal !== undefined);
+    const closed = Promise.all([startPromise, core.close()]).then(
+      () => true,
+      () => false
+    );
+    expect(
+      await Promise.race([
+        closed,
+        sleep(CURSOR_LOAD_CANCEL_CEILING_MS).then(() => false),
+      ])
+    ).toBe(true);
+    expect(loadSignal?.aborted).toBe(true);
+    expect(loadSignal?.reason).toEqual(
+      expect.objectContaining({ message: "fusor cursor store load cancelled" })
+    );
+    expect(tokenSpy).not.toHaveBeenCalled();
+
+    loadGate.resolve(undefined);
+    await sleep(NO_MESSAGE_WAIT_MS);
+    expect(tokenSpy).not.toHaveBeenCalled();
+  });
+
+  it("times out a hung cursor save and replays from the prior checkpoint", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
+      token: "t1",
+      expiresIn: 900,
+    });
+    cleanups.push(() => randomSpy.mockRestore());
+    cleanups.push(() => tokenSpy.mockRestore());
+
+    const server = await makeFusorWsServer({
+      onInit: (_init, connection) => [
+        { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
+        ...(connection <= 2
+          ? [eventFrame("evt-save-timeout", '{"text":"retry"}', false, 1)]
+          : []),
+      ],
+    });
+    cleanups.push(server.stop);
+
+    const firstSaveGate = Promise.withResolvers<void>();
+    const saveSignals: AbortSignal[] = [];
+    const saves: number[] = [];
+    const capture = { payloads: [] as unknown[] };
+    const core = new FusorCore({
+      cursorStore: {
+        load: async () => 0,
+        save: async (_scope, seq, context) => {
+          saves.push(seq);
+          if (context) {
+            saveSignals.push(context.signal);
+          }
+          if (saves.length === 1) {
+            await firstSaveGate.promise;
+          }
+        },
+      },
+      cursorStoreTimeoutMs: CURSOR_STORE_TIMEOUT_TEST_MS,
+      projectId: "proj",
+      projectSecret: "secret",
+      websocketEndpoint: server.url,
+    });
+    cleanups.push(async () => {
+      firstSaveGate.resolve();
+      await core.close();
+    });
+    core.register(PLATFORM, makeHandler(capture));
+    await core.start();
+
+    await waitFor(() => server.inits.length === 2);
+    await waitFor(() => capture.payloads.length === 2);
+    expect(server.inits.map((init) => init.startSeq)).toEqual([0, 0]);
+    expect(saves).toEqual([1, 1]);
+    expect(saveSignals[0]?.aborted).toBe(true);
+    expect(saveSignals[0]?.reason).toEqual(
+      expect.objectContaining({
+        message: `fusor cursor store save timed out after ${CURSOR_STORE_TIMEOUT_TEST_MS}ms`,
+      })
+    );
+    expect(saveSignals[1]?.aborted).toBe(false);
+    expect(capture.payloads).toEqual([{ text: "retry" }, { text: "retry" }]);
+
+    firstSaveGate.resolve();
+    await sleep(NO_MESSAGE_WAIT_MS);
+    interface CoreCheckpointInternals {
+      lastProcessedSeq: number;
+    }
+    expect((core as unknown as CoreCheckpointInternals).lastProcessedSeq).toBe(
+      1
+    );
   });
 
   it("rejects an invalid durable cursor before minting a token", async () => {

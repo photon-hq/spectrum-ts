@@ -1,10 +1,13 @@
 import { makeManagedProvider } from "@spectrum-ts/test-support/platform";
 import { describe, expect, it } from "vitest";
+import { MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS } from "@/fusor/core";
 import {
   Spectrum,
   type SpectrumInstance,
   type SpectrumOptions,
 } from "@/spectrum";
+
+const FUSOR_CURSOR_STORE_TIMEOUT_RE = /fusorCursorStoreTimeoutMs/;
 
 const provider = () => makeManagedProvider("managed").config({});
 
@@ -36,10 +39,27 @@ describe("Spectrum() runtime options", () => {
             load: async () => undefined,
             save: async () => undefined,
           },
+          fusorCursorStoreTimeoutMs: 1000,
         },
       });
     } finally {
       await app?.stop();
     }
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.POSITIVE_INFINITY,
+    Number.NaN,
+    MAX_FUSOR_CURSOR_STORE_TIMEOUT_MS + 1,
+  ])("rejects an invalid Fusor cursor store timeout: %s", async (fusorCursorStoreTimeoutMs) => {
+    await expect(
+      Spectrum({
+        providers: [provider()],
+        options: { fusorCursorStoreTimeoutMs },
+      })
+    ).rejects.toThrow(FUSOR_CURSOR_STORE_TIMEOUT_RE);
   });
 });

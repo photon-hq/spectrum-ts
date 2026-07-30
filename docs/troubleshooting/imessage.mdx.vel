@@ -95,9 +95,12 @@ number and token for its instance. A restart should not be necessary.
 
 A fresh process starts at Fusor's live tail unless
 `options.fusorCursorStore` is configured. Persist the cursor in a durable store
-to replay from the last SDK checkpoint after restart. When several processes
-share it, make `save` monotonic so a slower writer cannot move the cursor
-backward.
+to replay from the last SDK checkpoint after restart. Make every `save` an
+atomic max/CAS update, even with one process: a write that exceeds
+`options.fusorCursorStoreTimeoutMs` can finish after the SDK has retried a newer
+checkpoint. The default deadline is five seconds. A timed-out load fails stream
+startup rather than silently jumping to the live tail; a timed-out save
+reconnects from the prior cursor and can replay the event.
 
 The cursor records verification, normalization, and synchronous enqueue inside
 Spectrum. It is not an acknowledgement that application code finished handling

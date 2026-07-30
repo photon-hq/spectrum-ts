@@ -23,7 +23,7 @@ With Spectrum Cloud credentials, the provider discovers whether the project
 uses shared or dedicated iMessage lines. Inbound messages arrive through
 Fusor's authenticated WebSocket transport. The existing
 `spectrum-webhook` service remains the separate, legacy webhook transport;
-raw Fusor envelopes are not accepted through the public `Spectrum.webhook()`
+raw Fusor envelopes are not accepted through the public `app.webhook()`
 handler. Applications should choose WebSocket or webhook delivery (or dedupe
 across both intentionally). The SDK no longer opens direct gRPC streams.
 

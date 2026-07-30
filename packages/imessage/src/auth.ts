@@ -78,12 +78,18 @@ const dedicatedRecords = (
   entriesByInstance: ReadonlyMap<string, RemoteClient>
 ): DedicatedClientRecord[] => {
   const records: DedicatedClientRecord[] = [];
+  const discoveredPhones = new Set(
+    Object.keys(data.auth).flatMap((instanceId) => {
+      const phone = data.numbers[instanceId];
+      return typeof phone === "string" ? [phone] : [];
+    })
+  );
   for (const instanceId of Object.keys(data.auth)) {
     requireInstanceToken(data, instanceId);
     const discoveredPhone = data.numbers[instanceId];
     if (discoveredPhone === null || discoveredPhone === undefined) {
       const existing = entriesByInstance.get(instanceId);
-      if (existing) {
+      if (existing && !discoveredPhones.has(existing.phone)) {
         authLog.warn(
           "imessage line lost its phone number; keeping the last known number",
           instanceAttrs(instanceId)
@@ -129,7 +135,10 @@ const createBoundedForceRefresh = (
     }
     if (forceRefreshInFlight) {
       await forceRefreshInFlight;
-      return true;
+      // This Cloud read began before this caller observed its unknown phone,
+      // so it cannot be treated as authoritative for that line. The caller
+      // stays retryable until it can initiate a genuinely fresh read.
+      return false;
     }
     const now = Date.now();
     if (

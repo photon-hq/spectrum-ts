@@ -402,6 +402,35 @@ describe("iMessage cloud authentication", () => {
     await disposeCloudAuth(clients);
   });
 
+  it("lets a discovered assignment replace a colliding preserved phone", async () => {
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicatedInventory({ [INSTANCE_ONE]: PHONE_ONE })
+    );
+    const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
+    const originalClient = issuedClients[0];
+
+    await refreshWith(
+      dedicatedTokens({
+        auth: {
+          [INSTANCE_ONE]: "token-one-refreshed",
+          [INSTANCE_TWO]: "token-two",
+        },
+        numbers: {
+          [INSTANCE_ONE]: null,
+          [INSTANCE_TWO]: PHONE_ONE,
+        },
+      })
+    );
+
+    expect(clients.map(({ phone }) => phone)).toEqual([PHONE_ONE]);
+    expect(issuedClients[1]?.options.server).toBe(INSTANCE_TWO);
+    expect(await resolveClientToken(issuedClients[1] as FakeClient)).toBe(
+      "token-two"
+    );
+    expect(originalClient?.close).toHaveBeenCalledOnce();
+    await disposeCloudAuth(clients);
+  });
+
   it("forces immediate discovery once, then bounds repeated refreshes", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -447,7 +476,7 @@ describe("iMessage cloud authentication", () => {
     await disposeCloudAuth(clients);
   });
 
-  it("coalesces callers onto an in-flight forced discovery", async () => {
+  it("coalesces callers but keeps an in-flight piggyback retryable", async () => {
     const clients = await createCloudClients(PROJECT_ID, PROJECT_SECRET);
     const recover = getCloudRecover(clients);
     if (!recover) {
@@ -465,7 +494,7 @@ describe("iMessage cloud authentication", () => {
     const second = recover();
     expect(renewal.forceRefresh).toHaveBeenCalledOnce();
     release?.();
-    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    await expect(Promise.all([first, second])).resolves.toEqual([true, false]);
 
     await disposeCloudAuth(clients);
   });

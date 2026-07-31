@@ -2,7 +2,7 @@ import type {
   AdvancedIMessage,
   MessageEvent,
   Message as SDKMessage,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { Content, Message } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";

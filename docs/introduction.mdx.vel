@@ -132,7 +132,7 @@ You do not have to manage Spectrum only from the dashboard. Use the dashboard fo
     Receive messages via HTTP with native and Fusor webhook support, plus Hono, Express, and Elysia adapters.
   </Card>
   <Card title="Voice calls" icon="phone" href="/spectrum-ts/providers/voice">
-    Configure inbound and outbound calling over SIP with TCP transport.
+    Configure inbound and outbound SIP signaling over TLS or TCP.
   </Card>
   <Card title="Build a custom platform" icon="blocks" href="/spectrum-ts/custom-platforms">
     Add a new interface with Spectrum's provider model.

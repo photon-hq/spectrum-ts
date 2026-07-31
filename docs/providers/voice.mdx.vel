@@ -23,13 +23,19 @@ live calls through a Spectrum iMessage line.
 | SIP | Supported |
 | Webhooks | Coming soon |
 | `spectrum-ts` SDK call control | Coming soon |
-| TCP transport | Supported |
-| UDP or TLS transport | Not supported |
+| SIP over TLS | Supported |
+| SIP over TCP | Supported |
+| SIP over UDP | Not supported |
+| RTP audio | Supported |
+| SRTP audio | Not supported |
 
-<Warning>
-  Configure your SIP application to use **TCP**. Spectrum Voice does not
-  currently accept UDP, TLS, or `sips:` connections.
-</Warning>
+<Note>
+  Use **TLS on port 5061** when your SIP application supports it. TCP on port
+  5060 remains supported for compatibility. UDP is not supported.
+
+  TLS protects SIP signaling such as call setup and hangup. Call audio
+  currently uses unencrypted RTP, not SRTP.
+</Note>
 
 ## Choose a setup path
 
@@ -51,10 +57,13 @@ For outbound calls, configure your SIP application with these values:
 
 | Setting | Value |
 |---|---|
-| SIP server or URI | `sip.spectrum.photon.codes` |
+| SIP server | `sip.spectrum.photon.codes` |
 | Username | Your Spectrum project ID |
 | Password | Your Spectrum project secret |
-| Transport | `TCP` |
+| Recommended transport | `TLS` |
+| TLS port | `5061` |
+| TCP compatibility port | `5060` |
+| Audio transport | RTP |
 
 You can find the project ID and project secret in your project settings in the
 [Spectrum dashboard](https://app.photon.codes).
@@ -85,10 +94,14 @@ it does not yet use a `voice.config()` SDK provider.
 
 Today, your application connects directly through SIP:
 
-- Use SIP over TCP for inbound and outbound calls.
+- Use SIP over TLS or TCP for inbound and outbound calls.
+- Prefer TLS on port 5061 to encrypt SIP signaling. TCP on port 5060 remains
+  available for existing integrations.
+- Allow RTP media traffic for call audio. SIP TLS does not encrypt the RTP
+  audio stream.
 - Use the dashboard to manage the project, business profile, line, and inbound
   route.
 - Do not expect voice calls in `app.messages` or `app.webhook()`.
 
-Webhook delivery, SDK call control, TLS transport, and voice-only lines are on
-the roadmap. No release dates are promised yet.
+Webhook delivery, SDK call control, and voice-only lines are on the roadmap. No
+release dates are promised yet.

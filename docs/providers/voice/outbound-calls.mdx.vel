@@ -19,7 +19,7 @@ You need:
 - A Spectrum project.
 - An iMessage line in that project.
 - The project's ID and secret.
-- A SIP client, PBX, or voice application that supports TCP transport.
+- A SIP client, PBX, or voice application that supports TLS or TCP transport.
 
 WhatsApp numbers cannot be used for Spectrum Voice.
 
@@ -47,18 +47,22 @@ WhatsApp numbers cannot be used for Spectrum Voice.
     | Server or URI | `sip.spectrum.photon.codes` |
     | Username | Your Spectrum project ID |
     | Password | Your Spectrum project secret |
-    | Transport | `TCP` |
+    | Transport | `TLS` |
+    | Port | `5061` |
 
     SIP products name these fields differently. The server field might be
     called **SIP URI**, **domain**, **registrar**, **proxy**, or **host**. In
-    each case, use `sip.spectrum.photon.codes`.
+    each case, use `sip.spectrum.photon.codes`. If the field requires a full
+    URI, use `sips:sip.spectrum.photon.codes:5061;transport=tls`.
   </Step>
-  <Step title="Force TCP transport">
-    Select TCP explicitly. Do not leave transport on an automatic setting if
-    your SIP application might choose UDP or TLS.
+  <Step title="Select the signaling transport">
+    Select TLS explicitly and use port 5061. Keep certificate verification
+    enabled and verify that the certificate is valid for
+    `sip.spectrum.photon.codes`.
 
-    Spectrum Voice currently supports only SIP over TCP. A `sips:` URI will
-    not work.
+    TCP remains supported for existing integrations. To use it, select TCP on
+    port 5060, or use
+    `sip:sip.spectrum.photon.codes:5060;transport=tcp`. UDP is not supported.
   </Step>
   <Step title="Connect and authenticate">
     Start the SIP application and confirm that it connects successfully.
@@ -81,10 +85,11 @@ These environment variable names are examples for your own application. They
 are not read automatically by `spectrum-ts`.
 
 ```bash
-SPECTRUM_SIP_URI=sip.spectrum.photon.codes
+SPECTRUM_SIP_HOST=sip.spectrum.photon.codes
+SPECTRUM_SIP_PORT=5061
 SPECTRUM_SIP_USERNAME=your-project-id
 SPECTRUM_SIP_PASSWORD=your-project-secret
-SPECTRUM_SIP_TRANSPORT=tcp
+SPECTRUM_SIP_TRANSPORT=tls
 ```
 
 Keep the project secret in a secret manager or protected environment variable.
@@ -121,17 +126,26 @@ but it should not be treated as a guarantee that a call will never be flagged.
 - The server is exactly `sip.spectrum.photon.codes`.
 - The username is the project ID, not the project name.
 - The password is the current project secret.
-- The transport is TCP, not UDP or TLS.
+- The transport is TLS/5061 or TCP/5060, not UDP.
+- TLS certificate verification is enabled when using TLS.
 - A test call connects and has working two-way audio.
+- RTP media is allowed by the network. SIP TLS does not encrypt the RTP audio
+  stream.
 - The business profile has been submitted if you want to reduce flagging risk.
 
 ## Troubleshooting
 
 ### The SIP application cannot connect
 
-Check the server spelling and force the transport to TCP. Disable automatic
-UDP or TLS selection. Also confirm that your network allows the SIP application
-to make an outbound TCP connection.
+Check the server spelling and make sure the transport and port match: TLS uses
+5061 and TCP uses 5060. Disable UDP and confirm that your network allows the SIP
+application to make the outbound TCP connection used by the selected transport.
+
+### TLS certificate verification fails
+
+Connect to `sip.spectrum.photon.codes`, not an IP address or unrelated alias.
+The hostname used by the SIP application must match the hostname covered by the
+server certificate. Do not disable certificate verification as a workaround.
 
 ### Authentication fails
 
@@ -149,3 +163,8 @@ are not currently supported for Spectrum Voice.
 Outbound calls can work without a registered business profile, but they may be
 flagged. Register the business profile in the dashboard and allow 1–2 business
 days for registration to complete.
+
+### The call connects but audio does not work
+
+SIP TLS protects signaling only. Audio uses RTP, so confirm that your firewall
+and NAT configuration allow the negotiated RTP traffic in both directions.

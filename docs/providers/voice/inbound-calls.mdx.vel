@@ -15,11 +15,18 @@ You need:
 
 - A Spectrum project.
 - An iMessage line in that project.
-- A SIP client, PBX, or voice application that can receive calls over TLS or
-  TCP.
-- The inbound routing details requested by the dashboard.
+- A SIP application or phone system that can receive calls over TLS or TCP.
+- A public hostname or IP address that Spectrum can reach.
+- Firewall access (network permission) for the SIP listening port and the RTP
+  audio ports used by your application.
 
 WhatsApp numbers cannot be used for Spectrum Voice.
+
+<Note>
+  If the SIP application runs on a private network, such as a laptop on home or
+  office Wi-Fi, it is not normally reachable from Spectrum. Configure port
+  forwarding and firewall rules, or run the application on a public server.
+</Note>
 
 ## Set up inbound calling
 
@@ -35,31 +42,52 @@ WhatsApp numbers cannot be used for Spectrum Voice.
     Make sure you select an iMessage line. WhatsApp numbers are not supported.
   </Step>
   <Step title="Register the inbound route">
-    Enter the SIP URI requested by the dashboard and save the registration.
-    Use a `sips:` URI for TLS or a `sip:` URI for TCP:
+    In the **SIP URI** field, enter the address that Spectrum should call. Use
+    `sips:` for encrypted TLS signaling or `sip:` for unencrypted TCP
+    signaling:
 
     ```text
     sips:agent@voice.example.com:5061
     sip:agent@voice.example.com:5060
     ```
 
-    When the URI omits its port, Spectrum uses 5061 for `sips:` and 5060 for
-    `sip:`. To use a different listening port, include it explicitly in the
-    URI. UDP is not supported.
+    Replace `agent` with the SIP username or extension expected by your
+    application, and replace `voice.example.com` with its public hostname.
+    The final number is the port on which your application listens. A port tells
+    Spectrum which network service to contact on that server.
+
+    If the application does not require a specific username or extension, omit
+    `agent@`. For example:
+
+    ```text
+    sips:voice.example.com:5061
+    ```
+
+    Port 5061 is the default for `sips:` and 5060 is the default for `sip:`.
+    These are defaults, not requirements. To use a different listening port,
+    include that port in the URI. UDP is not supported.
+
+    The dashboard also has optional **Username** and **Password** fields. Fill
+    in both fields only if your SIP application requires username-and-password
+    authentication for incoming calls. This standard SIP mechanism is called
+    SIP Digest. Otherwise, leave both fields empty.
   </Step>
   <Step title="Configure your SIP application">
-    Configure the receiving application with the inbound values shown in the
-    dashboard. The transport and listening port must match the saved SIP URI.
+    Configure the application to listen using the same transport and port as
+    the SIP URI saved in the dashboard.
 
-    For TLS, configure a certificate and private key for the endpoint hostname.
-    Use a publicly trusted certificate whose subject alternative name covers
-    that hostname. For TCP, use a `sip:` URI; 5060 is the default when the URI
-    does not include a port.
+    For TLS, the application needs a TLS certificate and its private key. For
+    production, use a publicly trusted certificate that is valid for the
+    hostname or IP address in the SIP URI. TCP does not require a TLS
+    certificate.
   </Step>
   <Step title="Keep the SIP application available">
-    Start the SIP application and keep its SIP listener reachable so it can
-    accept an incoming call. Also allow the RTP ports used by the application
-    so audio can flow in both directions.
+    Start the SIP application and make sure Spectrum can reach its public
+    hostname or IP address and SIP port.
+
+    Also allow the application's RTP port range through the firewall. RTP
+    carries the call audio and normally uses UDP; check the application's media
+    or RTP settings for its exact port range.
   </Step>
   <Step title="Place an inbound test call">
     From another phone, call the iMessage line registered in the dashboard.
@@ -86,13 +114,15 @@ an inbound route does not register the business profile.
 - The selected number is an iMessage line, not a WhatsApp number.
 - The SIP application uses the routing values shown in the dashboard.
 - The saved SIP URI uses `sips:` for TLS or `sip:` for TCP.
-- The application listens on the transport and port specified by the saved
-  route, not UDP.
-- The TLS certificate matches the endpoint hostname when using TLS.
-- The SIP application remains reachable and ready to receive calls.
+- The application listens on the transport and port specified by the saved SIP
+  URI.
+- The TLS certificate is valid for the hostname or IP address in the SIP URI
+  when using TLS.
+- Spectrum can reach the application's public hostname or IP address and SIP
+  port.
 - A test call reaches the application and has working two-way audio.
-- RTP media is allowed by the network. SIP TLS does not encrypt the RTP audio
-  stream.
+- The firewall allows the application's UDP RTP port range. SIP TLS does not
+  encrypt the RTP audio stream.
 
 ## Troubleshooting
 
@@ -101,6 +131,9 @@ an inbound route does not register the business profile.
 Check that the inbound route is saved for the exact iMessage line being called.
 Then confirm that the SIP application is running, publicly reachable, and
 listening on the transport and port specified by the saved SIP URI.
+
+If the application runs behind a router or cloud firewall, confirm that traffic
+on the SIP port is forwarded to the application.
 
 ### The wrong project or line receives the call
 
@@ -115,14 +148,17 @@ accept SIP over UDP.
 ### A TLS route does not connect
 
 Confirm that the route starts with `sips:`, the receiving application listens
-for TLS on the configured port, and its certificate covers the hostname in the
-route. Also confirm that the firewall allows inbound TCP traffic on that port.
+for TLS on the configured port, and its certificate covers the hostname or IP
+address in the route. Also confirm that the firewall allows inbound TCP traffic
+on that port.
 
 ### The call arrives but audio does not work
 
 SIP TLS protects signaling only. Audio uses RTP, so confirm that the endpoint's
-firewall and NAT configuration allow the negotiated RTP traffic in both
-directions.
+firewall allows the UDP RTP port range configured in the SIP application. If
+the application is behind a router, its NAT or port-forwarding configuration
+must also send that traffic to the application. NAT is the router feature that
+lets devices on a private network share a public internet address.
 
 ### I configured outbound calls, but inbound does not work
 

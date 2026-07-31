@@ -3,13 +3,36 @@ title: "Voice"
 description: "Add inbound and outbound voice calls to a Spectrum iMessage line over SIP."
 ---
 
-Spectrum Voice lets a SIP application, PBX, or voice agent place and receive
-live calls through a Spectrum iMessage line.
+Spectrum Voice connects a SIP application or phone system to a Spectrum
+iMessage line. The application can place calls from that line and receive calls
+made to it.
 
 <Note>
   This guide is about live calls. To send an audio recording inside a message,
   use the [`voice()` content builder](/spectrum-ts/content/voice).
 </Note>
+
+## What inbound and outbound mean
+
+- An **outbound call** starts in your SIP application. Spectrum places the call
+  from your iMessage line to the phone number you dial.
+- An **inbound call** starts when someone calls your iMessage line. Spectrum
+  sends the call to your SIP application.
+
+You can set up either direction or both.
+
+## How a call connects
+
+A call uses two kinds of network traffic:
+
+- **SIP signaling** contains the instructions to start, answer, and end a call.
+  SIP stands for Session Initiation Protocol.
+- **TLS** creates an encrypted connection for SIP signaling. Use TLS when you
+  want those call instructions protected in transit.
+- **TCP** can also carry SIP signaling, but without encryption.
+- **RTP audio** carries the voices you hear during the call. Spectrum currently
+  uses RTP, not its encrypted form, SRTP. This means the audio on the SIP side
+  of the call is not encrypted.
 
 ## What is supported
 
@@ -30,14 +53,16 @@ live calls through a Spectrum iMessage line.
 | SRTP audio | Not supported |
 
 <Note>
-  To connect to Spectrum over TLS, use **Spectrum destination port 5061**. TCP
-  on Spectrum destination port 5060 remains supported for compatibility. Your
-  SIP application does not need to bind or listen on either port when it
-  initiates a call; it can use an available local source port. UDP is not
-  supported.
+  Inbound and outbound calls have separate settings:
 
-  TLS protects SIP signaling such as call setup and hangup. Call audio
-  currently uses unencrypted RTP, not SRTP.
+  - For **outbound calls**, your application connects to Spectrum. Use TLS and
+    Spectrum server port 5061. TCP on Spectrum server port 5060 remains
+    available for compatibility, but it does not encrypt SIP signaling.
+  - For **inbound calls**, Spectrum connects to the SIP address you save in the
+    dashboard. A `sips:` address selects TLS; a `sip:` address selects TCP. You
+    can choose the port on which your application listens.
+
+  Spectrum does not support SIP signaling over UDP.
 </Note>
 
 ## Choose a setup path
@@ -64,12 +89,16 @@ For outbound calls, configure your SIP application with these values:
 | Username | Your Spectrum project ID |
 | Password | Your Spectrum project secret |
 | Recommended transport | `TLS` |
-| Spectrum TLS destination port | `5061` |
-| Spectrum TCP destination port | `5060` |
-| Audio transport | RTP |
+| Spectrum server port | `5061` |
+| Audio | RTP (not encrypted) |
 
 You can find the project ID and project secret in your project settings in the
 [Spectrum dashboard](https://app.photon.codes).
+
+Port 5061 is the server port to enter in your SIP application. Your application
+does not need to use 5061 as its own local or listening port. To keep an
+existing TCP configuration, use Spectrum server port 5060 instead. TLS is
+recommended because TCP does not encrypt SIP signaling.
 
 For inbound calls, register the inbound route in the dashboard. The dashboard
 connects the iMessage line to your SIP application.
@@ -97,9 +126,10 @@ it does not yet use a `voice.config()` SDK provider.
 
 Today, your application connects directly through SIP:
 
-- Use SIP over TLS or TCP for inbound and outbound calls.
-- Prefer Spectrum's TLS destination port 5061 to encrypt SIP signaling. TCP on
-  Spectrum destination port 5060 remains available for existing integrations.
+- For outbound calls, connect your application to Spectrum using TLS on server
+  port 5061. TCP on server port 5060 remains available for compatibility.
+- For inbound calls, save a `sips:` address for TLS or a `sip:` address for TCP.
+  This setting is independent of the outbound connection.
 - Allow RTP media traffic for call audio. SIP TLS does not encrypt the RTP
   audio stream.
 - Use the dashboard to manage the project, business profile, line, and inbound

@@ -1698,6 +1698,30 @@ describe("iMessage Fusor delivery routing", () => {
     ).rejects.toBe(transient);
   });
 
+  it("retries explicitly retryable Fusor mapping failures", async () => {
+    const payload = dedicatedReceivedPayload();
+    const transient = new FusorRetryableError("Cloud inventory is stale");
+    const selected = remoteClient();
+    const message = { ...payload.event.message };
+    Object.defineProperty(message, "content", {
+      enumerable: true,
+      get: () => {
+        throw transient;
+      },
+    });
+    const invalidPayload = {
+      ...payload,
+      event: {
+        ...payload.event,
+        message,
+      },
+    } as typeof payload;
+
+    await expect(
+      handle([{ client: selected.client, phone: LINE_PHONE }], invalidPayload)
+    ).rejects.toBe(transient);
+  });
+
   it("uses the refreshable profile-sync gate instead of a stale project snapshot", async () => {
     const disabled = remoteClient();
     const disabledClients = [

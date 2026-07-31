@@ -65,6 +65,15 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const log = createLogger("spectrum.imessage.fusor");
 
+// Explicit retry markers must reach Fusor so it retains and replays the event.
+// Other mapping failures are deterministic poison frames; retrying one would
+// block the project-wide cursor and every line behind it indefinitely.
+const isRetryableMappingError = (error: unknown): boolean =>
+  error instanceof FusorRetryableError ||
+  (typeof error === "object" &&
+    error !== null &&
+    (error as { retryable?: unknown }).retryable === true);
+
 const header = (request: FusorVerifyRequest, name: string): string =>
   request.headers[name] ?? "";
 
@@ -613,11 +622,7 @@ export const handleImessageFusorMessages: HybridFusorMessages<
       phone
     );
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      (error as { retryable?: unknown }).retryable === true
-    ) {
+    if (isRetryableMappingError(error)) {
       throw error;
     }
     log.warn(

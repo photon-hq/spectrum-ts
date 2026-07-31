@@ -24,8 +24,16 @@ afterEach(() => {
 
 const makeRemote = () => {
   const reply = {
-    guid: "msg-guid",
+    content: {
+      attachments: [],
+      formatting: [{ length: 5, start: 0, type: "bold" }],
+      mentions: [],
+      text: "Hello",
+    },
     dateCreated: SENT_DATE,
+    dateDelivered: SENT_DATE,
+    guid: "msg-guid",
+    isDelivered: true,
   } as unknown as SDKMessage;
   const editTimes: number[] = [];
   const sendText = vi.fn((_chat: string, _text: string) =>
@@ -106,6 +114,9 @@ describe("sendStreamText", () => {
     expect(result.content).toEqual({ type: "text", text: "Hello world" });
     expect(result.space).toEqual({ id: "chat" });
     expect((result as { nativeText?: string }).nativeText).toBe("Hello world");
+    expect(result).not.toHaveProperty("dateDelivered");
+    expect(result).not.toHaveProperty("isDelivered");
+    expect(result).not.toHaveProperty("formatting");
   });
 
   it("sends a single message and no edit for a one-delta stream", async () => {
@@ -121,6 +132,11 @@ describe("sendStreamText", () => {
     expect(sendText.mock.calls[0]).toEqual(["chat", "hi"]);
     expect(edit).not.toHaveBeenCalled();
     expect(result.content).toEqual({ type: "text", text: "hi" });
+    expect(result).toMatchObject({
+      dateDelivered: SENT_DATE,
+      isDelivered: true,
+      formatting: [{ length: 5, start: 0, type: "bold" }],
+    });
   });
 
   it("backs off, stays within the edit budget, and lands the complete text", async () => {

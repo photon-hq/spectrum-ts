@@ -134,15 +134,16 @@ export const toMessageMetadata = (
   sendErrorCode: native.sendErrorCode,
 
   nativeText: native.content?.text,
-  formatting: native.content?.formatting?.map(toTextFormat),
-  mentions: native.content?.mentions?.map(toMention),
+  formatting: native.content?.formatting?.map(toTextFormat) ?? [],
+  mentions: native.content?.mentions?.map(toMention) ?? [],
   subject: native.subject,
   balloonBundleId: native.content?.balloonBundleId,
   expressiveSendStyleId: native.content?.expressiveSendStyleId,
-  attachmentMetadata: native.content?.attachments?.map(toAttachmentMetadata),
+  attachmentMetadata:
+    native.content?.attachments?.map(toAttachmentMetadata) ?? [],
 
-  appliedReactions: native.appliedReactions?.map(toAppliedReaction),
-  placedStickers: native.placedStickers?.map(toPlacedSticker),
+  appliedReactions: native.appliedReactions?.map(toAppliedReaction) ?? [],
+  placedStickers: native.placedStickers?.map(toPlacedSticker) ?? [],
   reactionRecord: toReactionRecord(native),
 
   itemType: native.itemType,

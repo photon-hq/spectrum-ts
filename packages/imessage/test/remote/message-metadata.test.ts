@@ -362,6 +362,31 @@ describe("curated Advanced iMessage metadata", () => {
     });
   });
 
+  it("defaults required native collections when a row omits them", () => {
+    const complete = completeAdvancedMessage();
+    const sparse = {
+      ...complete,
+      appliedReactions: undefined,
+      content: {
+        ...complete.content,
+        attachments: undefined,
+        formatting: undefined,
+        mentions: undefined,
+      },
+      placedStickers: undefined,
+    } as unknown as AdvancedIMessageMessage;
+    const metadata = toMessageMetadata(sparse);
+
+    expect(metadata).toMatchObject({
+      appliedReactions: [],
+      attachmentMetadata: [],
+      formatting: [],
+      mentions: [],
+      placedStickers: [],
+    });
+    expect(nativeMessageMetadataSchema.parse(metadata)).toEqual(metadata);
+  });
+
   it("keeps metadata platform-specific until imessage.is narrows a message", () => {
     type GenericHasDeliveryMetadata = "dateDelivered" extends keyof Message
       ? true

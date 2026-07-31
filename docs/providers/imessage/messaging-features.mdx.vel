@@ -408,6 +408,11 @@ inbound messages, messages returned by `space.getMessage()`, and native
 outbound results. Synthetic events such as read receipts and group changes may
 omit them.
 
+When a streamed text send requires native edits, its returned record exposes
+the final `nativeText` but omits the first-send metadata snapshot because those
+lifecycle and formatting values no longer describe the edited message. Use
+`space.getMessage()` when you need the current native state afterward.
+
 | Use case | Fields |
 |---|---|
 | Delivery and lifecycle | `isSent`, `isDelivered`, `isDeliveredQuietly`, `didNotifyRecipient`, `isDelayed`, `sendErrorCode`, and the `dateDelivered`, `dateRead`, `datePlayed`, `dateEdited`, `dateRetracted`, and `dateExpressiveSendPlayed` timestamps |

@@ -103,8 +103,13 @@ export const sendStreamText = async (
   // Always finish on the complete text (no-op if the last edit already had it).
   await flushEdit(full);
 
+  // The first-chunk response is authoritative only when no edit occurred.
+  // After an edit, its delivery, lifecycle, formatting, and native text fields
+  // are stale; omit that snapshot and retain the final text we know locally.
+  const metadata = editCount === 0 ? toMessageMetadata(sent) : {};
+
   return {
-    ...toMessageMetadata(sent),
+    ...metadata,
     id: sent.guid,
     content: asText(full),
     direction: "outbound",

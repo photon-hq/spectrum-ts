@@ -7,6 +7,12 @@ Outbound calling connects your SIP application to an iMessage line owned by
 your Spectrum project.
 
 <Note>
+  The ports in this guide are destination ports on Spectrum. Your SIP
+  application does not need to bind or listen on local port 5060 or 5061 to
+  initiate an outbound call; it can use an available local source port.
+</Note>
+
+<Note>
   Business profile registration is recommended for production, but it is not
   required. Outbound calls work without any business profile registration,
   although they may be flagged.
@@ -48,7 +54,7 @@ WhatsApp numbers cannot be used for Spectrum Voice.
     | Username | Your Spectrum project ID |
     | Password | Your Spectrum project secret |
     | Transport | `TLS` |
-    | Port | `5061` |
+    | Spectrum destination port | `5061` |
 
     SIP products name these fields differently. The server field might be
     called **SIP URI**, **domain**, **registrar**, **proxy**, or **host**. In
@@ -56,12 +62,13 @@ WhatsApp numbers cannot be used for Spectrum Voice.
     URI, use `sips:sip.spectrum.photon.codes:5061;transport=tls`.
   </Step>
   <Step title="Select the signaling transport">
-    Select TLS explicitly and use port 5061. Keep certificate verification
-    enabled and verify that the certificate is valid for
-    `sip.spectrum.photon.codes`.
+    Select TLS explicitly and set Spectrum's remote or server port to 5061.
+    This is the destination port, not a required local listening port. Keep
+    certificate verification enabled and verify that the certificate is valid
+    for `sip.spectrum.photon.codes`.
 
     TCP remains supported for existing integrations. To use it, select TCP on
-    port 5060, or use
+    Spectrum destination port 5060, or use
     `sip:sip.spectrum.photon.codes:5060;transport=tcp`. UDP is not supported.
   </Step>
   <Step title="Connect and authenticate">
@@ -91,6 +98,9 @@ SPECTRUM_SIP_USERNAME=your-project-id
 SPECTRUM_SIP_PASSWORD=your-project-secret
 SPECTRUM_SIP_TRANSPORT=tls
 ```
+
+`SPECTRUM_SIP_HOST` and `SPECTRUM_SIP_PORT` identify the remote Spectrum
+endpoint. They do not configure a local listening port.
 
 Keep the project secret in a secret manager or protected environment variable.
 Do not commit it to source control or send it to browser code.
@@ -126,7 +136,7 @@ but it should not be treated as a guarantee that a call will never be flagged.
 - The server is exactly `sip.spectrum.photon.codes`.
 - The username is the project ID, not the project name.
 - The password is the current project secret.
-- The transport is TLS/5061 or TCP/5060, not UDP.
+- The Spectrum destination is TLS/5061 or TCP/5060, not UDP.
 - TLS certificate verification is enabled when using TLS.
 - A test call connects and has working two-way audio.
 - RTP media is allowed by the network. SIP TLS does not encrypt the RTP audio
@@ -137,9 +147,10 @@ but it should not be treated as a guarantee that a call will never be flagged.
 
 ### The SIP application cannot connect
 
-Check the server spelling and make sure the transport and port match: TLS uses
-5061 and TCP uses 5060. Disable UDP and confirm that your network allows the SIP
-application to make the outbound TCP connection used by the selected transport.
+Check the server spelling and make sure the transport and Spectrum destination
+port match: TLS uses 5061 and TCP uses 5060. Disable UDP and confirm that your
+network allows the SIP application to make the outbound TCP connection used by
+the selected transport.
 
 ### TLS certificate verification fails
 

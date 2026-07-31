@@ -30,8 +30,11 @@ live calls through a Spectrum iMessage line.
 | SRTP audio | Not supported |
 
 <Note>
-  Use **TLS on port 5061** when your SIP application supports it. TCP on port
-  5060 remains supported for compatibility. UDP is not supported.
+  To connect to Spectrum over TLS, use **Spectrum destination port 5061**. TCP
+  on Spectrum destination port 5060 remains supported for compatibility. Your
+  SIP application does not need to bind or listen on either port when it
+  initiates a call; it can use an available local source port. UDP is not
+  supported.
 
   TLS protects SIP signaling such as call setup and hangup. Call audio
   currently uses unencrypted RTP, not SRTP.
@@ -61,8 +64,8 @@ For outbound calls, configure your SIP application with these values:
 | Username | Your Spectrum project ID |
 | Password | Your Spectrum project secret |
 | Recommended transport | `TLS` |
-| TLS port | `5061` |
-| TCP compatibility port | `5060` |
+| Spectrum TLS destination port | `5061` |
+| Spectrum TCP destination port | `5060` |
 | Audio transport | RTP |
 
 You can find the project ID and project secret in your project settings in the
@@ -95,8 +98,8 @@ it does not yet use a `voice.config()` SDK provider.
 Today, your application connects directly through SIP:
 
 - Use SIP over TLS or TCP for inbound and outbound calls.
-- Prefer TLS on port 5061 to encrypt SIP signaling. TCP on port 5060 remains
-  available for existing integrations.
+- Prefer Spectrum's TLS destination port 5061 to encrypt SIP signaling. TCP on
+  Spectrum destination port 5060 remains available for existing integrations.
 - Allow RTP media traffic for call audio. SIP TLS does not encrypt the RTP
   audio stream.
 - Use the dashboard to manage the project, business profile, line, and inbound

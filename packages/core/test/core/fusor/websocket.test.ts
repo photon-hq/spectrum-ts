@@ -28,6 +28,10 @@ const PLATFORM = "tg";
 // waitFor polling: generous ceiling, tight poll.
 const WAIT_TIMEOUT_MS = 5000;
 const WAIT_POLL_MS = 10;
+// Some reconnect assertions intentionally allow a 100s full-jitter ceiling.
+// Keep Vitest's own deadline slightly above that behavioral timeout so the
+// assertion, rather than the framework, reports a stalled reconnect.
+const WEBSOCKET_TEST_TIMEOUT_MS = 110_000;
 // close() must return promptly: above the 2s never-opened-socket
 // failsafe, far below the 30s max reconnect backoff.
 const CLOSE_PROMPTLY_MS = 3000;
@@ -204,7 +208,9 @@ afterEach(async () => {
   }
 });
 
-describe("fusor websocket streaming", () => {
+describe("fusor websocket streaming", {
+  timeout: WEBSOCKET_TEST_TIMEOUT_MS,
+}, () => {
   it("streams events and replies only when asked", async () => {
     const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
       token: "t1",

@@ -16,6 +16,7 @@ import {
   resolveTargetMessage,
   toSenderRef,
 } from "./inbound";
+import { toMessageMetadata } from "./message-metadata";
 
 type ReactionAddedEvent = Extract<
   MessageEvent,
@@ -171,6 +172,7 @@ export const reactToMessage = async (
   // Apple removes tapbacks via `setReaction(..., false)`, not by retracting
   // the tapback message itself.
   return {
+    ...toMessageMetadata(sent),
     id: sent.guid,
     content: asProviderReaction(reaction, target),
     direction: "outbound",

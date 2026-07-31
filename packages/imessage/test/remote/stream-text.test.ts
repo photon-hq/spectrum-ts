@@ -105,6 +105,7 @@ describe("sendStreamText", () => {
     expect(result.timestamp).toEqual(SENT_DATE);
     expect(result.content).toEqual({ type: "text", text: "Hello world" });
     expect(result.space).toEqual({ id: "chat" });
+    expect((result as { nativeText?: string }).nativeText).toBe("Hello world");
   });
 
   it("sends a single message and no edit for a one-delta stream", async () => {

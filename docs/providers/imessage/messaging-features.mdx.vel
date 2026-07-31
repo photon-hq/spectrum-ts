@@ -400,6 +400,96 @@ This shares the bot's own contact card as it appears in iMessage. Recipients can
   <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
 </Note>
 
+## Native message metadata
+
+Cloud iMessage messages include a curated set of native metadata in addition
+to Spectrum's cross-platform fields. The same fields are available on ordinary
+inbound messages, messages returned by `space.getMessage()`, and native
+outbound results. Synthetic events such as read receipts and group changes may
+omit them.
+
+| Use case | Fields |
+|---|---|
+| Delivery and lifecycle | `isSent`, `isDelivered`, `isDeliveredQuietly`, `didNotifyRecipient`, `isDelayed`, `sendErrorCode`, and the `dateDelivered`, `dateRead`, `datePlayed`, `dateEdited`, `dateRetracted`, and `dateExpressiveSendPlayed` timestamps |
+| Native text | `nativeText`, `formatting`, `mentions`, `subject`, `balloonBundleId`, and `expressiveSendStyleId` |
+| Attachments | `attachmentMetadata`, including transfer state, UTI, sticker/hidden status, original GUID, and Live Photo companion kind |
+| Reactions and stickers | `appliedReactions`, `placedStickers`, and `reactionRecord` when the native row is itself a tapback |
+| Classification | `itemType`, `groupTitle`, `partCount`, `isAutoReply`, `isCorrupt`, `isExpirable`, `isServiceMessage`, `isSpam`, and `isSystemMessage` |
+
+Use `imessage.is()` when consuming the unified Spectrum message stream. It
+narrows the message to the iMessage-specific type:
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const message = await space.getMessage(messageId);
+
+if (message && imessage.is(message)) {
+  if ((message.sendErrorCode ?? 0) !== 0) {
+    console.error("Apple send error", message.sendErrorCode);
+  }
+
+  console.log({
+    sent: message.isSent,
+    delivered: message.isDelivered,
+    deliveredAt: message.dateDelivered,
+    readAt: message.dateRead,
+    editedAt: message.dateEdited,
+    retractedAt: message.dateRetracted,
+  });
+}
+```
+
+The same guard works inside `for await (const [, message] of
+spectrum.messages)`.
+
+`nativeText` preserves Apple's original text because formatting and mention
+ranges use UTF-16 offsets into that string. Spectrum can split native
+multipart content into grouped messages, so rebuilding these offsets from
+`message.content` is not reliable:
+
+```ts
+if (message && imessage.is(message)) {
+  const text = message.nativeText;
+
+  for (const mention of message.mentions ?? []) {
+    console.log({
+      address: mention.address,
+      value: text?.slice(
+        mention.start,
+        mention.start + mention.length
+      ),
+    });
+  }
+}
+```
+
+Attachment metadata describes Apple's transfer record; attachment bytes still
+live in Spectrum attachment content:
+
+```ts
+if (message && imessage.is(message)) {
+  for (const attachment of message.attachmentMetadata ?? []) {
+    if (attachment.transferState === "failed") {
+      console.error(
+        `Attachment ${attachment.guid} failed to transfer`
+      );
+    }
+  }
+
+  for (const applied of message.appliedReactions ?? []) {
+    console.log(
+      applied.sender?.address,
+      applied.reaction.kind
+    );
+  }
+}
+```
+
+`sendErrorCode === 0` means Apple recorded no send error. The metadata is
+intentionally curated: Spectrum does not expose the raw Advanced iMessage
+database row or unstable Apple-private fields.
+
 ## Fetching attachments
 
 {% set attachmentType = symbol("ts:spectrum-ts#Attachment") %}

@@ -9,6 +9,7 @@ import {
 } from "@spectrum-ts/core/authoring";
 import { unsupportedRemoteContent } from "../shared/errors";
 import { toChatGuid, toMessageGuid } from "./ids";
+import { toMessageMetadata } from "./message-metadata";
 
 // Delivery pacing is fixed logic, not configurable. iMessage's native edit
 // replaces the whole message body, so each update sends the full accumulated
@@ -103,9 +104,11 @@ export const sendStreamText = async (
   await flushEdit(full);
 
   return {
+    ...toMessageMetadata(sent),
     id: sent.guid,
     content: asText(full),
     direction: "outbound",
+    nativeText: full,
     space: { id: spaceId },
     timestamp: sent.dateCreated,
   };

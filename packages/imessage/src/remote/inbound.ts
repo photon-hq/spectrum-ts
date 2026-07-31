@@ -36,6 +36,7 @@ import {
   parseChildId,
   toMessageGuid,
 } from "./ids";
+import { toMessageMetadata } from "./message-metadata";
 
 const log = createLogger("spectrum.imessage.inbound");
 
@@ -121,6 +122,7 @@ export const buildMessageBase = (
 ): RemoteMessageBase => {
   const chat = resolveChatGuid(message, chatGuidHint);
   return {
+    ...toMessageMetadata(message),
     direction: message.isFromMe ? "outbound" : "inbound",
     sender: toSenderRef(message.sender),
     space: {
@@ -247,6 +249,9 @@ const buildOrderedPartMessage = async (
         part.attachment.guid === voiceAttachmentGuid
       );
 
+const unsupportedMessageContent = (): Content =>
+  asCustom({ imessage_type: "unsupported-message" });
+
 const buildUnwrappedContentMessage = async (
   client: AdvancedIMessage,
   base: RemoteMessageBase,
@@ -263,7 +268,7 @@ const buildUnwrappedContentMessage = async (
     return {
       ...base,
       id: messageGuidStr,
-      content: text ? asText(text) : asCustom(message),
+      content: text ? asText(text) : unsupportedMessageContent(),
     };
   }
 
@@ -273,7 +278,7 @@ const buildUnwrappedContentMessage = async (
     return {
       ...base,
       id: messageGuidStr,
-      content: asCustom(message),
+      content: unsupportedMessageContent(),
     };
   }
 

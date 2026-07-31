@@ -28,6 +28,7 @@ import {
   type IMessageRenderedMarkdown,
   markdownToIMessageText,
 } from "./markdown";
+import { toMessageMetadata } from "./message-metadata";
 
 const GROUP_ITEM_ALLOWED: ReadonlySet<Content["type"]> = new Set([
   "text",
@@ -44,13 +45,17 @@ const GROUP_TEXT_TYPES: ReadonlySet<Content["type"]> = new Set([
 const MAX_GROUP_TEXT_ITEMS = 1;
 
 type ReplyTarget = SendOptions["replyTo"];
+type OutboundMessageExtras = Omit<
+  Partial<IMessageMessage>,
+  "content" | "direction" | "id" | "sender" | "space" | "timestamp"
+>;
 
 const outboundRecord = (
   spaceId: string,
   id: string,
   content: Content,
   timestamp: Date,
-  extras?: Pick<IMessageMessage, "partIndex" | "parentId">
+  extras?: OutboundMessageExtras
 ): ProviderMessageRecord => ({
   id,
   content,
@@ -66,9 +71,11 @@ const outboundGroupItem = (
   content: Content,
   timestamp: Date,
   partIndex: number,
-  parentId: string
+  parentId: string,
+  metadata: OutboundMessageExtras
 ): IMessageMessage =>
   outboundRecord(spaceId, id, content, timestamp, {
+    ...metadata,
     partIndex,
     parentId,
   }) as IMessageMessage;
@@ -124,7 +131,13 @@ const outboundMessage = (
   message: SDKMessage,
   content: Content
 ): ProviderMessageRecord =>
-  outboundRecord(spaceId, message.guid, content, message.dateCreated);
+  outboundRecord(
+    spaceId,
+    message.guid,
+    content,
+    message.dateCreated,
+    toMessageMetadata(message)
+  );
 
 const outboundPoll = (
   spaceId: string,
@@ -341,6 +354,7 @@ export const send = async (
     );
     const parentGuid = message.guid;
     const timestamp = message.dateCreated;
+    const metadata = toMessageMetadata(message);
 
     const items = content.items.map((sub, idx) =>
       outboundGroupItem(
@@ -349,11 +363,18 @@ export const send = async (
         sub.content,
         timestamp,
         idx,
-        parentGuid
+        parentGuid,
+        metadata
       )
     );
 
-    return outboundRecord(spaceId, parentGuid, providerGroup(items), timestamp);
+    return outboundRecord(
+      spaceId,
+      parentGuid,
+      providerGroup(items),
+      timestamp,
+      metadata
+    );
   }
 
   return sendContent(remote, spaceId, chat, content);

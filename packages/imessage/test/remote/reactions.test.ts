@@ -15,8 +15,17 @@ const SENT_DATE = new Date(1_700_000_000_000);
 
 const makeRemote = () => {
   const tapback = {
-    guid: "tapback-1",
+    content: {
+      attachments: [],
+      formatting: [],
+      mentions: [],
+      text: "Liked “hi”",
+    },
     dateCreated: SENT_DATE,
+    dateDelivered: SENT_DATE,
+    guid: "tapback-1",
+    isDelivered: true,
+    sendErrorCode: 0,
   } as unknown as SDKMessage;
   const setReaction = vi.fn(
     (
@@ -112,6 +121,12 @@ describe("iMessage remote reactToMessage", () => {
     expect(record.id).toBe("tapback-1");
     expect(record.timestamp).toEqual(SENT_DATE);
     expect(record.space).toEqual({ id: "s1" });
+    expect(record).toMatchObject({
+      dateDelivered: SENT_DATE,
+      isDelivered: true,
+      nativeText: "Liked “hi”",
+      sendErrorCode: 0,
+    });
     const content = record.content as { type: string; emoji: string };
     expect(content.type).toBe("reaction");
     expect(content.emoji).toBe("👍");

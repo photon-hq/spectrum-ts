@@ -10,8 +10,9 @@ import {
   type Attachment,
   type Avatar,
   type Content,
-  definePlatform,
+  definePlatform as defineCorePlatform,
   type Edit,
+  type Platform,
   type RemoveMember,
   type Rename,
   type Space,
@@ -35,6 +36,17 @@ export {
   customizedMiniApp,
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
+export type {
+  IMessageAppliedReaction,
+  IMessageAttachmentMetadata,
+  IMessageMention,
+  IMessageMessage,
+  IMessagePlacedSticker,
+  IMessageReaction,
+  IMessageReactionRecord,
+  IMessageStickerPlacement,
+  IMessageTextFormat,
+} from "./types";
 
 import { createCloudClients, disposeCloudAuth } from "./auth";
 import { getMessageCache } from "./cache";
@@ -463,7 +475,7 @@ const remoteForMessageTarget = (
   return clientForPhone(client, space.phone);
 };
 
-export const imessage = definePlatform(IMESSAGE_PLATFORM, {
+const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
   config: configSchema,
 
   static: {
@@ -807,3 +819,29 @@ export const imessage = definePlatform(IMESSAGE_PLATFORM, {
     },
   },
 });
+
+type DefinedIMessagePlatform = typeof definedIMessage;
+type DefinedIMessageDefinition =
+  DefinedIMessagePlatform extends Platform<infer Definition>
+    ? Definition
+    : never;
+type IMessageDefinition = Omit<DefinedIMessageDefinition, "message"> & {
+  message: NonNullable<DefinedIMessageDefinition["message"]> & {
+    schema: typeof messageSchema;
+  };
+};
+type PublicIMessagePlatform = Platform<IMessageDefinition> &
+  Pick<DefinedIMessagePlatform, "effect">;
+
+/**
+ * Retain iMessage's required message-schema slot in the public platform type.
+ * The manifest generator also validates the canonical
+ * `export const imessage = definePlatform(...)` form, so this provider-local
+ * helper performs the type refinement while preserving that export contract.
+ */
+const definePlatform = (
+  _platformId: typeof IMESSAGE_PLATFORM,
+  platform: DefinedIMessagePlatform
+): PublicIMessagePlatform => platform as PublicIMessagePlatform;
+
+export const imessage = definePlatform(IMESSAGE_PLATFORM, definedIMessage);

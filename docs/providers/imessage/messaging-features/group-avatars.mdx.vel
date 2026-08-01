@@ -1,0 +1,40 @@
+---
+title: "iMessage group avatars"
+sidebarTitle: "Group avatars"
+description: "Set, clear, and retrieve iMessage group chat icons."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+Set or clear the group chat icon using `space.avatar()` or the canonical
+`avatar()` content builder:
+
+```ts
+import { avatar } from "spectrum-ts";
+
+// Sugar - set from a file path
+await space.avatar("./icon.png");
+
+// Sugar - clear the current avatar
+await space.avatar("clear");
+
+// Canonical
+await space.send(avatar("./icon.png"));
+```
+
+{% set avatarData = symbol("ts:spectrum-ts#AvatarData") %}
+Read the current icon back with `space.getAvatar()`. It resolves to
+<TypeTooltip name="AvatarData" type={`{{ avatarData.signature }}`} /> or
+`undefined` when the group has no icon. The result round-trips into the setter:
+
+```ts
+const icon = await space.getAvatar();
+if (icon) {
+  await otherGroup.avatar(icon.data, { mimeType: icon.mimeType });
+}
+```
+
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+Group avatars require `@spectrum-ts/imessage` and only work on group chats.
+With `@spectrum-ts/imessage-local`, or on a DM, `avatar()` and `getAvatar()`
+throw an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.

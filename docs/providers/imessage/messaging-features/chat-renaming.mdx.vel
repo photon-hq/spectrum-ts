@@ -1,0 +1,25 @@
+---
+title: "iMessage chat renaming"
+sidebarTitle: "Chat renaming"
+description: "Rename an iMessage group chat."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+Rename a group chat using `space.rename()` or the canonical `rename()` content
+builder:
+
+```ts
+import { rename } from "spectrum-ts";
+
+// Sugar
+await space.rename("Book Club");
+
+// Canonical
+await space.send(rename("Book Club"));
+```
+
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+Renaming requires `@spectrum-ts/imessage` and only works on group chats. With
+`@spectrum-ts/imessage-local`, or on a DM, `rename()` throws an
+<TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.

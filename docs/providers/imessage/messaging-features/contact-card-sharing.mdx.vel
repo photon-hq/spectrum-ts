@@ -1,0 +1,40 @@
+---
+title: "Native iMessage contact card sharing"
+sidebarTitle: "Contact card sharing"
+description: "Share the bot account's own iMessage contact card in a chat."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+Share the bot account's own iMessage contact card directly in a chat. Use
+`nativeContactCard()` to build the content, or the `space.shareContactCard()`
+sugar method on a narrowed iMessage space:
+
+<Tabs>
+  <Tab title="Sugar (space.shareContactCard)">
+    ```ts
+    import { imessage } from "spectrum-ts/providers/imessage";
+
+    const im = imessage(space);
+    await im.shareContactCard();
+    ```
+  </Tab>
+  <Tab title="Canonical (space.send)">
+    ```ts
+    import { nativeContactCard } from "spectrum-ts/providers/imessage";
+
+    await space.send(nativeContactCard());
+    ```
+  </Tab>
+</Tabs>
+
+This shares the bot's own contact card as it appears in iMessage. Recipients
+can tap it to save the contact. Use it in onboarding flows where you want users
+to add your bot to their contacts.
+
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+<Note>
+  Native contact card sharing requires `@spectrum-ts/imessage`. With
+  `@spectrum-ts/imessage-local`, `nativeContactCard()` throws an
+  <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
+</Note>

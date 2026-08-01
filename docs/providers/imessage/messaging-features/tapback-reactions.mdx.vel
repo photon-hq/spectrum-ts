@@ -1,0 +1,34 @@
+---
+title: "iMessage tapback reactions"
+sidebarTitle: "Tapback reactions"
+description: "Map Spectrum emoji aliases to native iMessage tapbacks."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set emoji = symbol("ts:spectrum-ts#Emoji") %}
+iMessage converts six universal
+<TypeTooltip name="Emoji" type={`{{ emoji.signature }}`} /> aliases into native
+tapbacks:
+
+<Accordion title="Emoji" description="{{ emoji.doc.summary }}">
+  | Constant | Value |
+  |---|---|
+  {% for v in emoji.variants -%}
+  {% if v.name == "love" or v.name == "like" or v.name == "dislike" or v.name == "laugh" or v.name == "emphasize" or v.name == "question" -%}
+  | `Emoji.{{ v.name }}` | `{{ v.value.text }}` |
+  {% endif -%}
+  {% endfor %}
+</Accordion>
+
+```ts
+import { Emoji } from "spectrum-ts";
+
+await message.react(Emoji.laugh);
+```
+
+Other emoji are sent as ordinary emoji reactions when supported. Reactions
+require the cloud iMessage package.
+
+See [Reactions and replies](/spectrum-ts/reactions-and-replies) for the
+cross-platform reaction model.

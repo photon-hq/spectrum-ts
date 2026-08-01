@@ -1,0 +1,57 @@
+---
+title: "iMessage message effects"
+sidebarTitle: "Message effects"
+description: "Send iMessage bubble and screen effects with text, markdown, or attachments."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+iMessage supports bubble effects, which animate the sent message bubble, and
+screen effects, which play a full-screen animation on receive. Wrap any
+content with `effect()`:
+
+```ts
+import { attachment } from "spectrum-ts";
+import { effect, imessage } from "spectrum-ts/providers/imessage";
+
+await space.send(effect("Happy birthday!", imessage.effect.message.celebration));
+await space.send(
+  effect(
+    attachment("/path/to/photo.jpg"),
+    imessage.effect.message.confetti
+  )
+);
+```
+
+The wrapped content can be a string, `markdown(...)`, or any
+`attachment(...)`. Effects only apply on iMessage. Other platforms see the
+inner content unchanged.
+
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+<Note>
+  Sending effects requires the cloud `@spectrum-ts/imessage` package. The local
+  package exports the helper for API consistency but rejects effect sends with
+  an <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
+</Note>
+
+{% set messageEffect = symbol("ts:@photon-ai/advanced-imessage#MessageEffect") %}
+<AccordionGroup>
+  <Accordion title="Bubble effects" description="Animate the sent message bubble.">
+    | Constant | Value |
+    |---|---|
+    {% for v in messageEffect.variants -%}
+    {% if v.name == "slam" or v.name == "loud" or v.name == "gentle" or v.name == "invisible" -%}
+    | `imessage.effect.message.{{ v.name }}` | `{{ v.value.text }}` |
+    {% endif -%}
+    {% endfor %}
+  </Accordion>
+  <Accordion title="Screen effects" description="Play a full-screen animation on the recipient's device when the message arrives.">
+    | Constant | Value |
+    |---|---|
+    {% for v in messageEffect.variants -%}
+    {% if v.name != "slam" and v.name != "loud" and v.name != "gentle" and v.name != "invisible" -%}
+    | `imessage.effect.message.{{ v.name }}` | `{{ v.value.text }}` |
+    {% endif -%}
+    {% endfor %}
+  </Accordion>
+</AccordionGroup>

@@ -181,8 +181,8 @@ optional dependencies, install `better-sqlite3` explicitly.
 | Inbound read receipts (someone read what you sent) | Yes | No |
 | Streaming text and typing indicators | Yes | Typing is a no-op; streaming is unsupported |
 | Rename, avatar, membership, and group events | Dedicated lines only | No |
-| Backgrounds, mini-app cards, and native contact-card sharing | Yes | No |
-| Universal `app(...)` content | Native mini-app card | Sends the app URL as text |
+| Backgrounds, iMessage Apps, and native contact-card sharing | Yes | No |
+| Universal `app(...)` content | Native iMessage App card | Sends the app URL as text |
 
 Local inbound attachments remain readable from incoming message content. The
 cloud-only `imessage(app).getAttachment(guid)` lookup is not available locally.
@@ -253,6 +253,7 @@ WebSocket.
     Compare the two packages and learn line allocation, quotas, spaces, and per-phone cloud routing.
   </Card>
   <Card title="Messaging features" icon="sparkles" href="/spectrum-ts/providers/imessage/messaging-features">
-    See which effects, group operations, cards, attachments, and tapbacks each package supports.
+    Browse dedicated guides for effects, group operations, iMessage Apps,
+    attachments, tapbacks, and other provider-specific features.
   </Card>
 </CardGroup>

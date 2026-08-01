@@ -32,4 +32,8 @@ await space.send(
 
 The original send returns the message record that identifies the card. The edit itself returns `undefined`, so keep using `card` if you need to update it again.
 
-App-card updates require `@spectrum-ts/imessage`; they are not supported by `@spectrum-ts/imessage-local`. See [App cards](/spectrum-ts/content/app#update-an-app-card-in-place) for live rendering and session details, or [Customized mini-app cards](/spectrum-ts/providers/imessage/messaging-features#update-a-customized-mini-app-card) when you own the iMessage extension.
+App-card updates require `@spectrum-ts/imessage`; they are not supported by
+`@spectrum-ts/imessage-local`. See [App cards](/spectrum-ts/content/app#update-an-app-card-in-place)
+for live rendering and session details, or
+[Customized iMessage Apps](/spectrum-ts/providers/imessage/messaging-features/apps#update-an-imessage-app)
+when you own the iMessage extension.

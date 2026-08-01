@@ -75,4 +75,5 @@ for await (const [space, message] of app.messages) {
 }
 ```
 
-See [iMessage messaging features](/spectrum-ts/providers/imessage/messaging-features) for the per-provider volume and delivery caveats.
+See [Inbound iMessage read receipts](/spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts)
+for the per-provider volume and delivery caveats.

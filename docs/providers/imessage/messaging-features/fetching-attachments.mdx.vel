@@ -1,0 +1,45 @@
+---
+title: "Fetching iMessage attachments"
+sidebarTitle: "Fetching attachments"
+description: "Retrieve cloud iMessage attachments directly by GUID."
+---
+
+import { TypeTooltip } from "/snippets/type-tooltip.mdx";
+
+{% set attachmentType = symbol("ts:spectrum-ts#Attachment") %}
+Retrieve an attachment by its iMessage GUID using `getAttachment` on the
+narrowed platform instance. The returned
+<TypeTooltip name="Attachment" type={`{{ attachmentType.signature }}`} /> is
+lazy. `.read()` and `.stream()` each trigger an independent download, so cache
+`.read()` if you need the bytes more than once.
+
+```ts
+import { imessage } from "spectrum-ts/providers/imessage";
+
+const im = imessage(app);
+const att = await im.getAttachment("p:0/GUID");
+
+if (att) {
+  console.log(att.name, att.mimeType, att.size);
+  const bytes = await att.read();
+}
+```
+
+In multi-phone mode, pass the phone number as the second argument to route the
+request through the correct instance:
+
+```ts
+const att = await im.getAttachment("p:0/GUID", "+15559999999");
+```
+
+When only one phone is configured, or in shared-pool mode, the phone parameter
+is optional.
+
+{% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
+<Note>
+  `getAttachment` requires `@spectrum-ts/imessage`. With
+  `@spectrum-ts/imessage-local`, it throws an
+  <TypeTooltip name="UnsupportedError" type={`{{ unsupportedError.signature }}`} />.
+  Local inbound attachments are still available through each incoming
+  message's content.
+</Note>

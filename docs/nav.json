@@ -62,7 +62,19 @@
           "root": "spectrum-ts/providers/imessage",
           "pages": [
             "spectrum-ts/providers/imessage/connection-and-routing",
-            "spectrum-ts/providers/imessage/messaging-features"
+            "spectrum-ts/providers/imessage/messaging-features",
+            "spectrum-ts/providers/imessage/messaging-features/message-effects",
+            "spectrum-ts/providers/imessage/messaging-features/chat-renaming",
+            "spectrum-ts/providers/imessage/messaging-features/group-avatars",
+            "spectrum-ts/providers/imessage/messaging-features/group-membership",
+            "spectrum-ts/providers/imessage/messaging-features/inbound-group-events",
+            "spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts",
+            "spectrum-ts/providers/imessage/messaging-features/chat-backgrounds",
+            "spectrum-ts/providers/imessage/messaging-features/apps",
+            "spectrum-ts/providers/imessage/messaging-features/contact-card-sharing",
+            "spectrum-ts/providers/imessage/messaging-features/message-metadata",
+            "spectrum-ts/providers/imessage/messaging-features/fetching-attachments",
+            "spectrum-ts/providers/imessage/messaging-features/tapback-reactions"
           ]
         },
         {

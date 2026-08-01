@@ -18,7 +18,9 @@ import { app } from "spectrum-ts";
 await space.send(app("https://example.com/deep-link"));
 ```
 
-On iMessage, the recipient gets a native mini-app card. On Slack, Telegram, WhatsApp, and terminal, Spectrum sends the URL using that platform's normal link behavior.
+On iMessage, the recipient gets a native iMessage App card. On Slack, Telegram,
+WhatsApp, and terminal, Spectrum sends the URL using that platform's normal
+link behavior.
 
 ## Show the app's live UI
 
@@ -87,14 +89,24 @@ Keep using `card` for later updates. `space.send(edit(...))` resolves to `undefi
 
 ### How update sessions work
 
-A successful iMessage mini-app send returns an iMessage message with `miniAppCardSession` metadata. Spectrum passes this session back to iMessage when you call `edit()` and refreshes it after each successful update.
+A successful iMessage App send returns an iMessage message with
+`miniAppCardSession` metadata. Spectrum passes this session back to iMessage
+when you call `edit()` and refreshes it after each successful update.
 
-Most applications should treat `miniAppCardSession` as provider-managed metadata: keep the original returned message and let Spectrum use it. A message without this metadata cannot identify an existing mini-app card to update.
+Most applications should treat `miniAppCardSession` as provider-managed
+metadata: keep the original returned message and let Spectrum use it. A message
+without this metadata cannot identify an existing iMessage App card to update.
 
 ## How iMessage delivers app cards
 
-On iMessage, app cards open inside the [Spectrum Mini App](https://apps.apple.com/ca/app/spectrum-by-photon/id6777616651), a mini-app launcher approved by Apple. Recipients download it once on first use (they can download it directly inside the Messages app); after that, every app card you send opens directly in Messages without leaving the conversation.
+On iMessage, app cards open inside the [Spectrum iMessage App](https://apps.apple.com/ca/app/spectrum-by-photon/id6777616651),
+an iMessage App launcher approved by Apple. Recipients download it once on
+first use (they can download it directly inside the Messages app); after that,
+every app card you send opens directly in Messages without leaving the
+conversation.
 
-The launcher keeps a library of every mini app a recipient has opened, so they can reopen those apps later or share them with friends.
+The launcher keeps a library of every iMessage App a recipient has opened, so
+they can reopen those apps later or share them with friends.
 
-For an iMessage extension with its own identity and layout control, see [Customized mini-app cards](/spectrum-ts/providers/imessage/messaging-features#mini-app-cards).
+For an iMessage extension with its own identity and layout control, see
+[Customized iMessage Apps](/spectrum-ts/providers/imessage/messaging-features/apps).

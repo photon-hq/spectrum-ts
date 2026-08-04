@@ -39,7 +39,7 @@ Both options fall back to their matching environment variables (`SPECTRUM_STANDA
 
 ## Registering and managing project webhooks
 
-The public `cloud` client covers endpoint registration, subscriptions, enable/disable controls, secret rotation, stable egress IPs, delivery history, replay, and deletion:
+The public `cloud` client covers endpoint registration, subscriptions, enable/disable controls, secret rotation, stable egress IPs, and deletion:
 
 ```ts
 import { cloud } from "spectrum-ts";
@@ -66,7 +66,7 @@ const rotated = await cloud.rotateWebhookSecret(
 // Deploy rotated.standardSigningSecret before the overlap expires.
 ```
 
-During the overlap, `webhook-signature` contains signatures for both secrets, so either the old or new configured secret verifies. Use `cloud.getWebhookEgressIps(...)` for network allowlists. `cloud.listWebhookDeliveries(...)`, `cloud.replayWebhookDelivery(...)`, and `cloud.replayFailedWebhookDeliveries(...)` expose the retained delivery history and bounded replay controls.
+During the overlap, `webhook-signature` contains signatures for both secrets, so either the old or new configured secret verifies. Use `cloud.getWebhookEgressIps(...)` for network allowlists.
 
 To verify a Standard Webhooks request without routing it through `app.webhook()`, use the exact raw bytes:
 

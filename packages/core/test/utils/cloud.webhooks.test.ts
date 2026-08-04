@@ -80,7 +80,7 @@ describe("cloud Standard Webhooks API", () => {
     });
   });
 
-  it("maps endpoint controls, rotation, history, replay, egress, and deletion", async () => {
+  it("maps endpoint controls, rotation, egress, and deletion", async () => {
     const calls = mockCloud({});
 
     await cloud.listWebhooks(PROJECT_ID, PROJECT_SECRET);
@@ -92,38 +92,14 @@ describe("cloud Standard Webhooks API", () => {
       overlapSeconds: 3600,
     });
     await cloud.getWebhookEgressIps(PROJECT_ID, PROJECT_SECRET);
-    await cloud.listWebhookDeliveries(PROJECT_ID, PROJECT_SECRET, WEBHOOK_ID, {
-      before: "2026-08-03T20:00:00.000Z",
-      limit: 25,
-      outcome: "dead_lettered",
-    });
-    await cloud.replayWebhookDelivery(
-      PROJECT_ID,
-      PROJECT_SECRET,
-      WEBHOOK_ID,
-      "event/with path"
-    );
-    await cloud.replayFailedWebhookDeliveries(
-      PROJECT_ID,
-      PROJECT_SECRET,
-      WEBHOOK_ID,
-      {
-        limit: 10,
-        since: "2026-08-01T00:00:00.000Z",
-        until: "2026-08-02T00:00:00.000Z",
-      }
-    );
     await cloud.deleteWebhook(PROJECT_ID, PROJECT_SECRET, WEBHOOK_ID);
 
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(5);
     expect(calls.map((call) => call.init?.method ?? "GET")).toEqual([
       "GET",
       "PATCH",
       "POST",
       "GET",
-      "GET",
-      "POST",
-      "POST",
       "DELETE",
     ]);
     expect(calls[0]?.url).toBe(
@@ -146,27 +122,7 @@ describe("cloud Standard Webhooks API", () => {
       "/projects/project%2Fwith%20path/webhooks/egress-ips"
     );
 
-    const deliveryUrl = new URL(calls[4]?.url ?? "");
-    expect(deliveryUrl.pathname).toBe(
-      "/projects/project%2Fwith%20path/webhooks/webhook-id/deliveries"
-    );
-    expect(Object.fromEntries(deliveryUrl.searchParams)).toEqual({
-      before: "2026-08-03T20:00:00.000Z",
-      limit: "25",
-      outcome: "dead_lettered",
-    });
-    expect(requestPath(calls[5])).toBe(
-      "/projects/project%2Fwith%20path/webhooks/webhook-id/deliveries/event%2Fwith%20path/replay"
-    );
-    expect(requestPath(calls[6])).toBe(
-      "/projects/project%2Fwith%20path/webhooks/webhook-id/deliveries/replay-failures"
-    );
-    expect(JSON.parse(String(calls[6]?.init?.body))).toEqual({
-      limit: 10,
-      since: "2026-08-01T00:00:00.000Z",
-      until: "2026-08-02T00:00:00.000Z",
-    });
-    expect(requestPath(calls[7])).toBe(
+    expect(requestPath(calls[4])).toBe(
       "/projects/project%2Fwith%20path/webhooks/webhook-id"
     );
 

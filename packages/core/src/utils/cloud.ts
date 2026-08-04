@@ -126,52 +126,6 @@ export interface WebhookEgressIpsData {
   addresses: string[];
 }
 
-export type WebhookDeliveryOutcome = "delivered" | "dead_lettered";
-
-export interface WebhookDeliveryData {
-  deliveryCount: number;
-  eventId: string;
-  eventType: WebhookEventType;
-  expiresAt: string;
-  firstAttemptAt: string;
-  httpStatus: number | null;
-  id: string;
-  lastAttemptAt: string;
-  lastReplayAt: string | null;
-  outcome: WebhookDeliveryOutcome;
-  platform: string;
-  reason: string | null;
-  replayable: boolean;
-  replayCount: number;
-}
-
-export interface ListWebhookDeliveriesInput {
-  before?: string;
-  limit?: number;
-  outcome?: WebhookDeliveryOutcome;
-}
-
-export interface WebhookDeliveriesData {
-  deliveries: WebhookDeliveryData[];
-  nextCursor: string | null;
-}
-
-export interface ReplayedWebhookDeliveryData {
-  eventId: string;
-  replayRequestId: string;
-}
-
-export interface ReplayFailedWebhookDeliveriesInput {
-  limit?: number;
-  since: string;
-  until?: string;
-}
-
-export interface ReplayedWebhookDeliveriesData {
-  accepted: number;
-  replayRequestIds: string[];
-}
-
 export interface DeletedWebhookData {
   id: string;
 }
@@ -291,29 +245,6 @@ const authenticatedRequest = (
 
 const webhookPath = (projectId: string, suffix = ""): string =>
   `/projects/${encodeURIComponent(projectId)}/webhooks${suffix}`;
-
-const webhookDeliveriesPath = (
-  projectId: string,
-  webhookId: string,
-  input: ListWebhookDeliveriesInput
-): string => {
-  const query = new URLSearchParams();
-  if (input.limit !== undefined) {
-    query.set("limit", String(input.limit));
-  }
-  if (input.before !== undefined) {
-    query.set("before", input.before);
-  }
-  if (input.outcome !== undefined) {
-    query.set("outcome", input.outcome);
-  }
-  const encoded = query.toString();
-  const base = webhookPath(
-    projectId,
-    `/${encodeURIComponent(webhookId)}/deliveries`
-  );
-  return encoded ? `${base}?${encoded}` : base;
-};
 
 // ---------------------------------------------------------------------------
 // Cloud API client
@@ -436,45 +367,6 @@ export const cloud = {
     request(
       webhookPath(projectId, "/egress-ips"),
       authenticatedRequest(projectId, projectSecret)
-    ),
-
-  listWebhookDeliveries: (
-    projectId: string,
-    projectSecret: string,
-    webhookId: string,
-    input: ListWebhookDeliveriesInput = {}
-  ): Promise<WebhookDeliveriesData> =>
-    request(
-      webhookDeliveriesPath(projectId, webhookId, input),
-      authenticatedRequest(projectId, projectSecret)
-    ),
-
-  replayWebhookDelivery: (
-    projectId: string,
-    projectSecret: string,
-    webhookId: string,
-    eventId: string
-  ): Promise<ReplayedWebhookDeliveryData> =>
-    request(
-      webhookPath(
-        projectId,
-        `/${encodeURIComponent(webhookId)}/deliveries/${encodeURIComponent(eventId)}/replay`
-      ),
-      authenticatedRequest(projectId, projectSecret, "POST")
-    ),
-
-  replayFailedWebhookDeliveries: (
-    projectId: string,
-    projectSecret: string,
-    webhookId: string,
-    input: ReplayFailedWebhookDeliveriesInput
-  ): Promise<ReplayedWebhookDeliveriesData> =>
-    request(
-      webhookPath(
-        projectId,
-        `/${encodeURIComponent(webhookId)}/deliveries/replay-failures`
-      ),
-      authenticatedRequest(projectId, projectSecret, "POST", input)
     ),
 
   deleteWebhook: (

@@ -87,12 +87,14 @@ export type WebhookHandler = (
  * JSON/text body — so both the protobuf decode (fusor) and the HMAC
  * verification (native Spectrum webhook) work.
  *
- * `headers` ARE read for **native Spectrum webhooks**: `X-Spectrum-Signature` /
- * `X-Spectrum-Timestamp` carry the HMAC verified against
- * `Spectrum({ webhookSecret })`, and the signature header also selects the
- * native path. For **fusor** envelopes they are ignored (authenticity is the
- * per-platform `verify()` reading the inner reconstructed request). The natural
- * `{ headers: req.headers, body: req.body }` shape works for both.
+ * `headers` ARE read for signed Spectrum JSON: native normalized webhooks use
+ * `X-Spectrum-Signature` / `X-Spectrum-Timestamp` with
+ * `Spectrum({ webhookSecret })`; Standard project webhooks use `webhook-id` /
+ * `webhook-timestamp` / `webhook-signature` with
+ * `Spectrum({ standardWebhookSecret })`. For direct Fusor protobuf envelopes,
+ * outer headers are ignored (authenticity is the per-platform `verify()`
+ * reading the inner reconstructed request). The natural
+ * `{ headers: req.headers, body: req.body }` shape works for every format.
  */
 export interface WebhookRawRequest {
   body: Uint8Array | ArrayBuffer;

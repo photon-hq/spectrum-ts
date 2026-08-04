@@ -65,6 +65,117 @@ export interface FusorTokenData {
   token: string;
 }
 
+export type WebhookDeliveryMode = "legacy" | "fusor";
+export type WebhookEventType = "message.received";
+export type WebhookStatus = "active" | "disabled";
+export type WebhookDisabledReason =
+  | "manual"
+  | "receiver_gone"
+  | "delivery_failures";
+
+/** A registered project webhook. Signing secrets are intentionally omitted. */
+export interface WebhookData {
+  createdAt: string;
+  deliveryMode: WebhookDeliveryMode;
+  disabledAt: string | null;
+  disabledReason: WebhookDisabledReason | null;
+  enabled: boolean;
+  eventTypes: WebhookEventType[];
+  failureNotificationEmail: string | null;
+  id: string;
+  status: WebhookStatus;
+  updatedAt: string;
+  webhookUrl: string;
+}
+
+/** The one-time response returned when a project webhook is registered. */
+export interface CreatedWebhookData extends WebhookData {
+  /** Legacy `X-Spectrum-Signature` secret, retained for migration. */
+  signingSecret: string;
+  /** Standard Webhooks `whsec_` secret. Store the complete value securely. */
+  standardSigningSecret: string;
+}
+
+export interface CreateWebhookInput {
+  deliveryMode?: WebhookDeliveryMode;
+  eventTypes?: readonly WebhookEventType[];
+  failureNotificationEmail?: string | null;
+  webhookUrl: string;
+}
+
+export interface UpdateWebhookInput {
+  deliveryMode?: WebhookDeliveryMode;
+  enabled?: boolean;
+  eventTypes?: readonly WebhookEventType[];
+  failureNotificationEmail?: string | null;
+}
+
+export interface RotateWebhookSecretInput {
+  /** How long the previous secret remains represented in delivery signatures. */
+  overlapSeconds?: number;
+}
+
+export interface RotatedWebhookSecretData {
+  id: string;
+  previousValidUntil: string | null;
+  /** The new one-time Standard Webhooks secret. */
+  standardSigningSecret: string;
+}
+
+export interface WebhookEgressIpsData {
+  addresses: string[];
+}
+
+export type WebhookDeliveryOutcome = "delivered" | "dead_lettered";
+
+export interface WebhookDeliveryData {
+  deliveryCount: number;
+  eventId: string;
+  eventType: WebhookEventType;
+  expiresAt: string;
+  firstAttemptAt: string;
+  httpStatus: number | null;
+  id: string;
+  lastAttemptAt: string;
+  lastReplayAt: string | null;
+  outcome: WebhookDeliveryOutcome;
+  platform: string;
+  reason: string | null;
+  replayable: boolean;
+  replayCount: number;
+}
+
+export interface ListWebhookDeliveriesInput {
+  before?: string;
+  limit?: number;
+  outcome?: WebhookDeliveryOutcome;
+}
+
+export interface WebhookDeliveriesData {
+  deliveries: WebhookDeliveryData[];
+  nextCursor: string | null;
+}
+
+export interface ReplayedWebhookDeliveryData {
+  eventId: string;
+  replayRequestId: string;
+}
+
+export interface ReplayFailedWebhookDeliveriesInput {
+  limit?: number;
+  since: string;
+  until?: string;
+}
+
+export interface ReplayedWebhookDeliveriesData {
+  accepted: number;
+  replayRequestIds: string[];
+}
+
+export interface DeletedWebhookData {
+  id: string;
+}
+
 /**
  * Per-project profile bag — a flexible record of project-level settings
  * defined in Spectrum Cloud. Concrete fields depend on the project; consumers
@@ -164,6 +275,46 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 const basicAuth = (projectId: string, projectSecret: string): string =>
   `Basic ${btoa(`${projectId}:${projectSecret}`)}`;
 
+const authenticatedRequest = (
+  projectId: string,
+  projectSecret: string,
+  method?: string,
+  body?: unknown
+): RequestInit => ({
+  ...(method ? { method } : {}),
+  headers: {
+    Authorization: basicAuth(projectId, projectSecret),
+    ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+  },
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+});
+
+const webhookPath = (projectId: string, suffix = ""): string =>
+  `/projects/${encodeURIComponent(projectId)}/webhooks${suffix}`;
+
+const webhookDeliveriesPath = (
+  projectId: string,
+  webhookId: string,
+  input: ListWebhookDeliveriesInput
+): string => {
+  const query = new URLSearchParams();
+  if (input.limit !== undefined) {
+    query.set("limit", String(input.limit));
+  }
+  if (input.before !== undefined) {
+    query.set("before", input.before);
+  }
+  if (input.outcome !== undefined) {
+    query.set("outcome", input.outcome);
+  }
+  const encoded = query.toString();
+  const base = webhookPath(
+    projectId,
+    `/${encodeURIComponent(webhookId)}/deliveries`
+  );
+  return encoded ? `${base}?${encoded}` : base;
+};
+
 // ---------------------------------------------------------------------------
 // Cloud API client
 // ---------------------------------------------------------------------------
@@ -236,4 +387,103 @@ export const cloud = {
       },
       body: JSON.stringify({ platform, enabled }),
     }),
+
+  listWebhooks: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<WebhookData[]> =>
+    request(
+      webhookPath(projectId, "/"),
+      authenticatedRequest(projectId, projectSecret)
+    ),
+
+  createWebhook: (
+    projectId: string,
+    projectSecret: string,
+    input: CreateWebhookInput
+  ): Promise<CreatedWebhookData> =>
+    request(
+      webhookPath(projectId, "/"),
+      authenticatedRequest(projectId, projectSecret, "POST", input)
+    ),
+
+  updateWebhook: (
+    projectId: string,
+    projectSecret: string,
+    webhookId: string,
+    input: UpdateWebhookInput
+  ): Promise<WebhookData> =>
+    request(
+      webhookPath(projectId, `/${encodeURIComponent(webhookId)}`),
+      authenticatedRequest(projectId, projectSecret, "PATCH", input)
+    ),
+
+  rotateWebhookSecret: (
+    projectId: string,
+    projectSecret: string,
+    webhookId: string,
+    input: RotateWebhookSecretInput = {}
+  ): Promise<RotatedWebhookSecretData> =>
+    request(
+      webhookPath(projectId, `/${encodeURIComponent(webhookId)}/secret/rotate`),
+      authenticatedRequest(projectId, projectSecret, "POST", input)
+    ),
+
+  getWebhookEgressIps: (
+    projectId: string,
+    projectSecret: string
+  ): Promise<WebhookEgressIpsData> =>
+    request(
+      webhookPath(projectId, "/egress-ips"),
+      authenticatedRequest(projectId, projectSecret)
+    ),
+
+  listWebhookDeliveries: (
+    projectId: string,
+    projectSecret: string,
+    webhookId: string,
+    input: ListWebhookDeliveriesInput = {}
+  ): Promise<WebhookDeliveriesData> =>
+    request(
+      webhookDeliveriesPath(projectId, webhookId, input),
+      authenticatedRequest(projectId, projectSecret)
+    ),
+
+  replayWebhookDelivery: (
+    projectId: string,
+    projectSecret: string,
+    webhookId: string,
+    eventId: string
+  ): Promise<ReplayedWebhookDeliveryData> =>
+    request(
+      webhookPath(
+        projectId,
+        `/${encodeURIComponent(webhookId)}/deliveries/${encodeURIComponent(eventId)}/replay`
+      ),
+      authenticatedRequest(projectId, projectSecret, "POST")
+    ),
+
+  replayFailedWebhookDeliveries: (
+    projectId: string,
+    projectSecret: string,
+    webhookId: string,
+    input: ReplayFailedWebhookDeliveriesInput
+  ): Promise<ReplayedWebhookDeliveriesData> =>
+    request(
+      webhookPath(
+        projectId,
+        `/${encodeURIComponent(webhookId)}/deliveries/replay-failures`
+      ),
+      authenticatedRequest(projectId, projectSecret, "POST", input)
+    ),
+
+  deleteWebhook: (
+    projectId: string,
+    projectSecret: string,
+    webhookId: string
+  ): Promise<DeletedWebhookData> =>
+    request(
+      webhookPath(projectId, `/${encodeURIComponent(webhookId)}`),
+      authenticatedRequest(projectId, projectSecret, "DELETE")
+    ),
 };

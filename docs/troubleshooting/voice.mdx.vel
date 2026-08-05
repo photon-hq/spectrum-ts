@@ -15,8 +15,7 @@ is clean — the AI platform's transcription and its own recording sound fine.
 
 Spectrum uses G.711 for call audio to keep quality consistent. It's the
 codec the phone network itself runs on, and it holds up on the mobile
-networks most callers are on. Wideband codecs sound better in a demo but
-fall apart on real mobile calls, so Spectrum doesn't offer them.
+networks most callers are on.
 
 If your AI audio is choppy anyway, check the codec in your endpoint's
 `200 OK`. It should say `PCMU/8000` or `PCMA/8000` — if it says anything

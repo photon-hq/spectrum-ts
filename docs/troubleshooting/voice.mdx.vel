@@ -19,13 +19,12 @@ example) pick G.722 whenever it appears in the SDP offer, no matter where it
 sits in the list, and G.722 handles transcoding badly. Most mobile and VoLTE
 callers reach you through at least one transcode.
 
-Spectrum no longer offers G.722 on its SIP legs, so calls negotiate G.711
-(PCMU) end to end and new calls shouldn't hit this. To check a live call,
-look at the codec in your endpoint's `200 OK`: it should say `PCMU/8000` or
-`PCMA/8000`, not `G722/8000`.
+Spectrum uses G.711 on its SIP legs — G.722 isn't in the offer, so your
+endpoint can't select it. To check a live call, look at the codec in your
+endpoint's `200 OK`: it should say `PCMU/8000` or `PCMA/8000`.
 
-If the answer still says G.722, or the audio is still choppy on G.711, jump
-to [Still stuck?](#still-stuck) and include the negotiated codec in your
+If it says `G722/8000`, or the audio is still choppy on G.711, jump to
+[Still stuck?](#still-stuck) and include the negotiated codec in your
 report.
 
 ## Audio sounds like a regular phone call, not HD

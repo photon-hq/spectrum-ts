@@ -20,10 +20,10 @@ stubCloud();
 // The env fallback must not leak in from the host so the missing-secret path is
 // exercised deterministically (empty string is falsy → treated as unset).
 process.env.SPECTRUM_WEBHOOK_SECRET = "";
-process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET = "";
 
 const PLATFORM = "im";
 const NO_FUSOR_PROVIDER_ERROR = /no fusor provider is configured/;
+const LEGACY_WEBHOOK_SECRET = "0123456789abcdef".repeat(4);
 const STANDARD_SECRET_BYTES = Buffer.alloc(32, 0x2a);
 const STANDARD_WEBHOOK_SECRET = `whsec_${STANDARD_SECRET_BYTES.toString("base64")}`;
 
@@ -241,8 +241,8 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
 });
 
 describe("spectrum.webhook (Standard project webhook)", () => {
-  it("reads standardWebhookSecret from the environment", async () => {
-    process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET = STANDARD_WEBHOOK_SECRET;
+  it("recognizes a whsec_-prefixed webhookSecret from the environment", async () => {
+    process.env.SPECTRUM_WEBHOOK_SECRET = STANDARD_WEBHOOK_SECRET;
     const spectrum = await Spectrum({
       providers: [makeSlack().config({})],
     });
@@ -258,7 +258,7 @@ describe("spectrum.webhook (Standard project webhook)", () => {
       });
       expect(result.status).toBe(200);
     } finally {
-      process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET = "";
+      process.env.SPECTRUM_WEBHOOK_SECRET = "";
       await spectrum.stop();
     }
   });
@@ -266,7 +266,7 @@ describe("spectrum.webhook (Standard project webhook)", () => {
   it("verifies and routes the preserved provider request", async () => {
     const spectrum = await Spectrum({
       providers: [makeSlack().config({})],
-      standardWebhookSecret: STANDARD_WEBHOOK_SECRET,
+      webhookSecret: STANDARD_WEBHOOK_SECRET,
     });
     try {
       const { promise: finished, resolve: done } =
@@ -295,7 +295,7 @@ describe("spectrum.webhook (Standard project webhook)", () => {
   it("returns the provider's synchronous response", async () => {
     const spectrum = await Spectrum({
       providers: [makeSlack().config({})],
-      standardWebhookSecret: STANDARD_WEBHOOK_SECRET,
+      webhookSecret: STANDARD_WEBHOOK_SECRET,
     });
     try {
       const signed = signStandardDelivery(
@@ -318,7 +318,7 @@ describe("spectrum.webhook (Standard project webhook)", () => {
   it("rejects a bad Standard signature before provider dispatch", async () => {
     const spectrum = await Spectrum({
       providers: [makeSlack().config({})],
-      standardWebhookSecret: STANDARD_WEBHOOK_SECRET,
+      webhookSecret: STANDARD_WEBHOOK_SECRET,
     });
     try {
       let called = false;
@@ -341,7 +341,7 @@ describe("spectrum.webhook (Standard project webhook)", () => {
   it("rejects a payload whose event id differs from webhook-id", async () => {
     const spectrum = await Spectrum({
       providers: [makeSlack().config({})],
-      standardWebhookSecret: STANDARD_WEBHOOK_SECRET,
+      webhookSecret: STANDARD_WEBHOOK_SECRET,
     });
     try {
       const signed = signStandardDelivery(
@@ -374,17 +374,19 @@ describe("spectrum.webhook (Standard project webhook)", () => {
     }
   });
 
-  it("keeps legacy webhookSecret working during migration", async () => {
+  it("keeps an unprefixed legacy webhookSecret working during migration", async () => {
     const spectrum = await Spectrum({
       providers: [makeSlack().config({})],
-      webhookSecret: SPECTRUM_WEBHOOK_SECRET,
+      webhookSecret: LEGACY_WEBHOOK_SECRET,
     });
     try {
       const payload = standardPayload({
         type: "message",
         text: "legacy fallback",
       });
-      const legacySigned = signSpectrum(payload);
+      const legacySigned = signSpectrum(payload, {
+        secret: LEGACY_WEBHOOK_SECRET,
+      });
       const standardSigned = signStandardDelivery(payload);
       const { promise: finished, resolve: done } =
         Promise.withResolvers<void>();

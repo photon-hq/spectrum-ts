@@ -110,7 +110,7 @@ export type SpectrumInstance<
      *   Works without any fusor provider configured.
      * - **Standard project webhook** (the body is a `message.received` JSON
      *   event): the Standard Webhooks v1 signature is verified against
-     *   `Spectrum({ standardWebhookSecret })`, then the preserved provider
+     *   a `whsec_`-prefixed `Spectrum({ webhookSecret })`, then the preserved provider
      *   request is routed through the configured Fusor provider.
      * - **Fusor webhook** (the body is a protobuf envelope): a protobuf wrapping a
      *   raw provider request is decoded and routed to the matching provider's
@@ -188,7 +188,6 @@ const spectrumConfigSchema = z.union([
     projectSecret: z.string().min(1),
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
-    standardWebhookSecret: z.string().min(1).optional(),
     telemetry: z.boolean().optional(),
     webhookSecret: z.string().min(1).optional(),
   }),
@@ -197,7 +196,6 @@ const spectrumConfigSchema = z.union([
     projectSecret: z.undefined().optional(),
     providers: z.array(z.custom<PlatformProviderConfig>()),
     options: spectrumOptionsSchema,
-    standardWebhookSecret: z.string().min(1).optional(),
     telemetry: z.boolean().optional(),
     webhookSecret: z.string().min(1).optional(),
   }),
@@ -253,12 +251,6 @@ function envValue(key: string): string | undefined {
   return value === "" ? undefined : value;
 }
 
-function resolveStandardWebhookSecret(
-  value: string | undefined
-): string | undefined {
-  return value ?? process.env[envFor("STANDARD_WEBHOOK", "SECRET")];
-}
-
 // Resolve project credentials, falling back to env vars when an option is
 // omitted (an explicit option always wins). Kept out of Spectrum() to hold the
 // factory under the cognitive-complexity cap.
@@ -280,10 +272,11 @@ function resolveProjectCredentials(options: {
 interface SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> {
   options?: SpectrumOptions;
   providers: [...Providers];
-  /** Standard Webhooks `whsec_` secret for project fanout deliveries. */
-  standardWebhookSecret?: string;
   telemetry?: boolean;
-  /** Legacy Spectrum signing secret for normalized or migration deliveries. */
+  /**
+   * Webhook signing secret. A `whsec_` prefix selects Standard Webhooks;
+   * unprefixed values use the legacy Spectrum signature.
+   */
   webhookSecret?: string;
 }
 
@@ -319,7 +312,6 @@ export async function Spectrum<
   const {
     options: runtimeOptions,
     providers,
-    standardWebhookSecret,
     telemetry,
     webhookSecret,
   } = options;
@@ -328,15 +320,11 @@ export async function Spectrum<
   // when telemetry is off (the console logger respects it too) and takes
   // precedence over LOG_LEVEL inside @photon-ai/otel.
   applyLogLevel(runtimeOptions?.logLevel);
-  // The per-webhook signing secret for native Spectrum webhooks. Explicit option
-  // wins; otherwise fall back to the env var so deployments can inject it.
+  // One public configuration field covers both signing formats. Explicit option
+  // wins over the environment; a whsec_ prefix selects Standard Webhooks while
+  // an unprefixed value retains the legacy Spectrum verifier.
   const resolvedWebhookSecret =
     webhookSecret ?? process.env[envFor("WEBHOOK", "SECRET")];
-  // The Standard Webhooks secret is separate from the legacy v0 secret. The
-  // complete `whsec_` value is accepted; verification decodes it internally.
-  const resolvedStandardWebhookSecret = resolveStandardWebhookSecret(
-    standardWebhookSecret
-  );
 
   const otelHandle = telemetry
     ? bootstrapTelemetry({ projectId, projectSecret })
@@ -1377,11 +1365,11 @@ export async function Spectrum<
     bodyBytes: Uint8Array,
     headers: Record<string, string>
   ): ProjectWebhookVerification => {
-    if (resolvedStandardWebhookSecret) {
+    if (resolvedWebhookSecret?.startsWith("whsec_")) {
       return verifyProjectStandardSignature(
         bodyBytes,
         headers,
-        resolvedStandardWebhookSecret
+        resolvedWebhookSecret
       );
     }
     if (resolvedWebhookSecret) {

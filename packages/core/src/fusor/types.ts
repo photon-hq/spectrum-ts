@@ -91,7 +91,7 @@ export type WebhookHandler = (
  * `X-Spectrum-Signature` / `X-Spectrum-Timestamp` with
  * `Spectrum({ webhookSecret })`; Standard project webhooks use `webhook-id` /
  * `webhook-timestamp` / `webhook-signature` with
- * `Spectrum({ standardWebhookSecret })`. For direct Fusor protobuf envelopes,
+ * a `whsec_`-prefixed `Spectrum({ webhookSecret })`. For direct Fusor protobuf envelopes,
  * outer headers are ignored (authenticity is the per-platform `verify()`
  * reading the inner reconstructed request). The natural
  * `{ headers: req.headers, body: req.body }` shape works for every format.

@@ -16,26 +16,29 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 | | Native Spectrum webhook | Standard project webhook | Direct Fusor webhook |
 |---|---|---|---|
 | Body | Normalized JSON | `message.received` JSON preserving the provider request | Protobuf envelope preserving the provider request |
-| Auth | Legacy HMAC with `webhookSecret` | Standard Webhooks v1 with `standardWebhookSecret` | Platform's own signature via provider `verify()` |
+| Auth | Legacy HMAC with an unprefixed `webhookSecret` | Standard Webhooks v1 with a `whsec_`-prefixed `webhookSecret` | Platform's own signature via provider `verify()` |
 | Requires a Fusor provider | No | Yes | Yes |
 
 Standard project webhooks are detected by the `webhook-*` headers. Native JSON and direct Fusor protobuf deliveries are distinguished by payload shape. Your handler receives the same `(space, message)` pair in every case.
 
 ## Configuring signing secrets
 
-Pass the Standard `whsec_` secret returned when you register the endpoint. Keep `webhookSecret` only while receiving native or migration-era legacy signatures:
+Pass the endpoint's signing secret through the existing `webhookSecret` option:
 
 ```ts
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
   providers: [imessage.config()],
-  standardWebhookSecret: process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET,
   webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
 });
 ```
 
-Both options fall back to their matching environment variables (`SPECTRUM_STANDARD_WEBHOOK_SECRET` and `SPECTRUM_WEBHOOK_SECRET`); an explicit option takes precedence. Pass the complete `whsec_...` value—the SDK removes the prefix and Base64-decodes the key internally. A signed delivery that arrives without a matching configured secret is answered `500`.
+The option falls back to `SPECTRUM_WEBHOOK_SECRET`; an explicit value takes
+precedence. Pass the complete `whsec_...` value for Standard Webhooks—the SDK
+recognizes the prefix, removes it, and Base64-decodes the key internally. An
+unprefixed value selects the legacy Spectrum verifier. A signed delivery that
+arrives without a matching configured secret is answered `500`.
 
 ## Registering and managing project webhooks
 
@@ -90,7 +93,7 @@ const rawBody = new Uint8Array(await request.arrayBuffer());
 const verification = verifyStandardWebhookSignature({
   rawBody,
   headers: request.headers,
-  secret: process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET!,
+  secret: process.env.SPECTRUM_WEBHOOK_SECRET!,
 });
 
 if (!verification.ok) {
@@ -159,7 +162,6 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
       projectId: process.env.PROJECT_ID!,
       projectSecret: process.env.PROJECT_SECRET!,
       providers: [imessage.config()],
-      standardWebhookSecret: process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET,
       webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
     });
 
@@ -197,7 +199,6 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
       projectId: process.env.PROJECT_ID!,
       projectSecret: process.env.PROJECT_SECRET!,
       providers: [imessage.config()],
-      standardWebhookSecret: process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET,
       webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
     });
 
@@ -239,7 +240,6 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
       projectId: process.env.PROJECT_ID!,
       projectSecret: process.env.PROJECT_SECRET!,
       providers: [imessage.config()],
-      standardWebhookSecret: process.env.SPECTRUM_STANDARD_WEBHOOK_SECRET,
       webhookSecret: process.env.SPECTRUM_WEBHOOK_SECRET,
     });
 

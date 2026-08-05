@@ -65,7 +65,7 @@ export interface FusorTokenData {
   token: string;
 }
 
-export type WebhookDeliveryMode = "legacy" | "fusor";
+export type WebhookSchemaVersion = "normalized-events.v1" | "raw-inbound.v1";
 export type WebhookEventType = "message.received";
 export type WebhookStatus = "active" | "disabled";
 export type WebhookDisabledReason =
@@ -76,13 +76,13 @@ export type WebhookDisabledReason =
 /** A registered project webhook. Signing secrets are intentionally omitted. */
 export interface WebhookData {
   createdAt: string;
-  deliveryMode: WebhookDeliveryMode;
   disabledAt: string | null;
   disabledReason: WebhookDisabledReason | null;
   enabled: boolean;
   eventTypes: WebhookEventType[];
   failureNotificationEmail: string | null;
   id: string;
+  schemaVersion: WebhookSchemaVersion;
   status: WebhookStatus;
   updatedAt: string;
   webhookUrl: string;
@@ -97,17 +97,17 @@ export interface CreatedWebhookData extends WebhookData {
 }
 
 export interface CreateWebhookInput {
-  deliveryMode?: WebhookDeliveryMode;
   eventTypes?: readonly WebhookEventType[];
   failureNotificationEmail?: string | null;
+  schemaVersion?: WebhookSchemaVersion;
   webhookUrl: string;
 }
 
 export interface UpdateWebhookInput {
-  deliveryMode?: WebhookDeliveryMode;
   enabled?: boolean;
   eventTypes?: readonly WebhookEventType[];
   failureNotificationEmail?: string | null;
+  schemaVersion?: "raw-inbound.v1";
 }
 
 export interface RotateWebhookSecretInput {

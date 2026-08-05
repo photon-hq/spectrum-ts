@@ -39,13 +39,13 @@ describe("cloud Standard Webhooks API", () => {
   it("registers a webhook and returns both one-time secrets", async () => {
     const created = {
       createdAt: "2026-08-03T20:00:00.000Z",
-      deliveryMode: "fusor" as const,
       disabledAt: null,
       disabledReason: null,
       enabled: true,
       eventTypes: ["message.received" as const],
       failureNotificationEmail: "alerts@example.com",
       id: WEBHOOK_ID,
+      schemaVersion: "raw-inbound.v1" as const,
       signingSecret: "legacy-secret",
       standardSigningSecret: "whsec_standard-secret",
       status: "active" as const,
@@ -57,6 +57,7 @@ describe("cloud Standard Webhooks API", () => {
     const result = await cloud.createWebhook(PROJECT_ID, PROJECT_SECRET, {
       eventTypes: ["message.received"],
       failureNotificationEmail: "alerts@example.com",
+      schemaVersion: "raw-inbound.v1",
       webhookUrl: created.webhookUrl,
     });
 
@@ -76,7 +77,21 @@ describe("cloud Standard Webhooks API", () => {
     expect(JSON.parse(String(call?.init?.body))).toEqual({
       eventTypes: ["message.received"],
       failureNotificationEmail: "alerts@example.com",
+      schemaVersion: "raw-inbound.v1",
       webhookUrl: created.webhookUrl,
+    });
+  });
+
+  it("upgrades a webhook to the raw inbound schema", async () => {
+    const calls = mockCloud({});
+
+    await cloud.updateWebhook(PROJECT_ID, PROJECT_SECRET, WEBHOOK_ID, {
+      schemaVersion: "raw-inbound.v1",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      schemaVersion: "raw-inbound.v1",
     });
   });
 

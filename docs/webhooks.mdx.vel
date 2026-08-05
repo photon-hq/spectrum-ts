@@ -46,6 +46,7 @@ import { cloud } from "spectrum-ts";
 
 const endpoint = await cloud.createWebhook(projectId, projectSecret, {
   webhookUrl: "https://agent.example.com/spectrum/webhook",
+  schemaVersion: "raw-inbound.v1",
   eventTypes: ["message.received"],
   failureNotificationEmail: "alerts@example.com",
 });
@@ -65,6 +66,11 @@ const rotated = await cloud.rotateWebhookSecret(
 );
 // Deploy rotated.standardSigningSecret before the overlap expires.
 ```
+
+`schemaVersion` pins the payload contract for the endpoint. New integrations
+should use `raw-inbound.v1`, which preserves the original provider request.
+`normalized-events.v1` keeps the original normalized Spectrum event shape and
+can be upgraded once to `raw-inbound.v1`; schema downgrades are not supported.
 
 During the overlap, `webhook-signature` contains signatures for both secrets, so either the old or new configured secret verifies. Use `cloud.getWebhookEgressIps(...)` for network allowlists.
 

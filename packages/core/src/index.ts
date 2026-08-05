@@ -128,10 +128,10 @@ export type {
   TokenData,
   UpdateWebhookInput,
   WebhookData,
-  WebhookDeliveryMode,
   WebhookDisabledReason,
   WebhookEgressIpsData,
   WebhookEventType,
+  WebhookSchemaVersion,
   WebhookStatus,
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";

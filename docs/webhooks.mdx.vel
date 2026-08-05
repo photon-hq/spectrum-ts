@@ -71,6 +71,10 @@ const rotated = await cloud.rotateWebhookSecret(
 should use `raw-inbound.v1`, which preserves the original provider request.
 `normalized-events.v1` keeps the original normalized Spectrum event shape and
 can be upgraded once to `raw-inbound.v1`; schema downgrades are not supported.
+Creation returns both signing secrets exactly once. If you create a normalized
+endpoint, use `signingSecret` for current deliveries and retain
+`standardSigningSecret` too; the schema-upgrade response does not return the
+`whsec_` secret again.
 
 During the overlap, `webhook-signature` contains signatures for both secrets, so either the old or new configured secret verifies. Use `cloud.getWebhookEgressIps(...)` for network allowlists.
 

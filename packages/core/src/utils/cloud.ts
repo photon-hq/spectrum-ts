@@ -90,9 +90,9 @@ export interface WebhookData {
 
 /** The one-time response returned when a project webhook is registered. */
 export interface CreatedWebhookData extends WebhookData {
-  /** Legacy `X-Spectrum-Signature` secret, retained for migration. */
+  /** Legacy secret used by normalized events and retained for migration. */
   signingSecret: string;
-  /** Standard Webhooks `whsec_` secret. Store the complete value securely. */
+  /** Standard `whsec_` secret. Retain it for a future raw-schema upgrade. */
   standardSigningSecret: string;
 }
 

@@ -53,7 +53,8 @@
           "root": "spectrum-ts/providers/voice",
           "pages": [
             "spectrum-ts/providers/voice/outbound-calls",
-            "spectrum-ts/providers/voice/inbound-calls"
+            "spectrum-ts/providers/voice/inbound-calls",
+            "spectrum-ts/providers/voice/troubleshooting"
           ]
         },
         {
@@ -140,8 +141,7 @@
     {
       "group": "Troubleshooting",
       "pages": [
-        "spectrum-ts/troubleshooting/imessage",
-        "spectrum-ts/troubleshooting/voice"
+        "spectrum-ts/troubleshooting/imessage"
       ]
     }
   ]

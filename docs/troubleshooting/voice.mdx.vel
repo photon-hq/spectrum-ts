@@ -10,43 +10,43 @@ If your symptom isn't listed, jump to [Still stuck?](#still-stuck) for what to s
 
 ## Callers hear choppy or distorted AI audio
 
-The classic shape of this problem: the human caller hears the AI voice as
-choppy or warbly on every call, while the reverse direction is clean — the AI
-platform's own transcription and recording sound fine.
+The caller hears the AI voice as choppy or warbly on every call, but the
+other direction is clean — the AI platform's transcription and its own
+recording sound fine.
 
-The usual cause is the G.722 codec. Many AI voice endpoints (ElevenLabs,
-for example) select G.722 whenever it appears in the SDP offer, regardless of
-offer order. G.722 audibly degrades when the caller's leg crosses a transcode,
-which is the normal case for mobile and VoLTE callers.
+This is almost always G.722. Many AI voice endpoints (ElevenLabs, for
+example) pick G.722 whenever it appears in the SDP offer, no matter where it
+sits in the list, and G.722 handles transcoding badly. Most mobile and VoLTE
+callers reach you through at least one transcode.
 
-Spectrum no longer offers G.722 on bridged SIP legs, so new calls negotiate
-G.711 (PCMU) end-to-end and this failure mode should not occur. To confirm on
-a live call, check the negotiated codec in your endpoint's answer (the SIP
-`200 OK`): it should read `PCMU/8000` or `PCMA/8000`, not `G722/8000`.
+Spectrum no longer offers G.722 on its SIP legs, so calls negotiate G.711
+(PCMU) end to end and new calls shouldn't hit this. To check a live call,
+look at the codec in your endpoint's `200 OK`: it should say `PCMU/8000` or
+`PCMA/8000`, not `G722/8000`.
 
-If your calls still negotiate G.722 or the audio is still choppy on G.711,
-jump to [Still stuck?](#still-stuck) — include the negotiated codec in your
+If the answer still says G.722, or the audio is still choppy on G.711, jump
+to [Still stuck?](#still-stuck) and include the negotiated codec in your
 report.
 
 ## Audio sounds like a regular phone call, not HD
 
-This is expected. Spectrum negotiates G.711, the codec the phone network
-itself uses, because wideband G.722 breaks down over the transcoded mobile
-legs that most callers arrive on (see the previous section). Standard
-telephone quality on every call is the deliberate trade against HD quality on
-some calls and choppy audio on the rest.
+That's expected. Spectrum negotiates G.711, the same codec the phone network
+uses. Wideband G.722 sounds better in ideal conditions, but it breaks down
+over the transcoded mobile legs most callers arrive on, so we ship standard
+call quality on every call instead of HD on some and garbled audio on the
+rest.
 
 ## One-way or missing audio
 
-Spectrum sits in the signaling path only — RTP media flows directly between
-the carrier and your SIP endpoint. One-way or missing audio therefore almost
-always means media isn't reaching one of those two ends:
+Spectrum only handles signaling. The audio itself (RTP) flows directly
+between the carrier and your SIP endpoint, so when sound is missing in one
+direction the problem is usually at one of those two ends:
 
-- Confirm your endpoint (or its cloud provider) allows inbound RTP from the
-  carrier's media IPs, not just SIP signaling.
-- If your endpoint is behind NAT, make sure it advertises a publicly
-  reachable address in its SDP rather than a private one.
-- Check your endpoint's media logs for RTP timeout or packet-receive errors
+- Make sure your endpoint (or its cloud provider) accepts inbound RTP from
+  the carrier's media IPs, not just SIP signaling.
+- If your endpoint sits behind NAT, it needs to advertise a publicly
+  reachable address in its SDP, not a private one.
+- Check your endpoint's media logs for RTP timeouts or packet-receive errors
   on the affected call.
 
 ## Still stuck?
@@ -54,8 +54,8 @@ always means media isn't reaching one of those two ends:
 Send us:
 
 - Your project id (from `photon projects show`).
-- The SIP Call-ID (or the call time, caller number, and dialed number so we
-  can find it).
+- The SIP Call-ID, or the call time, caller number, and dialed number so we
+  can find it.
 - The direction (inbound or outbound) and which side hears the problem.
 - The negotiated codec from the `200 OK`, if you can capture it.
 - Your downstream SIP endpoint vendor (ElevenLabs, Retell, self-hosted, …).

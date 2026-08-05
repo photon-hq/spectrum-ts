@@ -1,0 +1,65 @@
+---
+title: "Voice call troubleshooting"
+sidebarTitle: "Voice"
+description: "Common audio problems on Spectrum voice calls, what causes them, and how to fix them."
+---
+
+If calls connect but the audio is wrong and you've ruled out your own endpoint, this page is organized by the symptom you're hearing. Find it in the headings below and follow the fix. Each section is self-contained, so you can land here from a search result and still get what you need.
+
+If your symptom isn't listed, jump to [Still stuck?](#still-stuck) for what to send us so we can trace it on our side.
+
+## Callers hear choppy or distorted AI audio
+
+The classic shape of this problem: the human caller hears the AI voice as
+choppy or warbly on every call, while the reverse direction is clean — the AI
+platform's own transcription and recording sound fine.
+
+The usual cause is the G.722 codec. Many AI voice endpoints (ElevenLabs,
+for example) select G.722 whenever it appears in the SDP offer, regardless of
+offer order. G.722 audibly degrades when the caller's leg crosses a transcode,
+which is the normal case for mobile and VoLTE callers.
+
+Spectrum no longer offers G.722 on bridged SIP legs, so new calls negotiate
+G.711 (PCMU) end-to-end and this failure mode should not occur. To confirm on
+a live call, check the negotiated codec in your endpoint's answer (the SIP
+`200 OK`): it should read `PCMU/8000` or `PCMA/8000`, not `G722/8000`.
+
+If your calls still negotiate G.722 or the audio is still choppy on G.711,
+jump to [Still stuck?](#still-stuck) — include the negotiated codec in your
+report.
+
+## Audio sounds like a regular phone call, not HD
+
+This is expected. Spectrum negotiates G.711, the codec the phone network
+itself uses, because wideband G.722 breaks down over the transcoded mobile
+legs that most callers arrive on (see the previous section). Standard
+telephone quality on every call is the deliberate trade against HD quality on
+some calls and choppy audio on the rest.
+
+## One-way or missing audio
+
+Spectrum sits in the signaling path only — RTP media flows directly between
+the carrier and your SIP endpoint. One-way or missing audio therefore almost
+always means media isn't reaching one of those two ends:
+
+- Confirm your endpoint (or its cloud provider) allows inbound RTP from the
+  carrier's media IPs, not just SIP signaling.
+- If your endpoint is behind NAT, make sure it advertises a publicly
+  reachable address in its SDP rather than a private one.
+- Check your endpoint's media logs for RTP timeout or packet-receive errors
+  on the affected call.
+
+## Still stuck?
+
+Send us:
+
+- Your project id (from `photon projects show`).
+- The SIP Call-ID (or the call time, caller number, and dialed number so we
+  can find it).
+- The direction (inbound or outbound) and which side hears the problem.
+- The negotiated codec from the `200 OK`, if you can capture it.
+- Your downstream SIP endpoint vendor (ElevenLabs, Retell, self-hosted, …).
+
+We'll trace the call on our side, including the exact SDP each leg saw. Email
+us at [help@photon.codes](mailto:help@photon.codes) or ping us in the Discord
+linked in the footer.

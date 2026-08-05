@@ -140,7 +140,8 @@
     {
       "group": "Troubleshooting",
       "pages": [
-        "spectrum-ts/troubleshooting/imessage"
+        "spectrum-ts/troubleshooting/imessage",
+        "spectrum-ts/troubleshooting/voice"
       ]
     }
   ]

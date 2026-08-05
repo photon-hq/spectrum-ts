@@ -5,6 +5,12 @@ description: "Add iMessage to a Chat SDK bot with the iMessage adapter"
 
 The iMessage adapter (`chat-adapter-imessage`) connects [Chat SDK](https://chat-sdk.dev/docs) bots to iMessage. It's built on [`spectrum-ts`](/spectrum-ts/introduction), so the same bot code reaches iMessage through any of three modes:
 
+<Note>
+  Building an agent with [eve](https://vercel.com/eve)? Follow the [eve
+  integration guide](/integrations/eve) to provision Photon and add
+  iMessage as an Eve channel.
+</Note>
+
 - **Cloud** (recommended) — connects to [Spectrum Cloud](https://app.photon.codes) with a project ID and secret. Runs anywhere, including serverless.
 - **Self-hosted** — connects to your own `@photon-ai/advanced-imessage` gRPC endpoint.
 - **Local** — reads the on-device Messages database and sends through Apple's native APIs. macOS only.

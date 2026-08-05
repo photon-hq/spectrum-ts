@@ -103,15 +103,6 @@
             "spectrum-ts/providers/telegram/setup",
             "spectrum-ts/providers/telegram/conversations-and-features"
           ]
-        },
-        {
-          "group": "Slack",
-          "icon": "hash",
-          "root": "spectrum-ts/providers/slack",
-          "pages": [
-            "spectrum-ts/providers/slack/setup",
-            "spectrum-ts/providers/slack/conversations-and-events"
-          ]
         }
       ]
     },

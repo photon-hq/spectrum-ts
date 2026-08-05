@@ -10,30 +10,23 @@ If your symptom isn't listed, jump to [Still stuck?](#still-stuck) for what to s
 
 ## Callers hear choppy or distorted AI audio
 
-The caller hears the AI voice as choppy or warbly on every call, but the
-other direction is clean — the AI platform's transcription and its own
-recording sound fine.
+The caller hears the AI voice as choppy or warbly, but the other direction
+is clean — the AI platform's transcription and its own recording sound fine.
 
-This is almost always G.722. Many AI voice endpoints (ElevenLabs, for
-example) pick G.722 whenever it appears in the SDP offer, no matter where it
-sits in the list, and G.722 handles transcoding badly. Most mobile and VoLTE
-callers reach you through at least one transcode.
+Spectrum uses G.711 for call audio to keep quality consistent. It's the
+codec the phone network itself runs on, and it holds up on the mobile
+networks most callers are on. Wideband codecs sound better in a demo but
+fall apart on real mobile calls, so Spectrum doesn't offer them.
 
-Spectrum uses G.711 on its SIP legs — G.722 isn't in the offer, so your
-endpoint can't select it. To check a live call, look at the codec in your
-endpoint's `200 OK`: it should say `PCMU/8000` or `PCMA/8000`.
-
-If it says `G722/8000`, or the audio is still choppy on G.711, jump to
-[Still stuck?](#still-stuck) and include the negotiated codec in your
-report.
+If your AI audio is choppy anyway, check the codec in your endpoint's
+`200 OK`. It should say `PCMU/8000` or `PCMA/8000` — if it says anything
+else, or it's choppy even on those, jump to [Still stuck?](#still-stuck)
+and include the codec in your report.
 
 ## Audio sounds like a regular phone call, not HD
 
-That's expected. Spectrum negotiates G.711, the same codec the phone network
-uses. Wideband G.722 sounds better in ideal conditions, but it breaks down
-over the transcoded mobile legs most callers arrive on, so we ship standard
-call quality on every call instead of HD on some and garbled audio on the
-rest.
+That's expected — G.711 is standard telephone quality. Consistent audio on
+every call beats HD on some and garbled audio on the rest.
 
 ## One-way or missing audio
 

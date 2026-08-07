@@ -8,7 +8,7 @@ The iMessage adapter (`chat-adapter-imessage`) connects [Chat SDK](https://chat-
 <Note>
   Building an agent with [eve](https://vercel.com/eve)? Follow the [eve
   integration guide](/integrations/eve) to provision Photon and add
-  iMessage as an Eve channel.
+  iMessage as an eve channel.
 </Note>
 
 - **Cloud** (recommended) — connects to [Spectrum Cloud](https://app.photon.codes) with a project ID and secret. Runs anywhere, including serverless.

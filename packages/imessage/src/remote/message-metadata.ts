@@ -5,6 +5,8 @@ import type {
   MessageMention,
   MessagePlacedSticker,
   MessageReaction,
+  MiniAppContent,
+  MiniAppLayoutInfo,
   SingleServiceAddressInfo,
   StickerPlacement,
   TextFormat,
@@ -13,6 +15,8 @@ import type {
   IMessageAppliedReaction,
   IMessageAttachmentMetadata,
   IMessageMention,
+  IMessageMiniAppContent,
+  IMessageMiniAppLayoutInfo,
   IMessageNativeMessageMetadata,
   IMessagePlacedSticker,
   IMessageReaction,
@@ -32,6 +36,29 @@ const toMention = (mention: MessageMention): IMessageMention => ({
   address: mention.address,
   length: mention.length,
   start: mention.start,
+});
+
+const toMiniAppLayout = (
+  layout: MiniAppLayoutInfo
+): IMessageMiniAppLayoutInfo => ({
+  caption: layout.caption,
+  imageSubtitle: layout.imageSubtitle,
+  imageTitle: layout.imageTitle,
+  subcaption: layout.subcaption,
+  summary: layout.summary,
+  trailingCaption: layout.trailingCaption,
+  trailingSubcaption: layout.trailingSubcaption,
+});
+
+const toMiniAppContent = (miniApp: MiniAppContent): IMessageMiniAppContent => ({
+  appName: miniApp.appName,
+  appStoreId: miniApp.appStoreId,
+  extensionBundleId: miniApp.extensionBundleId,
+  layout: miniApp.layout ? toMiniAppLayout(miniApp.layout) : undefined,
+  live: miniApp.live,
+  sessionId: miniApp.sessionId,
+  teamId: miniApp.teamId,
+  url: miniApp.url,
 });
 
 const toAttachmentMetadata = (
@@ -134,6 +161,9 @@ export const toMessageMetadata = (
   sendErrorCode: native.sendErrorCode,
 
   nativeText: native.content?.text,
+  miniApp: native.content?.miniApp
+    ? toMiniAppContent(native.content.miniApp)
+    : undefined,
   formatting: native.content?.formatting?.map(toTextFormat) ?? [],
   mentions: native.content?.mentions?.map(toMention) ?? [],
   subject: native.subject,

@@ -39,7 +39,7 @@ describe("iMessage package boundary", () => {
 
     expect(manifest.dependencies).toMatchObject({
       "@grpc/grpc-js": "^1.14.4",
-      "@photon-ai/advanced-imessage": "^2.0.2",
+      "@photon-ai/advanced-imessage": "^2.1.0",
       "nice-grpc": "^2.1.16",
       "nice-grpc-common": "^2.0.3",
     });

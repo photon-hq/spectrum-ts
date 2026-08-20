@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "29c8252ad8e3",
+  "session_id": "12d275e1-c885-402e-aafb-38bdec30db07",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-20T19:36:10.447734Z",
+  "branch": "feat/imessage-remote-entry",
+  "checkpoints_count": 2,
+  "save_step_count": 3,
+  "files_touched": [
+    "biome.jsonc",
+    "packages/imessage/package.json",
+    "packages/imessage/src/remote/entry.ts",
+    "packages/imessage/tsdown.config.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "1747b7918c6a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1509,
+    "cache_creation_tokens": 1797546,
+    "cache_read_tokens": 148761418,
+    "output_tokens": 353947,
+    "api_call_count": 420
+  },
+  "session_metrics": {
+    "turn_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-20T19:36:10.311106Z",
+    "agent_lines": 0,
+    "agent_removed": 2,
+    "human_added": 165,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 165,
+    "total_lines_changed": 167,
+    "agent_percentage": 1.1976047904191618,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 262,
+      "user_lines_removed": 0,
+      "agent_lines_added": 13,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191,
+        "packages/imessage/src/remote/entry.ts": 55
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 262,
+      "user_lines_removed": 0,
+      "agent_lines_added": 13,
+      "agent_lines_removed": 2,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191,
+        "packages/imessage/src/remote/entry.ts": 55
+      }
+    }
+  ]
+}

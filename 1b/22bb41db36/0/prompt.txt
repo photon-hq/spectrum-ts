@@ -62,3 +62,7 @@ ok push that to https://github.com/photon-hq/spectrum-convex
 ---
 
 ok so what was updated in spectrum-ts?
+
+---
+
+ok so first thing, create a pr for 1

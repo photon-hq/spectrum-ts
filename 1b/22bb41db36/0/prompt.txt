@@ -1,0 +1,64 @@
+how dyt we should provide a convex component/library to support specturm-ts imessage
+
+---
+
+continue
+
+---
+
+use https://github.com/unjs/uncrypto
+
+---
+
+ok then test it. 
+
+REDACTED
+REDACTED
+
+---
+
+wait no grpc is the only option because inbound only works through grpc. outbound should also work on grpc for now.
+
+---
+
+wait i can log in to convex.
+
+---
+
+ok can you run an echo bot on it
+
+---
+
+064d10bc2bccfc41ae86a5ab7c2a953d29517991631816eb141205ecd9a64168
+
+---
+
+it is very slow. can you check whose problem is that
+
+---
+
+you have access to signoz.
+
+---
+
+why is there a debounce window, remove that
+
+---
+
+wait wait what are those hey wait actually things
+
+---
+
+oh okay
+
+---
+
+dont do the message batching, are users of this component able to customize this behavior?
+
+---
+
+ok push that to https://github.com/photon-hq/spectrum-convex
+
+---
+
+ok so what was updated in spectrum-ts?

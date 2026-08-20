@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "1b22bb41db36",
+  "strategy": "manual-commit",
+  "branch": "feat/portable-webhook-verify",
+  "checkpoints_count": 13,
+  "files_touched": [
+    "biome.jsonc",
+    "bun.lock",
+    "packages/core/package.json",
+    "packages/core/src/spectrum.ts",
+    "packages/core/src/webhook/portable.ts",
+    "packages/core/src/webhook/verify.ts",
+    "packages/core/test/webhook/verify.test.ts",
+    "packages/core/tsdown.config.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1b/22bb41db36/0/metadata.json",
+      "transcript": "/1b/22bb41db36/0/full.jsonl",
+      "compact_transcript": "/1b/22bb41db36/0/transcript.jsonl",
+      "content_hash": "/1b/22bb41db36/0/content_hash.txt",
+      "prompt": "/1b/22bb41db36/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1487,
+    "cache_creation_tokens": 1784391,
+    "cache_read_tokens": 141821769,
+    "output_tokens": 346792,
+    "api_call_count": 409
+  }
+}

@@ -19,6 +19,7 @@
       "includes": [
         "packages/core/src/index.ts",
         "packages/core/src/authoring.ts",
+        "packages/imessage/src/remote/entry.ts",
         "packages/core/src/fusor/index.ts",
         "packages/spectrum-ts/src/index.ts",
         "packages/spectrum-ts/src/authoring.ts",

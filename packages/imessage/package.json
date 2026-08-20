@@ -21,6 +21,11 @@
       "bun": "./src/index.ts",
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./remote": {
+      "bun": "./src/remote/entry.ts",
+      "types": "./src/remote/entry.ts",
+      "default": "./dist/remote.js"
     }
   },
   "publishConfig": {
@@ -29,6 +34,10 @@
       ".": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./remote": {
+        "types": "./dist/remote.d.ts",
+        "default": "./dist/remote.js"
       }
     }
   },

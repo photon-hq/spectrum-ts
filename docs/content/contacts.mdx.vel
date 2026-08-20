@@ -50,6 +50,35 @@ Use `contact()` to share contact cards. The builder takes either a structured <T
 {% set contactType = symbol("ts:spectrum-ts#Contact") %}
 `fromVCard(vcf)` parses a vCard string into a <TypeTooltip name="ContactInput" type={`{{ contactInput.signature }}`} />. `toVCard(contact)` serializes a resolved <TypeTooltip name="Contact" type={`{{ contactType.signature }}`} /> back to vCard.
 
+<Warning>
+  The `photo` field embeds the original image bytes in the vCard, but the
+  receiving app decides whether to show them in its contact-card preview.
+  Apple Messages currently renders initials for arbitrary iMessage vCard
+  attachments even when the embedded photo is delivered and available to
+  Contacts. [`nativeContactCard()`](/spectrum-ts/providers/imessage/messaging-features/contact-card-sharing)
+  uses Apple's separate Name & Photo mechanism and can only share the bot
+  account's own profile.
+</Warning>
+
+If the image must be visible in the conversation, send it alongside the contact
+card. On iMessage this becomes a multipart message with a normal image preview
+and a separate contact attachment:
+
+```ts
+import { attachment, contact, group } from "spectrum-ts";
+
+await space.send(group(
+  attachment(avatarBytes, {
+    name: "ada-lovelace.jpg",
+    mimeType: "image/jpeg",
+  }),
+  contact({
+    name: { first: "Ada", last: "Lovelace" },
+    phones: [{ value: "+15551234567", type: "mobile" }],
+  }),
+));
+```
+
 <Accordion title="ContactInput" description="The fields you can populate on a contact card. All fields are optional except where the receiving platform requires at least one identifying field.">
   | Field | Type | Description |
   |---|---|---|
@@ -62,6 +91,6 @@ Use `contact()` to share contact cards. The builder takes either a structured <T
   | `urls` | `string[]` | Associated URLs. |
   | `birthday` | `string` | ISO date. |
   | `note` | `string` | Free-form note. |
-  | `photo` | `{ mimeType, read() }` | Profile photo bytes. |
+  | `photo` | `{ mimeType, read() }` | Image bytes embedded in the vCard. Preview rendering is controlled by the receiving app. |
   | `raw` | `unknown` | Provider-specific extras passed through untouched. |
 </Accordion>

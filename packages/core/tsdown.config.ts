@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     authoring: "src/authoring.ts",
+    webhook: "src/webhook/portable.ts",
   },
   format: "esm",
   fixedExtension: false,

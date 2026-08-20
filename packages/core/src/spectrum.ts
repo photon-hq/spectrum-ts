@@ -1222,7 +1222,7 @@ export async function Spectrum<
       return webhookText(500, "webhook secret not configured");
     }
 
-    const verification = verifySpectrumSignature({
+    const verification = await verifySpectrumSignature({
       rawBody: bodyBytes,
       headers,
       secret: resolvedWebhookSecret,

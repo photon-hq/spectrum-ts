@@ -1,7 +1,7 @@
 {
   "name": "@spectrum-ts/core",
   "version": "12.7.0",
-  "description": "The spectrum-ts runtime — Spectrum, content builders, fusor, and the provider authoring API.",
+  "description": "The spectrum-ts runtime \u2014 Spectrum, content builders, fusor, and the provider authoring API.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
@@ -28,6 +28,11 @@
       "bun": "./src/authoring.ts",
       "types": "./src/authoring.ts",
       "default": "./dist/authoring.js"
+    },
+    "./webhook": {
+      "bun": "./src/webhook/portable.ts",
+      "types": "./src/webhook/portable.ts",
+      "default": "./dist/webhook.js"
     }
   },
   "publishConfig": {
@@ -40,6 +45,10 @@
       "./authoring": {
         "types": "./dist/authoring.d.ts",
         "default": "./dist/authoring.js"
+      },
+      "./webhook": {
+        "types": "./dist/webhook.d.ts",
+        "default": "./dist/webhook.js"
       }
     }
   },
@@ -60,6 +69,7 @@
     "marked": "^18.0.5",
     "mime-types": "^3.0.1",
     "open-graph-scraper": "^6.11.0",
+    "uncrypto": "^0.1.3",
     "vcf": "^2.1.2",
     "zod": "^4.2.1"
   },

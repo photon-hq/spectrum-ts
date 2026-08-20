@@ -6,6 +6,7 @@ const SECRET = "whsec_unit_test_secret";
 const NOW_SECONDS = 1_700_000_000;
 const NOW_MS = NOW_SECONDS * 1000;
 const TOLERANCE_SECONDS = 300;
+const EMPTY_SECRET_ERROR = /secret must be non-empty/;
 
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 
@@ -28,9 +29,9 @@ const headersFor = (
 });
 
 describe("verifySpectrumSignature", () => {
-  it("accepts a correctly signed body", () => {
+  it("accepts a correctly signed body", async () => {
     const body = encode('{"event":"messages"}');
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: headersFor(sign(body, NOW_SECONDS), NOW_SECONDS),
       secret: SECRET,
@@ -39,10 +40,10 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("accepts a bare hex signature without the v0= prefix", () => {
+  it("accepts a bare hex signature without the v0= prefix", async () => {
     const body = encode("payload");
     const signature = sign(body, NOW_SECONDS).slice("v0=".length);
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: headersFor(signature, NOW_SECONDS),
       secret: SECRET,
@@ -51,10 +52,10 @@ describe("verifySpectrumSignature", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects a tampered body", () => {
+  it("rejects a tampered body", async () => {
     const signedBody = encode("original");
     const deliveredBody = encode("tampered!");
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: deliveredBody,
       headers: headersFor(sign(signedBody, NOW_SECONDS), NOW_SECONDS),
       secret: SECRET,
@@ -63,9 +64,9 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: false, reason: "signature-mismatch" });
   });
 
-  it("rejects a wrong secret", () => {
+  it("rejects a wrong secret", async () => {
     const body = encode("payload");
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: headersFor(sign(body, NOW_SECONDS, "other-secret"), NOW_SECONDS),
       secret: SECRET,
@@ -74,10 +75,10 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: false, reason: "signature-mismatch" });
   });
 
-  it("accepts a timestamp at the edge of the tolerance window", () => {
+  it("accepts a timestamp at the edge of the tolerance window", async () => {
     const body = encode("payload");
     const timestamp = NOW_SECONDS - TOLERANCE_SECONDS;
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: headersFor(sign(body, timestamp), timestamp),
       secret: SECRET,
@@ -86,10 +87,10 @@ describe("verifySpectrumSignature", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects a timestamp just outside the tolerance window", () => {
+  it("rejects a timestamp just outside the tolerance window", async () => {
     const body = encode("payload");
     const timestamp = NOW_SECONDS - TOLERANCE_SECONDS - 1;
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: headersFor(sign(body, timestamp), timestamp),
       secret: SECRET,
@@ -98,9 +99,9 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: false, reason: "expired" });
   });
 
-  it("rejects when the signature header is missing", () => {
+  it("rejects when the signature header is missing", async () => {
     const body = encode("payload");
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: { "x-spectrum-timestamp": String(NOW_SECONDS) },
       secret: SECRET,
@@ -109,9 +110,9 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: false, reason: "missing-headers" });
   });
 
-  it("rejects when the timestamp header is missing", () => {
+  it("rejects when the timestamp header is missing", async () => {
     const body = encode("payload");
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: { "x-spectrum-signature": sign(body, NOW_SECONDS) },
       secret: SECRET,
@@ -120,9 +121,9 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: false, reason: "missing-headers" });
   });
 
-  it("rejects a non-numeric timestamp header", () => {
+  it("rejects a non-numeric timestamp header", async () => {
     const body = encode("payload");
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: {
         "x-spectrum-signature": sign(body, NOW_SECONDS),
@@ -134,14 +135,37 @@ describe("verifySpectrumSignature", () => {
     expect(result).toEqual({ ok: false, reason: "missing-headers" });
   });
 
-  it("rejects a non-hex / wrong-length signature without throwing", () => {
+  it("rejects a non-hex / wrong-length signature without throwing", async () => {
     const body = encode("payload");
-    const result = verifySpectrumSignature({
+    const result = await verifySpectrumSignature({
       rawBody: body,
       headers: headersFor("v0=not-hex-zzzz", NOW_SECONDS),
       secret: SECRET,
       now: NOW_MS,
     });
     expect(result).toEqual({ ok: false, reason: "signature-mismatch" });
+  });
+
+  it("rejects an odd-length hex signature without throwing", async () => {
+    const body = encode("payload");
+    const result = await verifySpectrumSignature({
+      rawBody: body,
+      headers: headersFor("v0=abc", NOW_SECONDS),
+      secret: SECRET,
+      now: NOW_MS,
+    });
+    expect(result).toEqual({ ok: false, reason: "signature-mismatch" });
+  });
+
+  it("throws on an empty secret instead of returning a 401-shaped result", async () => {
+    const body = encode("payload");
+    await expect(
+      verifySpectrumSignature({
+        rawBody: body,
+        headers: headersFor(sign(body, NOW_SECONDS), NOW_SECONDS),
+        secret: "",
+        now: NOW_MS,
+      })
+    ).rejects.toThrow(EMPTY_SECRET_ERROR);
   });
 });

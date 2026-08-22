@@ -95,6 +95,10 @@ act workflow_dispatch \
 Passing `-s NOVU_DEVELOPMENT_SECRET_KEY` without a value makes `act` prompt for
 the key instead of saving it to shell history.
 
+`act` commonly reports the same local run ID on repeated executions. To send a
+second deliberate test instead of replaying the idempotent transaction, provide
+a new semantic prerelease version, for example `--input version=0.0.0-smoke.2`.
+
 ## Test from GitHub
 
 Open **Actions -> Novu Release Notification Smoke Test -> Run workflow**. Leave

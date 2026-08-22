@@ -162,11 +162,11 @@ if [[ ! "$http_code" =~ ^[0-9]{3}$ ]] || ((10#$http_code >= 400)); then
   exit 1
 fi
 
-if ! jq -e '.acknowledged == true and .status == "processed"' "$response_file" >/dev/null; then
+if ! jq -e '(.data // .) | .acknowledged == true and .status == "processed"' "$response_file" >/dev/null; then
   echo "::error::Novu did not acknowledge the workflow as processed" >&2
   exit 1
 fi
 
-returned_transaction_id="$(jq -r '.transactionId // empty' "$response_file")"
+returned_transaction_id="$(jq -r '(.data // .).transactionId // empty' "$response_file")"
 echo "Novu accepted ${NOVU_WORKFLOW_ID} for topic ${NOVU_TOPIC_KEY}."
 echo "Transaction ID: ${returned_transaction_id:-$NOVU_TRANSACTION_ID}"

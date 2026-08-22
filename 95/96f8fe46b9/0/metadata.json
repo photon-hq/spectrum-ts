@@ -1,0 +1,135 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "9596f8fe46b9",
+  "session_id": "12d275e1-c885-402e-aafb-38bdec30db07",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T00:33:15.139314Z",
+  "branch": "docs/sim-integration",
+  "checkpoints_count": 10,
+  "save_step_count": 9,
+  "files_touched": [
+    "docs/nav.json"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "1c79b1b7d855",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1737,
+    "cache_creation_tokens": 2500656,
+    "cache_read_tokens": 223398455,
+    "output_tokens": 443243,
+    "api_call_count": 534
+  },
+  "session_metrics": {
+    "turn_count": 25
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-22T00:33:14.994093Z",
+    "agent_lines": 1,
+    "agent_removed": 1,
+    "human_added": 102,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 104,
+    "total_lines_changed": 105,
+    "agent_percentage": 1.9047619047619049,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 207,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2,
+      "agent_lines_removed": 1,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16,
+        "docs/integrations/convex.mdx.vel": 191
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 16,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16
+      }
+    }
+  ]
+}

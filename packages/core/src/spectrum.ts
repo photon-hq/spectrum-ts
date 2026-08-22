@@ -56,6 +56,11 @@ import {
   type DeserializeContext,
   deserializeSpectrumMessage,
 } from "./webhook/deserialize";
+import {
+  parseStandardWebhookEvent,
+  standardWebhookToRawInboundEvent,
+  verifyStandardWebhookSignature,
+} from "./webhook/standard";
 import { type SlimEnvelope, slimEnvelopeSchema } from "./webhook/types";
 import { verifySpectrumSignature } from "./webhook/verify";
 
@@ -95,22 +100,27 @@ export type SpectrumInstance<
     responding<T>(space: Space, fn: () => T | Promise<T>): Promise<T>;
     /**
      * Handle one inbound webhook delivery. Call this from your HTTP server's
-     * POST route — it auto-detects which of the two Spectrum webhook formats the
-     * request carries and routes accordingly:
+     * POST route — it auto-detects the Spectrum webhook format and routes it
+     * accordingly:
      *
      * - **Native Spectrum webhook** (the body is normalized JSON): Spectrum Cloud
      *   POSTs already-normalized, HMAC-signed JSON. The signature is verified
      *   against `Spectrum({ webhookSecret })` (a bad signature → 401), the slim
      *   payload is deserialized into `[space, message]`, and a `200` is returned.
      *   Works without any fusor provider configured.
+     * - **Standard project webhook** (the body is a `message.received` JSON
+     *   event): the Standard Webhooks v1 signature is verified against
+     *   a `whsec_`-prefixed `Spectrum({ webhookSecret })`, then the preserved provider
+     *   request is routed through the configured Fusor provider.
      * - **Fusor webhook** (the body is a protobuf envelope): a protobuf wrapping a
      *   raw provider request is decoded and routed to the matching provider's
      *   verify + message pipeline; the HTTP response is that platform's
      *   `respond()` reply (including protocol echoes like Slack
      *   `url_verification`), computed synchronously and returned immediately.
      *
-     * Detection is by payload shape, not headers — Spectrum signs both kinds with
-     * `X-Spectrum-Signature`, so the header can't discriminate.
+     * Standard project webhooks are identified by their `webhook-*` headers;
+     * normalized JSON and protobuf deliveries remain distinguished by payload
+     * shape because both can carry the legacy `X-Spectrum-Signature` header.
      *
      * `handler` is invoked once per resolved message **fire-and-forget** — it is
      * dispatched after the response is computed and is NOT awaited, so its
@@ -120,7 +130,7 @@ export type SpectrumInstance<
      * and process in a separate worker).
      *
      * Stateless and request-scoped: it does NOT feed `spectrum.messages`, and it
-     * never opens the streaming connection. Both formats deliver at-least-once,
+     * never opens the streaming connection. All formats deliver at-least-once,
      * so `handler` should dedupe on `message`/the event id for exactly-once side
      * effects.
      */
@@ -263,6 +273,10 @@ interface SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> {
   options?: SpectrumOptions;
   providers: [...Providers];
   telemetry?: boolean;
+  /**
+   * Webhook signing secret. A `whsec_` prefix selects Standard Webhooks;
+   * unprefixed values use the legacy Spectrum signature.
+   */
   webhookSecret?: string;
 }
 
@@ -306,8 +320,9 @@ export async function Spectrum<
   // when telemetry is off (the console logger respects it too) and takes
   // precedence over LOG_LEVEL inside @photon-ai/otel.
   applyLogLevel(runtimeOptions?.logLevel);
-  // The per-webhook signing secret for native Spectrum webhooks. Explicit option
-  // wins; otherwise fall back to the env var so deployments can inject it.
+  // One public configuration field covers both signing formats. Explicit option
+  // wins over the environment; a whsec_ prefix selects Standard Webhooks while
+  // an unprefixed value retains the legacy Spectrum verifier.
   const resolvedWebhookSecret =
     webhookSecret ?? process.env[envFor("WEBHOOK", "SECRET")];
 
@@ -981,7 +996,7 @@ export async function Spectrum<
   // Read the RAW request bytes without re-encoding — both the protobuf decode
   // (fusor) and the HMAC verification (native) need the exact bytes received.
   // `asWeb` records whether to reply with a Web `Response` or the raw result
-  // shape; `headers` (keys lowercased) carry the native webhook's signature.
+  // shape; `headers` (keys lowercased) carry either signature format.
   const readWebhookInput = async (
     request: Request | WebhookRawRequest
   ): Promise<{
@@ -1119,11 +1134,9 @@ export async function Spectrum<
 
   // --- Native Spectrum webhook (signed, normalized JSON) -------------------
 
-  // Distinguish a native Spectrum webhook from a fusor one by the PAYLOAD, not a
-  // header: Spectrum signs both kinds with `x-spectrum-signature`, so the header
-  // can't tell them apart. A native body is a JSON object (`{…`); a fusor body is
-  // a binary protobuf `RawInboundEvent`, which never starts with `{`.
-  const looksLikeNativePayload = (bodyBytes: Uint8Array): boolean => {
+  // Normalized and Standard project webhooks are JSON objects; a direct Fusor
+  // webhook is a binary protobuf `RawInboundEvent`, which never starts with `{`.
+  const looksLikeJsonPayload = (bodyBytes: Uint8Array): boolean => {
     for (const byte of bodyBytes) {
       // Skip leading ASCII whitespace (space, tab, LF, CR).
       if (byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d) {
@@ -1283,15 +1296,156 @@ export async function Spectrum<
     return webhookText(200, "ok");
   };
 
+  // --- Standard project webhook (signed JSON preserving provider request) --
+
+  const hasStandardWebhookHeaders = (
+    headers: Record<string, string>
+  ): boolean =>
+    headers["webhook-id"] !== undefined ||
+    headers["webhook-timestamp"] !== undefined ||
+    headers["webhook-signature"] !== undefined;
+
+  type ProjectWebhookVerification =
+    | { ok: true; signedEventId: string }
+    | { ok: false; result: WebhookRawResult };
+
+  const verifyProjectStandardSignature = (
+    bodyBytes: Uint8Array,
+    headers: Record<string, string>,
+    secret: string
+  ): ProjectWebhookVerification => {
+    const verification = verifyStandardWebhookSignature({
+      headers,
+      rawBody: bodyBytes,
+      secret,
+    });
+    if (verification.ok) {
+      return { ok: true, signedEventId: verification.messageId };
+    }
+    if (verification.reason === "invalid-secret") {
+      lifecycleLog.error(
+        "spectrum.webhook: configured Standard Webhooks secret is invalid",
+        { "spectrum.webhook.reason": verification.reason }
+      );
+      return { ok: false, result: webhookText(500, verification.reason) };
+    }
+    const malformed =
+      verification.reason === "missing-headers" ||
+      verification.reason === "invalid-headers";
+    return {
+      ok: false,
+      result: webhookText(malformed ? 400 : 401, verification.reason),
+    };
+  };
+
+  const verifyProjectLegacySignature = (
+    bodyBytes: Uint8Array,
+    headers: Record<string, string>,
+    secret: string
+  ): ProjectWebhookVerification => {
+    const verification = verifySpectrumSignature({
+      headers,
+      rawBody: bodyBytes,
+      secret,
+    });
+    if (!verification.ok) {
+      const status = verification.reason === "missing-headers" ? 400 : 401;
+      return {
+        ok: false,
+        result: webhookText(status, verification.reason),
+      };
+    }
+    const signedEventId = headers["webhook-id"];
+    return signedEventId
+      ? { ok: true, signedEventId }
+      : { ok: false, result: webhookText(400, "missing-headers") };
+  };
+
+  const verifyProjectWebhookSignature = (
+    bodyBytes: Uint8Array,
+    headers: Record<string, string>
+  ): ProjectWebhookVerification => {
+    if (resolvedWebhookSecret?.startsWith("whsec_")) {
+      return verifyProjectStandardSignature(
+        bodyBytes,
+        headers,
+        resolvedWebhookSecret
+      );
+    }
+    if (resolvedWebhookSecret) {
+      // Migration fallback: Fusor fanout carries the legacy Spectrum signature
+      // alongside Standard headers, so existing webhookSecret deployments keep
+      // working until they install the one-time standardSigningSecret.
+      return verifyProjectLegacySignature(
+        bodyBytes,
+        headers,
+        resolvedWebhookSecret
+      );
+    }
+    lifecycleLog.error(
+      "spectrum.webhook: received a Standard project webhook but no signing secret is configured",
+      { "spectrum.webhook.reason": "missing-secret" }
+    );
+    return {
+      ok: false,
+      result: webhookText(500, "webhook secret not configured"),
+    };
+  };
+
+  const handleStandardWebhook = async (
+    core: FusorCore,
+    bodyBytes: Uint8Array,
+    headers: Record<string, string>,
+    handler: WebhookHandler
+  ): Promise<WebhookRawResult> => {
+    const verification = verifyProjectWebhookSignature(bodyBytes, headers);
+    if (!verification.ok) {
+      return verification.result;
+    }
+
+    let event: RawInboundEvent;
+    try {
+      const payload = parseStandardWebhookEvent(bodyBytes);
+      if (payload.eventId !== verification.signedEventId) {
+        return webhookText(400, "event id mismatch");
+      }
+      event = standardWebhookToRawInboundEvent(payload);
+    } catch (error) {
+      lifecycleLog.warn(
+        "spectrum.webhook: malformed Standard Webhooks payload",
+        errorAttrs(error),
+        error
+      );
+      return webhookText(400, "malformed payload");
+    }
+
+    return processWebhookEvent(core, event, handler);
+  };
+
   const handleWebhook = async (
     request: Request | WebhookRawRequest,
     handler: WebhookHandler
   ): Promise<Response | WebhookRawResult> => {
     const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
 
-    // Route by payload shape: a native webhook is JSON, a fusor one is protobuf.
-    // Both may carry an `x-spectrum-signature` header, so it can't discriminate.
-    if (looksLikeNativePayload(bodyBytes)) {
+    // Standard fanout has its own `webhook-*` headers. Other JSON is the
+    // normalized native format; non-JSON is the direct Fusor protobuf format.
+    if (looksLikeJsonPayload(bodyBytes) && hasStandardWebhookHeaders(headers)) {
+      if (!fusorCore) {
+        throw new Error(
+          "spectrum.webhook() received a Standard project webhook but no fusor provider is configured"
+        );
+      }
+      const standardResult = await handleStandardWebhook(
+        fusorCore,
+        bodyBytes,
+        headers,
+        handler
+      );
+      return buildWebhookResult(asWeb, standardResult);
+    }
+
+    if (looksLikeJsonPayload(bodyBytes)) {
       const spectrumResult = await handleSpectrumWebhook(
         bodyBytes,
         headers,

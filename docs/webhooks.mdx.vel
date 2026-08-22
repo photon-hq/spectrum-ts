@@ -11,19 +11,19 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 {% set expressOptions = symbol("ts:@spectrum-ts/express#SpectrumPluginOptions") %}
 {% set elysiaOptions = symbol("ts:@spectrum-ts/elysia#SpectrumPluginOptions") %}
 
-`app.webhook()` lets you receive messages through HTTP `POST` requests instead of the `app.messages` stream. It handles two webhook formats through the same method:
+`app.webhook()` lets you receive messages through HTTP `POST` requests instead of the `app.messages` stream. It handles all Spectrum delivery formats through the same method:
 
-| | Native Spectrum webhook | Fusor webhook |
-|---|---|---|
-| Body | HMAC-signed, normalized JSON | Protobuf envelope (raw provider request) |
-| Auth | HMAC over body, verified with `webhookSecret` | Platform's own signature via provider `verify()` |
-| Requires a Fusor provider | No | Yes |
+| | Native Spectrum webhook | Standard project webhook | Direct Fusor webhook |
+|---|---|---|---|
+| Body | Normalized JSON | `message.received` JSON preserving the provider request | Protobuf envelope preserving the provider request |
+| Auth | Legacy HMAC with an unprefixed `webhookSecret` | Standard Webhooks v1 with a `whsec_`-prefixed `webhookSecret` | Platform's own signature via provider `verify()` |
+| Requires a Fusor provider | No | Yes | Yes |
 
-Detection is by payload shape (JSON vs protobuf), not headers. Your handler receives the same `(space, message)` pair either way.
+Standard project webhooks are detected by the `webhook-*` headers. Native JSON and direct Fusor protobuf deliveries are distinguished by payload shape. Your handler receives the same `(space, message)` pair in every case.
 
-## Configuring a webhook secret
+## Configuring signing secrets
 
-Native Spectrum webhooks require a signing secret for HMAC verification. Pass it to `Spectrum()`:
+Pass the endpoint's signing secret through the existing `webhookSecret` option:
 
 ```ts
 const app = await Spectrum({
@@ -34,7 +34,74 @@ const app = await Spectrum({
 });
 ```
 
-The `webhookSecret` option can also be supplied via the `SPECTRUM_WEBHOOK_SECRET` environment variable (the explicit option takes precedence). A native delivery that arrives without a configured secret is answered `500`.
+The option falls back to `SPECTRUM_WEBHOOK_SECRET`; an explicit value takes
+precedence. Pass the complete `whsec_...` value for Standard Webhooks—the SDK
+recognizes the prefix, removes it, and Base64-decodes the key internally. An
+unprefixed value selects the legacy Spectrum verifier. A signed delivery that
+arrives without a matching configured secret is answered `500`.
+
+## Registering and managing project webhooks
+
+The public `cloud` client covers endpoint registration, subscriptions, enable/disable controls, secret rotation, stable egress IPs, and deletion:
+
+```ts
+import { cloud } from "spectrum-ts";
+
+const endpoint = await cloud.createWebhook(projectId, projectSecret, {
+  webhookUrl: "https://agent.example.com/spectrum/webhook",
+  schemaVersion: "raw-inbound.v1",
+  eventTypes: ["message.received"],
+  failureNotificationEmail: "alerts@example.com",
+});
+
+// Returned only at creation. Persist this full value in your secret manager.
+const standardSigningSecret = endpoint.standardSigningSecret;
+
+await cloud.updateWebhook(projectId, projectSecret, endpoint.id, {
+  enabled: false,
+});
+
+const rotated = await cloud.rotateWebhookSecret(
+  projectId,
+  projectSecret,
+  endpoint.id,
+  { overlapSeconds: 86_400 }
+);
+// Deploy rotated.standardSigningSecret before the overlap expires.
+```
+
+`schemaVersion` pins the payload contract for the endpoint. New integrations
+should use `raw-inbound.v1`, which preserves the original provider request.
+`normalized-events.v1` keeps the original normalized Spectrum event shape and
+can be upgraded once to `raw-inbound.v1`; schema downgrades are not supported.
+Creation returns both signing secrets exactly once. If you create a normalized
+endpoint, use `signingSecret` for current deliveries and retain
+`standardSigningSecret` too; the schema-upgrade response does not return the
+`whsec_` secret again.
+
+During the overlap, `webhook-signature` contains signatures for both secrets, so either the old or new configured secret verifies. Use `cloud.getWebhookEgressIps(...)` for network allowlists.
+
+To verify a Standard Webhooks request without routing it through `app.webhook()`, use the exact raw bytes:
+
+```ts
+import {
+  parseStandardWebhookEvent,
+  verifyStandardWebhookSignature,
+} from "spectrum-ts";
+
+const rawBody = new Uint8Array(await request.arrayBuffer());
+const verification = verifyStandardWebhookSignature({
+  rawBody,
+  headers: request.headers,
+  secret: process.env.SPECTRUM_WEBHOOK_SECRET!,
+});
+
+if (!verification.ok) {
+  return new Response(verification.reason, { status: 401 });
+}
+
+const event = parseStandardWebhookEvent(rawBody);
+```
 
 ## Receiving deliveries
 
@@ -202,13 +269,14 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
 
 ## What the SDK handles
 
-- **Signature verification.** Native webhooks are verified with `HMAC-SHA256` over `v0:<timestamp>:<rawBody>`, with a 5-minute replay window. Bad signature returns `401`, missing headers return `400`.
+- **Signature verification.** Standard project webhooks verify `v1,<base64>` HMAC-SHA256 signatures over `webhook-id.webhook-timestamp.rawBody`, including rotation headers with multiple signatures. Native webhooks retain the legacy `v0:<timestamp>:<rawBody>` verifier. Both use a 5-minute replay window.
+- **Provider request reconstruction.** A Standard `message.received` event is validated, its original raw provider body is restored, and the configured provider's own verification and message parser run before dispatch.
 - **Payload deserialization.** Native webhook JSON is deserialized into normal <TypeTooltip name="Message" type={`{{ message.signature }}`} /> and <TypeTooltip name="Space" type={`{{ space.signature }}`} /> objects, including reactions and grouped items.
 - **Attachment rehydration.** Native webhooks carry attachment metadata only. `read()` and `stream()` fetch the bytes lazily via the platform.
-- **Format detection.** Native vs Fusor is detected per request by payload shape — JSON for native, protobuf for Fusor.
+- **Format detection.** Standard project fanout is selected by `webhook-*` headers; remaining JSON is native and protobuf is direct Fusor.
 
 ## Delivery semantics
 
-`app.webhook()` is stateless and request-scoped — it does **not** feed `app.messages`, and it never opens the streaming connection. Both formats deliver at-least-once, so dedupe on `message.id` for exactly-once side effects.
+`app.webhook()` is stateless and request-scoped — it does **not** feed `app.messages`, and it never opens the streaming connection. Deliveries are at-least-once, so dedupe on `webhook-id` (or `message.id` after dispatch) for exactly-once side effects.
 
 For more on Spectrum's webhook delivery model, see the [Webhooks documentation](/webhooks/overview).

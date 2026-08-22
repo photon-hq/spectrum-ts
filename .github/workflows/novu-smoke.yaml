@@ -1,0 +1,63 @@
+name: Novu Release Notification Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        default: ""
+        description: "Optional semver; a unique prerelease version is generated when empty"
+      release_type:
+        type: choice
+        default: minor
+        description: "Release type rendered by the template"
+        options:
+          - major
+          - minor
+          - patch
+      dry_run:
+        type: boolean
+        default: true
+        description: "Render and print the Novu request without sending it"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Render or send a development notification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_RELEASE_TYPE: ${{ inputs.release_type }}
+          INPUT_VERSION: ${{ inputs.version }}
+          NOVU_SECRET_KEY: ${{ secrets.NOVU_DEVELOPMENT_SECRET_KEY }}
+          NOVU_TOPIC_KEY: spectrum-updates
+          NOVU_WORKFLOW_ID: spectrum-release
+          RELEASE_NOTES: |
+            ## Highlights
+
+            - Added lifecycle events for provider connections and message delivery.
+            - Improved TypeScript inference for custom Spectrum platforms.
+
+            ## Fixes
+
+            - Prevented duplicate inbound events during provider reconnects.
+            - Preserved attachment metadata when forwarding rich messages.
+
+            ## Upgrade notes
+
+            No breaking changes are required for this release.
+          REPO: photon-hq/spectrum-ts
+          SERVICE_NAME: spectrum-ts
+        shell: bash
+        run: |
+          export NOVU_DRY_RUN="${INPUT_DRY_RUN:-true}"
+          export RELEASE_TYPE="${INPUT_RELEASE_TYPE:-minor}"
+          export VERSION="${INPUT_VERSION:-0.0.0-smoke.${GITHUB_RUN_ID:-local}.${GITHUB_RUN_ATTEMPT:-1}}"
+          scripts/release/notify-novu.sh

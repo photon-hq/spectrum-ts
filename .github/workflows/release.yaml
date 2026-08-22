@@ -4,8 +4,7 @@
 # Replaces the single-package buildspace typescript-service-release call (it
 # bumps/publishes exactly one working-directory) while reusing its composite
 # blocks for the label gate, AI release notes, and the GitHub release. The
-# notify job is inlined because the shared workflow's allow-list lives
-# upstream and is keyed to this repo anyway.
+# notify job calls Novu directly after the release and package publishes.
 #
 # Launch/rehearsal/resume via workflow_dispatch:
 #   { version: 5.0.0, dry-run: true }    -> full rehearsal, nothing pushed
@@ -227,8 +226,8 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Inlined from buildspace typescript-service-release (its allow-list is
-  # keyed to this repo). POSTs release metadata to email-monkey over Tailscale.
+  # Trigger the Novu workflow directly after the release and all package
+  # publishes succeed. Novu owns topic fan-out, preferences, and email delivery.
   notify:
     needs: [check-labels, release-info, github-release, npm-publish]
     if: >-
@@ -242,47 +241,23 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Join Tailnet
-        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:infra
-          version: latest
-      - name: POST to email-monkey
+          persist-credentials: false
+      - name: Trigger Novu release notification
         env:
-          SERVICE_NAME: spectrum-ts
+          GH_TOKEN: ${{ github.token }}
+          NOVU_DRY_RUN: "false"
+          NOVU_SECRET_KEY: ${{ secrets.NOVU_SECRET_KEY }}
+          NOVU_TOPIC_KEY: spectrum-updates
+          NOVU_WORKFLOW_ID: spectrum-release
           REPO: ${{ github.repository }}
-          VERSION: ${{ needs.release-info.outputs.version }}
           RELEASE_NOTES: ${{ needs.release-info.outputs.release_notes }}
           RELEASE_TYPE: ${{ needs.release-info.outputs.release_type }}
+          SERVICE_NAME: spectrum-ts
+          VERSION: ${{ needs.release-info.outputs.version }}
         shell: bash
-        run: |
-          set -euo pipefail
-          BODY="$(jq -nc \
-            --arg repo "$REPO" \
-            --arg version "$VERSION" \
-            --arg releaseNotes "$RELEASE_NOTES" \
-            --arg releaseType "$RELEASE_TYPE" \
-            --arg serviceName "$SERVICE_NAME" \
-            '{repo:$repo, version:$version, releaseNotes:$releaseNotes, releaseType:$releaseType, serviceName:$serviceName}')"
-
-          HTTP_CODE="$(curl --silent --show-error \
-            --output /tmp/email-monkey.out \
-            --write-out '%{http_code}' \
-            --max-time 60 \
-            --request POST "http://email-monkey/campaigns/spectrum-release/trigger" \
-            --header "Content-Type: application/json" \
-            --data "$BODY")"
-
-          echo "email-monkey response ($HTTP_CODE):"
-          cat /tmp/email-monkey.out || true
-          echo
-
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::email-monkey returned HTTP $HTTP_CODE"
-            exit 1
-          fi
+        run: scripts/release/notify-novu.sh
 
   # After a real publish, poke spectrum-webhook's self-hosted Renovate so it
   # picks up the new version within seconds instead of its hourly cron.

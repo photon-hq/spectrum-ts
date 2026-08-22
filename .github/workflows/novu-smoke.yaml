@@ -38,7 +38,7 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           NOVU_SECRET_KEY: ${{ secrets.NOVU_DEVELOPMENT_SECRET_KEY }}
           NOVU_TOPIC_KEY: spectrum-updates
-          NOVU_WORKFLOW_ID: spectrum-release
+          NOVU_WORKFLOW_ID: breaking-change-email
           RELEASE_NOTES: |
             ## Highlights
 

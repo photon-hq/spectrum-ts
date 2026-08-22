@@ -4,7 +4,7 @@ set -euo pipefail
 
 readonly DEFAULT_NOVU_API_URL="https://api.novu.co"
 readonly DEFAULT_NOVU_TOPIC_KEY="spectrum-updates"
-readonly DEFAULT_NOVU_WORKFLOW_ID="spectrum-release"
+readonly DEFAULT_NOVU_WORKFLOW_ID="breaking-change-email"
 readonly GITHUB_API_VERSION="2026-03-10"
 readonly GITHUB_MARKDOWN_API_URL="https://api.github.com/markdown"
 readonly RELEASE_TIME_ZONE="America/Los_Angeles"
@@ -66,7 +66,7 @@ readonly RELEASE_DATE="${RELEASE_DATE:-$(TZ="$RELEASE_TIME_ZONE" date '+%B %d, %
 readonly RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"
 readonly RELEASE_URL="${RELEASE_URL:-https://github.com/${REPO}/releases/tag/${RELEASE_TAG}}"
 readonly RELEASE_YEAR="${RELEASE_YEAR:-$(TZ="$RELEASE_TIME_ZONE" date '+%Y')}"
-readonly NOVU_TRANSACTION_ID="${NOVU_TRANSACTION_ID:-spectrum-release:${REPO}:${RELEASE_TAG}}"
+readonly NOVU_TRANSACTION_ID="${NOVU_TRANSACTION_ID:-${NOVU_WORKFLOW_ID}:${REPO}:${RELEASE_TAG}}"
 
 if ! is_true "$NOVU_DRY_RUN"; then
   require_environment_variable NOVU_SECRET_KEY

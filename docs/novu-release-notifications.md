@@ -26,7 +26,7 @@ subscribers.
 
 The Novu configuration must contain:
 
-- Workflow ID: `spectrum-release`
+- Workflow ID: `breaking-change-email`
 - Topic key: `spectrum-updates`
 - Photon logo environment variable:
   `PHOTON_LOGO_URL=https://raw.githubusercontent.com/photon-hq/email-monkey-assets/main/PhotonDark.png`

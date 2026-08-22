@@ -250,7 +250,7 @@ jobs:
           NOVU_DRY_RUN: "false"
           NOVU_SECRET_KEY: ${{ secrets.NOVU_SECRET_KEY }}
           NOVU_TOPIC_KEY: spectrum-updates
-          NOVU_WORKFLOW_ID: spectrum-release
+          NOVU_WORKFLOW_ID: breaking-change-email
           REPO: ${{ github.repository }}
           RELEASE_NOTES: ${{ needs.release-info.outputs.release_notes }}
           RELEASE_TYPE: ${{ needs.release-info.outputs.release_type }}

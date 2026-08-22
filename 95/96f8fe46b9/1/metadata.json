@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "9596f8fe46b9",
+  "session_id": "304289ba-2df0-49c0-ae65-1f0c0aa00bac",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T00:34:21.977537Z",
+  "branch": "docs/sim-integration",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/integrations/sim.mdx.vel",
+    "docs/nav.json"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "d2ba09de59d7",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 9567,
+    "cache_creation_tokens": 433101,
+    "cache_read_tokens": 30490940,
+    "output_tokens": 105029,
+    "api_call_count": 144
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-22T00:34:21.884042Z",
+    "agent_lines": 1,
+    "agent_removed": 1,
+    "human_added": 102,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 104,
+    "total_lines_changed": 105,
+    "agent_percentage": 1.9047619047619049,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 16,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 16
+      }
+    }
+  ]
+}

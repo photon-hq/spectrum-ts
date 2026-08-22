@@ -3,8 +3,9 @@
   "checkpoint_id": "9596f8fe46b9",
   "strategy": "manual-commit",
   "branch": "docs/sim-integration",
-  "checkpoints_count": 10,
+  "checkpoints_count": 12,
   "files_touched": [
+    "docs/integrations/sim.mdx.vel",
     "docs/nav.json"
   ],
   "sessions": [
@@ -14,13 +15,20 @@
       "compact_transcript": "/95/96f8fe46b9/0/transcript.jsonl",
       "content_hash": "/95/96f8fe46b9/0/content_hash.txt",
       "prompt": "/95/96f8fe46b9/0/prompt.txt"
+    },
+    {
+      "metadata": "/95/96f8fe46b9/1/metadata.json",
+      "transcript": "/95/96f8fe46b9/1/full.jsonl",
+      "compact_transcript": "/95/96f8fe46b9/1/transcript.jsonl",
+      "content_hash": "/95/96f8fe46b9/1/content_hash.txt",
+      "prompt": "/95/96f8fe46b9/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1737,
-    "cache_creation_tokens": 2500656,
-    "cache_read_tokens": 223398455,
-    "output_tokens": 443243,
-    "api_call_count": 534
+    "input_tokens": 11304,
+    "cache_creation_tokens": 2933757,
+    "cache_read_tokens": 253889395,
+    "output_tokens": 548272,
+    "api_call_count": 678
   }
 }

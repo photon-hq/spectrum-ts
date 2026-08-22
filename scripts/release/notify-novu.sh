@@ -92,7 +92,11 @@ release_notes_html="$(curl \
   --silent \
   --show-error \
   --location \
+  --connect-timeout 10 \
   --max-time 60 \
+  --retry 2 \
+  --retry-all-errors \
+  --retry-delay 2 \
   --request POST \
   "$GITHUB_MARKDOWN_API_URL" \
   "${markdown_headers[@]}" \
@@ -140,10 +144,13 @@ trap 'rm -f "$response_file"' EXIT
 http_code="$(curl \
   --silent \
   --show-error \
-  --location \
+  --connect-timeout 10 \
   --output "$response_file" \
   --write-out '%{http_code}' \
   --max-time 60 \
+  --retry 2 \
+  --retry-all-errors \
+  --retry-delay 2 \
   --request POST \
   "${NOVU_API_URL%/}/v1/events/trigger" \
   --header "Authorization: ApiKey ${NOVU_SECRET_KEY}" \

@@ -19,6 +19,20 @@ Create these GitHub repository secrets in `photon-hq/spectrum-ts`:
 - `NOVU_DEVELOPMENT_SECRET_KEY`: the Novu Development environment secret key
   used only by the manual smoke workflow.
 
+Set them as GitHub Actions **repository secrets**. Paste each raw Novu secret
+key; do not include the `ApiKey` prefix because the script adds it:
+
+```bash
+gh auth status
+gh secret set NOVU_SECRET_KEY --repo photon-hq/spectrum-ts
+gh secret set NOVU_DEVELOPMENT_SECRET_KEY --repo photon-hq/spectrum-ts
+gh secret list --repo photon-hq/spectrum-ts
+```
+
+The Production key is required for releases. The Development key is required
+only for smoke tests run on GitHub; local `act` tests can receive it through the
+interactive `-s NOVU_DEVELOPMENT_SECRET_KEY` option.
+
 Never put either key in the repository, workflow inputs, or an `act` event JSON
 file. The Novu environment is selected by the secret key, so the Development
 environment's `spectrum-updates` topic should contain only controlled test
@@ -34,6 +48,11 @@ The Novu configuration must contain:
   `SPECTRUM_HERO_URL=https://raw.githubusercontent.com/photon-hq/email-monkey-assets/main/spectrum-hero.png`
 
 Those two are Novu template environment variables, not GitHub Actions secrets.
+
+Before merging, confirm the Novu **Production** environment—not only
+Development—has the active `breaking-change-email` workflow, the configured and
+verified email integration, both template environment variables, and the final
+subscriber membership for the `spectrum-updates` topic.
 
 The workflow payload schema should accept this shape:
 
@@ -108,3 +127,21 @@ through the Development Novu environment.
 The production release workflow is unchanged up to the notification boundary:
 it still sends only when the GitHub release and npm publish both succeed, skips
 dry runs, and only accepts `major`, `minor`, or `patch` release types.
+
+## Ship the change
+
+Push the branch and open a pull request:
+
+```bash
+git push -u origin andy/novu-release-notification
+gh pr create \
+  --repo photon-hq/spectrum-ts \
+  --base main \
+  --head andy/novu-release-notification \
+  --fill
+```
+
+After the pull request is merged, the next qualifying real release calls Novu
+automatically. Remove the old `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`
+repository secrets only after the first production notification is confirmed;
+this workflow no longer reads them.

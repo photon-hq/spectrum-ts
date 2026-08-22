@@ -3,37 +3,37 @@
   "checkpoint_id": "9596f8fe46b9",
   "session_id": "304289ba-2df0-49c0-ae65-1f0c0aa00bac",
   "strategy": "manual-commit",
-  "created_at": "2026-08-22T00:34:21.977537Z",
+  "created_at": "2026-08-22T03:39:34.397613Z",
   "branch": "docs/sim-integration",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "docs/integrations/sim.mdx.vel",
     "docs/nav.json"
   ],
   "agent": "Claude Code",
   "model": "",
-  "turn_id": "d2ba09de59d7",
+  "turn_id": "d964b5225750",
   "compact_transcript_start": 0,
   "token_usage": {
-    "input_tokens": 9567,
-    "cache_creation_tokens": 433101,
-    "cache_read_tokens": 30490940,
-    "output_tokens": 105029,
-    "api_call_count": 144
+    "input_tokens": 9993,
+    "cache_creation_tokens": 1445904,
+    "cache_read_tokens": 100945696,
+    "output_tokens": 326025,
+    "api_call_count": 357
   },
   "session_metrics": {
-    "turn_count": 2
+    "turn_count": 3
   },
   "initial_attribution": {
-    "calculated_at": "2026-08-22T00:34:21.884042Z",
-    "agent_lines": 1,
-    "agent_removed": 1,
-    "human_added": 102,
-    "human_modified": 1,
+    "calculated_at": "2026-08-22T03:39:34.215236Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 15,
+    "human_modified": 36,
     "human_removed": 0,
-    "total_committed": 104,
-    "total_lines_changed": 105,
-    "agent_percentage": 1.9047619047619049,
+    "total_committed": 15,
+    "total_lines_changed": 51,
+    "agent_percentage": 0,
     "metric_version": 2
   },
   "prompt_attributions": [

@@ -1,423 +1,220 @@
-can we create a channel for https://www.sim.ai/ with spectrum-ts photon imsg
+ok ive forked that at photon-hq/sim
+
+---
+
+i see an "echo: hey"
+
+---
+
+ok ive removed the thing running
 
 ---
 
 <task-notification>
-<task-id>acd85f10b89287db2</task-id>
+<task-id>bql5tu92k</task-id>
 <tool-use-id>REDACTED</tool-use-id>
-<output-file>/private/tmp/claude-501/-Users-qwerzl-Documents-Projects-spectrum-ts/304289ba-2df0-49c0-ae65-1f0c0aa00bac/tasks/acd85f10b89287db2.output</output-file>
+<output-file>/private/tmp/claude-501/-Users-qwerzl-Documents-Projects-spectrum-ts/304289ba-2df0-49c0-ae65-1f0c0aa00bac/tasks/bql5tu92k.output</output-file>
 <status>completed</status>
-<summary>Agent "Map Photon channel architecture" finished</summary>
-<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
-<result>## Vocabulary note first
-
-There is no "channel" concept in this codebase. The framework's term is **platform** (the type-level contract) exposed as a **provider** (the npm package that implements it). "Channel" only appears as (a) the `SPECTRUM_&lt;CHANNEL&gt;_&lt;KEY&gt;` env-var naming convention in `utils/env.ts`, and (b) fusor custom-event channel names. So a sim.ai integration = a new **provider package** implementing `definePlatform("sim_ai", …)`.
-
----
-
-## 1. Monorepo layout
-
-Bun workspaces + Turbo. Root `/Users/qwerzl/Documents/Projects/spectrum-ts/package.json` declares `workspaces: ["packages/*", "examples/*"]`. No pnpm.
-
-| Path | Package | Role |
-|---|---|---|
-| `/packages/core` | `@spectrum-ts/core` | The runtime: `Spectrum()`, content builders, fusor, `definePlatform`, authoring API |
-| `/packages/spectrum-ts` | `spectrum-ts` | Batteries metapackage; re-exports core + compat shims for every provider |
-| `/packages/imessage` | `@spectrum-ts/imessage` | Provider (cloud, gRPC) |
-| `/packages/imessage-local` | `@spectrum-ts/imessage-local` | Provider (macOS local; explicit install, **no** `spectrum` manifest field) |
-| `/packages/telegram` | `@spectrum-ts/telegram` | Provider (fusor/webhook mode) |
-| `/packages/slack` | `@spectrum-ts/slack` | Provider |
-| `/packages/whatsapp-business` | `@spectrum-ts/whatsapp-business` | Provider |
-| `/packages/terminal` | `@spectrum-ts/terminal` | Provider (tuichat subprocess) |
-| `/packages/hono`, `/express`, `/fastify`, `/elysia` | `@spectrum-ts/&lt;framework&gt;` | HTTP **webhook transport adapters** (not providers) |
-| `/packages/test-support` | private | Shared test fixtures (`src/platform.ts`, `src/fusor.ts`, `src/webhook.ts`, `src/cloud.ts`) |
-| `/examples/basic` | — | Runnable example using the terminal provider |
-| `/docs` | — | `.mdx.vel` docs source |
-| `/scripts/release` | — | Release tooling (auto-discovers packages) |
-
-`turbo.json` at root declares a boundaries tag `provider` with `dependencies.deny: ["provider"]` — providers may not import each other. Each provider package has its own `turbo.json`: `{ "extends": ["//"], "tags": ["provider"] }` (e.g. `/packages/telegram/turbo.json`).
-
----
-
-## 2. What a provider must implement
-
-**Definition entry point:** `definePlatform` in `/packages/core/src/platform/define.ts` (two overloads: *regular* mode and *fusor* mode).
-
-**The contract type:** `PlatformDef` in `/packages/core/src/platform/types.ts:275`. Its doc comment states the minimum viable integration: `name`, `config`, `lifecycle`, `user`, `space`, `messages`, `send`.
-
-Required fields:
-- `config: z.ZodType&lt;object&gt;` — provider config schema (line 345)
-- `lifecycle.createClient(ctx: CreateClientContext)` / optional `lifecycle.destroyClient` (line 361). `CreateClientContext` (line 245) carries `{ config, projectConfig, projectId, projectSecret, store }`.
-- `user.resolve({ input: { userID }, client, config, store })` (line 487), optional `user.schema`
-- `space.create(...)` (line 436), optional `space.get`, `space.schema`, `space.params`, `space.actions`
-- `messages: EventProducer&lt;...&gt;` (line 408) — **inbound**
-- `send({ space, content, client, config, store }) =&gt; Promise&lt;ProviderMessageRecord | undefined&gt;` (line 425) — **outbound**
-
-Optional:
-- `actions?` (line 335) — two tiers: framework-recognized **platform-wise actions** `getAvatar`, `getDisplayName`, `getMembers`, `getMessage` (`PlatformWiseActions`, types.ts:93; key set `PLATFORM_WISE_ACTION_KEYS` in `/packages/core/src/platform/build.ts`), plus free-form platform-specific actions. Undeclared platform-wise actions get a default that throws `UnsupportedError`.
-- `events?` (line 359) — extra streams beyond `messages` (`messages` key is reserved); surfaced flat as `spectrum.&lt;event&gt;` and `platform.&lt;event&gt;`
-- `message.schema` / `message.actions` (line 369)
-- `static?` — properties copied onto the returned provider callable
-
-Key supporting types (all in `/packages/core/src/platform/types.ts`):
-- `ProviderMessageRecord` (line 190) — `{ id, content, direction?, sender?, space, timestamp? } &amp; Record&lt;string, unknown&gt;`; the shape both `messages` yields and `send` returns
-- `ProviderUserRecord` (line 207)
-- `EventProducer&lt;TPayload, TClient, TConfig&gt;` (line 147) — `(ctx: { client, config, projectConfig, store }) =&gt; AsyncIterable&lt;TPayload&gt;`
-- `Platform&lt;Def&gt;`, `PlatformInstance&lt;Def&gt;`, `PlatformSpace&lt;Def&gt;`, `PlatformMessage&lt;Def&gt;`, `PlatformProviderConfig&lt;Def&gt;`, `PlatformRuntime`, `AnyPlatformDef` (line 502)
-
-**Message flow:**
-- *Inbound (regular mode)*: long-lived `messages` async-iterable yields `ProviderMessageRecord`s → core's `wrapProviderMessage`/`buildMessage` in `/packages/core/src/platform/build.ts` inflates them into `Message` + `PlatformSpace` → fanned out on `spectrum.messages`.
-- *Inbound (fusor mode)*: `createClient` returns `fusor(platformId, verify)` (a branded `FusorClient`). Inbound arrives as a protobuf `RawInboundEvent` over a WebSocket (`/packages/core/src/fusor/websocket.ts`, default `wss://fusor-ws.spectrum.photon.codes/v1/subscribe`) or via `spectrum.webhook()`. `verify(req: FusorVerifyRequest)` authenticates + parses; `messages: FusorMessages&lt;TPayload, TConfig&gt;` runs once per payload and returns record(s) / `fusorEvent(channel, data)`, and may call `respond(reply)` to shape the HTTP reply. Types in `/packages/core/src/fusor/types.ts`; routing in `/packages/core/src/fusor/core.ts` (`RegisteredFusorHandler`).
-- *Outbound*: everything (text, reaction, reply, typing, edit, rename, avatar, unsend, poll…) funnels through the single `send` switch on `content.type`. Sugar like `message.reply()`, `space.startTyping()` is built in `build.ts` and routes to `send`.
-
-**Lifecycle hooks:** only `lifecycle.createClient` (required) and `lifecycle.destroyClient` (optional). Platform ID must match `/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/` — enforced by `assertValidPlatformId` (define.ts:40), so use `sim_ai`, not `sim.ai` or `simAI`.
-
----
-
-## 3. All existing providers / integrations
-
-Providers (implement `definePlatform`):
-- `/packages/imessage/src/index.ts` — id `imessage`, export `imessage`
-- `/packages/imessage-local/src/index.ts` — id `local_imessage`, export `localIMessage`
-- `/packages/telegram/src/index.ts` — id `telegram` (const `TELEGRAM_PLATFORM` in `src/config.ts`), export `telegram` — **fusor mode**
-- `/packages/slack/src/index.ts` — id `slack`, export `slack`
-- `/packages/whatsapp-business/src/index.ts` — id `whatsapp_business`, export `whatsappBusiness`
-- `/packages/terminal/src/index.ts` — id `terminal`, export `terminal`
-
-Not present as packages: Discord, generic webhook-as-a-provider. "Voice" is documented (`/docs/providers/voice/`) but is a SIP-level integration with no package. Slack has docs removed (commit c210674).
-
-Webhook transport adapters (thin wrappers over `app.webhook()`, one file each):
-- `/packages/hono/src/index.ts`, `/packages/express/src/index.ts`, `/packages/fastify/src/index.ts`, `/packages/elysia/src/index.ts` — all export `spectrum(options: SpectrumPluginOptions)` with `{ app, onMessage, path = "/spectrum/webhook" }`.
-
----
-
-## 4. Registration &amp; discovery
-
-There is **no runtime plugin registry** — registration is explicit and type-driven:
-
-1. `provider.config(cfg)` returns a `PlatformProviderConfig` tagged object (define.ts:583) carrying `__name`, `config`, `__definition`.
-2. Users pass them to `Spectrum({ providers: [...] })`. Options validated by `spectrumConfigSchema` in `/packages/core/src/spectrum.ts:175`; factory options interface `SpectrumFactoryOptions` at line 262 (`providers`, `options`, `telemetry`, `webhookSecret`), `SpectrumOptions` at line 141.
-3. Core keys runtimes by platform id in `spectrum.__internal.platforms` (a Map); narrowing does `spectrum.__internal.platforms.get(platformId)` (define.ts:537).
-
-Config declaration convention: a per-provider zod schema, usually in `src/config.ts` (`/packages/telegram/src/config.ts` → `configSchema`) or `src/types.ts` (`/packages/whatsapp-business/src/types.ts:19` → `z.union([directConfig, cloudConfig])` with an `isCloudConfig` discriminator; `/packages/slack/src/types.ts` likewise).
-
-Env fallback is automatic: `definePlatform` wraps every config schema with `envAwareConfig(platformId, def.config)` (define.ts:525), implemented in `/packages/core/src/utils/env.ts` — every string-leaf field falls back to `SPECTRUM_&lt;PLATFORM&gt;_&lt;KEY&gt;` (e.g. `SPECTRUM_SIM_AI_API_KEY`). Helpers `envFor`, `fromEnv`, `toEnvKey`, `normalizePlatformName` are re-exported from `@spectrum-ts/core/authoring`.
-
-Discovery surfaces you'd need to touch for a new provider:
-- `/packages/core/src/utils/provider-packages.ts` — `OFFICIAL_PROVIDER_PACKAGES` map (id → npm name) powering `officialProviderInstallHint` diagnostics
-- `package.json#spectrum` field: `{ key, import, label }` (see `/packages/telegram/package.json`)
-- `/packages/spectrum-ts/scripts/generate-manifest.ts` — builds `dist/manifest.json` by scanning `packages/*/package.json#spectrum` and **validating against source** with regex `^export\s+const\s+(\w+)\s*=\s*definePlatform\(...` in `src/index.ts`; consumed by external scaffolders like `create-spectrum-app`. `label` must equal the `definePlatform` id, `import` must equal the exported const name.
-- `/packages/spectrum-ts/src/providers/index.ts` (aggregate re-export), `/packages/spectrum-ts/src/providers/&lt;name&gt;/index.ts` (per-provider `export *` shim), `/packages/spectrum-ts/tsdown.config.ts` (entry map), `/packages/spectrum-ts/package.json` (`dependencies` + `exports`)
-- Release tooling auto-discovers: `/scripts/release/packages.ts#publishablePackages()` picks up any non-private `packages/*`.
-
-No CLI or onboarding flow lives in this repo (`create-spectrum-app` is external and consumes the manifest).
-
----
-
-## 5. Commit 36b35b5 — portable `@spectrum-ts/core/webhook`
-
-Files: added `/packages/core/src/webhook/portable.ts`; modified `/packages/core/src/webhook/verify.ts`, `packages/core/package.json` (new `./webhook` export condition), `tsdown.config.ts` (`webhook: "src/webhook/portable.ts"` entry), `biome.jsonc`, `spectrum.ts`, tests.
-
-`portable.ts` re-exports exactly:
-- types `SlimContent`, `SlimEnvelope`, `SlimMessage`, `SlimMessageRef`, `SlimSender`, `SlimSpace` and their zod schemas `slimContentSchema`, `slimEnvelopeSchema`, `slimMessageRefSchema`, `slimMessageSchema`, `slimSenderSchema`, `slimSpaceSchema` (from `/packages/core/src/webhook/types.ts` — all `z.looseObject` so additive wire changes don't break older SDKs)
-- `verifySpectrumSignature`, `VerifyInput`, `VerifyResult` (from `/packages/core/src/webhook/verify.ts`)
-
-Intent (per the file header): a **runtime-agnostic** surface with zero Node builtins in its import graph — verification runs on Web Crypto via `uncrypto`'s `subtle` — so HTTP adapters on V8-isolate runtimes (Convex, Cloudflare Workers, Deno Deploy) can verify + parse a native Spectrum webhook where the Node-flavored `Spectrum()` runtime can't run. Signature scheme: `X-Spectrum-Signature: v0=&lt;hex&gt;` = `HMAC-SHA256(secret, "v0:" + timestamp + ":" + rawBody)`, with `X-Spectrum-Timestamp` and a 300s replay window. Deliberately excluded: `/packages/core/src/webhook/deserialize.ts` (materializes full `Content`, pulls `node:fs`/`node:crypto`).
-
-Note: `/docs/webhooks.mdx.vel` does **not** yet document this entry.
-
----
-
-## 6. Docs
-
-- `/docs/nav.json` — navigation; a new provider needs a `"Providers"` group entry plus a `root` page
-- `/docs/providers.mdx.vel` — provider index/card grid + "Combining providers" examples
-- `/docs/providers/telegram/setup.mdx.vel` and `/docs/providers/telegram/conversations-and-features.mdx.vel` — best model for a webhook-based external service
-- `/docs/providers/whatsapp-business/setup.mdx.vel`, `/docs/providers/terminal/setup-and-usage.mdx.vel`
-- `/docs/webhooks.mdx.vel`, `/docs/custom-events-and-lifecycle.mdx.vel`
-- `/docs/integrations/chat-sdk.mdx.vel`, `/docs/integrations/eve.mdx.vel` — the "Integrations" group (non-provider integrations)
-
-Docs use a Velocity-ish template layer (`{% set pd = symbol("ts:spectrum-ts#PlatformDef") %}`) that generates field tables directly from TS symbols, so `PlatformDef` doc comments feed the published tables.
-
----
-
-## 7. Guides / generators / templates
-
-- **`/docs/custom-platforms.mdx.vel`** (297 lines) — *the* authoritative "Building a Custom Platform" guide: platform-ID rules, a complete `definePlatform` skeleton, and a full field reference table for `PlatformDef` and its nested slots. This is your primary spec.
-- **`/CONTRIBUTING.md`** — has an "Adding a Platform Provider" section (lines 125-135), plus project structure and the PR loop (`bun run fix` → `typecheck` → `test` → `build`). Note its bullet list is **stale**: it says `events.messages` and `actions.send`, which no longer matches `PlatformDef` (top-level `messages` and `send`).
-- **`/AGENTS.md`** — Ultracite/Biome code standards + monorepo gotchas (Node ≥ 24.11.1 for `tsdown`, `bun run dev --concurrency=12`).
-- **No code generator or template directory exists.** The closest thing to a template is copying `/packages/telegram` (smallest fusor/webhook provider, ~1568 LOC across `src/`) or `/packages/slack` (smallest regular-mode provider: `src/{index,auth,messages,types}.ts`, ~697 LOC). A new package needs its own `package.json` (with `spectrum` field, `exports` with the `bun`/`types`/`default` conditions, `publishConfig`, `@spectrum-ts/core` as peerDep + workspace devDep), `tsdown.config.ts`, `turbo.json`, `tsconfig.json`, and `test/`.
-- Provider authoring imports come from `@spectrum-ts/core` and `@spectrum-ts/core/authoring` (`/packages/core/src/authoring.ts`) only — never relative paths into core. `authoring.ts` gives you `asText`/`asAttachment`/`asReaction`/… factories, `ProviderMessageRecord`, `createLogger`/`errorAttrs`, `tracedFetch`, `envAwareConfig`/`fromEnv`, `createTokenRenewal`, `resumableOrderedStream`, `createStreamGroup`.
-
----
-
-## Suggested shape for sim.ai
-
-Platform id `sim_ai` (snake_case is enforced). If sim.ai pushes events over HTTP, model it on **Telegram** (fusor mode: `createClient` returns `fusor("sim_ai", verify(config))`, `messages` is a typed `FusorMessages` reference so the fusor overload is selected — see the overload-resolution comment at define.ts:325-337). If sim.ai gives you a long-lived SDK/socket, model it on **Slack**/**terminal** (regular mode, `messages` as an async generator). Files to touch beyond the new package: `provider-packages.ts` map, metapackage `src/providers/index.ts` + `src/providers/sim-ai/index.ts` + `tsdown.config.ts` + `package.json`, `docs/nav.json`, `docs/providers.mdx.vel`, and a new `docs/providers/sim-ai/`.</result>
-<usage><subagent_tokens>102683</subagent_tokens><tool_uses>51</tool_uses><duration_ms>230096</duration_ms></usage>
+<summary>Background command "Listen for inbound iMessage and reply" completed (exit code 0)</summary>
 </task-notification>
 
 ---
 
 <task-notification>
-<task-id>a20e14b64729408c8</task-id>
-<tool-use-id>REDACTED</tool-use-id>
-<output-file>/private/tmp/claude-501/-Users-qwerzl-Documents-Projects-spectrum-ts/304289ba-2df0-49c0-ae65-1f0c0aa00bac/tasks/a20e14b64729408c8.output</output-file>
+<task-id>bewwzuufq</task-id>
+<tool-use-id>toolu_01VMTs8YD77HDqiNTapjCaa9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-qwerzl-Documents-Projects-spectrum-ts/304289ba-2df0-49c0-ae65-1f0c0aa00bac/tasks/bewwzuufq.output</output-file>
 <status>completed</status>
-<summary>Agent "Dissect imsg channel implementation" finished</summary>
+<summary>Background command "Re-capture inbound shape without output filter" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+what does sim do
+
+---
+
+ok so how should we test it?
+
+---
+
+ok run it. ensure everything is removed after we complete the test
+
+---
+
+catch up with linq
+
+---
+
+ok plan it. what's linq's provider is like? in what ways can we be better than them?
+
+---
+
+<task-notification>
+<task-id>aad485208e0e781b7</task-id>
+<tool-use-id>toolu_01Xottp8BsuJdYSDyDyDCSs2</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-qwerzl-Documents-Projects-spectrum-ts/304289ba-2df0-49c0-ae65-1f0c0aa00bac/tasks/aad485208e0e781b7.output</output-file>
+<status>completed</status>
+<summary>Agent "Map Sim skills system" finished</summary>
 <note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
-<result>I have a complete picture. Here are my findings.
+<result>## Skills in Sim — full map
 
-## Terminology first
+There are **three unrelated things called "skills"** in this repo. Only #1 and #2 matter for shipping `photon_imessage` skills.
 
-This repo has **no `Channel` class** — the abstraction is called a **provider / platform**, created via `definePlatform(...)`. Two important corrections up front:
+| # | Thing | Lives as | Where |
+|---|---|---|---|
+| 1 | **Suggested skill** (what the integration page lists) | TypeScript object literal inside the block file | `{Service}BlockMeta.skills` |
+| 2 | **Workspace skill** (what "+ Add" creates) | Postgres row (+ 4 hardcoded built-ins) | `skill` table |
+| 3 | Repo dev skills (`/add-block` etc.) | `SKILL.md` + YAML frontmatter | `.agents/skills/**` — irrelevant to the product feature |
 
-- **"Eve" is not an implementation in this repo.** `docs/integrations/eve.mdx.vel` (commit `041e7a7`) documents an *external* eve agent channel (`eve add channel/photon-imessage`) that wraps `photon-hq/vercel-chat-adapter-imessage`, which itself sits on `spectrum-ts`. No eve code lives here.
-- **No BlueBubbles anywhere.** iMessage is served by two first-party packages: `@spectrum-ts/imessage` (cloud, gRPC to Photon-managed lines) and `@spectrum-ts/imessage-local` (macOS Messages SQLite).
-
-Comparison channel chosen: **`@spectrum-ts/telegram`** — the newest webhook + HTTP-API provider (Fusor webhook inbound, Bot API outbound). It is the best template for a brand-new HTTP-based channel.
-
----
-
-# 1. File inventory
-
-## iMessage — `/Users/qwerzl/Documents/Projects/spectrum-ts/packages/imessage/`
-
-| Kind | Paths |
-|---|---|
-| Entry / platform def | `src/index.ts` (847 lines — the whole `definePlatform`), `src/platform.ts` (`export const IMESSAGE_PLATFORM = "imessage"`) |
-| Config + schemas | `src/types.ts` (configSchema, userSchema, spaceSchema, spaceParamsSchema, messageSchema) |
-| Auth / lifecycle | `src/auth.ts` (cloud token mint + line reconcile), `src/lines.ts`, `src/cache.ts` |
-| Inbound | `src/remote/stream.ts`, `src/remote/inbound.ts`, `src/remote/reactions.ts`, `src/remote/read-receipts.ts`, `src/remote/group-events.ts`, `src/remote/polls.ts`, `src/shared/inbound-parts.ts` |
-| Outbound | `src/remote/send.ts`, `src/remote/api.ts` (the whole RPC surface), `src/remote/stream-text.ts`, `src/remote/markdown.ts`, `src/remote/typing.ts`, `src/remote/rename.ts`, `src/remote/members.ts`, `src/remote/read.ts`, `src/remote/avatar.ts`, `src/remote/background.ts`, `src/remote/contact-card.ts`, `src/remote/contact-share.ts`, `src/remote/customized-mini-app.ts`, `src/remote/app.ts`, `src/remote/attachments.ts`, `src/remote/message-metadata.ts`, `src/remote/profile-sync-gate.ts`, `src/remote/client.ts`, `src/remote/ids.ts` |
-| Provider-only content | `src/content/background.ts`, `contact-card.ts`, `customized-mini-app.ts`, `effect.ts` |
-| Shared helpers | `src/shared/audio.ts`, `errors.ts`, `vcard.ts` |
-| Package/build | `package.json`, `tsconfig.json`, `tsdown.config.ts`, `turbo.json`, `vitest.config.ts`, `LICENSE`, `README.md` |
-| Tests (22 files) | `test/auth.test.ts`, `config.test.ts`, `contact-card.test.ts`, `membership.test.ts`, `read-actions.test.ts`, `space.test.ts`, `test/remote/{app,contact-share,group-events,inbound,markdown,message-metadata,message-metadata-integration,profile-sync-gate,reactions,read-receipts,send-markdown,stream,stream-text,unsend}.test.ts` |
-| Docs | `docs/providers/imessage.mdx.vel`, `docs/providers/imessage/connection-and-routing.mdx.vel`, `docs/providers/imessage/messaging-features.mdx.vel` + 13 sub-pages under `messaging-features/`, `docs/troubleshooting/imessage.mdx.vel`, `docs/best-practices/imessage-deliverability.mdx.vel` |
-
-Local sibling: `packages/imessage-local/` — `src/index.ts`, `src/types.ts`, `src/ids.ts`, `src/local/{api,attachments,inbound,send}.ts`, `test/provider.test.ts`, `test/local/inbound.test.ts`. Note it **imports iMessage content builders across the package boundary** by relative path (`../../imessage/src/content/effect`) and has **no `spectrum` field** in `package.json` — deliberately excluded from the manifest.
-
-## Telegram — `/Users/qwerzl/Documents/Projects/spectrum-ts/packages/telegram/`
-
-| Kind | Paths |
-|---|---|
-| Entry / platform def | `src/index.ts` (52 lines — this is the whole definition) |
-| Config | `src/config.ts` (`TELEGRAM_PLATFORM`, `configSchema`, `DEFAULT_BASE_URL`, `botIdFromToken`) |
-| Webhook plumbing | `src/verify.ts` (Fusor `verify`), `src/webhook.ts` (`ensureWebhook`/`webhookUrl` self-registration) |
-| Inbound | `src/inbound/messages.ts` (the Fusor handler), `src/inbound/media.ts` |
-| Outbound | `src/outbound/send.ts` (dispatcher), `src/outbound/message.ts` (`buildSend` → Bot API spec), `src/outbound/stream-text.ts`, `src/outbound/markdown.ts` |
-| Transport | `src/client.ts` (`telegramClient`, `executeSpec`, `downloadFile`, `getChatDisplayName`, `redactBotToken`) |
-| Misc | `src/space.ts`, `src/reactions.ts`, `src/types.ts` |
-| Package/build | `package.json`, `tsconfig.json`, `tsdown.config.ts`, `turbo.json`, `vitest.config.ts`, `LICENSE`, `README.md` |
-| Tests (11 files) | `test/{client,config,redact-url,space,verify,webhook}.test.ts`, `test/inbound/messages.test.ts`, `test/outbound/{markdown,message,send,stream-text}.test.ts` |
-| Docs | `docs/providers/telegram.mdx.vel`, `docs/providers/telegram/setup.mdx.vel`, `docs/providers/telegram/conversations-and-features.mdx.vel` |
+There are **no** YAML/JSON skill manifests, no `skills/` content dir, and **no DB seeds** for product skills.
 
 ---
 
-# 2. Interfaces implemented
+### 1. What a skill is
 
-There is one interface, `PlatformDef`, defined in **`/Users/qwerzl/Documents/Projects/spectrum-ts/packages/core/src/platform/types.ts:275`**. It is consumed by `definePlatform` in **`packages/core/src/platform/define.ts:338`**, which has **two overloads**:
-
-- **regular mode** — `lifecycle.createClient` returns an SDK client; `messages` is a long-lived `EventProducer` async-iterable.
-- **fusor mode** — `createClient` returns `fusor(name, verify)` (a branded `FusorClient`); `messages` becomes a per-webhook handler typed `FusorMessages&lt;TPayload, TConfig&gt;` (`packages/core/src/fusor/types.ts:48`).
-
-The overload is selected by whether `messages` is a *typed reference* (non-context-sensitive → fusor) or an inline arrow (deferred → regular). See the long comment at `define.ts:314-337`.
-
-Required members (`PlatformDef`): `name`, `config`, `lifecycle.createClient`, `user.resolve`, `space.create`, `messages`, `send`.
-Optional: `lifecycle.destroyClient`, `space.get`, `space.schema`, `space.params`, `space.actions`, `message.schema`, `message.actions`, `actions` (platform-wise + platform-specific), `events`, `static`.
-
-Platform-wise action names are fixed by `PlatformWiseActions` (`platform/types.ts:93`) and the runtime set `PLATFORM_WISE_ACTION_KEYS` in `packages/core/src/platform/build.ts:105`: **`getMessage`, `getMembers`, `getAvatar`, `getDisplayName`**. Omitted ones auto-wire to a thrower (`UnsupportedError.action`).
-
-## What each implements
-
-| Slot | iMessage (`packages/imessage/src/index.ts`) | Telegram (`packages/telegram/src/index.ts`) |
-|---|---|---|
-| mode | regular (gRPC streams) | **fusor** (webhook) |
-| `config` | `configSchema` from `src/types.ts` | `configSchema` from `src/config.ts` |
-| `lifecycle.createClient` | builds `RemoteClient[]` from explicit `config.clients` or `createCloudClients(projectId, projectSecret)`; registers profile-sync gate | `ensureWebhook(config, slug)` then `fusor&lt;TelegramPayload&gt;(TELEGRAM_PLATFORM, verify(config))` |
-| `lifecycle.destroyClient` | ✅ disposes gate + auth, closes every gRPC channel | ❌ (none needed — client is stateless) |
-| `user.resolve` | `({input}) =&gt; ({ id: input.userID })` | `resolveUser` in `src/space.ts` (same) |
-| `space.create` | shared-mode deterministic guid vs `remote.chats.create(addresses)` | `createSpace` — single user only; throws for groups |
-| `space.get` | ✅ (derives type from guid, resolves `phone`) | ❌ (framework default `{ id }`) |
-| `space.schema` / `params` | ✅ `{id,type,phone}` / `{phone?}` | ❌ / ❌ |
-| `space.actions` | `background`, `shareContactCard` | ❌ |
-| `message.schema` | ✅ big `messageSchema` (native metadata, `partIndex`, `parentId`, `miniAppCardSession`) | ❌ |
-| `messages` | `remoteMessages(client, projectConfig, gate)` → `ManagedStream` | `handleMessages` (typed `FusorMessages`) |
-| `send` | 15-branch `content.type` dispatcher | 10-case `switch (content.type)` |
-| `actions` | `getMessage`, `getMembers`, `getAvatar`, `getDisplayName`, **`getAttachment`** (platform-specific) | `getDisplayName` only |
-| `static` | `{ effect: { message: messageEffects } }` | ❌ |
-| `events` | ❌ | ❌ |
-
-Reserved-name lists you must avoid when naming actions: `RESERVED_SPACE_KEYS` (`build.ts:77`) and `RESERVED_MESSAGE_KEYS` (`build.ts:117`).
-
----
-
-# 3. Config
-
-## Schema + env fallback (automatic)
-
-`definePlatform` wraps every config schema with `envAwareConfig(platformId, def.config)` (`define.ts:526`). `packages/core/src/utils/env.ts:143` rewrites **every string-leaf field** to fall back to `SPECTRUM_&lt;PLATFORM&gt;_&lt;UPPER_SNAKE_KEY&gt;`. Precedence: explicit value &gt; env var &gt; schema default/required. Empty-string env is treated as unset.
-
-**Telegram** — `packages/telegram/src/config.ts:35`:
-```ts
-export const configSchema = z.object({
-  botToken: z.string().regex(BOT_TOKEN_PATTERN, "botToken must be in the form '&lt;id&gt;:&lt;token&gt;'"),
-  webhookSecret: z.string().regex(SECRET_TOKEN_PATTERN).optional(),
-  baseUrl: z.url().default(DEFAULT_BASE_URL),
-});
-```
-Env vars (auto-derived): `SPECTRUM_TELEGRAM_BOT_TOKEN`, `SPECTRUM_TELEGRAM_WEBHOOK_SECRET`, `SPECTRUM_TELEGRAM_BASE_URL`. Also reads `SPECTRUM_SUPER_WEBHOOK` (Fusor edge domain, default `spctrm.dev`) in `src/webhook.ts:19`.
-
-**iMessage** — `packages/imessage/src/types.ts:25`:
-```ts
-export const configSchema = z.strictObject({
-  clients: clientEntry.or(z.array(clientEntry)).optional(),   // { address, token, phone }
-});
-```
-Nearly empty by design: cloud mode takes credentials from `Spectrum({ projectId, projectSecret })`, not from the provider config. Extra env: `SPECTRUM_IMESSAGE_ADDRESS` (`auth.ts:214`), plus core-level `SPECTRUM_FUSOR_WS_URL` / `SPECTRUM_WEBHOOK_SECRET`.
-
-## How a user enables it
+**Authoring shape** — `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/types.ts:143-170`:
 
 ```ts
-const app = await Spectrum({
-  projectId, projectSecret,
-  providers: [ telegram.config({ botToken: "..." }), imessage.config() ],
-});
+export interface SuggestedSkill {
+  name: string        // kebab-case; becomes the created skill's `name`
+  description: string // one-line summary
+  content: string     // markdown instructions
+}
+export interface BlockMeta {
+  tags: readonly IntegrationTag[]
+  url?: string
+  templates?: readonly BlockTemplate[]
+  skills?: readonly SuggestedSkill[]   // ← optional
+}
 ```
-`.config()` returns a `PlatformProviderConfig` carrying `__definition` (`define.ts:583`); `Spectrum()` parses it at `packages/core/src/spectrum.ts:544` and calls `createClient` at `:553`.
 
-**CLI onboarding is external.** The repo's only contribution is `dist/manifest.json`, generated by `packages/spectrum-ts/scripts/generate-manifest.ts`, and consumed by `create-spectrum-app`. Each provider's `package.json#spectrum` block feeds it:
-```json
-"spectrum": { "key": "telegram", "import": "telegram", "label": "telegram" }
-```
+**Runtime/DB shape** — `/Users/qwerzl/Documents/Projects/sim/packages/db/schema.ts:1286-1329`: table `skill` (`id`, `workspaceId`, `userId`, `name`, `description`, `content`, timestamps; unique index `skill_workspace_name_unique` on (workspaceId, name)) plus `skill_member` (editor grants).
 
----
+**Validation** — `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/api/contracts/skills.ts:39-73`:
+- `name`: `/^[a-z0-9]+(-[a-z0-9]+)*$/`, 1–64 chars
+- `description`: 1–1024 chars
+- `content`: 1–50,000 chars
 
-# 4. Inbound flow
-
-## Telegram (webhook, via Fusor)
-
-1. **Registration** — `createClient` calls `ensureWebhook` (`src/webhook.ts:39`), which is idempotent: `getWebhookInfo` → only `setWebhook` when the URL differs. Target URL is `https://{slug}.spctrm.dev/telegram`.
-2. **Delivery** — Telegram POSTs to the Fusor edge, which forwards a protobuf `RawInboundEvent` (whose `rawRequest` is the original HTTP/1.1 wire bytes) over either the Fusor WebSocket (`packages/core/src/fusor/websocket.ts`, started lazily on first `spectrum.messages` read) or a direct `spectrum.webhook(request, handler)` call.
-3. **Route + verify** — `FusorCore.processEvent` (`packages/core/src/fusor/core.ts:327`) looks handlers up by `event.platform`, parses the inner request via `parseHttpRequest`, then `runHandlerOnce` calls `handler.verify(parsedRequest)`:
-   ```ts
-   // packages/telegram/src/verify.ts:63
-   export const verify = (config: TelegramConfig): FusorVerify&lt;TelegramPayload&gt; =&gt;
-     (req: FusorVerifyRequest): TelegramPayload =&gt; {
-       if (config.webhookSecret) verifySecret(req.headers, config.webhookSecret);
-       return parseUpdate(new TextDecoder().decode(req.rawBody));
-     };
-   ```
-   A throw → 400, no retry. Secret check is `timingSafeEqual` on `x-telegram-bot-api-secret-token`.
-4. **Map** — `handleMessages` (`src/inbound/messages.ts:123`) returns one `ProviderMessageRecord | undefined`. Self-echo is dropped via `botIdFromToken`; captioned media becomes `asGroup([caption, media])`; reactions get a synthetic id `reaction:{chat}:{msg}:{date}:{actor}:{emoji}`.
-5. **Dispatch** — `routeHandlerResult` (`fusor/core.ts:106`) sends the record to `handler.pushMessage` → the per-platform `AsyncQueue` created at `spectrum.ts:602` → `createProviderMessagesStream` (`spectrum.ts:451`) → `resolveRecordToMessages` (`spectrum.ts:392`) which calls `buildSpace` + `wrapProviderMessage(record, …, "inbound")`, optionally flattening `group` content into N messages → `broadcast(...)` → `for await (const [space, message] of app.messages)`.
-
-## iMessage (long-lived gRPC streams)
-
-`messages: ({ client, projectConfig }) =&gt; remoteMessages(client, projectConfig, getProfileSyncGate(client))` — `packages/imessage/src/remote/stream.ts:499`.
-
-Per configured line it merges **three** resumable streams (`messageStream`, `pollStream`, `groupStream`, the last only in dedicated mode), each built with `resumableOrderedStream` from `@spectrum-ts/core/authoring`: `subscribeLive` + `fetchMissed(cursor)` catch-up + per-event cursor. The line set is dynamic, so `createStreamGroup` + `addLineObserver` add/remove lines when cloud token renewal reconciles them (`src/auth.ts:163`). Self-echo is suppressed by `isFromMe`/actor checks. Non-retryable mapping throws become empty skip items so the cursor advances (`skipUnmappable`, `stream.ts:94`). Downstream the records enter the exact same `resolveRecordToMessages` pipeline as Telegram.
+**Built-in skills** (code, not DB, merged in at read time, read-only): `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/workflows/skills/builtin-skills.ts` — `connect-integration`, `research`, `create-table`, `deploy-workflow`. **These four names are reserved** — a create that collides is rejected (`builtinNameCollision`, `apps/sim/lib/skills/orchestration/skill-lifecycle.ts:80-86`).
 
 ---
 
-# 5. Outbound flow
+### 2. How Linq's skills bind to the `linq` block
 
-## Telegram
+Exactly one mechanism, and it is a **sibling field of `templates` on the same `BlockMeta` object** — no separate registry.
 
-`send` (`src/outbound/send.ts:158`) builds a fresh client per call (`telegramClient(config)` — cheap, no network), then:
-```ts
-const sendContent = async (client, space, content) =&gt; {
-  const spec = await buildSend(content);
-  const sent = await executeSpec(client, { ...spec, params: { chat_id: space.id, ...spec.params } });
-  return { id: String(sent.message_id), content, space: { id: space.id }, timestamp: new Date(sent.date * 1000) };
-};
-```
-- `buildSend` (`src/outbound/message.ts:88`) maps content → `{ method, params, file? }`: `sendMessage` / `sendPhoto` / `sendVideo` / `sendDocument` / `sendVoice`; `markdown` → `markdownToTelegramHtml` + `parse_mode: "HTML"`; `reply` recurses and adds `reply_parameters`; `custom` is an escape hatch to any Bot API method.
-- **No text chunking anywhere in this repo** — neither provider splits long text.
-- **Media out**: `executeSpec` (`src/client.ts:77`) posts JSON normally; with `spec.file` it wraps bytes in a `File`, uses a hand-rolled `toFormData` serializer and sets `Content-Type: null` so fetch computes the multipart boundary.
-- **Media in**: `downloadFile` (`src/client.ts:108`) — `getFile` for the path, then one authenticated `fetch` through `tracedFetch("telegram", { redactUrl: redactBotToken })`. Attachments are lazy (`read: lazyRead(config, file.file_id)` in `src/inbound/media.ts`).
-- `group` → N separate sends, last record returned. `reaction` → `setMessageReaction` with an allowlist pre-check, synthetic id returned. `typing` → `sendChatAction` (no "stop"). `read` → silent no-op. `streamText` → `sendMessageDraft` at 500 ms throttle, then a real `sendMessage` (`src/outbound/stream-text.ts`). Unsupported (`poll`, `effect`, `rename`, `avatar`, membership) throw `UnsupportedError.content`.
+- Declared: `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/blocks/linq.ts:1059-1114` — `export const LinqBlockMeta = { tags, url, templates: [...], skills: [ send-personalized-message, respond-to-unread-messages, dispatch-alert-notifications ] } as const satisfies BlockMeta`
+- Registered: `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/registry-maps.ts:192` (import) and `:866` (`linq: LinqBlockMeta` in `BLOCK_META_REGISTRY`)
+- Resolved: `getSuggestedSkillsForBlock(type)` at `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/registry.ts:242-247` — tries `getBlockMeta(type)?.skills`, then falls back to the version-stripped base key (so `notion_v2` inherits `notion`'s skills).
 
-## iMessage
-
-`send` (`src/index.ts:636`) routes by `content.type` to `clientForPhone(client, space.phone)` and the RPC wrappers in `src/remote/api.ts`. Every message-producing send passes through `cacheRemoteOutbound` (`index.ts:124`) which writes into the per-client LRU message cache — this is what lets inbound reactions/read-receipts resolve their targets. Guards: group-only for `rename`/`avatar`/`addMember`/`removeMember`/`leaveSpace`/`getMembers`/`getAvatar`/`getDisplayName` (`remoteGroupClient`, `index.ts:380`); polls reject `reply`/`react`/`unsend`. `streamText` sends the first chunk then edits it in place (`src/remote/stream-text.ts`). Attachments stream over gRPC in `primaryChunk` frames (`src/remote/attachments.ts`).
+`photon_imessage` is already wired identically (`registry-maps.ts:254`, `:906`) — its meta just has `templates` and no `skills` key (`apps/sim/blocks/blocks/photon_imessage.ts:125-195`).
 
 ---
 
-# 6. Registration — the exact places a new channel must be added
+### 3. What "+ Add" does — it does **not** scaffold a workflow
 
-For an in-repo provider named `my_platform` in `packages/my-platform/`:
+It creates a workspace skill row, nothing else.
 
-1. **`packages/my-platform/package.json`** — name `@spectrum-ts/my-platform`; `"type": "module"`; `exports` with the `bun`/`types`/`default` triple plus the `publishConfig.exports` override; `peerDependencies: { "@spectrum-ts/core": "^12.0.0", "typescript": "^5 || ^6.0.0" }`; devDeps `@spectrum-ts/core: workspace:*`, `@spectrum-ts/test-support: workspace:*`, `tsdown`, `vitest`; scripts `build` (`tsdown &amp;&amp; node ../../scripts/smoke-import.mjs dist/index.js`), `dev`, `test:bun`, `test:node`, `typecheck`; **and the manifest block**:
-   ```json
-   "spectrum": { "key": "my_platform", "import": "myPlatform", "label": "my_platform" }
-   ```
-2. **`packages/my-platform/src/index.ts`** — must literally match `/^export\s+const\s+(\w+)\s*=\s*definePlatform\(\s*(?:"([^"]+)"|(\w+))/m`, i.e. `export const myPlatform = definePlatform(MY_PLATFORM, {...})`. `generate-manifest.ts:70` validates that `import` === the exported const name and `label` === the platform id (resolving a shared const from any `src/*.ts` if not inline). Mismatch = build failure.
-3. **`packages/my-platform/turbo.json`** — `{ "extends": ["//"], "tags": ["provider"] }`. The `provider` tag makes `turbo boundaries` forbid importing other providers.
-4. **`tsconfig.json`** (`extends ../../tsconfig.json`, `include: ["src","test"]`, `paths: {"@/*": ["./src/*"]}`), **`tsdown.config.ts`**, **`vitest.config.ts`** (`spectrumTestConfig(import.meta.dirname)`), `LICENSE`, `README.md`.
-5. **`packages/core/src/utils/provider-packages.ts:14`** — add `my_platform: "@spectrum-ts/my-platform"` to `OFFICIAL_PROVIDER_PACKAGES` so "no handler for platform" warnings emit an install hint.
-6. **If batteries-included**: add to `packages/spectrum-ts/package.json` dependencies (pinned exact version), create the shim `packages/spectrum-ts/src/providers/my-platform/index.ts` (`export * from "@spectrum-ts/my-platform";` — a pure star export, deliberately), add a named re-export to `packages/spectrum-ts/src/providers/index.ts`, and add the pair to the `cases` array in `packages/spectrum-ts/test/providers-shims.test.ts`. (iMessage-local skips all of step 6 and has no `spectrum` field — see `packages/spectrum-ts/test/imessage-package-boundary.test.ts`.)
-7. **Docs**: `docs/providers/my-platform.mdx.vel` + subpages, a card in `docs/providers.mdx.vel`, and a group entry in **`docs/nav.json`** under `"Providers"`.
-8. **Nothing else.** Root `package.json` uses `workspaces: ["packages/*"]`, and `scripts/release/packages.ts` auto-discovers every non-private package under `packages/`.
+`IntegrationSkillsSection` (`/Users/qwerzl/Documents/Projects/sim/apps/sim/app/workspace/[workspaceId]/integrations/[block]/integration-skills-section.tsx:74-104`) → `useCreateSkill().mutateAsync({ workspaceId, skill })` (`/Users/qwerzl/Documents/Projects/sim/apps/sim/hooks/queries/skills.ts:71-116`) → `POST /api/skills` with `{ skills: [{name, description, content}], workspaceId }`.
 
-Runtime registration is fully dynamic — `Spectrum()` iterates `providers` and stores `platformStates.set(def.name, …)` (`spectrum.ts:569`); fusor providers additionally self-register at `spectrum.ts:655` via `fusorCore.register(client.platform, handler)`. The `fusor(...)` key, the `definePlatform` name, and Fusor's URL path segment **must be the same string** — see the comment at `packages/telegram/src/config.ts:3-17`.
+Server chain:
+- Route: `/Users/qwerzl/Documents/Projects/sim/apps/sim/app/api/skills/route.ts` (GET/POST/DELETE; POST at `:110`)
+- Use case: `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/skills/application/use-cases.ts` (`upsertSkillsUseCase`, `listAvailableSkillsUseCase`, `deleteSkillUseCase`)
+- Orchestration/validation: `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/skills/orchestration/skill-lifecycle.ts`
+- DB ops + built-in merge: `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/workflows/skills/operations.ts`
+- Access/editors: `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/skills/access.ts`, `/Users/qwerzl/Documents/Projects/sim/apps/sim/app/api/skills/[id]/members/route.ts`
 
----
+Public API (separate, single-resource, API-key auth): `/Users/qwerzl/Documents/Projects/sim/apps/sim/app/api/v2/skills/route.ts`, `.../[id]/route.ts`, `.../[id]/editors/route.ts`, contracts in `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/api/contracts/v2/skills.ts`.
 
-# 7. Tests
+UI state details: "Added" is derived from `useSkills(workspaceId)` (single source of truth); a 409 name conflict is detected by `isSkillNameConflictError` (`apps/sim/app/workspace/[workspaceId]/skills/components/utils.ts`). Analytics event: `integration_skill_added`.
 
-Convention (`CONTRIBUTING.md:64`): tests live in each package's `test/` mirroring `src/`, run under **both** Node (`vitest run`) and Bun (`bun --bun vitest run`). Import code under test via the `@/` alias, fixtures via `@spectrum-ts/test-support/*`. Aliases are wired in `packages/test-support/src/vitest.ts` (workspace specifiers are redirected to raw `src/` so Vitest never tests stale `dist/`).
+Contrast with **templates** on the same page: those call `storeCuratedPrompt` and hand a prompt to Chat, which *does* build a workflow. Skills do not.
 
-**Telegram** — pure `vi.stubGlobal`-style `fetch` mocking; no SDK mocks.
-- `test/webhook.test.ts` — fakes the Bot API `getWebhookInfo`/`setWebhook` responses, asserts idempotency, the `https://{slug}.spctrm.dev/telegram` URL, `SPECTRUM_SUPER_WEBHOOK` override, and that failures never leak the token.
-- `test/outbound/send.test.ts` — intercepts `Request`, records `{ method, json | form, contentType }`, echoes `{ ok, result: { message_id, date } }` (or `{ ok, result: true }` for the fire-and-forget methods that photon Zod-validates). Asserts multipart for uploads, the synthetic reaction id regex, per-type dispatch.
-- `test/inbound/messages.test.ts` — calls `handleMessages` directly with a hand-built partial ctx cast to the ctx type; no Spectrum instance. Tests self-echo drop, largest-photo pick, caption→group, reaction mapping.
-- `test/config.test.ts` — re-applies `envAwareConfig(TELEGRAM_PLATFORM, rawConfigSchema)` manually and drives `SPECTRUM_TELEGRAM_*` env precedence.
-- Others: `verify`, `space`, `client`, `redact-url`, `outbound/{markdown,message,stream-text}`.
-
-**iMessage** — mocks the `AdvancedIMessage` gRPC client as a plain object cast (`as unknown as AdvancedIMessage`).
-- `test/remote/stream.test.ts` — hand-rolled `idleEventStream()` / `pushEventStream()` async iterables per subscription (`messages`/`polls`/`groups`), plus `@spectrum-ts/test-support/timing` (`flush`, `settleSoon`, `withinMs`, `NO_MESSAGE_WAIT_MS`) to assert catch-up, cursor advance, poison-event skip, and line attach/detach.
-- `test/space.test.ts` — pulls the def out with `imessage.config({}).__definition` and calls `def.space.create/get` directly against a fake `chats.create`.
-- `test/remote/inbound.test.ts`, `reactions`, `read-receipts`, `group-events`, `message-metadata*`, `unsend`, `send-markdown`, `contact-share`, `profile-sync-gate`, `app`, `stream-text`; plus `auth.test.ts` (cloud token/reconcile) and `config.test.ts`.
-
-**Shared fixtures** — `packages/test-support/src/`: `platform.ts` (`makeManagedProvider`, `makeNativeProvider`, `makeSchemaProvider`, `makeQueue`, `baseConfig`), `fusor.ts` (`makeSlack`, `makePresence`, `makeCtxProbe`, `encodeEvent` — builds the real protobuf `RawInboundEvent` with HTTP/1.1 wire bytes), `cloud.ts` (`stubCloud`), `webhook.ts`, `timing.ts`, `time.ts`, `vitest.ts`.
+Standalone Skills UI: `/Users/qwerzl/Documents/Projects/sim/apps/sim/app/workspace/[workspaceId]/skills/` (`skills.tsx` list, `new/skill-create.tsx` create page with SKILL.md `.md`/`.zip` import, `[skillId]/skill-detail.tsx`, `components/skill-modal/` for the canvas).
 
 ---
 
-# Minimal template for a new HTTP/webhook channel
+### 4. How the integration detail page is built
+
+- Route: `/Users/qwerzl/Documents/Projects/sim/apps/sim/app/workspace/[workspaceId]/integrations/[block]/page.tsx` — looks up `INTEGRATIONS.find(i =&gt; i.slug === block)`
+- Component: `.../integration-block-detail.tsx` (`:69` reads skills, `:271-277` renders the section conditionally on `length &gt; 0`)
+- Skills section: `.../integration-skills-section.tsx`
+
+**Two different data sources on one page:**
+- icon / name / description / operations / triggers → `INTEGRATIONS` = `/Users/qwerzl/Documents/Projects/sim/packages/deployment-config/src/integrations.json` (generated by `scripts/generate-docs.ts`), via `/Users/qwerzl/Documents/Projects/sim/apps/sim/lib/integrations/index.ts:21`
+- **Skills and templates → the in-app block registry only.** `integrations.json` contains zero `"skills"` keys, and `scripts/generate-docs.ts` only scrapes `tags`/`url` off `BlockMeta`. So **adding skills requires no generator run and no catalog regeneration.**
+
+---
+
+### 5. How to author a new skill
+
+No generator, no scaffolder, no skill-specific lint. The relevant checks:
+
+- `apps/sim/scripts/check-block-registry.ts:243-282` (`bun run check:block-registry` path) only enforces that a catalog integration **has** a `BlockMeta` — it does not require `skills`.
+- `bun run check:skills` / `skills:sync` = `scripts/sync-skills.ts`, which is for `.agents/skills/**` dev skills. **Unrelated.**
+- Tests are per-block and opt-in, e.g. `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/blocks/harmonic.test.ts:305-312` asserts `skills.length &gt;= 5` and name uniqueness. `photon_imessage.test.ts` currently asserts nothing about meta.
+
+Authoring rules (`.agents/skills/add-block/SKILL.md:928-960`, `.agents/skills/validate-integration/SKILL.md:272-274`, `apps/sim/blocks/AGENTS.md:13`):
+- **3–5 mainstream + 2–3 niche** skills
+- kebab-case, ≤64 chars, unique, verb-led name; one-line description; markdown content with `# Title` + `## Steps` + an output section
+- **every step must be grounded in an operation in `tools.access`**
+- **must be sourced from real, documented use cases found online — never invented**
+
+**Complete example, quoted verbatim** — `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/blocks/linq.ts:1091-1113`:
 
 ```ts
-// packages/my-platform/src/config.ts
-export const MY_PLATFORM = "my_platform";              // must match fusor key + Fusor path segment
-export const configSchema = z.object({ apiKey: z.string(), webhookSecret: z.string().optional() });
-
-// packages/my-platform/src/index.ts
-export const myPlatform = definePlatform(MY_PLATFORM, {
-  config: configSchema,
-  lifecycle: {
-    // Annotate the return type — this is what selects the fusor overload.
-    createClient: async ({ config, projectConfig }): Promise&lt;FusorClient&lt;MyPayload&gt;&gt; =&gt; {
-      if (projectConfig?.slug) await ensureWebhook(config, projectConfig.slug);
-      return fusor&lt;MyPayload&gt;(MY_PLATFORM, verify(config));
+  skills: [
+    {
+      name: 'send-personalized-message',
+      description:
+        'Start a Linq chat and send a personalized iMessage, SMS, or RCS message to a recipient.',
+      content:
+        '# Send Personalized Message\n\nReach a person on iMessage, SMS, or RCS through Linq.\n\n## Steps\n1. Create Chat with your sending number in From and the recipient handle in To.\n2. Draft a friendly, concise message body tailored to the recipient.\n3. Send Message to the chat with the message text, optionally setting a preferred service or media URL.\n4. Optionally Check iMessage or Check RCS first to pick the best service for the recipient.\n\n## Output\nThe chat ID, the message ID, the delivery service used, and the delivery status.',
     },
-  },
-  user:  { resolve: resolveUser },                      // ({ input }) =&gt; ({ id: input.userID })
-  space: { create: createSpace },
-  actions: { getDisplayName: async ({ config }, space) =&gt; /* … */ },
-  messages: handleMessages,                             // typed `FusorMessages&lt;MyPayload, MyConfig&gt;` reference
-  send,
-});
+    {
+      name: 'respond-to-unread-messages',
+      description:
+        'List recent Linq chats and messages, draft a reply for each unread conversation, and send it.',
+      content:
+        '# Respond to Unread Messages\n\nClear an inbox by replying to recent unread Linq conversations.\n\n## Steps\n1. List Chats to find active conversations, then List Messages per chat to find unread inbound messages.\n2. For each conversation needing a reply, read the recent thread for context.\n3. Draft a relevant reply.\n4. Send Message to that chat ID with the drafted text.\n\n## Output\nFor each handled chat: the chat ID, the reply sent, and the delivery status.',
+    },
+    {
+      name: 'dispatch-alert-notifications',
+      description:
+        'Send an RCS or SMS notification to one or more recipients from a list of alerts.',
+      content:
+        '# Dispatch Alert Notifications\n\nFan out notifications to recipients through Linq.\n\n## Steps\n1. Take the list of recipients and the alert content to send.\n2. For each recipient, Create Chat from your sending number to their handle.\n3. Format a clear notification message and Send Message, setting the preferred service to RCS or SMS as needed.\n4. Use an idempotency key per message so retries do not double-send.\n\n## Output\nA per-recipient list of chat IDs, message IDs, and delivery statuses.',
+    },
+  ],
 ```
 
-Gotchas worth flagging to whoever writes the new channel:
-- `messages` **must** be a typed non-inline reference or TS silently commits to the regular (async-iterable) overload — `define.ts:314-337`.
-- Platform id must match `/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/`; `definePlatform` throws otherwise (`define.ts:38`), and duplicate names are rejected (`packages/core/src/platform/unique-names.ts`).
-- `send` returns a `ProviderMessageRecord` for anything that produces a message (**including reactions** — synthesize a deterministic id if the API assigns none) and `undefined` only for fire-and-forget control signals.
-- Never interpolate secrets into thrown errors or spans; use `tracedFetch(name, { redactUrl })` (see `redactBotToken`, `packages/telegram/src/client.ts:18`).</result>
-<usage><subagent_tokens>191365</subagent_tokens><tool_uses>74</tool_uses><duration_ms>381785</duration_ms></usage>
+Second example (a 3-skill messaging block, closest analogue for a single-tool integration) — `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/blocks/twilio.ts:178-199`: `send-sms-notification`, `send-personalized-reminder`, `send-verification-code`.
+
+---
+
+### 6. Docs
+
+- Product docs: `/Users/qwerzl/Documents/Projects/sim/apps/docs/content/docs/en/agents/skills.mdx` (skill format, progressive disclosure, `load_skill`, editors, `/`-mention in chat; explicitly mentions curated per-integration skills), `.../en/cli/skills.mdx`, `.../en/academy/agents/skills.mdx` (+ ja/zh/de/fr/es mirrors)
+- Contributor docs: `/Users/qwerzl/Documents/Projects/sim/.agents/skills/add-block/SKILL.md` ("BlockMeta (Required)" section), `/Users/qwerzl/Documents/Projects/sim/.agents/skills/validate-integration/SKILL.md` (checklist lines 272-274), `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/AGENTS.md:13`, `.agents/skills/add-integration/SKILL.md:314`
+
+---
+
+### What `photon_imessage` must touch to ship skills
+
+**One file:** `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/blocks/photon_imessage.ts` — add a `skills: [...]` array to `PhotonImessageBlockMeta` (after `templates`, before the closing `} as const satisfies BlockMeta`).
+
+Everything else is already wired: `registry-maps.ts:254/:906` registers the meta; `getSuggestedSkillsForBlock` picks up `skills` automatically; the detail page renders the section as soon as the array is non-empty.
+
+Optional/advisable: add meta assertions to `/Users/qwerzl/Documents/Projects/sim/apps/sim/blocks/blocks/photon_imessage.test.ts` (mirror `harmonic.test.ts:305-312`).
+
+Constraints to respect when writing them:
+- ground every step in `PhotonImessageBlock.tools.access` (currently a narrow surface — `apps/sim/tools/photon_imessage/` has only `send_message`, plus the `photon_imessage/message_received` trigger), so skills should stay within send + inbound-trigger territory
+- kebab-case unique names, ≤64 chars; avoid the reserved built-in names `connect-integration`, `research`, `create-table`, `deploy-workflow`; also avoid colliding with names a user likely already added (uniqueness is per workspace, so a user with Linq's `send-personalized-message` already added would get a 409 → "already in this workspace" toast if you reuse that exact name)
+- no docs/catalog regeneration needed</result>
+<usage><subagent_tokens>110867</subagent_tokens><tool_uses>58</tool_uses><duration_ms>321694</duration_ms></usage>
 </task-notification>
 
 ---
 
-https://www.sim.ai/integrations so we need to submit to this. also search docs for best practice
+also add linear issue, assign myself, no project

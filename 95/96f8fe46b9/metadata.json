@@ -3,7 +3,7 @@
   "checkpoint_id": "9596f8fe46b9",
   "strategy": "manual-commit",
   "branch": "docs/sim-integration",
-  "checkpoints_count": 12,
+  "checkpoints_count": 13,
   "files_touched": [
     "docs/integrations/sim.mdx.vel",
     "docs/nav.json"
@@ -25,10 +25,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 11304,
-    "cache_creation_tokens": 2933757,
-    "cache_read_tokens": 253889395,
-    "output_tokens": 548272,
-    "api_call_count": 678
+    "input_tokens": 11730,
+    "cache_creation_tokens": 3946560,
+    "cache_read_tokens": 324344151,
+    "output_tokens": 769268,
+    "api_call_count": 891
   }
 }

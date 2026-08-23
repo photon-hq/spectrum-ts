@@ -226,8 +226,8 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  # Trigger the Novu workflow directly after the release and all package
-  # publishes succeed. Novu owns topic fan-out, preferences, and email delivery.
+  # Trigger the Novu breaking-change workflow only after a major release and
+  # all package publishes succeed. Novu owns topic fan-out and email delivery.
   notify:
     needs: [check-labels, release-info, github-release, npm-publish]
     if: >-
@@ -236,7 +236,7 @@ jobs:
       needs.github-release.result == 'success' &&
       needs.npm-publish.result == 'success' &&
       inputs.dry-run != true &&
-      contains(fromJSON('["major","minor","patch"]'), needs.release-info.outputs.release_type)
+      needs.release-info.outputs.release_type == 'major'
     runs-on: ubuntu-latest
     permissions:
       contents: read

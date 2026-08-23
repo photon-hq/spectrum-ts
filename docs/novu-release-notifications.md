@@ -1,7 +1,7 @@
-# Novu release notifications
+# Novu breaking-change release notifications
 
-Spectrum release emails are triggered directly from GitHub Actions after the
-GitHub release and npm publishing jobs succeed:
+Spectrum breaking-change emails are triggered directly from GitHub Actions
+after a major-version GitHub release and its npm publishing jobs succeed:
 
 ```text
 release.yaml -> scripts/release/notify-novu.sh -> Novu -> spectrum-updates topic
@@ -50,14 +50,14 @@ The workflow payload schema should accept this shape:
 ```json
 {
   "repo": "photon-hq/spectrum-ts",
-  "version": "5.1.0",
-  "releaseTag": "v5.1.0",
-  "releaseType": "minor",
+  "version": "6.0.0",
+  "releaseTag": "v6.0.0",
+  "releaseType": "major",
   "serviceName": "spectrum-ts",
   "releaseDate": "August 22, 2026",
   "releaseYear": "2026",
   "releaseNotesHtml": "<h2>Highlights</h2><ul><li>Example change</li></ul>",
-  "releaseUrl": "https://github.com/photon-hq/spectrum-ts/releases/tag/v5.1.0"
+  "releaseUrl": "https://github.com/photon-hq/spectrum-ts/releases/tag/v6.0.0"
 }
 ```
 
@@ -68,8 +68,8 @@ do not duplicate a release notification.
 
 ## Production behavior
 
-The release workflow sends only when the GitHub release and npm publish both
-succeed, skips dry runs, and accepts only `major`, `minor`, or `patch` release
-types. Remove the old `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` repository
-secrets only after the first production notification is confirmed; this workflow
-no longer reads them.
+The release workflow sends only for a `major` release after the GitHub release
+and npm publish both succeed. It skips dry runs and all `minor` and `patch`
+releases. Remove the old `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` repository
+secrets only after the first production notification is confirmed; this
+workflow no longer reads them.

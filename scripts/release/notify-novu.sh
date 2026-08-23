@@ -50,13 +50,10 @@ if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-
   exit 1
 fi
 
-case "$RELEASE_TYPE" in
-  major | minor | patch) ;;
-  *)
-    echo "::error::RELEASE_TYPE must be major, minor, or patch" >&2
-    exit 1
-    ;;
-esac
+if [[ "$RELEASE_TYPE" != "major" ]]; then
+  echo "::error::RELEASE_TYPE must be major; minor and patch releases do not send breaking-change notifications" >&2
+  exit 1
+fi
 
 readonly NOVU_API_URL="${NOVU_API_URL:-$DEFAULT_NOVU_API_URL}"
 readonly NOVU_DRY_RUN="${NOVU_DRY_RUN:-true}"

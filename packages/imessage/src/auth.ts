@@ -2,6 +2,7 @@ import { createGrpcClient } from "@photon-ai/advanced-imessage/grpc";
 import {
   cloud,
   type DedicatedTokenData,
+  type LinesData,
   type SharedTokenData,
   type SpectrumLike,
 } from "@spectrum-ts/core";
@@ -29,6 +30,13 @@ const FORCE_REFRESH_MIN_INTERVAL_MS = 5000;
 // re-mint; drift triggers the same refresh the renewal timer runs.
 const DEFAULT_LINE_DISCOVERY_INTERVAL_MS = 60_000;
 
+// A drift that survives its own re-mint cannot be resolved by minting again
+// right away — e.g. a line the token service skips because its instance is
+// not resolvable yet, or stale entries after a plan change. Retry such a
+// drift only every Nth tick, so a wedged line costs one mint per damp window
+// instead of one per poll, while a NEW drift still re-mints immediately.
+const REPEAT_DRIFT_DAMP_TICKS = 5;
+
 const authLog = createLogger("spectrum.imessage.auth");
 
 export interface LineDiscoveryOptions {
@@ -53,6 +61,17 @@ const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
 const instanceAttrs = (instanceId: string) => ({
   "spectrum.imessage.instance": instanceId,
 });
+
+// The polled inventory reduced to the phone set discovery diffs against.
+const listedImessagePhones = (data: LinesData): Set<string> => {
+  const listed = new Set<string>();
+  for (const line of data.lines) {
+    if (line.platform === "imessage") {
+      listed.add(line.phoneNumber);
+    }
+  }
+  return listed;
+};
 
 export async function createCloudClients(
   projectId: string,
@@ -234,6 +253,10 @@ export async function createCloudClients(
   // number yet, so an id-based diff would re-mint every tick for a line that
   // cannot attach. The poll only reads; the re-mint stays the single path that
   // mutates the client set.
+  // Discovery is best-effort by contract: nothing in here may throw out of
+  // the interval, mutate the client set directly (only reconcile does that),
+  // or run once the client is disposed. Every failure mode degrades to the
+  // pre-discovery behavior — the line is picked up at the next token renewal.
   const startLineDiscovery = (): (() => void) | undefined => {
     if (options?.lineDiscovery?.enabled === false) {
       return;
@@ -241,19 +264,53 @@ export async function createCloudClients(
     const intervalMs =
       options?.lineDiscovery?.intervalMs ?? DEFAULT_LINE_DISCOVERY_INTERVAL_MS;
     let pollInFlight = false;
+    let pollFailures = 0;
+    let lastDriftSignature: string | undefined;
+    let ticksSinceDriftMint = 0;
+
+    const noteRecovered = (): void => {
+      if (pollFailures === 0) {
+        return;
+      }
+      authLog.info("imessage line discovery poll recovered", {
+        "spectrum.imessage.discovery.failures": pollFailures,
+      });
+      pollFailures = 0;
+    };
+
+    // The damp gate: a NEW drift signature mints immediately; the same one
+    // persisting across ticks mints only once per damp window.
+    const shouldMintForDrift = (signature: string): boolean => {
+      if (signature === lastDriftSignature) {
+        ticksSinceDriftMint += 1;
+        if (ticksSinceDriftMint < REPEAT_DRIFT_DAMP_TICKS) {
+          return false;
+        }
+      }
+      lastDriftSignature = signature;
+      ticksSinceDriftMint = 0;
+      return true;
+    };
 
     const poll = async (): Promise<void> => {
       const data = await cloud.listLines(projectId, projectSecret, "imessage");
-      const listed = new Set<string>();
-      for (const line of data.lines) {
-        if (line.platform === "imessage") {
-          listed.add(line.phoneNumber);
-        }
+      if (disposed) {
+        return;
       }
+      noteRecovered();
+      const listed = listedImessagePhones(data);
       const drifted =
         listed.size !== entries.length ||
         entries.some((entry) => !listed.has(entry.phone));
       if (!drifted) {
+        lastDriftSignature = undefined;
+        return;
+      }
+      const signature = `${[...listed].sort().join(",")}|${entries
+        .map((entry) => entry.phone)
+        .sort()
+        .join(",")}`;
+      if (!shouldMintForDrift(signature)) {
         return;
       }
       authLog.info("imessage line inventory drifted; re-minting tokens", {
@@ -266,15 +323,23 @@ export async function createCloudClients(
     const timer = setInterval(() => {
       // Skip the tick rather than queue behind a slow poll or refresh — the
       // next tick re-checks the same live inventory anyway.
-      if (pollInFlight) {
+      if (pollInFlight || disposed) {
         return;
       }
       pollInFlight = true;
       poll()
         .catch((error: unknown) => {
-          authLog.warn(
+          pollFailures += 1;
+          // First failure of a streak at warn, the rest at debug: an outage
+          // otherwise warn-logs once a minute for its whole duration, and the
+          // recovery log above already brackets the streak.
+          const logFailure = pollFailures === 1 ? authLog.warn : authLog.debug;
+          logFailure(
             "imessage line discovery poll failed",
-            errorAttrs(error),
+            {
+              "spectrum.imessage.discovery.failures": pollFailures,
+              ...errorAttrs(error),
+            },
             error instanceof Error ? error : undefined
           );
         })
@@ -287,19 +352,22 @@ export async function createCloudClients(
     return () => clearInterval(timer);
   };
 
+  let disposed = false;
   let stopLineDiscovery: (() => void) | undefined;
 
   const cloudAuth: CloudAuth = {
     dispose: () => {
+      disposed = true;
       stopLineDiscovery?.();
       renewal.dispose();
     },
     forceRefresh,
     // Deliberate calls (the public refreshLines) bypass the reconnect-storm
     // floor above — a user who just provisioned a line must never have the
-    // refresh silently skipped — but still coalesce with any refresh already
-    // in flight.
-    refreshLines: () => renewal.forceRefresh(),
+    // refresh silently skipped — and chain behind an in-flight refresh
+    // instead of coalescing onto it, whose payload may predate the
+    // provisioning the caller is trying to pick up.
+    refreshLines: () => renewal.refreshNext(),
   };
 
   if (tokenData.type === "shared") {

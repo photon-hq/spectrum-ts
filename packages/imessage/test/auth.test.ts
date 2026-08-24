@@ -456,6 +456,66 @@ describe("imessage cloud auth", () => {
       await disposeCloudAuth(clients);
     });
 
+    it("does not re-mint when a poll lands after dispose", async () => {
+      const clients = await startWithDiscovery();
+      let resolvePoll:
+        | ((value: { lines: FakeListedLine[] }) => void)
+        | undefined;
+      listLines.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePoll = resolve;
+          })
+      );
+
+      // The tick fires and the poll is in flight when the client is disposed;
+      // its late result must not trigger a mint against a torn-down client.
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+      await disposeCloudAuth(clients);
+      resolvePoll?.({
+        lines: [listedLine("+15550000001"), listedLine("+15550000002")],
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(issueImessageTokens).toHaveBeenCalledTimes(1);
+      expect(clients).toHaveLength(1);
+    });
+
+    it("damps re-minting while the same drift persists", async () => {
+      const clients = await startWithDiscovery();
+      // The mint keeps returning the single-line payload (the beforeEach
+      // default), so the second listed line can never attach: the exact wedged
+      // state the damp exists for.
+      listLines.mockResolvedValue({
+        lines: [listedLine("+15550000001"), listedLine("+15550000002")],
+      });
+
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+      // Startup + the first drift mint.
+      expect(issueImessageTokens).toHaveBeenCalledTimes(2);
+
+      // The same drift signature is damped, not re-minted every tick.
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS * 4);
+      expect(issueImessageTokens).toHaveBeenCalledTimes(2);
+
+      // Damp window elapsed: one retry.
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+      expect(issueImessageTokens).toHaveBeenCalledTimes(3);
+
+      // A drift with a new shape re-mints immediately.
+      listLines.mockResolvedValue({
+        lines: [
+          listedLine("+15550000001"),
+          listedLine("+15550000002"),
+          listedLine("+15550000003"),
+        ],
+      });
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+      expect(issueImessageTokens).toHaveBeenCalledTimes(4);
+
+      await disposeCloudAuth(clients);
+    });
+
     it("stops polling once the client is disposed", async () => {
       const clients = await startWithDiscovery();
 
@@ -503,6 +563,48 @@ describe("imessage cloud auth", () => {
   });
 
   describe("refreshLines", () => {
+    it("chains behind an in-flight refresh instead of coalescing onto it", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({ "instance-1": "+15550000001" })
+      );
+      const clients = await createCloudClients("project-1", "secret-1");
+      const recover = getCloudRecover(clients);
+      if (!recover) {
+        throw new Error("expected cloud recovery hook");
+      }
+
+      // A refresh already in flight, minted BEFORE the new line existed.
+      let resolveStale: ((value: FakeTokenData) => void) | undefined;
+      issueImessageTokens.mockImplementationOnce(
+        () =>
+          new Promise<FakeTokenData>((resolve) => {
+            resolveStale = resolve;
+          })
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      const stale = recover();
+
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({
+          "instance-1": "+15550000001",
+          "instance-2": "+15550000002",
+        })
+      );
+      const refreshed = refreshLines(fakeApp(clients));
+
+      resolveStale?.(dedicated({ "instance-1": "+15550000001" }));
+      await stale;
+      await refreshed;
+
+      // The stale payload alone would have left one line; refreshLines must
+      // resolve on a mint that started after the call.
+      expect(clients).toHaveLength(2);
+
+      await disposeCloudAuth(clients);
+    });
+
     it("re-mints immediately, even within the forced-refresh floor", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(0);

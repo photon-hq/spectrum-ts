@@ -11,6 +11,15 @@ export interface TokenRenewal {
   forceRefresh(): Promise<void>;
   invalidate(): void;
   refreshIfNeeded(): Promise<void>;
+  /**
+   * Like {@link forceRefresh}, but guarantees the refresh it resolves on
+   * STARTED after this call: a refresh already in flight is awaited and then
+   * one more runs. `forceRefresh` would coalesce onto the in-flight one, whose
+   * data may predate whatever the caller just changed (e.g. a line provisioned
+   * a moment ago). Concurrent callers during the same flight share the one
+   * chained refresh.
+   */
+  refreshNext(): Promise<void>;
 }
 
 export interface TokenRenewalOptions {
@@ -75,6 +84,28 @@ export const createTokenRenewal = (
     return refreshInFlight;
   };
 
+  let queuedRefresh: Promise<void> | undefined;
+
+  // `refreshInFlight` is the promise returned by `.finally()`, so by the time
+  // the chained `.then` runs it has already been cleared — the chained
+  // coalescedRefresh always starts a genuinely new refresh. The in-flight
+  // outcome is deliberately swallowed: the caller asked for the NEXT refresh,
+  // and its failure surfaces on the returned promise.
+  const refreshNext = (): Promise<void> => {
+    if (!refreshInFlight) {
+      return coalescedRefresh();
+    }
+    if (!queuedRefresh) {
+      queuedRefresh = refreshInFlight
+        .catch(() => undefined)
+        .then(() => {
+          queuedRefresh = undefined;
+          return coalescedRefresh();
+        });
+    }
+    return queuedRefresh;
+  };
+
   const runScheduledRefresh = (): void => {
     if (disposed) {
       return;
@@ -111,6 +142,7 @@ export const createTokenRenewal = (
     invalidate(): void {
       tokenExpiresAt = 0;
     },
+    refreshNext,
     async refreshIfNeeded(): Promise<void> {
       if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
         return;

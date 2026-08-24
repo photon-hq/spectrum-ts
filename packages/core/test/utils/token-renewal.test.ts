@@ -165,6 +165,82 @@ describe("createTokenRenewal", () => {
     renewal.dispose();
   });
 
+  it("refreshNext chains a fresh refresh behind an in-flight one", async () => {
+    vi.useFakeTimers();
+    const resolvers: (() => void)[] = [];
+    const refresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => 3600,
+      name: "test",
+      refresh,
+    });
+
+    const inFlight = renewal.forceRefresh();
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // Both callers during the same flight share the one chained refresh.
+    const next = renewal.refreshNext();
+    const nextAgain = renewal.refreshNext();
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    resolvers[0]?.();
+    await inFlight;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    resolvers[1]?.();
+    await Promise.all([next, nextAgain]);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    renewal.dispose();
+  });
+
+  it("refreshNext without an in-flight refresh runs immediately", async () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn(() => Promise.resolve());
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => 3600,
+      name: "test",
+      refresh,
+    });
+
+    await renewal.refreshNext();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    renewal.dispose();
+  });
+
+  it("refreshNext still runs when the in-flight refresh rejects", async () => {
+    vi.useFakeTimers();
+    let rejectStale: ((error: Error) => void) | undefined;
+    const refresh = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectStale = reject;
+          })
+      )
+      .mockResolvedValue(undefined);
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => 3600,
+      name: "test",
+      refresh,
+    });
+
+    const stale = renewal.forceRefresh();
+    const next = renewal.refreshNext();
+
+    rejectStale?.(new Error("stale refresh failed"));
+    await expect(stale).rejects.toThrow("stale refresh failed");
+    await next;
+    expect(refresh).toHaveBeenCalledTimes(2);
+    renewal.dispose();
+  });
+
   it("cancels a pending renewal timer", async () => {
     vi.useFakeTimers();
     const refresh = vi.fn(() => Promise.resolve());

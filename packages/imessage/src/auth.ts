@@ -3,6 +3,7 @@ import {
   cloud,
   type DedicatedTokenData,
   type SharedTokenData,
+  type SpectrumLike,
 } from "@spectrum-ts/core";
 import {
   createLogger,
@@ -15,6 +16,7 @@ import {
   notifyLineDetached,
   setLineId,
 } from "./lines";
+import { IMESSAGE_PLATFORM } from "./platform";
 import { type RemoteClient, SHARED_PHONE } from "./types";
 
 // Floor between forced re-mints so a stream reconnect storm can't hammer the
@@ -22,11 +24,28 @@ import { type RemoteClient, SHARED_PHONE } from "./types";
 // message + poll streams asking at nearly the same instant.
 const FORCE_REFRESH_MIN_INTERVAL_MS = 5000;
 
+// How often line discovery compares the cloud's line inventory against the
+// tracked client set. A matching inventory costs one authenticated GET and no
+// re-mint; drift triggers the same refresh the renewal timer runs.
+const DEFAULT_LINE_DISCOVERY_INTERVAL_MS = 60_000;
+
 const authLog = createLogger("spectrum.imessage.auth");
+
+export interface LineDiscoveryOptions {
+  /** Set `false` to turn the inventory poll off entirely. */
+  enabled?: boolean;
+  /** Poll cadence; defaults to 60 seconds. */
+  intervalMs?: number;
+}
+
+export interface CloudClientOptions {
+  lineDiscovery?: LineDiscoveryOptions;
+}
 
 interface CloudAuth {
   dispose: () => void;
   forceRefresh: () => Promise<void>;
+  refreshLines: () => Promise<void>;
 }
 
 const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
@@ -37,7 +56,8 @@ const instanceAttrs = (instanceId: string) => ({
 
 export async function createCloudClients(
   projectId: string,
-  projectSecret: string
+  projectSecret: string,
+  options?: CloudClientOptions
 ): Promise<RemoteClient[]> {
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
   let lastRefreshAt = Date.now();
@@ -207,7 +227,80 @@ export async function createCloudClients(
     await renewal.forceRefresh();
   };
 
-  const cloudAuth: CloudAuth = { dispose: renewal.dispose, forceRefresh };
+  // Poll the cloud's line inventory and re-mint when it drifts from the
+  // tracked set, so a line provisioned mid-run attaches within one poll
+  // interval instead of at the next scheduled renewal (80% of the token TTL).
+  // Compares phone numbers, not line ids: reconcile skips a line that has no
+  // number yet, so an id-based diff would re-mint every tick for a line that
+  // cannot attach. The poll only reads; the re-mint stays the single path that
+  // mutates the client set.
+  const startLineDiscovery = (): (() => void) | undefined => {
+    if (options?.lineDiscovery?.enabled === false) {
+      return;
+    }
+    const intervalMs =
+      options?.lineDiscovery?.intervalMs ?? DEFAULT_LINE_DISCOVERY_INTERVAL_MS;
+    let pollInFlight = false;
+
+    const poll = async (): Promise<void> => {
+      const data = await cloud.listLines(projectId, projectSecret, "imessage");
+      const listed = new Set<string>();
+      for (const line of data.lines) {
+        if (line.platform === "imessage") {
+          listed.add(line.phoneNumber);
+        }
+      }
+      const drifted =
+        listed.size !== entries.length ||
+        entries.some((entry) => !listed.has(entry.phone));
+      if (!drifted) {
+        return;
+      }
+      authLog.info("imessage line inventory drifted; re-minting tokens", {
+        "spectrum.imessage.lines.listed": listed.size,
+        "spectrum.imessage.lines.tracked": entries.length,
+      });
+      await renewal.forceRefresh();
+    };
+
+    const timer = setInterval(() => {
+      // Skip the tick rather than queue behind a slow poll or refresh — the
+      // next tick re-checks the same live inventory anyway.
+      if (pollInFlight) {
+        return;
+      }
+      pollInFlight = true;
+      poll()
+        .catch((error: unknown) => {
+          authLog.warn(
+            "imessage line discovery poll failed",
+            errorAttrs(error),
+            error instanceof Error ? error : undefined
+          );
+        })
+        .finally(() => {
+          pollInFlight = false;
+        });
+    }, intervalMs);
+    timer.unref?.();
+
+    return () => clearInterval(timer);
+  };
+
+  let stopLineDiscovery: (() => void) | undefined;
+
+  const cloudAuth: CloudAuth = {
+    dispose: () => {
+      stopLineDiscovery?.();
+      renewal.dispose();
+    },
+    forceRefresh,
+    // Deliberate calls (the public refreshLines) bypass the reconnect-storm
+    // floor above — a user who just provisioned a line must never have the
+    // refresh silently skipped — but still coalesce with any refresh already
+    // in flight.
+    refreshLines: () => renewal.forceRefresh(),
+  };
 
   if (tokenData.type === "shared") {
     const address =
@@ -240,6 +333,9 @@ export async function createCloudClients(
   // path building lines and one place that decides what a line needs.
   reconcile(tokenData);
 
+  // Dedicated mode only: shared-pool projects have no line inventory to watch.
+  stopLineDiscovery = startLineDiscovery();
+
   cloudAuthState.set(entries, cloudAuth);
 
   return entries;
@@ -264,4 +360,41 @@ export function getCloudRecover(
   clients: RemoteClient[]
 ): (() => Promise<void>) | undefined {
   return cloudAuthState.get(clients)?.forceRefresh;
+}
+
+/**
+ * The on-demand refresh for a cloud-backed client array: re-mints tokens
+ * immediately (coalesced with an in-flight refresh, never throttled) and
+ * reconciles the line set. Undefined for explicitly-configured (static-token)
+ * clients, which have no cloud inventory to refresh.
+ */
+export function getLineRefresh(
+  clients: RemoteClient[]
+): (() => Promise<void>) | undefined {
+  return cloudAuthState.get(clients)?.refreshLines;
+}
+
+/**
+ * Re-mint `app`'s iMessage cloud credentials right now and reconcile its line
+ * set, so a line provisioned (or removed) moments ago attaches without
+ * waiting for the scheduled token renewal or the discovery poll. Resolves once
+ * the refreshed inventory has been applied to the running client — new lines
+ * are routable and subscribed when this returns.
+ *
+ * A no-op for explicitly-configured (`clients: [...]`) providers, which have
+ * no cloud inventory to refresh. Throws when the instance has no iMessage
+ * provider registered (or has already been stopped).
+ */
+export async function refreshLines(app: SpectrumLike): Promise<void> {
+  const runtime = app.__internal.platforms.get(IMESSAGE_PLATFORM);
+  if (!runtime) {
+    throw new Error(
+      "refreshLines: no iMessage provider is registered on this Spectrum instance (or it has been stopped)"
+    );
+  }
+  const refresh = getLineRefresh(runtime.client as RemoteClient[]);
+  if (!refresh) {
+    return;
+  }
+  await refresh();
 }

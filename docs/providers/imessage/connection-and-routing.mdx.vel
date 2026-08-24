@@ -94,9 +94,28 @@ When traffic to a dedicated line approaches its per-line capacity, Spectrum can 
 
 ### When line changes reach a running app
 
-The SDK learns about your lines from the credentials it mints, and it re-mints them on a schedule — so a line provisioned (or deprovisioned) while your app is running is picked up at the next token renewal, not immediately.
+The SDK learns about your lines from the credentials it mints, and it keeps that set current without a restart: alongside the scheduled token renewal, it polls the project's line inventory (every 60 seconds by default) and refreshes immediately when a line was provisioned or deprovisioned mid-run. A new line is normally attached — receiving inbound messages and routable from `space.create()` — within one poll interval.
 
-Until that renewal lands, a newly provisioned line is invisible to the process: it receives no inbound messages, and `space.create()` cannot route through it. Messages sent to it in that window are not delayed, they are not delivered to your app at all. Restart the process if you need a new line to take effect right away.
+Tune or disable the poll per provider:
+
+```ts
+imessage.config({ lineDiscovery: { intervalMs: 30_000 } }); // poll faster
+imessage.config({ lineDiscovery: { enabled: false } }); // renewal-only
+```
+
+When you have just provisioned a line and don't want to wait for the poll, force a refresh from your own code — it re-mints credentials right away and resolves once the new line set is live:
+
+```ts
+import { refreshLines } from "@spectrum-ts/imessage";
+
+await refreshLines(app);
+```
+
+`refreshLines` is a no-op for explicitly-configured `clients`, which have no cloud inventory to refresh. It works uniformly whether you run one process or many — each replica discovers lines independently, so in a multi-replica deployment call it on every replica (or rely on the poll, which runs in each).
+
+<Warning>
+  Until a replica discovers a new line, that line is invisible to it: it receives no inbound messages there, and `space.create()` on that replica cannot route through it. Messages sent to the line in that window are not delayed for that process — they are not delivered to it at all. If you assign users to a line as soon as it is provisioned (e.g. from `/lines/route`), call `refreshLines` first or prefer lines old enough for every replica's poll to have seen them.
+</Warning>
 
 <Note>
   On dedicated lines, two routing behaviors change the moment a second line appears, whether that happens at startup or mid-run:

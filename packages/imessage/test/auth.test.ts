@@ -50,6 +50,34 @@ const dedicated = (
 const issueImessageTokens = vi.fn(
   (): Promise<FakeTokenData> => Promise.resolve(initialTokenData)
 );
+
+interface FakeListedLine {
+  createdAt: string;
+  id: string;
+  phoneNumber: string;
+  platform: "imessage";
+  profile: {
+    firstName: string | null;
+    lastName: string | null;
+    avatarUrl: string | null;
+  };
+  status: "available" | "unavailable" | "unknown";
+}
+
+// One member of the polled `GET /lines` inventory, keyed by phone number —
+// the field discovery diffs against the tracked client set.
+const listedLine = (phone: string): FakeListedLine => ({
+  platform: "imessage",
+  id: `id-${phone}`,
+  phoneNumber: phone,
+  profile: { firstName: null, lastName: null, avatarUrl: null },
+  status: "available",
+  createdAt: "2026-01-01T00:00:00.000Z",
+});
+
+const listLines = vi.fn(
+  (): Promise<{ lines: FakeListedLine[] }> => Promise.resolve({ lines: [] })
+);
 const clientOptions: FakeClientOptions[] = [];
 const fakeClients: FakeClient[] = [];
 const createGrpcClient = vi.fn((options: FakeClientOptions) => {
@@ -63,16 +91,26 @@ vi.doMock("@spectrum-ts/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@spectrum-ts/core")>();
   return {
     ...actual,
-    cloud: { ...actual.cloud, issueImessageTokens },
+    cloud: { ...actual.cloud, issueImessageTokens, listLines },
   };
 });
 
 vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({ createGrpcClient }));
 
-const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
-  "@/auth"
-);
+const { createCloudClients, disposeCloudAuth, getCloudRecover, refreshLines } =
+  await import("@/auth");
 const { addLineObserver } = await import("@/lines");
+const { IMESSAGE_PLATFORM } = await import("@/platform");
+
+// Minimal SpectrumLike shape: refreshLines only reads
+// `__internal.platforms.get("imessage").client`.
+const fakeApp = (client: unknown) =>
+  ({
+    __internal: {
+      platforms: new Map([[IMESSAGE_PLATFORM, { client }]]),
+    },
+    __providers: [],
+  }) as unknown as Parameters<typeof refreshLines>[0];
 
 // The recover hook runs the same closure the renewal timer does, so it is the
 // cheapest way to drive a refresh. It is throttled to one re-mint per 5s.
@@ -103,6 +141,8 @@ describe("imessage cloud auth", () => {
   beforeEach(() => {
     issueImessageTokens.mockReset();
     issueImessageTokens.mockResolvedValue(initialTokenData);
+    listLines.mockReset();
+    listLines.mockResolvedValue({ lines: [] });
     createGrpcClient.mockClear();
     clientOptions.length = 0;
     fakeClients.length = 0;
@@ -334,5 +374,179 @@ describe("imessage cloud auth", () => {
     expect(clients).toHaveLength(2);
 
     await disposeCloudAuth(clients);
+  });
+
+  describe("line discovery", () => {
+    const DISCOVERY_INTERVAL_MS = 10_000;
+
+    const startWithDiscovery = async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({ "instance-1": "+15550000001" })
+      );
+      return await createCloudClients("project-1", "secret-1", {
+        lineDiscovery: { intervalMs: DISCOVERY_INTERVAL_MS },
+      });
+    };
+
+    it("attaches a provisioned line at the next inventory poll", async () => {
+      const clients = await startWithDiscovery();
+      expect(clients).toHaveLength(1);
+
+      listLines.mockResolvedValue({
+        lines: [listedLine("+15550000001"), listedLine("+15550000002")],
+      });
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({
+          "instance-1": "+15550000001",
+          "instance-2": "+15550000002",
+        })
+      );
+
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+
+      expect(listLines).toHaveBeenCalledWith(
+        "project-1",
+        "secret-1",
+        "imessage"
+      );
+      expect(clients).toHaveLength(2);
+      expect(clients.map((entry) => entry.phone)).toEqual([
+        "+15550000001",
+        "+15550000002",
+      ]);
+
+      await disposeCloudAuth(clients);
+    });
+
+    it("does not re-mint while the inventory matches", async () => {
+      const clients = await startWithDiscovery();
+      listLines.mockResolvedValue({ lines: [listedLine("+15550000001")] });
+
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS * 2);
+
+      expect(listLines).toHaveBeenCalledTimes(2);
+      // Startup mint only — a matching poll must not touch the token endpoint.
+      expect(issueImessageTokens).toHaveBeenCalledTimes(1);
+      expect(clients).toHaveLength(1);
+
+      await disposeCloudAuth(clients);
+    });
+
+    it("recovers from a failed poll on the next tick", async () => {
+      const clients = await startWithDiscovery();
+      listLines.mockRejectedValueOnce(new Error("poll boom"));
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+      expect(clients).toHaveLength(1);
+
+      listLines.mockResolvedValue({
+        lines: [listedLine("+15550000001"), listedLine("+15550000002")],
+      });
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({
+          "instance-1": "+15550000001",
+          "instance-2": "+15550000002",
+        })
+      );
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS);
+
+      expect(clients).toHaveLength(2);
+
+      await disposeCloudAuth(clients);
+    });
+
+    it("stops polling once the client is disposed", async () => {
+      const clients = await startWithDiscovery();
+
+      await disposeCloudAuth(clients);
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS * 3);
+
+      expect(listLines).not.toHaveBeenCalled();
+    });
+
+    it("can be disabled via config", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({ "instance-1": "+15550000001" })
+      );
+      const clients = await createCloudClients("project-1", "secret-1", {
+        lineDiscovery: { enabled: false },
+      });
+
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      expect(listLines).not.toHaveBeenCalled();
+
+      await disposeCloudAuth(clients);
+    });
+
+    it("does not poll in shared mode", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      issueImessageTokens.mockResolvedValueOnce({
+        expiresIn: 3600,
+        token: "shared-1",
+        type: "shared",
+      });
+      const clients = await createCloudClients("project-1", "secret-1", {
+        lineDiscovery: { intervalMs: DISCOVERY_INTERVAL_MS },
+      });
+
+      await vi.advanceTimersByTimeAsync(DISCOVERY_INTERVAL_MS * 3);
+
+      expect(listLines).not.toHaveBeenCalled();
+
+      await disposeCloudAuth(clients);
+    });
+  });
+
+  describe("refreshLines", () => {
+    it("re-mints immediately, even within the forced-refresh floor", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({ "instance-1": "+15550000001" })
+      );
+      const clients = await createCloudClients("project-1", "secret-1");
+
+      // No timer advance: still inside the 5s floor that throttles the
+      // stream-recovery hook. A deliberate refresh must not be skipped.
+      issueImessageTokens.mockResolvedValueOnce(
+        dedicated({
+          "instance-1": "+15550000001",
+          "instance-2": "+15550000002",
+        })
+      );
+      await refreshLines(fakeApp(clients));
+
+      expect(clients).toHaveLength(2);
+      expect(clients.map((entry) => entry.phone)).toEqual([
+        "+15550000001",
+        "+15550000002",
+      ]);
+
+      await disposeCloudAuth(clients);
+    });
+
+    it("is a no-op for explicitly-configured clients", async () => {
+      // A static client array never passes through createCloudClients, so it
+      // has no cloud auth state to refresh.
+      await refreshLines(fakeApp([]));
+
+      expect(issueImessageTokens).not.toHaveBeenCalled();
+    });
+
+    it("throws when the instance has no iMessage provider", async () => {
+      const app = {
+        __internal: { platforms: new Map() },
+        __providers: [],
+      } as unknown as Parameters<typeof refreshLines>[0];
+
+      await expect(refreshLines(app)).rejects.toThrow(
+        "no iMessage provider is registered"
+      );
+    });
   });
 });

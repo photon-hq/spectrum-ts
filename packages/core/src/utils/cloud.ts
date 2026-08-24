@@ -65,6 +65,35 @@ export interface FusorTokenData {
   token: string;
 }
 
+export interface ImessageLineData {
+  createdAt: string;
+  id: string;
+  phoneNumber: string;
+  platform: "imessage";
+  profile: {
+    firstName: string | null;
+    lastName: string | null;
+    avatarUrl: string | null;
+  };
+  status: "available" | "unavailable" | "unknown";
+}
+
+/**
+ * Non-iMessage members of the `lines` array (e.g. WhatsApp Business numbers,
+ * registered or still pending). Kept loose — consumers narrow on `platform`
+ * and read the fields their platform defines.
+ */
+export interface OtherPlatformLineData {
+  platform: Exclude<CloudPlatform, "imessage">;
+  [key: string]: unknown;
+}
+
+export type LineData = ImessageLineData | OtherPlatformLineData;
+
+export interface LinesData {
+  lines: LineData[];
+}
+
 /**
  * Per-project profile bag — a flexible record of project-level settings
  * defined in Spectrum Cloud. Concrete fields depend on the project; consumers
@@ -191,6 +220,18 @@ export const cloud = {
 
   getImessageInfo: (projectId: string): Promise<ImessageInfoData> =>
     request(`/projects/${projectId}/imessage/`),
+
+  listLines: (
+    projectId: string,
+    projectSecret: string,
+    platform?: CloudPlatform
+  ): Promise<LinesData> =>
+    request(
+      `/projects/${projectId}/lines/${platform ? `?platform=${platform}` : ""}`,
+      {
+        headers: { Authorization: basicAuth(projectId, projectSecret) },
+      }
+    ),
 
   issueWhatsappBusinessTokens: (
     projectId: string,

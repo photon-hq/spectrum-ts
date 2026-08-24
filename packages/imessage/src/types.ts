@@ -22,8 +22,22 @@ const clientEntry = z.object({
   phone: z.string(),
 });
 
+/**
+ * Mid-run line discovery. In cloud dedicated mode the SDK polls the project's
+ * line inventory and re-mints credentials as soon as it drifts from the
+ * tracked set, so a line provisioned (or removed) while the app is running
+ * attaches within one poll interval instead of at the next token renewal.
+ * Ignored for explicitly-configured `clients` and for shared-pool projects,
+ * which have no dedicated inventory to watch.
+ */
+const lineDiscoverySchema = z.strictObject({
+  enabled: z.boolean().optional(),
+  intervalMs: z.number().int().min(5000).optional(),
+});
+
 export const configSchema = z.strictObject({
   clients: clientEntry.or(z.array(clientEntry)).optional(),
+  lineDiscovery: lineDiscoverySchema.optional(),
 });
 
 /**

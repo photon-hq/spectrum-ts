@@ -101,6 +101,7 @@ export type {
   ProviderMessage,
   SchemaMessage,
   SpaceNamespace,
+  SpectrumLike,
 } from "./platform/types";
 export { Spectrum, type SpectrumInstance } from "./spectrum";
 export type { Message } from "./types/message";
@@ -111,6 +112,10 @@ export type {
   DedicatedTokenData,
   FusorTokenData,
   ImessageInfoData,
+  ImessageLineData,
+  LineData,
+  LinesData,
+  OtherPlatformLineData,
   PlatformStatus,
   PlatformsData,
   ProjectData,

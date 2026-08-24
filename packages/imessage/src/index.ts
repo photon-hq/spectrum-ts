@@ -27,6 +27,7 @@ import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 // compiling — prefer importing from `spectrum-ts`.
 // biome-ignore lint/performance/noBarrelFile: provider entrypoint exports its public helpers
 export { read } from "@spectrum-ts/core";
+export { type LineDiscoveryOptions, refreshLines } from "./auth";
 export { type BackgroundInput, background } from "./content/background";
 export { type ContactCard, nativeContactCard } from "./content/contact-card";
 export {
@@ -510,7 +511,9 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
           }),
         }));
       } else if (projectId && projectSecret) {
-        clients = await createCloudClients(projectId, projectSecret);
+        clients = await createCloudClients(projectId, projectSecret, {
+          lineDiscovery: config.lineDiscovery,
+        });
       } else {
         throw new Error(
           "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use localIMessage.config()."

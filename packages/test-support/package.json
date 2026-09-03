@@ -20,7 +20,7 @@
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
     "@types/bun": "latest",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.0"
   },
   "license": "MIT"
 }

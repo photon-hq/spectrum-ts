@@ -59,7 +59,7 @@
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
     "tsdown": "^0.22.2",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.0"
   },
   "license": "MIT"
 }

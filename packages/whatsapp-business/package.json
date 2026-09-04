@@ -58,7 +58,7 @@
     "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
     "@types/mime-types": "^3.0.1",
-    "tsdown": "^0.22.2",
+    "tsdown": "^0.23.0",
     "vitest": "^5.0.0"
   },
   "license": "MIT"

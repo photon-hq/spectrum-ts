@@ -51,7 +51,7 @@
     "@types/express": "^5",
     "express": "^5",
     "tsdown": "^0.22.2",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.0"
   },
   "license": "MIT"
 }

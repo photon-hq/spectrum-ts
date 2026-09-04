@@ -79,11 +79,11 @@
     "@types/mime-types": "^3.0.1",
     "@types/vcf": "^2.0.7",
     "@types/ws": "^8",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^5.0.0",
     "hotscript": "^1.0.13",
     "tsdown": "^0.22.2",
     "unicode-emoji-json": "^0.9.0",
-    "vitest": "^4.1.9",
+    "vitest": "^5.0.0",
     "ws": "^8.21.0"
   },
   "peerDependencies": {

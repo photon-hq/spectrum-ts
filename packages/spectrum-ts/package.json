@@ -82,7 +82,7 @@
   "devDependencies": {
     "@spectrum-ts/test-support": "workspace:*",
     "@types/bun": "latest",
-    "tsdown": "^0.22.2",
+    "tsdown": "^0.23.0",
     "vitest": "^5.0.0"
   },
   "license": "MIT"

@@ -1,6 +1,11 @@
 import { type Message, Spectrum } from "@spectrum-ts/core";
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import {
+  encodeEvent,
+  FUSOR_WEBHOOK_HEADERS,
+  makeSlack,
+} from "@spectrum-ts/test-support/fusor";
+import {
   baseConfig,
   makeManagedProvider,
 } from "@spectrum-ts/test-support/platform";
@@ -94,6 +99,44 @@ describe("spectrum (elysia plugin)", () => {
 
       expect(response.status).toBe(401);
       expect(called).toBe(false);
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("delivers a Fusor application/json envelope", async () => {
+    const app = await makeApp({ providers: [makeSlack().config({})] });
+    try {
+      const { promise: finished, resolve: done } =
+        Promise.withResolvers<void>();
+      const received: Message[] = [];
+      const elysia = new Elysia().use(
+        spectrum({
+          app,
+          onMessage: (_space, message) => {
+            received.push(message);
+            done();
+          },
+        })
+      );
+
+      const response = await elysia.handle(
+        new Request(DEFAULT_URL, {
+          method: "POST",
+          headers: FUSOR_WEBHOOK_HEADERS,
+          body: encodeEvent(
+            "slack",
+            JSON.stringify({ type: "message", text: "from fusor" })
+          ),
+        })
+      );
+      await finished;
+
+      expect(response.status).toBe(200);
+      expect(received[0]?.content).toEqual({
+        type: "text",
+        text: "from fusor",
+      });
     } finally {
       await app.stop();
     }

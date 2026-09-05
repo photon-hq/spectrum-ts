@@ -57,6 +57,31 @@ const miniAppCardSessionSchema = z.object({
   targetMessageGuid: z.string(),
 });
 
+const miniAppLayoutInfoSchema = z
+  .object({
+    caption: z.string().optional(),
+    imageSubtitle: z.string().optional(),
+    imageTitle: z.string().optional(),
+    subcaption: z.string().optional(),
+    summary: z.string().optional(),
+    trailingCaption: z.string().optional(),
+    trailingSubcaption: z.string().optional(),
+  })
+  .readonly();
+
+const miniAppContentSchema = z
+  .object({
+    appName: z.string().optional(),
+    appStoreId: z.number().int().positive().optional(),
+    extensionBundleId: z.string(),
+    layout: miniAppLayoutInfoSchema.optional(),
+    live: z.boolean(),
+    sessionId: z.string().optional(),
+    teamId: z.string(),
+    url: z.url().optional(),
+  })
+  .readonly();
+
 const textFormatSchema = z
   .object({
     effectName: z.string().optional(),
@@ -178,6 +203,7 @@ export const nativeMessageMetadataSchema = z.object({
   sendErrorCode: z.number().int(),
 
   nativeText: z.string().optional(),
+  miniApp: miniAppContentSchema.optional(),
   formatting: z.array(textFormatSchema).readonly(),
   mentions: z.array(mentionSchema).readonly(),
   subject: z.string().optional(),
@@ -231,6 +257,8 @@ export type IMessageAttachmentMetadata = z.infer<
   typeof attachmentMetadataSchema
 >;
 export type IMessageMention = z.infer<typeof mentionSchema>;
+export type IMessageMiniAppContent = z.infer<typeof miniAppContentSchema>;
+export type IMessageMiniAppLayoutInfo = z.infer<typeof miniAppLayoutInfoSchema>;
 export type IMessageNativeMessageMetadata = z.infer<
   typeof nativeMessageMetadataSchema
 >;

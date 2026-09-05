@@ -36,6 +36,7 @@ export {
   setLogLevel,
 } from "@photon-ai/otel";
 // Content factories, schemas, and the inbound-record type (from `content/`).
+export { asResolvedApp } from "./content/app";
 export { asAttachment } from "./content/attachment";
 export { avatarSchema } from "./content/avatar";
 export { asContact } from "./content/contact";

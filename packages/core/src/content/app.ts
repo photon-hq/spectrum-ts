@@ -16,17 +16,18 @@ import type { ContentBuilder } from "./types";
  * `image` and `imageTitle` must be set together; `imageSubtitle` requires
  * `image`.
  */
-export const appLayoutSchema = z
-  .object({
-    caption: z.string().nonempty().optional(),
-    subcaption: z.string().nonempty().optional(),
-    trailingCaption: z.string().nonempty().optional(),
-    trailingSubcaption: z.string().nonempty().optional(),
-    image: z.instanceof(Uint8Array).optional(),
-    imageTitle: z.string().nonempty().optional(),
-    imageSubtitle: z.string().nonempty().optional(),
-    summary: z.string().nonempty().optional(),
-  })
+const resolvedAppLayoutSchema = z.object({
+  caption: z.string().nonempty().optional(),
+  subcaption: z.string().nonempty().optional(),
+  trailingCaption: z.string().nonempty().optional(),
+  trailingSubcaption: z.string().nonempty().optional(),
+  image: z.instanceof(Uint8Array).optional(),
+  imageTitle: z.string().nonempty().optional(),
+  imageSubtitle: z.string().nonempty().optional(),
+  summary: z.string().nonempty().optional(),
+});
+
+export const appLayoutSchema = resolvedAppLayoutSchema
   .refine(
     (layout) =>
       layout.caption !== undefined ||
@@ -63,7 +64,7 @@ export type AppLayout = z.infer<typeof appLayoutSchema>;
 const urlAccessor = z.function({ input: [], output: z.promise(z.url()) });
 const layoutAccessor = z.function({
   input: [],
-  output: z.promise(appLayoutSchema),
+  output: z.promise(resolvedAppLayoutSchema),
 });
 
 export const appSchema = z.object({
@@ -187,6 +188,36 @@ export const asApp = (url: AppUrl, options: AppOptions = {}): App => {
   return appSchema.parse({
     type: "app",
     url: getUrl,
+    layout: getLayout,
+    ...options,
+  });
+};
+
+/**
+ * Construct app content from an already-decoded URL and visible layout.
+ * Provider adapters use this for inbound native app cards so reading the
+ * content never refetches or invents metadata that the sender did not supply.
+ *
+ * @param url - The decoded URL delivered by the native app card.
+ * @param layout - The decoded layout or a lazy resolver for native media.
+ * @param options - Optional app rendering behavior.
+ * @returns Validated app content backed only by the decoded native fields.
+ */
+export const asResolvedApp = (
+  url: string,
+  layout: AppLayout | (() => Promise<AppLayout>),
+  options: AppOptions = {}
+): App => {
+  const resolvedUrl = z.url().parse(url);
+  const getLayout = memoize(async () =>
+    resolvedAppLayoutSchema.parse(
+      typeof layout === "function" ? await layout() : layout
+    )
+  );
+
+  return appSchema.parse({
+    type: "app",
+    url: () => Promise.resolve(resolvedUrl),
     layout: getLayout,
     ...options,
   });

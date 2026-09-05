@@ -1,5 +1,6 @@
 import {
   type AdvancedIMessage,
+  decodeCatchUpEvent,
   type MessageEvent,
   NotFoundError,
 } from "@photon-ai/advanced-imessage/grpc";
@@ -19,6 +20,14 @@ type GroupItem = Extract<
 
 const RECEIVED_AT = new Date(1_700_000_000_000);
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
+// Fixed v11.3.0 CatchUpEventsResponse frame containing Message.content.mini_app.
+// It catches field-number drift across server, generated client, and Spectrum.
+const MINI_APP_CATCH_UP_FRAME = Uint8Array.from(
+  Buffer.from(
+    "CMsRUt8CChdpTWVzc2FnZTstOysxNTU1MTIzNDU2NxIGCIfH8dMGUrsCCrgCCg1taW5pLWFwcC1ndWlkEvMBOvABCgpQOFhUNjIzMlNMEiZjb2Rlcy5waG90b24uRXhhbXBsZS5NZXNzYWdlc0V4dGVuc2lvbhoLRXhhbXBsZSBBcHAiHmh0dHBzOi8vZXhhbXBsZS5jb20vY2FyZD9pZD00MiokOEQ4OTgwMzQtNDA3Qi00RkY1LTkxRTgtOURDMTg5MTFEQ0E5MNKF2MwEOAFCXwoHQ2FwdGlvbhIKU3ViY2FwdGlvbhoIVHJhaWxpbmciD1RyYWlsaW5nIGRldGFpbCoLSW1hZ2UgdGl0bGUyDkltYWdlIHN1YnRpdGxlOhBGYWxsYmFjayBzdW1tYXJ5UgYIh8fx0waiAQ4KDCsxNTU1MTIzNDU2N+IFF2lNZXNzYWdlOy07KzE1NTUxMjM0NTY3",
+    "base64"
+  )
+);
 
 const client = {
   messages: {
@@ -168,6 +177,185 @@ describe("iMessage remote toInboundMessages content", () => {
     expect((message as { partIndex?: number } | undefined)?.partIndex).toBe(
       undefined
     );
+  });
+
+  it("maps decoded mini-app cards to app content without refetching metadata", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          text: undefined,
+          miniApp: {
+            appName: "Example App",
+            appStoreId: 1_234_567_890,
+            extensionBundleId: "codes.photon.Example.MessagesExtension",
+            layout: {
+              caption: "Caption",
+              imageSubtitle: "Image subtitle",
+              imageTitle: "Image title",
+              subcaption: "Subcaption",
+              summary: "Fallback summary",
+              trailingCaption: "Trailing",
+              trailingSubcaption: "Trailing detail",
+            },
+            live: true,
+            sessionId: "8D898034-407B-4FF5-91E8-9DC18911DCA9",
+            teamId: "P8XT6232SL",
+            url: "https://example.com/card?id=42",
+          },
+        }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("app");
+    if (message?.content.type !== "app") {
+      throw new Error("expected app content");
+    }
+    expect(await message.content.url()).toBe("https://example.com/card?id=42");
+    expect(await message.content.layout()).toEqual({
+      caption: "Caption",
+      imageSubtitle: "Image subtitle",
+      imageTitle: "Image title",
+      subcaption: "Subcaption",
+      summary: "Fallback summary",
+      trailingCaption: "Trailing",
+      trailingSubcaption: "Trailing detail",
+    });
+    expect(message.content.live).toBe(true);
+    expect(message.miniApp).toMatchObject({
+      appName: "Example App",
+      extensionBundleId: "codes.photon.Example.MessagesExtension",
+      sessionId: "8D898034-407B-4FF5-91E8-9DC18911DCA9",
+      teamId: "P8XT6232SL",
+    });
+  });
+
+  it("hydrates the mini-app image lazily from its native attachment", async () => {
+    const imageBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
+    let downloadCount = 0;
+    const imageClient = {
+      attachments: {
+        downloadStream: () => {
+          const frames = {
+            async *[Symbol.asyncIterator]() {
+              downloadCount += 1;
+              yield { data: imageBytes, type: "primaryChunk" };
+            },
+            close: async () => undefined,
+          };
+          return frames;
+        },
+      },
+      messages: client.messages,
+    } as unknown as AdvancedIMessage;
+
+    const [message] = await toInboundMessages(
+      imageClient,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [
+            attachment(
+              "card-image",
+              "card.jpg",
+              "image/jpeg",
+              imageBytes.length
+            ),
+          ],
+          miniApp: {
+            extensionBundleId: "codes.photon.Example.MessagesExtension",
+            layout: { caption: "Caption", imageTitle: "Image title" },
+            live: false,
+            teamId: "P8XT6232SL",
+            url: "https://example.com/card",
+          },
+          text: undefined,
+        }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("app");
+    if (message?.content.type !== "app") {
+      throw new Error("expected app content");
+    }
+    expect(downloadCount).toBe(0);
+    expect(await message.content.layout()).toEqual({
+      caption: "Caption",
+      image: imageBytes,
+      imageTitle: "Image title",
+    });
+    expect(await message.content.layout()).toEqual({
+      caption: "Caption",
+      image: imageBytes,
+      imageTitle: "Image title",
+    });
+    expect(downloadCount).toBe(1);
+  });
+
+  it("preserves mini-app content from the released protobuf frame end to end", async () => {
+    const event = decodeCatchUpEvent(MINI_APP_CATCH_UP_FRAME);
+    if (event?.type !== "message.received") {
+      throw new Error("expected released message.received fixture");
+    }
+
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      event,
+      "+15550000000"
+    );
+
+    expect(message?.content.type).toBe("app");
+    if (message?.content.type !== "app") {
+      throw new Error("expected app content");
+    }
+    expect(await message.content.url()).toBe("https://example.com/card?id=42");
+    expect(await message.content.layout()).toMatchObject({
+      caption: "Caption",
+      imageSubtitle: "Image subtitle",
+      imageTitle: "Image title",
+      summary: "Fallback summary",
+    });
+    expect(message.miniApp?.appStoreId).toBe(1_234_567_890);
+  });
+
+  it("keeps identity-only mini-app metadata when no renderable card is available", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          text: undefined,
+          miniApp: {
+            extensionBundleId: "codes.photon.Example.MessagesExtension",
+            live: false,
+            teamId: "P8XT6232SL",
+          },
+        }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content).toEqual({
+      raw: { imessage_type: "unsupported-message" },
+      type: "custom",
+    });
+    expect(message?.miniApp).toEqual({
+      appName: undefined,
+      appStoreId: undefined,
+      extensionBundleId: "codes.photon.Example.MessagesExtension",
+      layout: undefined,
+      live: false,
+      sessionId: undefined,
+      teamId: "P8XT6232SL",
+      url: undefined,
+    });
   });
 
   it("surfaces a URL balloon as plain text rather than a rich link", async () => {

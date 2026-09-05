@@ -11,6 +11,7 @@ import {
   asContact,
   asCustom,
   asReply,
+  asResolvedApp,
   asText,
   asVoice,
   createLogger,
@@ -252,12 +253,47 @@ const buildOrderedPartMessage = async (
 const unsupportedMessageContent = (): Content =>
   asCustom({ imessage_type: "unsupported-message" });
 
+const toMiniAppContent = (
+  client: AdvancedIMessage,
+  message: AppleMessage
+): Content | undefined => {
+  const miniApp = message.content.miniApp;
+  if (!(miniApp?.url && miniApp.layout)) {
+    return;
+  }
+
+  const imageAttachment = messageAttachments(message).find((attachment) =>
+    normalizeAppleAttachmentMimeType(attachment).startsWith("image/")
+  );
+  const layout = imageAttachment
+    ? async () => ({
+        ...miniApp.layout,
+        image: Uint8Array.from(
+          await downloadPrimaryAttachment(client, imageAttachment.guid)
+        ),
+      })
+    : miniApp.layout;
+
+  return asResolvedApp(miniApp.url, layout, {
+    live: miniApp.live,
+  });
+};
+
 const buildUnwrappedContentMessage = async (
   client: AdvancedIMessage,
   base: RemoteMessageBase,
   message: AppleMessage,
   messageGuidStr: string
 ): Promise<IMessageMessage> => {
+  const miniAppContent = toMiniAppContent(client, message);
+  if (miniAppContent) {
+    return {
+      ...base,
+      id: messageGuidStr,
+      content: miniAppContent,
+    };
+  }
+
   const attachments = messageAttachments(message);
   const voiceAttachmentGuid = message.isAudioMessage
     ? attachments.find((attachment) => appleAudioMimeType(attachment))?.guid

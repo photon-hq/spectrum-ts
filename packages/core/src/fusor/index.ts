@@ -1,5 +1,10 @@
 import { FUSOR_BRAND, type FusorClient, type FusorVerify } from "./types";
 
+export type {
+  FusorCursorOperationContext,
+  FusorCursorScope,
+  FusorCursorStore,
+} from "./core";
 export { type FusorEvent, fusorEvent, isFusorEvent } from "./event";
 export type {
   FusorClient,
@@ -10,10 +15,16 @@ export type {
   FusorRespond,
   FusorVerify,
   FusorVerifyRequest,
+  HybridFusor,
+  HybridFusorCreateContext,
+  HybridFusorMessages,
+  HybridFusorMessagesCtx,
+  HybridFusorMessagesReturn,
   WebhookHandler,
   WebhookRawRequest,
   WebhookRawResult,
 } from "./types";
+export { FusorRetryableError, FusorTerminalError } from "./types";
 
 export function fusor<TPayload>(
   platform: string,

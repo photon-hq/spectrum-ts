@@ -1,4 +1,4 @@
-import type { TextFormatInput } from "@photon-ai/advanced-imessage/grpc";
+import type { TextFormatInput } from "@photon-ai/advanced-imessage/http";
 import { Marked, type MarkedToken, type Token, type Tokens } from "marked";
 
 // Private instance: immune to host apps reconfiguring the global `marked`

@@ -3,7 +3,7 @@ import type {
   MessageEvent,
   Message as SDKMessage,
   SettableMessageReaction,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { text } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { getMessageCache, MessageCache } from "@/cache";

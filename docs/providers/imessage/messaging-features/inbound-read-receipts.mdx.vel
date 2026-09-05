@@ -49,9 +49,10 @@ Semantics to rely on:
   everyone read it".
 - The agent's own reads never echo back: `space.read(...)` and `message.read()`
   are suppressed from the inbound stream.
-- Receipts ride the same durable catch-up log as messages, so those that arrive
-  while the app is down are replayed on reconnect. A receipt whose target can
-  no longer be resolved (an old message evicted from the in-process cache and
+- Receipts ride the same ordered Fusor feed as messages. Reconnects within a
+  running process resume from the last checkpoint; replay across a process
+  restart requires `options.fusorCursorStore`. A receipt whose target can no
+  longer be resolved (an old message evicted from the in-process cache and
   since deleted upstream) is dropped rather than surfaced with a stub.
 
 If receipts are not arriving, run with `LOG_LEVEL=debug` (or

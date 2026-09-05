@@ -1,7 +1,7 @@
 import type {
   AdvancedIMessage,
   Message as SDKMessage,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import {
   markdown,
   type StreamText,

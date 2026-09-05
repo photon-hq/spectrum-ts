@@ -2,10 +2,13 @@ import type {
   AdvancedIMessage,
   MessageEvent,
   Message as SDKMessage,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { describe, expect, it, vi } from "vitest";
 import { MessageCache } from "@/cache";
-import { toReadReceiptMessages } from "@/remote/read-receipts";
+import {
+  readReceiptMessageId,
+  toReadReceiptMessages,
+} from "@/remote/read-receipts";
 import { type IMessageMessage, SHARED_PHONE } from "@/types";
 
 const SENT_DATE = new Date(1_700_000_000_000);
@@ -112,6 +115,26 @@ describe("iMessage remote toReadReceiptMessages", () => {
     // the bridge observed the event, which lags on Continuity sync.
     expect(messages[0]?.timestamp).toEqual(READ_DATE);
     expect(messages[0]?.timestamp).not.toEqual(SENT_DATE);
+  });
+
+  it("uses the exact transport source sequence for a synthetic id", async () => {
+    const remote = remoteWith(() => Promise.resolve(sdkMessage()));
+    const sourceSequence = "9223372036854775807";
+    const event = readEvent({ sequence: Number.MAX_SAFE_INTEGER });
+
+    const messages = await toReadReceiptMessages(
+      remote,
+      new MessageCache(),
+      event,
+      PHONE,
+      sourceSequence
+    );
+
+    expect(readReceiptMessageId(event, sourceSequence)).toBe(
+      `msg-guid:read:${sourceSequence}`
+    );
+    expect(messages[0]?.id).toBe(`msg-guid:read:${sourceSequence}`);
+    expect(messages[0]?.id).not.toContain(String(Number.MAX_SAFE_INTEGER));
   });
 
   it("falls back to occurredAt when readAt is absent", async () => {

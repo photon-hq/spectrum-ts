@@ -1,7 +1,7 @@
 import {
   type AdvancedIMessage,
   ValidationError,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { flush } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
 import {

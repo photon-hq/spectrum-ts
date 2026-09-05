@@ -8,7 +8,7 @@ import type {
   SingleServiceAddressInfo,
   StickerPlacement,
   TextFormat,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type {
   IMessageAppliedReaction,
   IMessageAttachmentMetadata,

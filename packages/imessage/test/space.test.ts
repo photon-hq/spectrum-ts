@@ -1,4 +1,4 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/http";
 import { describe, expect, it } from "vitest";
 import { imessage } from "@/index";
 import type { RemoteClient } from "@/types";

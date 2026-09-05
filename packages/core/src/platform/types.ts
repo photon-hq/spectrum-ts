@@ -2,6 +2,7 @@ import type { Fn, Pipe, Tuples } from "hotscript";
 import type z from "zod";
 import type { AvatarData } from "../content/avatar";
 import type { Content } from "../content/types";
+import type { HybridFusor } from "../fusor/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { User } from "../types/user";
@@ -358,6 +359,15 @@ export interface PlatformDef<
    */
   events?: _Events;
 
+  /**
+   * Hybrid Fusor inbound transport. This slot is supplied by the dedicated
+   * `definePlatform` hybrid overload; regular and pure-Fusor definitions leave
+   * it absent. It is `never` here so adding the slot cannot make the regular
+   * overload greedily accept a hybrid definition and lose its payload/client
+   * inference.
+   */
+  fusor?: never;
+
   lifecycle: {
     createClient: (ctx: CreateClientContext<_ConfigSchema>) => Promise<_Client>;
     destroyClient?: (ctx: {
@@ -510,6 +520,11 @@ export interface AnyPlatformDef {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard event
     [key: string]: ((ctx: any) => AsyncIterable<any>) | z.ZodType<object>;
   };
+
+  // Optional messages-only Fusor binding for a provider whose lifecycle client
+  // remains a regular SDK client. The concrete generics are restored by the
+  // hybrid `definePlatform` overload; this interface is the runtime erasure.
+  fusor?: HybridFusor<unknown, unknown, unknown>;
 
   lifecycle: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard lifecycle

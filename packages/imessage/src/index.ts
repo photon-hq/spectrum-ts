@@ -1,8 +1,8 @@
 import {
   type AdvancedIMessage,
-  createGrpcClient,
+  createHttpClient,
   type MiniAppCardSession,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { withSpan } from "@photon-ai/otel";
 import {
   type AddMember,
@@ -12,11 +12,13 @@ import {
   type Content,
   definePlatform as defineCorePlatform,
   type Edit,
+  fusor,
   type Platform,
   type RemoveMember,
   type Rename,
   type Space,
   type StreamText,
+  stream,
   type Unsend,
   UnsupportedError,
 } from "@spectrum-ts/core";
@@ -75,7 +77,6 @@ import {
   leaveGroup as remoteLeaveGroup,
   listParticipants as remoteListParticipants,
   markRead as remoteMarkRead,
-  messages as remoteMessages,
   reactToMessage as remoteReactToMessage,
   removeParticipants as remoteRemoveParticipants,
   replyToMessage as remoteReplyToMessage,
@@ -96,15 +97,19 @@ import { toSpectrumMiniApp } from "./remote/app";
 import { getRemoteAttachment } from "./remote/attachments";
 import {
   availablePhones,
+  clientEntryForPhone,
   clientForPhone,
   isSharedMode,
   randomPhone,
 } from "./remote/client";
+import {
+  handleImessageFusorMessages,
+  verifyImessageFusorRequest,
+} from "./remote/fusor";
 import { chatTypeFromGuid, dmChatGuid } from "./remote/ids";
 import { cacheMessage } from "./remote/inbound";
 import {
   disposeProfileSyncGate,
-  getProfileSyncGate,
   registerProfileSyncGate,
 } from "./remote/profile-sync-gate";
 import {
@@ -121,9 +126,18 @@ import {
 const isPollContent = (content: { type: string }): boolean =>
   content.type === "poll" || content.type === "poll_option";
 
+interface ImessageSpaceRoute {
+  id: string;
+  phone: string;
+}
+
+type TypedImessageSpaceRoute = ImessageSpaceRoute & {
+  type: "dm" | "group";
+};
+
 const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
   remote: AdvancedIMessage,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   record: T
 ): T => {
   if (!record) {
@@ -144,7 +158,7 @@ const cacheRemoteOutbound = <T extends ProviderMessageRecord | undefined>(
 
 const handleEdit = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: Edit
 ): Promise<void> => {
   const miniAppCardSession = (
@@ -223,7 +237,7 @@ const handleEdit = async (
 
 const handleUnsend = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   content: Unsend
 ): Promise<void> => {
   if (isPollContent(content.target.content)) {
@@ -234,27 +248,29 @@ const handleUnsend = async (
       "iMessage polls cannot be unsent"
     );
   }
-  const remote = clientForPhone(client, space.phone);
   const targetContent = content.target.content;
   if (targetContent.type === "reaction") {
     // Tapbacks are removed via `setReaction(..., false)` against the
     // original message, not by retracting the tapback message — so pass
     // the reaction's own target (the message that was reacted to). Same
     // unknown-cast widen as the reaction send branch.
+    const reactionTarget = targetContent.target as unknown as IMessageMessage;
+    const remote = clientForPhone(client, space.phone);
     await remoteUnsendReaction(
       remote,
       space.id,
-      targetContent.target as unknown as IMessageMessage,
+      reactionTarget,
       targetContent.emoji
     );
     return;
   }
+  const remote = clientForPhone(client, space.phone);
   await remoteUnsendMessage(remote, space.id, content.target.id);
 };
 
 const handleStreamText = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: StreamText
 ): Promise<ProviderMessageRecord> => {
   const remote = clientForPhone(client, space.phone);
@@ -267,7 +283,7 @@ const handleStreamText = async (
 
 const handleBackground = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   content: Background
 ): Promise<void> => {
   const remote = clientForPhone(client, space.phone);
@@ -276,7 +292,7 @@ const handleBackground = async (
 
 const handleCustomizedMiniApp = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: CustomizedMiniApp
 ): Promise<ProviderMessageRecord> => {
   const remote = clientForPhone(client, space.phone);
@@ -294,7 +310,7 @@ const handleCustomizedMiniApp = async (
  */
 const handleApp = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: App
 ): Promise<ProviderMessageRecord> => {
   const url = await content.url();
@@ -313,7 +329,7 @@ const handleApp = async (
 
 const handleRead = async (
   client: IMessageClient,
-  space: { id: string; phone: string }
+  space: ImessageSpaceRoute
 ): Promise<void> => {
   const remote = clientForPhone(client, space.phone);
   await remoteMarkRead(remote, space.id);
@@ -321,7 +337,7 @@ const handleRead = async (
 
 const handleShareContactCard = async (
   client: IMessageClient,
-  space: { id: string; phone: string }
+  space: ImessageSpaceRoute
 ): Promise<void> => {
   const remote = clientForPhone(client, space.phone);
   await remoteShareContactCard(remote, space.id);
@@ -329,7 +345,7 @@ const handleShareContactCard = async (
 
 const handleTyping = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   state: "start" | "stop"
 ): Promise<void> => {
   const remote = clientForPhone(client, space.phone);
@@ -342,7 +358,7 @@ const handleTyping = async (
 
 const handleRename = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: Rename
 ): Promise<void> => {
   if (space.type !== "group") {
@@ -358,7 +374,7 @@ const handleRename = async (
 
 const handleAvatar = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: Avatar
 ): Promise<void> => {
   if (space.type !== "group") {
@@ -379,7 +395,7 @@ const handleAvatar = async (
  */
 const remoteGroupClient = (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   action: string,
   detail: string
 ): AdvancedIMessage => {
@@ -391,7 +407,7 @@ const remoteGroupClient = (
 
 const handleAddMember = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: AddMember
 ): Promise<void> => {
   const remote = remoteGroupClient(
@@ -405,7 +421,7 @@ const handleAddMember = async (
 
 const handleRemoveMember = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" },
+  space: TypedImessageSpaceRoute,
   content: RemoveMember
 ): Promise<void> => {
   const remote = remoteGroupClient(
@@ -419,7 +435,7 @@ const handleRemoveMember = async (
 
 const handleLeaveSpace = async (
   client: IMessageClient,
-  space: { id: string; phone: string; type: "dm" | "group" }
+  space: TypedImessageSpaceRoute
 ): Promise<void> => {
   const remote = remoteGroupClient(
     client,
@@ -439,7 +455,7 @@ const handleLeaveSpace = async (
  */
 const handleProviderControlSignal = async (
   client: IMessageClient,
-  space: { id: string; phone: string },
+  space: ImessageSpaceRoute,
   content: Content
 ): Promise<boolean> => {
   if (isBackground(content)) {
@@ -460,8 +476,8 @@ const handleProviderControlSignal = async (
  */
 const remoteForMessageTarget = (
   client: IMessageClient,
-  space: { phone: string },
-  target: { content: { type: string } },
+  space: Pick<ImessageSpaceRoute, "phone">,
+  target: { content: { type: string }; id: string; parentId?: string },
   action: string,
   pollNoun: string
 ): AdvancedIMessage => {
@@ -477,6 +493,17 @@ const remoteForMessageTarget = (
 
 const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
   config: configSchema,
+
+  fusor: {
+    streamOnly: true,
+    create: ({ projectId, projectSecret }) => {
+      if (!(projectId && projectSecret)) {
+        return;
+      }
+      return fusor("imessage", verifyImessageFusorRequest);
+    },
+    messages: handleImessageFusorMessages,
+  },
 
   static: {
     effect: {
@@ -496,17 +523,17 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
-        clients = entries.map((e) => ({
-          phone: e.phone,
-          client: createGrpcClient({
-            address: e.address,
+        clients = entries.map((configuredClient) => ({
+          phone: configuredClient.phone,
+          client: createHttpClient({
+            address: configuredClient.address,
             // Auto-retry transient unary failures (idempotency-keyed so retries
             // can't double-apply) so a server blip during an outbound action
             // doesn't crash the app.
             autoIdempotency: true,
             retry: true,
-            tls: true,
-            token: e.token,
+            server: configuredClient.server,
+            token: configuredClient.token,
           }),
         }));
       } else if (projectId && projectSecret) {
@@ -532,7 +559,11 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
     destroyClient: async ({ client }) => {
       disposeProfileSyncGate(client);
       await disposeCloudAuth(client);
-      await Promise.all(client.map((entry) => entry.client.close()));
+      const uniqueClients = new Set<AdvancedIMessage>();
+      for (const entry of client) {
+        uniqueClients.add(entry.client);
+      }
+      await Promise.all(Array.from(uniqueClients, (remote) => remote.close()));
     },
   },
 
@@ -557,7 +588,7 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
 
       // Shared mode: one identity at the SHARED_PHONE sentinel. DM guids are
       // deterministic (`any;-;{address}`), so no server call is needed — but
-      // the shared gateway cannot create group chats.
+      // the shared adapter cannot create group chats.
       if (isSharedMode(client)) {
         if (addresses.length > 1) {
           throw UnsupportedError.action(
@@ -576,8 +607,8 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
       // Dedicated mode: DMs and groups both go through the create API so the
       // server-issued guid is authoritative.
       const phone = input.params?.phone ?? randomPhone(client);
-      const remote = clientForPhone(client, phone);
-      const { chat } = await remote.chats.create(addresses);
+      const selected = clientEntryForPhone(client, phone);
+      const { chat } = await selected.client.chats.create(addresses);
       return {
         id: chat.guid,
         type: chat.isGroup ? ("group" as const) : ("dm" as const),
@@ -630,8 +661,11 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
     schema: messageSchema,
   },
 
-  messages: ({ client, projectConfig }) =>
-    remoteMessages(client, projectConfig, getProfileSyncGate(client)),
+  // Remote inbound delivery is transport-owned: Fusor WebSocket for the
+  // cloud path, and the retained Spectrum webhook for webhook deployments.
+  // Keep the provider stream empty so the SDK never opens a direct gRPC
+  // connection to spectrum-imessage.
+  messages: () => stream<IMessageMessage>((_emit, end) => end()),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {
@@ -780,7 +814,7 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
     },
     // Fetch an attachment by GUID. Returns a spectrum `Attachment` whose
     // `.read()` / `.stream()` lazily download the bytes — calling both
-    // issues two independent gRPC downloads, so cache `.read()` if you
+    // issues two independent HTTP downloads, so cache `.read()` if you
     // need the bytes more than once. Returns `undefined` for unknown
     // GUIDs.
     getAttachment: async (

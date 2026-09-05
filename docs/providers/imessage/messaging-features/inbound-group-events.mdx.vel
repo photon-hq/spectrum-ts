@@ -45,7 +45,8 @@ Semantics to rely on:
 - Icon-change events carry a snapshot of the icon fetched at event time; an
   icon that was already replaced or removed by then is skipped (the follow-up
   event carries the current state).
-- On dedicated lines, group events ride the same durable catch-up log as
-  messages and polls, so changes that happen while the app is down are replayed
-  on reconnect. After a cursor gap, reconcile with `space.getMembers()` /
-  `space.getAvatar()`.
+- On dedicated lines, group events ride the same ordered Fusor feed as messages
+  and polls. Reconnects within a running process resume from its last
+  checkpoint. Replay across a process restart requires
+  `options.fusorCursorStore`; after an unrecoverable cursor gap, reconcile with
+  `space.getMembers()` / `space.getAvatar()`.

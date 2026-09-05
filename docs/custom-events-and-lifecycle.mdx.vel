@@ -57,15 +57,17 @@ Return an array when one webhook delivery produces both messages and custom even
 await app.stop();
 ```
 
-This closes the merged message stream, drains and disposes every custom event stream, tears down every platform client via its `lifecycle.destroyClient` hook (if one is defined), and flushes any pending telemetry data when [telemetry](/spectrum-ts/getting-started#telemetry) is enabled. It's idempotent — calling `stop()` twice is safe.
+This closes the merged message stream, drains and disposes every custom event stream, tears down every platform client via its `lifecycle.destroyClient` hook (if one is defined), and flushes any pending telemetry data when [telemetry](/spectrum-ts/getting-started#telemetry) is enabled. It's idempotent: repeated or concurrent calls share the same completion and never run teardown twice.
+
+The remaining provider and telemetry teardown phases still run to completion when Fusor cannot flush its durable cursor or close within its deadline, but `stop()` rejects afterward so the process never mistakes an uncheckpointed event for a clean shutdown. Every caller observes that same failure.
 
 ### Signal handling
 
 Spectrum registers `SIGINT` and `SIGTERM` handlers on startup. When a signal fires:
 
 1. `stop()` is invoked with a 3-second timeout.
-2. If cleanup completes in time, the process exits with code 0.
-3. If not, the process exits with code 1.
+2. If cleanup completes successfully in time, the process exits with code 0.
+3. If cleanup fails or does not complete in time, the process exits with code 1.
 
 You don't need to wire this up yourself — running your app in a container with `docker stop` or hitting Ctrl-C in a terminal will drain cleanly.
 

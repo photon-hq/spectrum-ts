@@ -72,12 +72,40 @@ Confirm all of the following:
 Restart the terminal or IDE after granting Full Disk Access so macOS applies
 the permission to the new process.
 
-## An edge build reports `http2`, `async_hooks`, `tls`, or another Node module
+## "global WebSocket is not available in this runtime"
 
-The package split removes the local SQLite dependency from cloud installs, but
-the current cloud iMessage transport still uses Node-compatible gRPC. Deploy it
-to a Node.js or Bun runtime. Strict browser/worker isolates without Node APIs
-are not supported yet.
+Cloud iMessage inbound streaming arrives through Fusor WebSocket. Iterating
+`app.messages` therefore requires a runtime with a global `WebSocket`
+implementation. Use Bun or Node.js 22 or newer.
+
+Webhook-only applications do not open the Fusor connection. If the application
+receives the legacy native Spectrum webhook through `app.webhook()` and does
+not iterate `app.messages`, it can keep using that delivery path while outbound
+iMessage operations use HTTP.
+
+## "No iMessage client serves Fusor phone ..."
+
+This means Fusor delivered an event for a dedicated phone that is not in the
+SDK's current Cloud inventory. The SDK immediately requests one bounded refresh
+and coalesces concurrent attempts. If the message persists, confirm that the
+phone belongs to the same Spectrum project and that Cloud returns a valid E.164
+number and token for its instance. A restart should not be necessary.
+
+## Messages sent while the process was down are missing
+
+A fresh process starts at Fusor's live tail unless
+`options.fusorCursorStore` is configured. Persist the cursor in a durable store
+to replay from the last SDK checkpoint after restart. Make every `save` an
+atomic max/CAS update, even with one process: a write that exceeds
+`options.fusorCursorStoreTimeoutMs` can finish after the SDK has retried a newer
+checkpoint. The default deadline is five seconds. A timed-out load fails stream
+startup rather than silently jumping to the live tail; a timed-out save
+reconnects from the prior cursor and can replay the event.
+
+The cursor records verification, normalization, and synchronous enqueue inside
+Spectrum. It is not an acknowledgement that application code finished handling
+the message. Put normalized messages into your own durable queue or database
+when end-to-end processing guarantees are required.
 
 ## "Target not allowed for this project"
 

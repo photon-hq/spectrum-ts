@@ -73,6 +73,9 @@ export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
 export type {
   FusorClient,
+  FusorCursorOperationContext,
+  FusorCursorScope,
+  FusorCursorStore,
   FusorEvent,
   FusorMessages,
   FusorMessagesCtx,
@@ -81,11 +84,23 @@ export type {
   FusorRespond,
   FusorVerify,
   FusorVerifyRequest,
+  HybridFusor,
+  HybridFusorCreateContext,
+  HybridFusorMessages,
+  HybridFusorMessagesCtx,
+  HybridFusorMessagesReturn,
   WebhookHandler,
   WebhookRawRequest,
   WebhookRawResult,
 } from "./fusor";
-export { fusor, fusorEvent, isFusorClient, isFusorEvent } from "./fusor";
+export {
+  FusorRetryableError,
+  FusorTerminalError,
+  fusor,
+  fusorEvent,
+  isFusorClient,
+  isFusorEvent,
+} from "./fusor";
 export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,

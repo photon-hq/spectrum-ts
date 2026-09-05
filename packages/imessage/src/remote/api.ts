@@ -1,14 +1,12 @@
 import type {
   AdvancedIMessage,
   MiniAppCardSession,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type {
   AddMember,
   Avatar,
   AvatarData,
   Content,
-  ManagedStream,
-  ProjectData,
   RemoveMember,
   Rename,
   StreamText,
@@ -16,7 +14,7 @@ import type {
 import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { Background } from "../content/background";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";
-import type { IMessageMessage, RemoteClient } from "../types";
+import type { IMessageMessage } from "../types";
 import { getIcon as getRemoteIcon, setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { shareContactCard as shareRemoteContactCard } from "./contact-card";
@@ -32,7 +30,6 @@ import {
   listParticipants as listRemoteParticipants,
   removeParticipants as removeRemoteParticipants,
 } from "./members";
-import type { ProfileSyncGate } from "./profile-sync-gate";
 import {
   reactToMessage as reactToRemoteMessage,
   unsendReaction as unsendRemoteReaction,
@@ -48,19 +45,11 @@ import {
   send as sendRemoteMessage,
   unsendMessage as unsendRemoteMessage,
 } from "./send";
-import { messages as remoteMessages } from "./stream";
 import { sendStreamText as sendRemoteStreamText } from "./stream-text";
 import {
   startTyping as startRemoteTyping,
   stopTyping as stopRemoteTyping,
 } from "./typing";
-
-export const messages = (
-  clients: RemoteClient[],
-  projectConfig: ProjectData | undefined,
-  profileSyncGate?: ProfileSyncGate | undefined
-): ManagedStream<IMessageMessage> =>
-  remoteMessages(clients, projectConfig, profileSyncGate);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

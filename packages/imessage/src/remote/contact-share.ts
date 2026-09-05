@@ -1,7 +1,7 @@
 import {
   type AdvancedIMessage,
   ErrorCode,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import {
   createLogger,
   errorAttrs,

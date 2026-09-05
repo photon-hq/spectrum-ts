@@ -52,7 +52,7 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
    }
    ```
 
-Spectrum also runs fully standalone — you can connect to a local iMessage database with the separate [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) package, bring your own gRPC endpoints, or build your own platform provider. See the [docs](https://docs.photon.codes) for self-hosted setups.
+Spectrum also runs fully standalone — you can connect to a local iMessage database with the separate [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) package, bring your own Advanced iMessage HTTP endpoints, or build your own platform provider. See the [docs](https://docs.photon.codes) for self-hosted setups.
 
 ## Documentation
 

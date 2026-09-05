@@ -9,7 +9,7 @@ Spectrum ships two independent iMessage platforms. The cloud package exports
 
 | Use case | Package | Included in `spectrum-ts`? | Runtime |
 |---|---|---|---|
-| Managed Spectrum Cloud lines | `@spectrum-ts/imessage` | Yes | Node.js or Bun |
+| Managed Spectrum Cloud lines | `@spectrum-ts/imessage` | Yes | Node.js (22+ for WebSocket) or Bun |
 | This Mac's Messages database | `@spectrum-ts/imessage-local` | No | macOS with Bun or Node.js |
 
 <Note>
@@ -47,29 +47,80 @@ import { imessage } from "@spectrum-ts/imessage";
 
 Cloud mode discovers every line owned by the project and renews its tokens
 automatically. Most applications should use the empty `imessage.config()` call.
-Lines provisioned while the app is running are picked up at the next token
-renewal — see [when line changes reach a running
+Scheduled renewal reconciles line changes, and an inbound Fusor event for an
+unknown phone triggers a bounded immediate refresh — see [when line changes reach a running
 app](/spectrum-ts/providers/imessage/connection-and-routing#when-line-changes-reach-a-running-app).
 
-### Explicit cloud clients
+Inbound events arrive through Fusor's authenticated WebSocket feed. Outbound
+sends, resource lookups, and attachment transfers use Advanced iMessage HTTP.
+The WebSocket starts lazily when the application begins iterating
+`app.messages`; webhook-only applications do not open it. For a staging or
+private Fusor deployment, `SPECTRUM_FUSOR_WS_URL` overrides the production
+`wss://.../v1/subscribe` endpoint.
 
-Pass clients only when you need to restrict the SDK to a known subset of cloud
-lines or supply independently managed credentials:
+### Durable WebSocket resume
+
+A new process subscribes at Fusor's live tail unless you provide a cursor
+store. Persist the last transport checkpoint when messages must be replayed
+after a process restart:
+
+```ts
+const app = await Spectrum({
+  projectId: process.env.SPECTRUM_PROJECT_ID!,
+  projectSecret: process.env.SPECTRUM_PROJECT_SECRET!,
+  providers: [imessage.config()],
+  options: {
+    fusorCursorStore: {
+      load: async ({ projectId, websocketEndpoint }) =>
+        loadCursor(projectId, websocketEndpoint),
+      save: async ({ projectId, websocketEndpoint }, sequence) =>
+        saveCursorMonotonically(projectId, websocketEndpoint, sequence),
+    },
+    fusorCursorStoreTimeoutMs: 5_000,
+  },
+});
+```
+
+Every `save` must atomically move the cursor forward, for example with a
+database max/CAS update. This is required even with one SDK process because a
+timed-out operation may ignore its `AbortSignal` and finish after a newer save.
+The operation deadline defaults to five seconds and is configurable with
+`fusorCursorStoreTimeoutMs` from 1 through 300,000 milliseconds. A save timeout
+reconnects from the prior cursor and may replay the event. Both callbacks also
+receive an optional final context with an `AbortSignal` for cooperative
+cancellation. This checkpoint means the SDK verified, normalized, and
+synchronously enqueued the event. It does not mean your `for await` loop
+finished processing it, so use a durable application queue or database for
+end-to-end delivery guarantees.
+
+### Explicit HTTP clients
+
+Pass clients when you need to use a known set of Advanced iMessage HTTP
+endpoints or independently managed credentials:
 
 ```ts
 imessage.config({
   clients: [
     {
-      address: "line-1.imsg.photon.codes:443",
+      address: "https://imessage.example.com",
       token: process.env.IMESSAGE_TOKEN!,
       phone: "+15551111111",
+      // Optional when `address` is a shared gateway:
+      server: "dedicated-instance-id",
     },
   ],
 });
 ```
 
+`address` may include `http://` or `https://`; a bare host defaults to HTTPS.
+Set `server` only when the endpoint is a shared gateway that needs the
+dedicated instance id in `x-photon-server`. Omit it for a direct server.
+
 Explicit tokens are not renewed by Spectrum. The application is responsible
-for replacing them before they expire.
+for replacing them before they expire. Without `projectId` and `projectSecret`,
+explicit clients are outbound/webhook-only. Supplying Spectrum Cloud
+credentials also enables Fusor WebSocket inbound delivery and routes each
+event to the configured client with the matching `phone`.
 
 ## Local macOS quick start
 
@@ -190,9 +241,10 @@ The cloud import remains `@spectrum-ts/imessage` or
 ## Runtime compatibility
 
 Separating the packages removes `imessage-kit` and `better-sqlite3` from cloud
-installs. The current cloud transport still uses Node-compatible gRPC, so use a
-Node.js or Bun deployment runtime. Strict browser and worker isolates without
-Node APIs are not supported yet.
+installs. Cloud outbound operations use HTTP and inbound streaming requires a
+global `WebSocket` implementation. Use Bun or Node.js 22 or newer when
+iterating `app.messages`. A webhook-only application does not open the Fusor
+WebSocket.
 
 ## Explore iMessage
 

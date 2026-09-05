@@ -1,4 +1,4 @@
-import type { Message as AdvancedIMessageMessage } from "@photon-ai/advanced-imessage/grpc";
+import type { Message as AdvancedIMessageMessage } from "@photon-ai/advanced-imessage/http";
 import type { Message } from "@spectrum-ts/core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { imessage } from "@/index";

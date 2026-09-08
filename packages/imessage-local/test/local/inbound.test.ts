@@ -166,25 +166,38 @@ describe("iMessage local toMessages", () => {
         text: null,
       })
     );
+    const [memberRemoved] = await toMessages(
+      localMessage({
+        affectedParticipant: "+15550001111",
+        id: "member-removed",
+        kind: "memberRemoved",
+        text: null,
+      })
+    );
 
     expect(memberAdded?.content).toEqual({
-      raw: {
-        action: "memberAdded",
-        affectedParticipant: "+15557654321",
-        imessage_type: "group-change",
-        newGroupName: undefined,
-      },
-      type: "custom",
+      members: ["+15557654321"],
+      type: "addMember",
     });
     expect(renamed?.content).toEqual({
-      raw: {
-        action: "nameChanged",
-        affectedParticipant: undefined,
-        imessage_type: "group-change",
-        newGroupName: "Road trip",
-      },
-      type: "custom",
+      displayName: "Road trip",
+      type: "rename",
     });
+    expect(memberRemoved?.content).toEqual({
+      members: ["+15550001111"],
+      type: "removeMember",
+    });
+  });
+
+  it("drops incomplete typed group changes", async () => {
+    await expect(
+      toMessages(
+        localMessage({
+          affectedParticipant: null,
+          kind: "memberRemoved",
+        })
+      )
+    ).resolves.toEqual([]);
   });
 
   it("keeps plain text messages as text", async () => {

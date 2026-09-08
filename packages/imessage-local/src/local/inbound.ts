@@ -10,11 +10,14 @@ import {
   stream,
 } from "@spectrum-ts/core";
 import {
+  addMemberSchema,
   asCustom,
   asReaction,
   asReply,
   asText,
   type ProviderMessageRecord,
+  removeMemberSchema,
+  renameSchema,
 } from "@spectrum-ts/core/authoring";
 import { appleAudioMimeType } from "../../../imessage/src/shared/audio";
 import {
@@ -188,17 +191,52 @@ const toReactionMessage = async (
 const toGroupChangeMessage = (
   message: LocalIMessage,
   base: Omit<IMessageMessage, "id" | "content">
-): IMessageMessage => ({
-  ...base,
-  id: message.id,
-  content: asCustom({
-    action: message.kind,
-    affectedParticipant: message.affectedParticipant,
-    imessage_type:
-      message.kind === "unknown" ? "message-event" : "group-change",
-    newGroupName: message.newGroupName,
-  }),
-});
+): IMessageMessage | undefined => {
+  let content: Content | undefined;
+  switch (message.kind) {
+    case "memberAdded":
+      content = message.affectedParticipant
+        ? addMemberSchema.parse({
+            members: [message.affectedParticipant],
+            type: "addMember",
+          })
+        : undefined;
+      break;
+    case "memberRemoved":
+      content = message.affectedParticipant
+        ? removeMemberSchema.parse({
+            members: [message.affectedParticipant],
+            type: "removeMember",
+          })
+        : undefined;
+      break;
+    case "nameChanged":
+      content = message.newGroupName
+        ? renameSchema.parse({
+            displayName: message.newGroupName,
+            type: "rename",
+          })
+        : undefined;
+      break;
+    default:
+      content = asCustom({
+        action: message.kind,
+        affectedParticipant: message.affectedParticipant,
+        imessage_type: "message-event",
+        newGroupName: message.newGroupName,
+      });
+  }
+
+  return content ? { ...base, content, id: message.id } : undefined;
+};
+
+const toGroupChangeMessages = (
+  message: LocalIMessage,
+  base: Omit<IMessageMessage, "id" | "content">
+): IMessageMessage[] => {
+  const event = toGroupChangeMessage(message, base);
+  return event ? [event] : [];
+};
 
 const refetchUntilAttachmentsSettle = async (
   client: IMessageSDK,
@@ -246,7 +284,7 @@ export const toMessages = async (
   }
 
   if (message.kind !== "text") {
-    return [toGroupChangeMessage(message, base)];
+    return toGroupChangeMessages(message, base);
   }
 
   if (message.retractedAt !== null) {

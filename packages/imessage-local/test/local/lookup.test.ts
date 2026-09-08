@@ -5,6 +5,7 @@ import type {
   Message as KitMessage,
 } from "@photon-ai/imessage-kit";
 import { describe, expect, it, vi } from "vitest";
+import { toMessages } from "@/local/inbound";
 import {
   getLocalAttachment,
   getLocalDisplayName,
@@ -58,7 +59,8 @@ describe("local iMessage lookup", () => {
     const found = await getLocalMessage(
       client({ getMessages }),
       "any;-;+15551234567",
-      "message-1"
+      "message-1",
+      toMessages
     );
 
     expect(found).toMatchObject({
@@ -80,7 +82,8 @@ describe("local iMessage lookup", () => {
     const found = await getLocalMessage(
       client({ getMessages }),
       "any;-;+15551234567",
-      "message-1:attachment-1"
+      "message-1:attachment-1",
+      toMessages
     );
 
     expect(found).toMatchObject({

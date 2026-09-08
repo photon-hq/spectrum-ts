@@ -6,12 +6,15 @@ import type {
 import type { Attachment } from "@spectrum-ts/core";
 import type { IMessageMessage } from "../types";
 import { localAttachmentAsAttachment } from "./attachments";
-import { toMessages } from "./inbound";
 
 const LOOKUP_PAGE_SIZE = 200;
 const LOOKUP_MAX_PAGES = 50;
 const MESSAGE_CACHE_LIMIT = 1000;
 const ATTACHMENT_CACHE_LIMIT = 1000;
+
+export type LocalMessageNormalizer = (
+  source: LocalIMessage
+) => Promise<IMessageMessage[]>;
 
 interface LocalLookupCache {
   attachments: Map<string, Attachment>;
@@ -67,26 +70,26 @@ const cacheAttachment = (
 export const cacheLocalMessage = async (
   client: IMessageSDK,
   source: LocalIMessage,
-  normalized?: IMessageMessage[]
+  normalized: IMessageMessage[]
 ): Promise<IMessageMessage[]> => {
-  const messages = normalized ?? (await toMessages(source));
   const cache = cacheFor(client);
-  for (const message of messages) {
+  for (const message of normalized) {
     lruSet(cache.messages, message.id, message, MESSAGE_CACHE_LIMIT);
   }
-  if (messages[0]) {
-    lruSet(cache.messages, source.id, messages[0], MESSAGE_CACHE_LIMIT);
+  if (normalized[0]) {
+    lruSet(cache.messages, source.id, normalized[0], MESSAGE_CACHE_LIMIT);
   }
   for (const attachment of source.attachments) {
     cacheAttachment(client, attachment);
   }
-  return messages;
+  return normalized;
 };
 
 export const getLocalMessage = async (
   client: IMessageSDK,
   spaceId: string,
-  messageId: string
+  messageId: string,
+  normalize: LocalMessageNormalizer
 ): Promise<IMessageMessage | undefined> => {
   const cached = cacheFor(client).messages.get(messageId);
   if (cached) {
@@ -100,7 +103,11 @@ export const getLocalMessage = async (
       offset: page * LOOKUP_PAGE_SIZE,
     });
     for (const row of rows) {
-      const normalized = await cacheLocalMessage(client, row);
+      const normalized = await cacheLocalMessage(
+        client,
+        row,
+        await normalize(row)
+      );
       const match = normalized.find((message) => message.id === messageId);
       if (match) {
         return match;

@@ -163,7 +163,12 @@ const toReactionMessage = async (
   }
 
   const target = client
-    ? await getLocalMessage(client, base.space.id, reaction.targetMessageId)
+    ? await getLocalMessage(
+        client,
+        base.space.id,
+        reaction.targetMessageId,
+        toMessages
+      )
     : undefined;
   return {
     ...base,

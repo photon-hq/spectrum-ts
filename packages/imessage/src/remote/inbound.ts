@@ -2,11 +2,19 @@ import {
   type AdvancedIMessage,
   type ChatServiceType,
   type MessageEvent,
+  type MiniAppContent,
   NotFoundError,
   type SingleServiceAddressInfo,
 } from "@photon-ai/advanced-imessage/grpc";
-import { type Content, fromVCard, type Group } from "@spectrum-ts/core";
 import {
+  type AppLayout,
+  appLayoutSchema,
+  type Content,
+  fromVCard,
+  type Group,
+} from "@spectrum-ts/core";
+import {
+  asApp,
   asAttachment,
   asContact,
   asCustom,
@@ -252,6 +260,50 @@ const buildOrderedPartMessage = async (
 const unsupportedMessageContent = (): Content =>
   asCustom({ imessage_type: "unsupported-message" });
 
+/**
+ * Fold an inbound app card's decoded slots into an `AppLayout`.
+ *
+ * `imageTitle` / `imageSubtitle` are deliberately dropped: both are only valid
+ * alongside the JPEG bytes, and an inbound card carries no image. They stay
+ * reachable on `miniApp` in the native metadata.
+ *
+ * `summary` is Apple's fallback string for surfaces that cannot draw the card,
+ * so it stands in for a missing `caption` rather than leaving the bubble blank.
+ */
+const toAppLayout = (miniApp: MiniAppContent): AppLayout | undefined => {
+  const { layout } = miniApp;
+  const parsed = appLayoutSchema.safeParse({
+    caption: layout?.caption ?? layout?.summary ?? miniApp.appName,
+    subcaption: layout?.subcaption,
+    summary: layout?.summary,
+    trailingCaption: layout?.trailingCaption,
+    trailingSubcaption: layout?.trailingSubcaption,
+  });
+  return parsed.success ? parsed.data : undefined;
+};
+
+/**
+ * Map a third-party iMessage app card to `app` content.
+ *
+ * The card's layout is already decoded, so it is handed to `asApp` verbatim —
+ * deriving one from the URL would fetch link metadata for an opaque
+ * session URL and overwrite what the sending extension actually wrote.
+ *
+ * Returns `undefined` whenever the card cannot be represented faithfully (no
+ * URL, an unparseable one, or no text slot at all); the caller then keeps its
+ * existing fallback. The URL is validated here rather than left to `asApp`
+ * because `url()` is a lazy accessor — an invalid one would not throw until a
+ * consumer awaited it.
+ */
+const toAppCardContent = (message: AppleMessage): Content | undefined => {
+  const miniApp = message.content.miniApp;
+  if (!(miniApp?.url && URL.canParse(miniApp.url))) {
+    return;
+  }
+  const layout = toAppLayout(miniApp);
+  return layout && asApp(miniApp.url, { layout, live: miniApp.live });
+};
+
 const buildUnwrappedContentMessage = async (
   client: AdvancedIMessage,
   base: RemoteMessageBase,
@@ -264,6 +316,13 @@ const buildUnwrappedContentMessage = async (
     : undefined;
 
   if (attachments.length === 0) {
+    // An app card wins over `text`: on a balloon row Apple's text is only the
+    // fallback string shown where the card cannot be drawn, so preferring it
+    // would hand the caller the summary of a card it never receives.
+    const card = toAppCardContent(message);
+    if (card) {
+      return { ...base, id: messageGuidStr, content: card };
+    }
     const text = message.content.text;
     return {
       ...base,

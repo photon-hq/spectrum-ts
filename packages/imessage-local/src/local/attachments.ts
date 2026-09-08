@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type { Message as LocalIMessage } from "@photon-ai/imessage-kit";
-import { type Content, fromVCard } from "@spectrum-ts/core";
+import { type Attachment, type Content, fromVCard } from "@spectrum-ts/core";
 import { asAttachment, asContact, asVoice } from "@spectrum-ts/core/authoring";
 import {
   appleAudioMimeType,
@@ -25,7 +25,9 @@ export const readLocalAttachment = async (
   return readFile(att.localPath);
 };
 
-const toAttachmentContent = (att: LocalAttachment): Content => {
+export const localAttachmentAsAttachment = (
+  att: LocalAttachment
+): Attachment => {
   const { localPath } = att;
   return asAttachment({
     id: att.id,
@@ -64,7 +66,7 @@ const toVCardContent = async (att: LocalAttachment): Promise<Content> => {
     const buf = await readLocalAttachment(att);
     return asContact(fromVCard(buf.toString("utf8")));
   } catch {
-    return toAttachmentContent(att);
+    return localAttachmentAsAttachment(att);
   }
 };
 
@@ -78,5 +80,5 @@ export const localAttachmentContent = async (
   const audioMimeType = isVoice ? appleAudioMimeType(att) : undefined;
   return audioMimeType
     ? toVoiceContent(att, audioMimeType)
-    : toAttachmentContent(att);
+    : localAttachmentAsAttachment(att);
 };

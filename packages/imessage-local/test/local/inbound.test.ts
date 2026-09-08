@@ -1,5 +1,8 @@
-import type { Message as LocalIMessage } from "@photon-ai/imessage-kit";
-import { describe, expect, it } from "vitest";
+import type {
+  IMessageSDK,
+  Message as LocalIMessage,
+} from "@photon-ai/imessage-kit";
+import { describe, expect, it, vi } from "vitest";
 import { toMessages } from "@/local/inbound";
 
 const CREATED_AT = new Date(1_700_000_000_000);
@@ -64,6 +67,126 @@ const summarize = (message: Awaited<ReturnType<typeof toMessages>>[number]) => {
 };
 
 describe("iMessage local toMessages", () => {
+  it("surfaces inbound tapbacks with a hydrated target", async () => {
+    const getMessages = vi.fn(() =>
+      Promise.resolve([
+        localMessage({
+          id: "target-message",
+          isFromMe: true,
+          text: "from the agent",
+        }),
+      ])
+    );
+    const client = { getMessages } as unknown as IMessageSDK;
+
+    const [message] = await toMessages(
+      localMessage({
+        id: "reaction-message",
+        reaction: {
+          emoji: null,
+          isRemoved: false,
+          kind: "like",
+          targetMessageId: "target-message",
+          textRange: { length: 14, location: 0 },
+        },
+      }),
+      client
+    );
+
+    expect(message?.content).toMatchObject({
+      emoji: "👍",
+      target: {
+        content: { text: "from the agent", type: "text" },
+        direction: "outbound",
+        id: "target-message",
+      },
+      type: "reaction",
+    });
+  });
+
+  it("preserves reaction removals", async () => {
+    const [message] = await toMessages(
+      localMessage({
+        id: "removed-reaction",
+        reaction: {
+          emoji: "🦊",
+          isRemoved: true,
+          kind: "emoji",
+          targetMessageId: "target-message",
+          textRange: { length: 0, location: 0 },
+        },
+      })
+    );
+
+    expect(message?.content).toMatchObject({
+      emoji: "🦊",
+      removed: true,
+      target: { id: "target-message" },
+      type: "reaction",
+    });
+  });
+
+  it("surfaces the coarse poll-vote data available from the local SDK", async () => {
+    const [message] = await toMessages(
+      localMessage({
+        id: "poll-vote",
+        reaction: {
+          emoji: null,
+          isRemoved: false,
+          kind: "pollVote",
+          targetMessageId: "poll-message",
+          textRange: { length: 0, location: 0 },
+        },
+      })
+    );
+
+    expect(message?.content).toEqual({
+      raw: {
+        imessage_type: "poll-vote",
+        targetMessageId: "poll-message",
+      },
+      type: "custom",
+    });
+  });
+
+  it("surfaces group membership and title changes", async () => {
+    const [memberAdded] = await toMessages(
+      localMessage({
+        affectedParticipant: "+15557654321",
+        id: "member-added",
+        kind: "memberAdded",
+        text: null,
+      })
+    );
+    const [renamed] = await toMessages(
+      localMessage({
+        id: "renamed",
+        kind: "nameChanged",
+        newGroupName: "Road trip",
+        text: null,
+      })
+    );
+
+    expect(memberAdded?.content).toEqual({
+      raw: {
+        action: "memberAdded",
+        affectedParticipant: "+15557654321",
+        imessage_type: "group-change",
+        newGroupName: undefined,
+      },
+      type: "custom",
+    });
+    expect(renamed?.content).toEqual({
+      raw: {
+        action: "nameChanged",
+        affectedParticipant: undefined,
+        imessage_type: "group-change",
+        newGroupName: "Road trip",
+      },
+      type: "custom",
+    });
+  });
+
   it("keeps plain text messages as text", async () => {
     const messages = await toMessages(localMessage({ text: "plain text" }));
 

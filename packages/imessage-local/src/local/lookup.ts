@@ -66,20 +66,21 @@ const cacheAttachment = (
 
 export const cacheLocalMessage = async (
   client: IMessageSDK,
-  source: LocalIMessage
+  source: LocalIMessage,
+  normalized?: IMessageMessage[]
 ): Promise<IMessageMessage[]> => {
-  const normalized = await toMessages(source);
+  const messages = normalized ?? (await toMessages(source));
   const cache = cacheFor(client);
-  for (const message of normalized) {
+  for (const message of messages) {
     lruSet(cache.messages, message.id, message, MESSAGE_CACHE_LIMIT);
   }
-  if (normalized[0]) {
-    lruSet(cache.messages, source.id, normalized[0], MESSAGE_CACHE_LIMIT);
+  if (messages[0]) {
+    lruSet(cache.messages, source.id, messages[0], MESSAGE_CACHE_LIMIT);
   }
   for (const attachment of source.attachments) {
     cacheAttachment(client, attachment);
   }
-  return normalized;
+  return messages;
 };
 
 export const getLocalMessage = async (

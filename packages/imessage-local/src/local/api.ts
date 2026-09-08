@@ -2,7 +2,7 @@ import type { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { Content, ManagedStream } from "@spectrum-ts/core";
 import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { IMessageMessage } from "../types";
-import { messages as localMessages } from "./inbound";
+import { messages as localMessages, toMessages } from "./inbound";
 import {
   getLocalAttachment,
   getLocalDisplayName,
@@ -23,7 +23,8 @@ export const getMessage = (
   client: IMessageSDK,
   spaceId: string,
   id: string
-): Promise<IMessageMessage | undefined> => getLocalMessage(client, spaceId, id);
+): Promise<IMessageMessage | undefined> =>
+  getLocalMessage(client, spaceId, id, toMessages);
 
 export const getAttachment = getLocalAttachment;
 export const getDisplayName = getLocalDisplayName;

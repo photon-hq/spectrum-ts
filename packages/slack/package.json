@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/slack",
-  "version": "12.8.0",
+  "version": "12.9.0",
   "description": "Slack provider for spectrum-ts.",
   "repository": {
     "type": "git",

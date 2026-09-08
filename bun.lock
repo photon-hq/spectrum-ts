@@ -26,7 +26,7 @@
     },
     "packages/core": {
       "name": "@spectrum-ts/core",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@photon-ai/otel": "^3.3.0",
         "@photon-ai/proto": "^0.2.4",
@@ -61,7 +61,7 @@
     },
     "packages/elysia": {
       "name": "@spectrum-ts/elysia",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
@@ -78,7 +78,7 @@
     },
     "packages/express": {
       "name": "@spectrum-ts/express",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
@@ -96,7 +96,7 @@
     },
     "packages/fastify": {
       "name": "@spectrum-ts/fastify",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
@@ -113,7 +113,7 @@
     },
     "packages/hono": {
       "name": "@spectrum-ts/hono",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
@@ -130,7 +130,7 @@
     },
     "packages/imessage": {
       "name": "@spectrum-ts/imessage",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@grpc/grpc-js": "^1.14.4",
         "@photon-ai/advanced-imessage": "^2.1.0",
@@ -155,7 +155,7 @@
     },
     "packages/imessage-local": {
       "name": "@spectrum-ts/imessage-local",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@photon-ai/imessage-kit": "^3.0.0",
         "zod": "^4.2.1",
@@ -174,7 +174,7 @@
     },
     "packages/slack": {
       "name": "@spectrum-ts/slack",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@photon-ai/slack": "^0.2.0",
         "zod": "^4.2.1",
@@ -193,7 +193,7 @@
     },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@spectrum-ts/core": "12.8.0",
         "@spectrum-ts/imessage": "12.8.0",
@@ -211,7 +211,7 @@
     },
     "packages/telegram": {
       "name": "@spectrum-ts/telegram",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@photon-ai/telegram-ts": "10.0.0",
         "marked": "^18.0.5",
@@ -231,7 +231,7 @@
     },
     "packages/terminal": {
       "name": "@spectrum-ts/terminal",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "zod": "^4.2.1",
       },
@@ -265,7 +265,7 @@
     },
     "packages/whatsapp-business": {
       "name": "@spectrum-ts/whatsapp-business",
-      "version": "12.8.0",
+      "version": "12.9.0",
       "dependencies": {
         "@photon-ai/whatsapp-business": "^0.2.0",
         "mime-types": "^3.0.1",

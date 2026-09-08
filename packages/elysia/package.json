@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/elysia",
-  "version": "12.8.0",
+  "version": "12.9.0",
   "description": "ElysiaJS webhook adapter for spectrum-ts.",
   "repository": {
     "type": "git",

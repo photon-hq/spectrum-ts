@@ -162,6 +162,39 @@ const reactionRecordSchema = z
   })
   .readonly();
 
+/** The card's text slots exactly as Apple decoded them from the balloon. */
+const miniAppLayoutSchema = z
+  .object({
+    caption: z.string().optional(),
+    imageSubtitle: z.string().optional(),
+    imageTitle: z.string().optional(),
+    subcaption: z.string().optional(),
+    summary: z.string().optional(),
+    trailingCaption: z.string().optional(),
+    trailingSubcaption: z.string().optional(),
+  })
+  .readonly();
+
+/**
+ * Everything Apple's balloon payload carries for an inbound third-party app
+ * card. The visible slots also surface as `app` content; these are the native
+ * details that have no place in the cross-provider union — most usefully
+ * `sessionId`, which is shared by every update to the same card and is how a
+ * run of updates (a game's moves, say) is correlated back to one session.
+ */
+const miniAppSchema = z
+  .object({
+    appName: z.string().optional(),
+    appStoreId: z.number().int().optional(),
+    extensionBundleId: z.string(),
+    layout: miniAppLayoutSchema.optional(),
+    live: z.boolean(),
+    sessionId: z.string().optional(),
+    teamId: z.string(),
+    url: z.string().optional(),
+  })
+  .readonly();
+
 export const nativeMessageMetadataSchema = z.object({
   dateDelivered: z.date().optional(),
   dateEdited: z.date().optional(),
@@ -182,6 +215,7 @@ export const nativeMessageMetadataSchema = z.object({
   mentions: z.array(mentionSchema).readonly(),
   subject: z.string().optional(),
   balloonBundleId: z.string().optional(),
+  miniApp: miniAppSchema.optional(),
   expressiveSendStyleId: z.string().optional(),
   attachmentMetadata: z.array(attachmentMetadataSchema).readonly(),
 
@@ -231,6 +265,8 @@ export type IMessageAttachmentMetadata = z.infer<
   typeof attachmentMetadataSchema
 >;
 export type IMessageMention = z.infer<typeof mentionSchema>;
+export type IMessageMiniApp = z.infer<typeof miniAppSchema>;
+export type IMessageMiniAppLayout = z.infer<typeof miniAppLayoutSchema>;
 export type IMessageNativeMessageMetadata = z.infer<
   typeof nativeMessageMetadataSchema
 >;

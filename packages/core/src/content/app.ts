@@ -89,6 +89,13 @@ export type AppUrl =
 
 /** Optional rendering behavior for an app card. */
 export interface AppOptions {
+  /**
+   * Layout to use verbatim instead of deriving one from the URL's link
+   * metadata. A provider mapping an inbound card already holds the layout the
+   * sender wrote; refetching it would cost a network round-trip and overwrite
+   * the sender's own text with whatever the link happens to advertise.
+   */
+  layout?: AppLayout;
   /** Render the installed app extension's live UI when the platform supports it. */
   live?: boolean;
 }
@@ -164,12 +171,17 @@ const buildLayout = (
  * description → subcaption, og:image → JPEG-transcoded image) using the same
  * machinery as `richlink`. A single metadata fetch is shared and memoized
  * across `url()` / `layout()`; fetch / parse failures resolve to a host-only
- * caption (no throw, no retry).
+ * caption (no throw, no retry). Pass `options.layout` to supply an
+ * already-decoded layout and skip the fetch entirely.
  */
 export const asApp = (url: AppUrl, options: AppOptions = {}): App => {
+  const { layout: knownLayout, ...rest } = options;
   const getUrl = resolveUrl(url);
   const getMetadata = memoize(async () => fetchLinkMetadata(await getUrl()));
   const getLayout = memoize(async (): Promise<AppLayout> => {
+    if (knownLayout) {
+      return knownLayout;
+    }
     const resolvedUrl = await getUrl();
     const metadata = await getMetadata();
     let image: Uint8Array | undefined;
@@ -188,7 +200,7 @@ export const asApp = (url: AppUrl, options: AppOptions = {}): App => {
     type: "app",
     url: getUrl,
     layout: getLayout,
-    ...options,
+    ...rest,
   });
 };
 

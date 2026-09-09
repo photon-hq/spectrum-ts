@@ -41,6 +41,8 @@ export type {
   IMessageAttachmentMetadata,
   IMessageMention,
   IMessageMessage,
+  IMessageMiniApp,
+  IMessageMiniAppLayout,
   IMessagePlacedSticker,
   IMessageReaction,
   IMessageReactionRecord,

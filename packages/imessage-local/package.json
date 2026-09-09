@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/imessage-local",
-  "version": "12.8.0",
+  "version": "12.9.0",
   "description": "Local macOS iMessage provider for spectrum-ts.",
   "repository": {
     "type": "git",

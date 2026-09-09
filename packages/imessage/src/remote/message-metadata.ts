@@ -5,6 +5,8 @@ import type {
   MessageMention,
   MessagePlacedSticker,
   MessageReaction,
+  MiniAppContent,
+  MiniAppLayoutInfo,
   SingleServiceAddressInfo,
   StickerPlacement,
   TextFormat,
@@ -13,6 +15,8 @@ import type {
   IMessageAppliedReaction,
   IMessageAttachmentMetadata,
   IMessageMention,
+  IMessageMiniApp,
+  IMessageMiniAppLayout,
   IMessageNativeMessageMetadata,
   IMessagePlacedSticker,
   IMessageReaction,
@@ -27,6 +31,33 @@ const toTextFormat = (format: TextFormat): IMessageTextFormat => ({
   start: format.start,
   type: format.type,
 });
+
+const toMiniAppLayout = (layout: MiniAppLayoutInfo): IMessageMiniAppLayout => ({
+  caption: layout.caption,
+  imageSubtitle: layout.imageSubtitle,
+  imageTitle: layout.imageTitle,
+  subcaption: layout.subcaption,
+  summary: layout.summary,
+  trailingCaption: layout.trailingCaption,
+  trailingSubcaption: layout.trailingSubcaption,
+});
+
+// The visible slots also reach the caller as `app` content; the card is kept
+// whole here so one object holds everything Apple decoded for the balloon,
+// alongside the native-only ids that have no cross-provider equivalent.
+const toMiniApp = (
+  miniApp: MiniAppContent | undefined
+): IMessageMiniApp | undefined =>
+  miniApp && {
+    appName: miniApp.appName,
+    appStoreId: miniApp.appStoreId,
+    extensionBundleId: miniApp.extensionBundleId,
+    layout: miniApp.layout && toMiniAppLayout(miniApp.layout),
+    live: miniApp.live,
+    sessionId: miniApp.sessionId,
+    teamId: miniApp.teamId,
+    url: miniApp.url,
+  };
 
 const toMention = (mention: MessageMention): IMessageMention => ({
   address: mention.address,
@@ -138,6 +169,7 @@ export const toMessageMetadata = (
   mentions: native.content?.mentions?.map(toMention) ?? [],
   subject: native.subject,
   balloonBundleId: native.content?.balloonBundleId,
+  miniApp: toMiniApp(native.content?.miniApp),
   expressiveSendStyleId: native.content?.expressiveSendStyleId,
   attachmentMetadata:
     native.content?.attachments?.map(toAttachmentMetadata) ?? [],

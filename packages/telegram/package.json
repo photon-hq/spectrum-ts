@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/telegram",
-  "version": "12.8.0",
+  "version": "12.9.0",
   "description": "Telegram provider for spectrum-ts.",
   "repository": {
     "type": "git",

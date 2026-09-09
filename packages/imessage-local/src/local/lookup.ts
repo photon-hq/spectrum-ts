@@ -53,6 +53,16 @@ const lruSet = <T>(
   }
 };
 
+const lruGet = <T>(cache: Map<string, T>, key: string): T | undefined => {
+  const value = cache.get(key);
+  if (value === undefined) {
+    return;
+  }
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+};
+
 const cacheAttachment = (
   client: IMessageSDK,
   attachment: KitAttachment
@@ -91,7 +101,7 @@ export const getLocalMessage = async (
   messageId: string,
   normalize: LocalMessageNormalizer
 ): Promise<IMessageMessage | undefined> => {
-  const cached = cacheFor(client).messages.get(messageId);
+  const cached = lruGet(cacheFor(client).messages, messageId);
   if (cached) {
     return cached;
   }
@@ -126,7 +136,7 @@ export const getLocalAttachment = async (
   client: IMessageSDK,
   attachmentId: string
 ): Promise<Attachment | undefined> => {
-  const cached = cacheFor(client).attachments.get(attachmentId);
+  const cached = lruGet(cacheFor(client).attachments, attachmentId);
   if (cached) {
     return cached;
   }

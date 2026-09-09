@@ -149,7 +149,10 @@ const toMessageItem = async (
     return { cursor, id: event.message.guid, values };
   }
 
-  if (event.type === "message.reactionAdded") {
+  if (
+    event.type === "message.reactionAdded" ||
+    event.type === "message.reactionRemoved"
+  ) {
     if (isEventFromCurrentAccount(event, phone)) {
       return {
         cursor,
@@ -200,8 +203,8 @@ const toMessageItem = async (
     };
   }
 
-  // Consumed for the cursor but not surfaced (edits, unsends, sticker
-  // placements, reaction removals). Logged so "the stream is alive but this
+  // Consumed for the cursor but not surfaced (edits, unsends, and sticker
+  // placements). Logged so "the stream is alive but this
   // event type never arrives" is distinguishable from "the stream is dead".
   streamLog.debug("message event consumed without mapping", {
     "spectrum.imessage.event_type": event.type,

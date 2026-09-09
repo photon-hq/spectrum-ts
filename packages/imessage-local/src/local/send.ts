@@ -6,7 +6,6 @@ import { type Content, toVCard } from "@spectrum-ts/core";
 import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import { unsupportedLocalContent } from "../../../imessage/src/shared/errors";
 import { vcardFileName } from "../../../imessage/src/shared/vcard";
-import type { IMessageMessage } from "../types";
 import { DEFAULT_ATTACHMENT_NAME } from "./attachments";
 
 // v3 `IMessageSDK.send` resolves to `void`: the chat.db row id only
@@ -73,12 +72,3 @@ export const send = async (
       throw unsupportedLocalContent(content.type);
   }
 };
-
-// Local mode has no by-id SDK lookup and does not surface reactions, so it
-// has no cache to consult. `space.getMessage(id)` always resolves to
-// `undefined` on local: callers with only an id cannot materialize a Message
-// here.
-export const getMessage = async (
-  _client: IMessageSDK,
-  _id: string
-): Promise<IMessageMessage | undefined> => undefined;

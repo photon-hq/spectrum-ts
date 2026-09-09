@@ -18,9 +18,9 @@ import {
 } from "./inbound";
 import { toMessageMetadata } from "./message-metadata";
 
-type ReactionAddedEvent = Extract<
+type ReactionEvent = Extract<
   MessageEvent,
-  { type: "message.reactionAdded" }
+  { type: "message.reactionAdded" | "message.reactionRemoved" }
 >;
 
 type TapbackKind = Exclude<SettableMessageReaction["kind"], "emoji">;
@@ -41,16 +41,18 @@ const TAPBACK_TO_EMOJI: Readonly<Record<string, string>> = Object.fromEntries(
 type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
 
 const reactionEmoji = (
-  reaction: ReactionAddedEvent["reaction"]
+  reaction: ReactionEvent["reaction"]
 ): string | undefined =>
   reaction.kind === "emoji" ? reaction.emoji : TAPBACK_TO_EMOJI[reaction.kind];
 
 const asProviderReaction = (
   emoji: string,
-  target: RawProviderMessage
+  target: RawProviderMessage,
+  removed: boolean
 ): ReactionContent =>
   reactionSchema.parse({
     emoji,
+    ...(removed ? { removed: true } : {}),
     target,
     type: "reaction",
   });
@@ -90,7 +92,7 @@ const resolveReactionTarget = async (
 export const toReactionMessages = async (
   client: AdvancedIMessage,
   cache: MessageCache,
-  event: ReactionAddedEvent,
+  event: ReactionEvent,
   phone: string
 ): Promise<IMessageMessage[]> => {
   const emoji = reactionEmoji(event.reaction);
@@ -127,7 +129,11 @@ export const toReactionMessages = async (
       },
       timestamp: event.occurredAt,
       id: `${event.messageGuid}:reaction:${event.sequence}${partSuffix}`,
-      content: asProviderReaction(emoji, resolved),
+      content: asProviderReaction(
+        emoji,
+        resolved,
+        event.type === "message.reactionRemoved"
+      ),
     },
   ];
 };
@@ -174,7 +180,7 @@ export const reactToMessage = async (
   return {
     ...toMessageMetadata(sent),
     id: sent.guid,
-    content: asProviderReaction(reaction, target),
+    content: asProviderReaction(reaction, target, false),
     direction: "outbound",
     space: { id: spaceId },
     timestamp: sent.dateCreated,

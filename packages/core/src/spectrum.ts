@@ -6,7 +6,6 @@ import {
   setupOtel,
   withSpan,
 } from "@photon-ai/otel";
-import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
@@ -19,6 +18,11 @@ import type {
   WebhookRawRequest,
   WebhookRawResult,
 } from "./fusor/types";
+import {
+  decodeFusorWebhookEvent,
+  FUSOR_DELIVERY_CE_TYPE,
+  type FusorWebhookEvent,
+} from "./fusor/webhook";
 import {
   buildSpace,
   type ProviderMessageRecord,
@@ -103,14 +107,16 @@ export type SpectrumInstance<
      *   against `Spectrum({ webhookSecret })` (a bad signature → 401), the slim
      *   payload is deserialized into `[space, message]`, and a `200` is returned.
      *   Works without any fusor provider configured.
-     * - **Fusor webhook** (the body is a protobuf envelope): a protobuf wrapping a
-     *   raw provider request is decoded and routed to the matching provider's
+     * - **Fusor webhook** (the body is a versioned JSON envelope): Fusor's
+     *   normalized request metadata plus exact original body bytes are validated
+     *   and routed to the matching provider's
      *   verify + message pipeline; the HTTP response is that platform's
      *   `respond()` reply (including protocol echoes like Slack
      *   `url_verification`), computed synchronously and returned immediately.
      *
-     * Detection is by payload shape, not headers — Spectrum signs both kinds with
-     * `X-Spectrum-Signature`, so the header can't discriminate.
+     * Fusor deliveries are selected by
+     * `ce-type: dev.spctrm.fusor.delivery`; every other request follows the
+     * native signed-webhook path.
      *
      * `handler` is invoked once per resolved message **fire-and-forget** — it is
      * dispatched after the response is computed and is NOT awaited, so its
@@ -978,8 +984,8 @@ export async function Spectrum<
     return result;
   };
 
-  // Read the RAW request bytes without re-encoding — both the protobuf decode
-  // (fusor) and the HMAC verification (native) need the exact bytes received.
+  // Read the RAW request bytes without re-encoding — both the Fusor envelope
+  // parser and the native HMAC verification need the exact bytes received.
   // `asWeb` records whether to reply with a Web `Response` or the raw result
   // shape; `headers` (keys lowercased) carry the native webhook's signature.
   const readWebhookInput = async (
@@ -1041,20 +1047,17 @@ export async function Spectrum<
     }
   };
 
-  // Decode the protobuf envelope; null = undecodable (poison → 400).
+  // Decode the versioned Fusor JSON envelope; null = malformed (poison → 400).
   const decodeWebhookEvent = (
     bodyBytes: Uint8Array
-  ): RawInboundEvent | null => {
-    try {
-      return RawInboundEvent.decode(bodyBytes);
-    } catch (error) {
-      lifecycleLog.warn(
-        "spectrum.webhook: undecodable RawInboundEvent body",
-        errorAttrs(error),
-        error
-      );
-      return null;
+  ): FusorWebhookEvent | null => {
+    const event = decodeFusorWebhookEvent(bodyBytes);
+    if (!event) {
+      lifecycleLog.warn("spectrum.webhook: malformed Fusor JSON envelope", {
+        "spectrum.webhook.reason": "invalid-fusor-envelope",
+      });
     }
+    return event;
   };
 
   // Run the shared fusor pipeline for a decoded event and map it to an HTTP
@@ -1062,11 +1065,11 @@ export async function Spectrum<
   // do not feed spectrum.messages).
   const processWebhookEvent = async (
     core: FusorCore,
-    event: RawInboundEvent,
+    event: FusorWebhookEvent,
     handler: WebhookHandler
   ): Promise<WebhookRawResult> => {
     const collected: ProviderMessageRecord[] = [];
-    const reply = await core.processEvent(event, (record) => {
+    const reply = await core.processRequest(event, event.request, (record) => {
       collected.push(record);
     });
 
@@ -1118,21 +1121,6 @@ export async function Spectrum<
   };
 
   // --- Native Spectrum webhook (signed, normalized JSON) -------------------
-
-  // Distinguish a native Spectrum webhook from a fusor one by the PAYLOAD, not a
-  // header: Spectrum signs both kinds with `x-spectrum-signature`, so the header
-  // can't tell them apart. A native body is a JSON object (`{…`); a fusor body is
-  // a binary protobuf `RawInboundEvent`, which never starts with `{`.
-  const looksLikeNativePayload = (bodyBytes: Uint8Array): boolean => {
-    for (const byte of bodyBytes) {
-      // Skip leading ASCII whitespace (space, tab, LF, CR).
-      if (byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d) {
-        continue;
-      }
-      return byte === 0x7b; // "{"
-    }
-    return false;
-  };
 
   const webhookText = (status: number, text: string): WebhookRawResult => ({
     status,
@@ -1289,9 +1277,10 @@ export async function Spectrum<
   ): Promise<Response | WebhookRawResult> => {
     const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
 
-    // Route by payload shape: a native webhook is JSON, a fusor one is protobuf.
-    // Both may carry an `x-spectrum-signature` header, so it can't discriminate.
-    if (looksLikeNativePayload(bodyBytes)) {
+    // Fusor JSON and native Spectrum payloads are both JSON. CloudEvents type is
+    // therefore the stable discriminator; native verification still happens on
+    // raw bytes before parsing.
+    if (headers["ce-type"] !== FUSOR_DELIVERY_CE_TYPE) {
       const spectrumResult = await handleSpectrumWebhook(
         bodyBytes,
         headers,
@@ -1300,19 +1289,19 @@ export async function Spectrum<
       return buildWebhookResult(asWeb, spectrumResult);
     }
 
-    if (!fusorCore) {
-      throw new Error(
-        "spectrum.webhook() received a non-Spectrum (fusor) request but no fusor provider is configured"
-      );
-    }
-
     const event = decodeWebhookEvent(bodyBytes);
     if (!event) {
       return buildWebhookResult(asWeb, {
         status: 400,
         headers: {},
-        body: new Uint8Array(0),
+        body: encodeText("malformed Fusor envelope"),
       });
+    }
+
+    if (!fusorCore) {
+      throw new Error(
+        "spectrum.webhook() received a non-Spectrum (fusor) request but no fusor provider is configured"
+      );
     }
 
     const result = await processWebhookEvent(fusorCore, event, handler);

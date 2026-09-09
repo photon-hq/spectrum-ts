@@ -22,10 +22,11 @@ local Messages database.
 ## Local lookups
 
 The provider supports `space.getMessage(id)`, chat display-name lookup, and
-attachment lookup through the local Messages database. Results are cached per
-client. Because `@photon-ai/imessage-kit` does not currently expose direct
-message- or attachment-GUID filters, uncached lookups use bounded pagination
-(up to 10,000 rows) and may return `undefined` for older records.
+attachment lookup through the local Messages database. Message and attachment
+results are cached per client. Because `@photon-ai/imessage-kit` does not
+currently expose direct message- or attachment-GUID filters, uncached lookups
+use bounded pagination (up to 10,000 rows) and may return `undefined` for older
+records.
 
 ## Inbound events
 

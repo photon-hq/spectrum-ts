@@ -7,6 +7,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { toMessages } from "@/local/inbound";
 import {
+  cacheLocalMessage,
   getLocalAttachment,
   getLocalDisplayName,
   getLocalMessage,
@@ -53,6 +54,28 @@ const client = (overrides: Partial<IMessageSDK>): IMessageSDK =>
   Object.assign(Object.create(null), overrides) as IMessageSDK;
 
 describe("local iMessage lookup", () => {
+  it("promotes cache hits before evicting the least recently used message", async () => {
+    const getMessages = vi.fn(() => Promise.resolve([]));
+    const sdk = client({ getMessages });
+    const first = message("message-0");
+    await cacheLocalMessage(sdk, first, await toMessages(first));
+    for (let index = 1; index < 1000; index += 1) {
+      const row = message(`message-${index}`);
+      await cacheLocalMessage(sdk, row, await toMessages(row));
+    }
+
+    await expect(
+      getLocalMessage(sdk, "any;-;+15551234567", "message-0", toMessages)
+    ).resolves.toMatchObject({ id: "message-0" });
+
+    const overflow = message("message-1000");
+    await cacheLocalMessage(sdk, overflow, await toMessages(overflow));
+    await expect(
+      getLocalMessage(sdk, "any;-;+15551234567", "message-0", toMessages)
+    ).resolves.toMatchObject({ id: "message-0" });
+    expect(getMessages).not.toHaveBeenCalled();
+  });
+
   it("finds a message by Apple GUID within its space", async () => {
     const getMessages = vi.fn(() => Promise.resolve([message("message-1")]));
 

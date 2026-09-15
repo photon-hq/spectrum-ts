@@ -5,12 +5,12 @@ import z from "zod";
  *
  * - the `definePlatform` name (so `message.platform` / `__platform` and
  *   the `platformStates` key are this value),
- * - the `fusor(...)` routing key the handler is registered under, and
- * - the value Fusor tags inbound Telegram events with (`event.platform`).
+ * - the `webhookClient(...)` routing key the handler is registered under, and
+ * - the value Photon tags inbound Telegram events with (`event.platform`).
  *
  * Spectrum's webhook delivery looks the runtime up by `event.platform` against
  * the platform name (`platformStates.get(event.platform)`), while routing is by
- * the fusor key — so these MUST be the same string. It must also match Fusor's
+ * the external webhook key — so these MUST be the same string. It must also match Photon's
  * configured platform identifier for Telegram (the `<platform>` path segment
  * the webhook is delivered under).
  */

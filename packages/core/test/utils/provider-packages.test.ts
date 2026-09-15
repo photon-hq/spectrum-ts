@@ -15,7 +15,7 @@ describe("normalizePlatformKey", () => {
     expect(normalizePlatformKey("Slack")).toBe("slack");
     expect(normalizePlatformKey("Terminal")).toBe("terminal");
     expect(normalizePlatformKey("WhatsApp Business")).toBe("whatsapp_business");
-    // fusor routing key
+    // external webhook routing key
     expect(normalizePlatformKey("telegram")).toBe("telegram");
     // cloud platform key
     expect(normalizePlatformKey("whatsapp_business")).toBe("whatsapp_business");

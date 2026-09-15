@@ -12,7 +12,7 @@ const config = configSchema.parse({ botToken: "999:abc" });
 const update = (over: Record<string, unknown>): Update =>
   ({ update_id: 1, ...over }) as unknown as Update;
 
-// `handleMessages` is a Fusor handler; it only reads `payload` + `config`, so a
+// `handleMessages` is an ExternalWebhook handler; it only reads `payload` + `config`, so a
 // minimal ctx (cast to the full ctx type) is enough to exercise it.
 const ctx = (over: Record<string, unknown>) =>
   ({ config, payload: update(over) }) as Parameters<typeof handleMessages>[0];

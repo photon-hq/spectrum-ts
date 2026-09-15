@@ -1,4 +1,8 @@
-import { definePlatform, type FusorClient, fusor } from "@spectrum-ts/core";
+import {
+  definePlatform,
+  type ExternalWebhookClient,
+  webhookClient,
+} from "@spectrum-ts/core";
 import { getChatDisplayName } from "./client";
 import { configSchema, TELEGRAM_PLATFORM } from "./config";
 import { handleMessages } from "./inbound/messages";
@@ -13,7 +17,7 @@ export type { TelegramConfig } from "./config";
 /**
  * Telegram provider for Spectrum.
  *
- * Inbound is delivered through Fusor: `createClient` returns a `fusor(...)`
+ * Inbound is delivered through event delivery: `createClient` returns a `webhookClient(...)`
  * client whose `verify` checks the Telegram webhook secret token and parses the
  * `Update` (pure parsing — no client). The `messages` handler reads `config`
  * from its ctx and builds a photon client inline only to download media bytes.
@@ -22,23 +26,23 @@ export type { TelegramConfig } from "./config";
  * `Spectrum({ providers: [...] })`.
  *
  * In cloud mode (`projectConfig` present), `createClient` also self-registers
- * the bot's webhook against the Fusor edge for the project slug — see
+ * the bot's webhook against the external webhook edge for the project slug — see
  * `ensureWebhook`. Without a slug (local/direct mode) registration is skipped.
  */
 export const telegram = definePlatform(TELEGRAM_PLATFORM, {
   config: configSchema,
   lifecycle: {
-    // Annotate the return so overload selection sees the `FusorClient` brand
-    // without deferring this (context-sensitive) arrow — picks the fusor overload.
+    // Annotate the return so overload selection sees the `ExternalWebhookClient` brand
+    // without deferring this (context-sensitive) arrow — picks the external webhook overload.
     createClient: async ({
       config,
       projectConfig,
-    }): Promise<FusorClient<TelegramPayload>> => {
+    }): Promise<ExternalWebhookClient<TelegramPayload>> => {
       const slug = projectConfig?.slug;
       if (slug) {
         await ensureWebhook(config, slug);
       }
-      return fusor<TelegramPayload>(TELEGRAM_PLATFORM, verify(config));
+      return webhookClient<TelegramPayload>(TELEGRAM_PLATFORM, verify(config));
     },
   },
   user: { resolve: resolveUser },

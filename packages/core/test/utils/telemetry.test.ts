@@ -71,8 +71,8 @@ describe("errorAttrs", () => {
   });
 
   it("honors a custom attribute prefix", () => {
-    const attrs = errorAttrs(new Error("x"), "spectrum.fusor.error");
-    expect(attrs["spectrum.fusor.error.type"]).toBe("Error");
+    const attrs = errorAttrs(new Error("x"), "spectrum.event_delivery.error");
+    expect(attrs["spectrum.event_delivery.error.type"]).toBe("Error");
     expect(attrs["spectrum.error.type"]).toBeUndefined();
   });
 });

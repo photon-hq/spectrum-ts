@@ -13,11 +13,11 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 `app.webhook()` lets you receive messages through HTTP `POST` requests instead of the `app.messages` stream. It handles two webhook formats through the same method:
 
-| | Native Spectrum webhook | Fusor webhook |
+| | Native Spectrum webhook | External webhook |
 |---|---|---|
 | Body | HMAC-signed, normalized JSON | Protobuf envelope (raw provider request) |
 | Auth | HMAC over body, verified with `webhookSecret` | Platform's own signature via provider `verify()` |
-| Requires a Fusor provider | No | Yes |
+| Requires an external webhook provider | No | Yes |
 
 Detection is by payload shape (JSON vs protobuf), not headers. Your handler receives the same `(space, message)` pair either way.
 
@@ -205,7 +205,7 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
 - **Signature verification.** Native webhooks are verified with `HMAC-SHA256` over `v0:<timestamp>:<rawBody>`, with a 5-minute replay window. Bad signature returns `401`, missing headers return `400`.
 - **Payload deserialization.** Native webhook JSON is deserialized into normal <TypeTooltip name="Message" type={`{{ message.signature }}`} /> and <TypeTooltip name="Space" type={`{{ space.signature }}`} /> objects, including reactions and grouped items.
 - **Attachment rehydration.** Native webhooks carry attachment metadata only. `read()` and `stream()` fetch the bytes lazily via the platform.
-- **Format detection.** Native vs Fusor is detected per request by payload shape — JSON for native, protobuf for Fusor.
+- **Format detection.** Native vs external webhook delivery is detected per request by payload shape — JSON for native, protobuf for external webhook delivery.
 
 ## Delivery semantics
 

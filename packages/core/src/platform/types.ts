@@ -224,7 +224,7 @@ export type SchemaMessage<
 >;
 
 // A custom event channel is declared either as a long-lived producer (regular
-// platforms) or — for fusor platforms — as a Zod schema whose inferred type is
+// platforms) or — for external webhook platforms — as a Zod schema whose inferred type is
 // the channel payload. Check the schema form first (a ZodType is not callable).
 type InferEventPayload<T> = T extends z.ZodType
   ? z.infer<T>
@@ -247,7 +247,7 @@ export interface CreateClientContext<_ConfigSchema extends z.ZodType<object>> {
   /**
    * The resolved cloud project record (slug, profile, …) when `Spectrum()` runs
    * with `projectId` + `projectSecret`; `undefined` in local/direct mode. Lets
-   * `createClient` self-register provider webhooks against the Fusor edge keyed
+   * `createClient` self-register provider webhooks against the external webhook edge keyed
    * by `projectConfig.slug` — see Telegram.
    */
   projectConfig: ProjectData | undefined;
@@ -294,8 +294,8 @@ export interface PlatformDef<
   _Events extends
     | (Record<
         string,
-        // Regular platforms supply a producer; fusor platforms declare a Zod
-        // schema (the channel payload type) and emit via `fusorEvent(...)`. The
+        // Regular platforms supply a producer; external webhook platforms declare a Zod
+        // schema (the channel payload type) and emit via `providerEvent(...)`. The
         // schema must produce an object — event payloads are spread with a
         // `platform` tag, so non-object outputs (e.g. `z.string()`) are invalid.
         | EventProducer<unknown, _Client, z.infer<_ConfigSchema>>
@@ -396,11 +396,11 @@ export interface PlatformDef<
    * - **Default mode**: returns an `AsyncIterable<ProviderMessageRecord>` —
    *   Spectrum wraps each emitted record into a fully-built `Message` and
    *   fans it out via `spectrum.messages`.
-   * - **Fusor mode**: when `lifecycle.createClient` returns a `FusorClient`
-   *   (constructed via `fusor(platform, verify)`), the signature switches to a
+   * - **External webhook mode**: when `lifecycle.createClient` returns an `ExternalWebhookClient`
+   *   (constructed via `webhookClient(platform, verify)`), the signature switches to a
    *   per-payload callback `(ctx: { payload, respond }) => …` whose return
    *   value is the message(s) to emit and whose optional `respond` call
-   *   customises the HTTP reply sent back to fusor.
+   *   customises the HTTP reply sent back to the webhook caller.
    *
    * One of the two universal platform contracts (along with `send`). 99% of
    * integrations only need to implement `messages` + `send`.
@@ -504,8 +504,8 @@ export interface AnyPlatformDef {
   config: z.ZodType<object>;
 
   // Optional escape hatches. A channel is either a producer (regular platforms)
-  // or an object-output Zod schema declaring the payload of a fusor
-  // `fusorEvent(...)` channel.
+  // or an object-output Zod schema declaring the payload of an external webhook
+  // `providerEvent(...)` channel.
   events?: {
     // biome-ignore lint/suspicious/noExplicitAny: wildcard event
     [key: string]: ((ctx: any) => AsyncIterable<any>) | z.ZodType<object>;
@@ -908,10 +908,10 @@ export interface PlatformRuntime {
   // top-level `spectrum.<event>` streams (the `EventProducer` contract).
   projectConfig: ProjectData | undefined;
   store: Store;
-  // Fanout subscription to a fusor custom event channel (declared as a schema
+  // Fanout subscription to an external webhook custom event channel (declared as a schema
   // under `events`). Returns `undefined` when the platform has no such channel
   // (e.g. every regular, producer-based platform). Fed by the `messages`
-  // handler returning `fusorEvent(channel, data)`.
+  // handler returning `providerEvent(channel, data)`.
   subscribeEvent?: (channel: string) => AsyncIterable<unknown> | undefined;
   subscribeMessages: () => ManagedStream<[Space, Message]>;
 }

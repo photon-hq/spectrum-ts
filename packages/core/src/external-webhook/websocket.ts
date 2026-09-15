@@ -7,7 +7,7 @@ import { errorAttrs } from "../utils/telemetry";
 
 // fusor.v1.json WebSocket transport — the streaming transport.
 //
-// Speaks fusor-fanout-websocket's public protocol (fusor repo,
+// Speaks Event Delivery WebSocket's public protocol (delivery service,
 // apps/fanout-websocket/BEHAVIOR.md): a standards WebSocket at
 // `wss://…/v1/subscribe`, subprotocol `fusor.v1.json`, JSON text frames.
 // The cursor (`startSeq` / `event.seq`) and the reply path carry the same
@@ -18,9 +18,9 @@ import { errorAttrs } from "../utils/telemetry";
 // Authorization header so the transport works in runtimes that can't set
 // upgrade headers.
 
-const log = createLogger("spectrum.fusor.ws");
+const log = createLogger("spectrum.event_delivery.ws");
 
-export const FUSOR_WS_SUBPROTOCOL = "fusor.v1.json";
+export const EVENT_DELIVERY_WS_SUBPROTOCOL = "fusor.v1.json";
 
 // Staleness watchdog: the server sends app-level heartbeat frames (the
 // cadence is advertised in `ready`); no frame of any kind for
@@ -30,13 +30,13 @@ export const FUSOR_WS_SUBPROTOCOL = "fusor.v1.json";
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const STALENESS_GRACE_MS = 5000;
 
-export class FusorWsError extends Error {
+export class EventDeliveryWebSocketError extends Error {
   readonly closeCode?: number;
   readonly errorCode?: string;
 
   constructor(message: string, closeCode?: number, errorCode?: string) {
     super(message);
-    this.name = "FusorWsError";
+    this.name = "EventDeliveryWebSocketError";
     this.closeCode = closeCode;
     this.errorCode = errorCode;
   }
@@ -47,7 +47,7 @@ export class FusorWsError extends Error {
 // before retrying.
 export function isWsAuthError(error: unknown): boolean {
   return (
-    error instanceof FusorWsError &&
+    error instanceof EventDeliveryWebSocketError &&
     (error.closeCode === 4401 || error.errorCode === "unauthenticated")
   );
 }
@@ -102,7 +102,7 @@ function toRawInboundEvent(frame: WsEventFrame): RawInboundEvent {
   };
 }
 
-export interface FusorWsSessionOptions {
+export interface EventDeliveryWebSocketSessionOptions {
   /**
    * Called for every event frame, in arrival order. `sendReply` is set
    * only when the server flagged `replyExpected` — replying to anything
@@ -117,19 +117,19 @@ export interface FusorWsSessionOptions {
   url: string;
 }
 
-export interface FusorWsSession {
+export interface EventDeliveryWebSocketSession {
   close(): void;
   /** Resolves on `close()`; rejects when the session dies on its own. */
   done: Promise<void>;
 }
 
-export function runFusorWsSession(
-  options: FusorWsSessionOptions
-): FusorWsSession {
+export function runEventDeliveryWebSocketSession(
+  options: EventDeliveryWebSocketSessionOptions
+): EventDeliveryWebSocketSession {
   const WebSocketCtor = globalThis.WebSocket;
   if (typeof WebSocketCtor !== "function") {
-    throw new FusorWsError(
-      "global WebSocket is not available in this runtime — the fusor websocket transport needs Bun, Node >= 22, or a browser/worker environment"
+    throw new EventDeliveryWebSocketError(
+      "global WebSocket is not available in this runtime — the external webhook websocket transport needs Bun, Node >= 22, or a browser/worker environment"
     );
   }
 
@@ -138,7 +138,7 @@ export function runFusorWsSession(
   // error above can fire.
   const wsOpen = WebSocketCtor.OPEN;
 
-  const ws = new WebSocketCtor(options.url, [FUSOR_WS_SUBPROTOCOL]);
+  const ws = new WebSocketCtor(options.url, [EVENT_DELIVERY_WS_SUBPROTOCOL]);
 
   let settled = false;
   let closedByUs = false;
@@ -183,10 +183,13 @@ export function runFusorWsSession(
       clearTimeout(watchdog);
     }
     watchdog = setTimeout(() => {
-      log.warn("fusor ws: no frame within staleness budget; closing", {
-        "spectrum.fusor.ws.staleness_budget_ms": stalenessBudgetMs,
-      });
-      settle(new FusorWsError("websocket heartbeat timeout"));
+      log.warn(
+        "external webhook ws: no frame within staleness budget; closing",
+        {
+          "spectrum.event_delivery.ws.staleness_budget_ms": stalenessBudgetMs,
+        }
+      );
+      settle(new EventDeliveryWebSocketError("websocket heartbeat timeout"));
       try {
         ws.close();
       } catch {
@@ -219,10 +222,10 @@ export function runFusorWsSession(
     if (typeof interval === "number" && interval > 0) {
       stalenessBudgetMs = 2 * interval + STALENESS_GRACE_MS;
     }
-    log.info("fusor ws stream ready", {
-      "spectrum.fusor.ws.project_id":
+    log.info("external webhook ws stream ready", {
+      "spectrum.event_delivery.ws.project_id":
         typeof frame.projectId === "string" ? frame.projectId : "",
-      "spectrum.fusor.ws.heartbeat_interval_ms":
+      "spectrum.event_delivery.ws.heartbeat_interval_ms":
         typeof interval === "number" ? interval : 0,
     });
   };
@@ -234,7 +237,7 @@ export function runFusorWsSession(
       event = toRawInboundEvent(eventFrame);
     } catch (error) {
       log.warn(
-        "fusor ws: undecodable event frame; skipping",
+        "external webhook ws: undecodable event frame; skipping",
         errorAttrs(error),
         error
       );
@@ -247,8 +250,11 @@ export function runFusorWsSession(
       .then(() => options.onEvent(event, sendReply))
       .catch((error) => {
         log.warn(
-          "fusor ws: event handler failed",
-          { "spectrum.fusor.ws.event_id": event.eventId, ...errorAttrs(error) },
+          "external webhook ws: event handler failed",
+          {
+            "spectrum.event_delivery.ws.event_id": event.eventId,
+            ...errorAttrs(error),
+          },
           error
         );
       });
@@ -264,10 +270,10 @@ export function runFusorWsSession(
     } else {
       // Typed non-fatal notice (reply_unknown_event, frame_invalid, …)
       // — the stream keeps running; surface it for debugging.
-      log.warn("fusor ws: server notice", {
-        "spectrum.fusor.ws.notice_code": code,
-        "spectrum.fusor.ws.notice_message": message,
-        "spectrum.fusor.ws.notice_reason": reason,
+      log.warn("external webhook ws: server notice", {
+        "spectrum.event_delivery.ws.notice_code": code,
+        "spectrum.event_delivery.ws.notice_message": message,
+        "spectrum.event_delivery.ws.notice_reason": reason,
       });
     }
   };
@@ -281,7 +287,7 @@ export function runFusorWsSession(
     try {
       frame = JSON.parse(raw) as typeof frame;
     } catch {
-      log.warn("fusor ws: unparseable server frame; ignoring");
+      log.warn("external webhook ws: unparseable server frame; ignoring");
       return;
     }
     switch (frame.type) {
@@ -315,7 +321,7 @@ export function runFusorWsSession(
 
   ws.onerror = () => {
     // Detail-free by spec; the close event that follows carries the code.
-    log.debug("fusor ws: socket error event");
+    log.debug("external webhook ws: socket error event");
   };
 
   ws.onclose = (closeEvent: CloseEvent) => {
@@ -327,8 +333,8 @@ export function runFusorWsSession(
       ? `${pendingError.code}${pendingError.reason ? `:${pendingError.reason}` : ""} — ${pendingError.message}`
       : closeEvent.reason || "connection closed";
     settle(
-      new FusorWsError(
-        `fusor websocket closed (${closeEvent.code}): ${detail}`,
+      new EventDeliveryWebSocketError(
+        `external webhook websocket closed (${closeEvent.code}): ${detail}`,
         closeEvent.code,
         pendingError?.code ?? (closeEvent.reason || undefined)
       )

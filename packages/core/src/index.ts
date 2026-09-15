@@ -72,20 +72,25 @@ export { type Unsend, unsend } from "./content/unsend";
 export { type Voice, voice } from "./content/voice";
 export { Emoji, type EmojiKey } from "./emoji";
 export type {
-  FusorClient,
-  FusorEvent,
-  FusorMessages,
-  FusorMessagesCtx,
-  FusorMessagesReturn,
-  FusorReply,
-  FusorRespond,
-  FusorVerify,
-  FusorVerifyRequest,
+  ExternalWebhookClient,
+  ExternalWebhookMessages,
+  ExternalWebhookMessagesCtx,
+  ExternalWebhookMessagesReturn,
+  ExternalWebhookReply,
+  ExternalWebhookRespond,
+  ExternalWebhookVerify,
+  ExternalWebhookVerifyRequest,
+  ProviderEvent,
   WebhookHandler,
   WebhookRawRequest,
   WebhookRawResult,
-} from "./fusor";
-export { fusor, fusorEvent, isFusorClient, isFusorEvent } from "./fusor";
+} from "./external-webhook";
+export {
+  isExternalWebhookClient,
+  isProviderEvent,
+  providerEvent,
+  webhookClient,
+} from "./external-webhook";
 export { definePlatform } from "./platform/define";
 export type {
   AnyPlatformDef,
@@ -109,7 +114,7 @@ export type { AgentSender, User } from "./types/user";
 export type {
   CloudPlatform,
   DedicatedTokenData,
-  FusorTokenData,
+  EventDeliveryTokenData,
   ImessageInfoData,
   PlatformStatus,
   PlatformsData,
@@ -124,7 +129,7 @@ export type {
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";
 export { UnsupportedError, type UnsupportedKind } from "./utils/errors";
-// `Store` appears in the public `Platform*`/`Fusor*` types (per-instance
+// `Store` appears in the public `Platform*`/`ExternalWebhook*` types (per-instance
 // state handed to lifecycle hooks); exporting it keeps provider packages'
 // declaration output portable (TS2742) without reaching into core internals.
 export type { Store } from "./utils/store";

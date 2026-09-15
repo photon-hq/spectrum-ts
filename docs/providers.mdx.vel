@@ -29,7 +29,7 @@ roadmap.
     Place and receive calls over SIP using a Spectrum iMessage line.
   </Card>
   <Card title="Telegram" icon="paper-plane" href="/spectrum-ts/providers/telegram">
-    Use the Telegram Bot API with Fusor webhooks, media, reactions, replies, typing, and edits.
+    Use the Telegram Bot API with External webhooks, media, reactions, replies, typing, and edits.
   </Card>
 </CardGroup>
 

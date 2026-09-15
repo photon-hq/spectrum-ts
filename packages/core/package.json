@@ -1,7 +1,7 @@
 {
   "name": "@spectrum-ts/core",
   "version": "12.9.0",
-  "description": "The spectrum-ts runtime — Spectrum, content builders, fusor, and the provider authoring API.",
+  "description": "The spectrum-ts runtime — Spectrum, content builders, external webhook, and the provider authoring API.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",

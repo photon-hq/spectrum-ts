@@ -7,7 +7,7 @@
 // mounts `express.raw({ type: "*/*" })` on its own route — Spectrum verifies the
 // native webhook's HMAC over the EXACT wire bytes
 // (`HMAC-SHA256(secret, "v0:<ts>:<rawBody>")`), so a parsed-and-re-encoded body
-// would break verification (and the fusor protobuf body would fail to decode).
+// would break verification (and the external webhook protobuf body would fail to decode).
 //
 // ⚠️ Ordering hazard (the Express analog of Elysia's parse lifecycle): a global
 // `express.json()` mounted BEFORE this router consumes the request stream first,
@@ -48,7 +48,7 @@ export interface SpectrumPluginOptions {
   /**
    * Invoked once per inbound message, fire-and-forget after the response — the
    * same `(space, message)` contract as `app.webhook(request, handler)`. Covers
-   * both native Spectrum webhooks and fusor webhooks identically.
+   * both native Spectrum webhooks and external webhook webhooks identically.
    */
   onMessage: WebhookHandler;
   /**

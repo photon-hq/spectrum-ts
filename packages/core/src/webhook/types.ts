@@ -4,7 +4,7 @@ import z from "zod";
  * Wire schemas for the **native Spectrum webhook**
  * (https://photon.codes/docs/webhooks).
  *
- * Unlike the fusor webhook — which relays a raw provider request inside a
+ * Unlike the external webhook webhook — which relays a raw provider request inside a
  * protobuf envelope — the native webhook delivers Spectrum's own message model
  * already normalized to slim JSON (methods and byte payloads stripped), signed
  * with an HMAC. These schemas validate the fields the deserializer depends on

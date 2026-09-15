@@ -220,14 +220,14 @@ const msg = await mine.getMessage(space, "msg-123");
 const thread = await mine.lookupThread("thread-456");
 ```
 
-## Fusor-backed providers
+## External webhook providers
 
-{% set fusorMessages = symbol("ts:spectrum-ts#FusorMessages") %}
-{% set fusorMessagesCtx = symbol("ts:spectrum-ts#FusorMessagesCtx") %}
-When your platform receives inbound messages through webhooks (rather than a persistent connection), use `fusor(...)` as the client in `lifecycle.createClient`. A Fusor client handles webhook signature verification and delivers parsed payloads to a <TypeTooltip name="FusorMessages" type={`{{ fusorMessages.signature }}`} /> handler:
+{% set externalWebhookMessages = symbol("ts:spectrum-ts#ExternalWebhookMessages") %}
+{% set externalWebhookMessagesCtx = symbol("ts:spectrum-ts#ExternalWebhookMessagesCtx") %}
+When your platform receives inbound messages through webhooks (rather than a persistent connection), use `webhookClient(...)` as the client in `lifecycle.createClient`. An external webhook client handles webhook signature verification and delivers parsed payloads to a <TypeTooltip name="ExternalWebhookMessages" type={`{{ externalWebhookMessages.signature }}`} /> handler:
 
 ```ts
-import { definePlatform, fusor } from "spectrum-ts";
+import { definePlatform, webhookClient } from "spectrum-ts";
 import z from "zod";
 
 export const myWebhookPlatform = definePlatform("my_webhook_platform", {
@@ -237,7 +237,7 @@ export const myWebhookPlatform = definePlatform("my_webhook_platform", {
 
   lifecycle: {
     createClient: async ({ config }) =>
-      fusor("my_webhook_platform", (req) => {
+      webhookClient("my_webhook_platform", (req) => {
         verifySignature(req.rawBody, req.headers, config.webhookSecret);
         return JSON.parse(new TextDecoder().decode(req.rawBody));
       }),
@@ -268,12 +268,12 @@ export const myWebhookPlatform = definePlatform("my_webhook_platform", {
 });
 ```
 
-The Fusor overload of `definePlatform` replaces the top-level `messages` async generator with a per-webhook-delivery handler. It receives a <TypeTooltip name="FusorMessagesCtx" type={`{{ fusorMessagesCtx.signature }}`} />. Call `respond()` to set the HTTP response sent back to the webhook caller.
+The external webhook overload of `definePlatform` replaces the top-level `messages` async generator with a per-webhook-delivery handler. It receives a <TypeTooltip name="ExternalWebhookMessagesCtx" type={`{{ externalWebhookMessagesCtx.signature }}`} />. Call `respond()` to set the HTTP response sent back to the webhook caller.
 
-<Accordion title="FusorMessagesCtx" description="Context passed to a Fusor message handler for one webhook delivery.">
+<Accordion title="ExternalWebhookMessagesCtx" description="Context passed to an external webhook message handler for one webhook delivery.">
   | Field | Type | Description |
   |---|---|---|
-  {% for m in fusorMessagesCtx.members -%}
+  {% for m in externalWebhookMessagesCtx.members -%}
   | `{{ m.name }}` | `{{ m.type.text | replace("\n", " ") | replace("    ", "") | replace("|", "\\|") | replace("<", "&lt;") | replace(">", "&gt;") }}` | {% if m.doc.summary %}{{ m.doc.summary }}{% else %}-{% endif %} |
   {% endfor %}
 </Accordion>

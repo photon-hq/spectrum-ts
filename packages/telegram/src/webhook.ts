@@ -3,15 +3,15 @@ import { telegramClient } from "./client";
 import { TELEGRAM_PLATFORM, type TelegramConfig } from "./config";
 
 /**
- * Base domain of the Fusor "super webhook" edge. Telegram delivers updates to
- * `https://{slug}.{domain}/{platform}`, where Fusor forwards them on to
+ * Base domain of the external webhook edge. Telegram delivers updates to
+ * `https://{slug}.{domain}/{platform}`, where Photon forwards them on to
  * Spectrum. Override per-environment (e.g. `staging.spctrm.dev`) via
  * `SPECTRUM_SUPER_WEBHOOK`.
  */
 const DEFAULT_SUPER_WEBHOOK_DOMAIN = "spctrm.dev";
 
 /**
- * The Bot API webhook URL Telegram should POST updates to: the Fusor edge keyed
+ * The Bot API webhook URL Telegram should POST updates to: the external webhook edge keyed
  * by the project `slug`, on the Telegram platform path segment.
  */
 export const webhookUrl = (slug: string): string => {
@@ -21,7 +21,7 @@ export const webhookUrl = (slug: string): string => {
 };
 
 /**
- * Make Telegram deliver this bot's updates to the Fusor edge for `slug`.
+ * Make Telegram deliver this bot's updates to the external webhook edge for `slug`.
  *
  * Idempotent: reads the current webhook via `getWebhookInfo` and only calls
  * `setWebhook` when the URL differs, so a restart with an already-registered

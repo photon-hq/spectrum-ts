@@ -3,28 +3,28 @@ import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { ProjectData } from "../utils/cloud";
 import type { Store } from "../utils/store";
-import type { FusorEvent } from "./event";
+import type { ProviderEvent } from "./event";
 
-export interface FusorVerifyRequest {
+export interface ExternalWebhookVerifyRequest {
   headers: Record<string, string>;
   method: string;
   path: string;
   rawBody: Uint8Array;
 }
 
-export type FusorVerify<TPayload = unknown> = (
-  req: FusorVerifyRequest
+export type ExternalWebhookVerify<TPayload = unknown> = (
+  req: ExternalWebhookVerifyRequest
 ) => TPayload | Promise<TPayload>;
 
-export interface FusorReply {
+export interface ExternalWebhookReply {
   body?: string | Uint8Array;
   headers?: Record<string, string>;
   status?: number;
 }
 
-export type FusorRespond = (reply: FusorReply) => void;
+export type ExternalWebhookRespond = (reply: ExternalWebhookReply) => void;
 
-export interface FusorMessagesCtx<TPayload, TConfig = unknown> {
+export interface ExternalWebhookMessagesCtx<TPayload, TConfig = unknown> {
   /** Parsed provider config (`z.infer` of the platform's config schema). */
   config: TConfig;
   payload: TPayload;
@@ -34,27 +34,29 @@ export interface FusorMessagesCtx<TPayload, TConfig = unknown> {
    * project-level toggles from `projectConfig.profile.<key>`.
    */
   projectConfig: ProjectData | undefined;
-  respond: FusorRespond;
+  respond: ExternalWebhookRespond;
   /** Per-platform in-memory key/value store, shared with the rest of the platform. */
   store: Store;
 }
 
-export type FusorMessagesReturn =
+export type ExternalWebhookMessagesReturn =
   | ProviderMessageRecord
-  | FusorEvent
-  | (ProviderMessageRecord | FusorEvent)[]
+  | ProviderEvent
+  | (ProviderMessageRecord | ProviderEvent)[]
   | undefined;
 
-export type FusorMessages<TPayload, TConfig = unknown> = (
-  ctx: FusorMessagesCtx<TPayload, TConfig>
-) => FusorMessagesReturn | Promise<FusorMessagesReturn>;
+export type ExternalWebhookMessages<TPayload, TConfig = unknown> = (
+  ctx: ExternalWebhookMessagesCtx<TPayload, TConfig>
+) => ExternalWebhookMessagesReturn | Promise<ExternalWebhookMessagesReturn>;
 
-export const FUSOR_BRAND: unique symbol = Symbol.for("spectrum.fusor.client");
+export const EXTERNAL_WEBHOOK_BRAND: unique symbol = Symbol.for(
+  "spectrum.fusor.client"
+);
 
-export interface FusorClient<TPayload = unknown> {
+export interface ExternalWebhookClient<TPayload = unknown> {
   readonly platform: string;
-  readonly verify: FusorVerify<TPayload>;
-  readonly [FUSOR_BRAND]: true;
+  readonly verify: ExternalWebhookVerify<TPayload>;
+  readonly [EXTERNAL_WEBHOOK_BRAND]: true;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,13 +86,13 @@ export type WebhookHandler = (
 /**
  * Raw webhook input for HTTP servers without Web `Request`/`Response` (Express,
  * raw Node). `body` MUST be the exact bytes POSTed — never a re-encoded
- * JSON/text body — so both the protobuf decode (fusor) and the HMAC
+ * JSON/text body — so both the protobuf decode (external webhook) and the HMAC
  * verification (native Spectrum webhook) work.
  *
  * `headers` ARE read for **native Spectrum webhooks**: `X-Spectrum-Signature` /
  * `X-Spectrum-Timestamp` carry the HMAC verified against
  * `Spectrum({ webhookSecret })`, and the signature header also selects the
- * native path. For **fusor** envelopes they are ignored (authenticity is the
+ * native path. For **external webhook** envelopes they are ignored (authenticity is the
  * per-platform `verify()` reading the inner reconstructed request). The natural
  * `{ headers: req.headers, body: req.body }` shape works for both.
  */

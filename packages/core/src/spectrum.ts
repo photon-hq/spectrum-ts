@@ -10,15 +10,18 @@ import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
 import z from "zod";
 import { SPECTRUM_BUILD_ENV, SPECTRUM_SDK_VERSION } from "./build-env";
 import type { ContentInput } from "./content/types";
-import { FusorCore, type RegisteredFusorHandler } from "./fusor/core";
-import { isFusorClient } from "./fusor/index";
+import {
+  ExternalWebhookCore,
+  type RegisteredExternalWebhookHandler,
+} from "./external-webhook/core";
+import { isExternalWebhookClient } from "./external-webhook/index";
 import type {
-  FusorClient,
-  FusorMessages,
+  ExternalWebhookClient,
+  ExternalWebhookMessages,
   WebhookHandler,
   WebhookRawRequest,
   WebhookRawResult,
-} from "./fusor/types";
+} from "./external-webhook/types";
 import {
   buildSpace,
   type ProviderMessageRecord,
@@ -102,8 +105,8 @@ export type SpectrumInstance<
      *   POSTs already-normalized, HMAC-signed JSON. The signature is verified
      *   against `Spectrum({ webhookSecret })` (a bad signature → 401), the slim
      *   payload is deserialized into `[space, message]`, and a `200` is returned.
-     *   Works without any fusor provider configured.
-     * - **Fusor webhook** (the body is a protobuf envelope): a protobuf wrapping a
+     *   Works without any external webhook provider configured.
+     * - **External webhook** (the body is a protobuf envelope): a protobuf wrapping a
      *   raw provider request is decoded and routed to the matching provider's
      *   verify + message pipeline; the HTTP response is that platform's
      *   `respond()` reply (including protocol echoes like Slack
@@ -326,10 +329,10 @@ export async function Spectrum<
 
   const platformStates = new Map<string, PlatformRuntime>();
 
-  // Per-platform fusor message queues (populated only for fusor-mode platforms).
+  // Per-platform external webhook message queues (populated only for external webhook-mode platforms).
   // When set, the message stream pulls from this queue instead of calling
   // `def.messages({ client, config, store })`.
-  const fusorMessageSources = new Map<
+  const externalWebhookMessageSources = new Map<
     string,
     AsyncQueue<ProviderMessageRecord>
   >();
@@ -337,10 +340,13 @@ export async function Spectrum<
   // Per-platform message broadcasters (lazy: created on first subscribe).
   const messageBroadcasters = new Map<string, Broadcaster<[Space, Message]>>();
 
-  // Per-(platform, channel) fusor event queues (populated for fusor platforms
+  // Per-(platform, channel) external webhook event queues (populated for external webhook platforms
   // that declare `events`). Fed by a `messages` handler returning
-  // `fusorEvent(channel, data)`; drained as `spectrum.<channel>`.
-  const fusorEventSources = new Map<string, Map<string, AsyncQueue<unknown>>>();
+  // `providerEvent(channel, data)`; drained as `spectrum.<channel>`.
+  const externalWebhookEventSources = new Map<
+    string,
+    Map<string, AsyncQueue<unknown>>
+  >();
 
   // Per-(platform, channel) event broadcasters (lazy: created on first subscribe).
   const eventBroadcasters = new Map<string, Broadcaster<unknown>>();
@@ -455,9 +461,11 @@ export async function Spectrum<
     store: Store;
   }): ManagedStream<[Space, Message]> => {
     const { client, config, definition, store } = state;
-    const fusorSource = fusorMessageSources.get(definition.name);
-    const raw = fusorSource
-      ? fusorSource.iterable
+    const externalWebhookSource = externalWebhookMessageSources.get(
+      definition.name
+    );
+    const raw = externalWebhookSource
+      ? externalWebhookSource.iterable
       : (definition.messages({
           client,
           config,
@@ -501,7 +509,7 @@ export async function Spectrum<
     return broadcaster;
   };
 
-  // Broadcast a fusor platform's per-channel event queue so both the
+  // Broadcast an external webhook platform's per-channel event queue so both the
   // spectrum-level `spectrum.<channel>` stream and the instance-level
   // `platform.<channel>` property can consume it independently. Returns
   // undefined when the platform declared no such channel (every regular
@@ -510,7 +518,7 @@ export async function Spectrum<
     platform: string,
     channel: string
   ): Broadcaster<unknown> | undefined => {
-    const queue = fusorEventSources.get(platform)?.get(channel);
+    const queue = externalWebhookEventSources.get(platform)?.get(channel);
     if (!queue) {
       return;
     }
@@ -571,9 +579,9 @@ export async function Spectrum<
           projectConfig,
           subscribeMessages: () =>
             getOrCreateMessageBroadcast(state).subscribe(),
-          // Fanout subscription to a fusor event channel. Returns undefined for
+          // Fanout subscription to an external webhook event channel. Returns undefined for
           // regular platforms (no per-channel queue) — callers fall back to the
-          // producer path. Resolved lazily, after the fusor bootstrap below has
+          // producer path. Resolved lazily, after the external webhook bootstrap below has
           // created the per-(platform, channel) queues.
           subscribeEvent: (channel: string) =>
             getOrCreateEventBroadcast(def.name, channel)?.subscribe(),
@@ -582,35 +590,38 @@ export async function Spectrum<
     }
   );
 
-  // Bootstrap fusor: if any provider's createClient returned a FusorClient,
+  // Bootstrap external webhook: if any provider's createClient returned an ExternalWebhookClient,
   // register a handler per platform so both transports can route to it. The
   // gRPC stream is NOT opened here — it starts lazily on the first
-  // spectrum.messages subscription (ensureFusorStarted). spectrum.webhook()
+  // spectrum.messages subscription (ensureExternalWebhookStarted). spectrum.webhook()
   // drives the same handlers synchronously and never opens the stream.
-  let fusorCore: FusorCore | undefined;
-  let fusorStartPromise: Promise<void> | undefined;
-  const fusorPlatforms: { name: string; client: FusorClient }[] = [];
+  let externalWebhookCore: ExternalWebhookCore | undefined;
+  let externalWebhookStartPromise: Promise<void> | undefined;
+  const externalWebhookPlatforms: {
+    name: string;
+    client: ExternalWebhookClient;
+  }[] = [];
   for (const [name, state] of platformStates) {
-    if (isFusorClient(state.client)) {
-      fusorPlatforms.push({ name, client: state.client });
+    if (isExternalWebhookClient(state.client)) {
+      externalWebhookPlatforms.push({ name, client: state.client });
     }
   }
 
-  if (fusorPlatforms.length > 0) {
-    fusorCore = new FusorCore({ projectId, projectSecret });
-    for (const { name, client } of fusorPlatforms) {
+  if (externalWebhookPlatforms.length > 0) {
+    externalWebhookCore = new ExternalWebhookCore({ projectId, projectSecret });
+    for (const { name, client } of externalWebhookPlatforms) {
       const queue = createAsyncQueue<ProviderMessageRecord>();
-      fusorMessageSources.set(name, queue);
+      externalWebhookMessageSources.set(name, queue);
 
       const runtime = platformStates.get(name);
       if (!runtime) {
         continue;
       }
       const userMessages = runtime.definition
-        .messages as unknown as FusorMessages<unknown>;
+        .messages as unknown as ExternalWebhookMessages<unknown>;
 
       // One queue per declared event channel (schema-valued `events` keys).
-      // `pushEvent` routes a `fusorEvent(channel, data)` here; an undeclared
+      // `pushEvent` routes a `providerEvent(channel, data)` here; an undeclared
       // channel (a typo in the handler) is warned and dropped rather than
       // silently lost.
       const declaredEvents = (runtime.definition.events ?? {}) as Record<
@@ -621,12 +632,12 @@ export async function Spectrum<
       for (const channel of Object.keys(declaredEvents)) {
         eventQueues.set(channel, createAsyncQueue<unknown>());
       }
-      fusorEventSources.set(name, eventQueues);
+      externalWebhookEventSources.set(name, eventQueues);
 
-      const handler: RegisteredFusorHandler = {
+      const handler: RegisteredExternalWebhookHandler = {
         verify: client.verify,
         // Enrich the transport-level `{ payload, respond }` ctx with the same
-        // runtime context every other platform callback receives, so fusor
+        // runtime context every other platform callback receives, so external webhook
         // handlers can read config/store/projectConfig directly instead of
         // smuggling state through the payload.
         messages: async (ctx) =>
@@ -641,7 +652,7 @@ export async function Spectrum<
           const eventQueue = eventQueues.get(channel);
           if (!eventQueue) {
             lifecycleLog.warn(
-              `spectrum: fusorEvent("${channel}", …) names a channel not declared in "${name}".events; dropping`,
+              `spectrum: providerEvent("${channel}", …) names a channel not declared in "${name}".events; dropping`,
               {
                 "spectrum.lifecycle.platform": name,
                 "spectrum.lifecycle.channel": channel,
@@ -652,22 +663,22 @@ export async function Spectrum<
           eventQueue.push(data);
         },
       };
-      fusorCore.register(client.platform, handler);
+      externalWebhookCore.register(client.platform, handler);
     }
   }
 
-  // Open the fusor gRPC stream on demand — exactly once, on the first
+  // Open the external webhook gRPC stream on demand — exactly once, on the first
   // spectrum.messages subscription. Requires cloud credentials (enforced in
-  // FusorCore.start). Webhook-only setups never call this, so they never
+  // ExternalWebhookCore.start). Webhook-only setups never call this, so they never
   // connect and don't need credentials.
-  const ensureFusorStarted = (): Promise<void> => {
-    if (!fusorCore) {
+  const ensureExternalWebhookStarted = (): Promise<void> => {
+    if (!externalWebhookCore) {
       return Promise.resolve();
     }
-    if (!fusorStartPromise) {
-      fusorStartPromise = fusorCore.start();
+    if (!externalWebhookStartPromise) {
+      externalWebhookStartPromise = externalWebhookCore.start();
     }
-    return fusorStartPromise;
+    return externalWebhookStartPromise;
   };
 
   const providerNames = providers
@@ -714,10 +725,10 @@ export async function Spectrum<
 
   const createMessagesStream = (): ManagedStream<[Space, Message]> =>
     stream<[Space, Message]>((emit, end) => {
-      // Open the fusor gRPC stream lazily on first subscription. A fatal connect
+      // Open the external webhook gRPC stream lazily on first subscription. A fatal connect
       // failure (e.g. missing credentials) surfaces on this iterator. Non-async
       // so subscribe stays non-blocking. Webhook-only setups never reach here.
-      ensureFusorStarted().catch((error) => end(error));
+      ensureExternalWebhookStarted().catch((error) => end(error));
       const merged = mergeStreams(
         Array.from(platformStates.values(), (runtime) =>
           runtime.subscribeMessages()
@@ -747,8 +758,8 @@ export async function Spectrum<
       for (const state of platformStates.values()) {
         const { client, config, definition, store } = state;
 
-        // Resolve this platform's raw source for `eventName`: a fusor platform's
-        // per-channel fanout (declared as a schema, fed by `fusorEvent(...)`) or
+        // Resolve this platform's raw source for `eventName`: an external webhook platform's
+        // per-channel fanout (declared as a schema, fed by `providerEvent(...)`) or
         // a regular platform's producer. Skip platforms that have neither.
         let source: AsyncIterable<unknown> | undefined =
           state.subscribeEvent?.(eventName);
@@ -814,20 +825,20 @@ export async function Spectrum<
 
   const messagesStream = createMessagesStream();
 
-  // Close + drop every fusor queue (per-platform message queues and
+  // Close + drop every external webhook queue (per-platform message queues and
   // per-(platform, channel) event queues). Extracted from stopOnce to keep its
   // cognitive complexity in check.
-  const closeFusorSources = () => {
-    for (const queue of fusorMessageSources.values()) {
+  const closeExternalWebhookSources = () => {
+    for (const queue of externalWebhookMessageSources.values()) {
       queue.close();
     }
-    fusorMessageSources.clear();
-    for (const queues of fusorEventSources.values()) {
+    externalWebhookMessageSources.clear();
+    for (const queues of externalWebhookEventSources.values()) {
       for (const queue of queues.values()) {
         queue.close();
       }
     }
-    fusorEventSources.clear();
+    externalWebhookEventSources.clear();
   };
 
   const stopOnce = async () => {
@@ -854,7 +865,7 @@ export async function Spectrum<
 
     // Phase 1: stream cascade (bounded). Start the close, but don't let a
     // misbehaving provider whose stream can't be cancelled block teardown
-    // forever — after a timeout, proceed to fusor close + destroyClient (which
+    // forever — after a timeout, proceed to external webhook close + destroyClient (which
     // can unblock such a stream from below), then await the residual at the end.
     const streamCloseStart = performance.now();
     const streamSettled = Promise.allSettled(streamShutdowns);
@@ -874,20 +885,26 @@ export async function Spectrum<
       });
     }
 
-    // Phase 2: fusor core shutdown (only when active)
-    let fusorCloseMs = 0;
-    if (fusorCore) {
-      const fusorCloseStart = performance.now();
+    // Phase 2: external webhook core shutdown (only when active)
+    let externalWebhookCloseMs = 0;
+    if (externalWebhookCore) {
+      const externalWebhookCloseStart = performance.now();
       // If a lazy gRPC start is in flight, let it finish wiring before teardown
       // so close() doesn't race a half-built connection.
-      if (fusorStartPromise) {
-        await fusorStartPromise.catch(ignoreCleanupError);
+      if (externalWebhookStartPromise) {
+        await externalWebhookStartPromise.catch(ignoreCleanupError);
       }
-      await fusorCore.close().catch((error) => {
-        lifecycleLog.warn("fusor core close failed", errorAttrs(error), error);
+      await externalWebhookCore.close().catch((error) => {
+        lifecycleLog.warn(
+          "external webhook core close failed",
+          errorAttrs(error),
+          error
+        );
       });
-      fusorCloseMs = Math.round(performance.now() - fusorCloseStart);
-      closeFusorSources();
+      externalWebhookCloseMs = Math.round(
+        performance.now() - externalWebhookCloseStart
+      );
+      closeExternalWebhookSources();
     }
 
     // Phase 3: destroy clients
@@ -927,7 +944,7 @@ export async function Spectrum<
     lifecycleLog.info("Spectrum stopped", {
       "spectrum.lifecycle.providers": providerNames,
       "spectrum.lifecycle.stream_close_ms": streamCloseMs,
-      "spectrum.lifecycle.fusor_close_ms": fusorCloseMs,
+      "spectrum.lifecycle.event_delivery_close_ms": externalWebhookCloseMs,
       "spectrum.lifecycle.client_close_ms": clientCloseMs,
     });
     if (otelHandle) {
@@ -979,7 +996,7 @@ export async function Spectrum<
   };
 
   // Read the RAW request bytes without re-encoding — both the protobuf decode
-  // (fusor) and the HMAC verification (native) need the exact bytes received.
+  // (external webhook) and the HMAC verification (native) need the exact bytes received.
   // `asWeb` records whether to reply with a Web `Response` or the raw result
   // shape; `headers` (keys lowercased) carry the native webhook's signature.
   const readWebhookInput = async (
@@ -1057,11 +1074,11 @@ export async function Spectrum<
     }
   };
 
-  // Run the shared fusor pipeline for a decoded event and map it to an HTTP
+  // Run the shared external webhook pipeline for a decoded event and map it to an HTTP
   // result. Records are collected for THIS request (webhook is stateless — they
   // do not feed spectrum.messages).
   const processWebhookEvent = async (
-    core: FusorCore,
+    core: ExternalWebhookCore,
     event: RawInboundEvent,
     handler: WebhookHandler
   ): Promise<WebhookRawResult> => {
@@ -1091,7 +1108,7 @@ export async function Spectrum<
     // Deliver to the request-scoped handler fire-and-forget: dispatched after
     // the response is computed and NOT awaited, mirroring a
     // `for await (… of spectrum.messages)` loop body. A throw is caught + logged,
-    // never surfaced as a 500 / fusor retry. On a long-running server the event
+    // never surfaced as a 500 / external webhook retry. On a long-running server the event
     // loop keeps this alive; on serverless, keeping it alive past the response is
     // the caller's responsibility (e.g. enqueue + process in a separate worker).
     const runtime = platformStates.get(event.platform);
@@ -1119,9 +1136,9 @@ export async function Spectrum<
 
   // --- Native Spectrum webhook (signed, normalized JSON) -------------------
 
-  // Distinguish a native Spectrum webhook from a fusor one by the PAYLOAD, not a
+  // Distinguish a native Spectrum webhook from an external webhook one by the PAYLOAD, not a
   // header: Spectrum signs both kinds with `x-spectrum-signature`, so the header
-  // can't tell them apart. A native body is a JSON object (`{…`); a fusor body is
+  // can't tell them apart. A native body is a JSON object (`{…`); an external webhook body is
   // a binary protobuf `RawInboundEvent`, which never starts with `{`.
   const looksLikeNativePayload = (bodyBytes: Uint8Array): boolean => {
     for (const byte of bodyBytes) {
@@ -1206,7 +1223,7 @@ export async function Spectrum<
   };
 
   // Verify the HMAC signature, deserialize the slim JSON into a [space, message],
-  // and deliver fire-and-forget (mirroring the fusor path). Verification runs
+  // and deliver fire-and-forget (mirroring the external webhook path). Verification runs
   // BEFORE any parse/dispatch, so a forged body is rejected (401) without ever
   // reaching the handler.
   const handleSpectrumWebhook = async (
@@ -1266,7 +1283,7 @@ export async function Spectrum<
       return webhookText(200, "ok");
     }
 
-    // Fire-and-forget, mirroring the fusor path: acknowledge now, deliver after.
+    // Fire-and-forget, mirroring the external webhook path: acknowledge now, deliver after.
     deliverWebhookMessages([record], runtime, handler, { platform }).catch(
       (error) => {
         lifecycleLog.error(
@@ -1289,7 +1306,7 @@ export async function Spectrum<
   ): Promise<Response | WebhookRawResult> => {
     const { asWeb, bodyBytes, headers } = await readWebhookInput(request);
 
-    // Route by payload shape: a native webhook is JSON, a fusor one is protobuf.
+    // Route by payload shape: a native webhook is JSON, an external webhook one is protobuf.
     // Both may carry an `x-spectrum-signature` header, so it can't discriminate.
     if (looksLikeNativePayload(bodyBytes)) {
       const spectrumResult = await handleSpectrumWebhook(
@@ -1300,9 +1317,9 @@ export async function Spectrum<
       return buildWebhookResult(asWeb, spectrumResult);
     }
 
-    if (!fusorCore) {
+    if (!externalWebhookCore) {
       throw new Error(
-        "spectrum.webhook() received a non-Spectrum (fusor) request but no fusor provider is configured"
+        "spectrum.webhook() received a non-Spectrum (external webhook) request but no external webhook provider is configured"
       );
     }
 
@@ -1315,7 +1332,11 @@ export async function Spectrum<
       });
     }
 
-    const result = await processWebhookEvent(fusorCore, event, handler);
+    const result = await processWebhookEvent(
+      externalWebhookCore,
+      event,
+      handler
+    );
     return buildWebhookResult(asWeb, result);
   };
 

@@ -23,7 +23,7 @@ export type {
 /**
  * The payload `verify()` produces and `messages()` consumes: just the parsed
  * `Update`. Receiving is pure parsing — no client or config is bundled here.
- * The inbound mapper reads `config` from its own ctx (the Fusor `messages`
+ * The inbound mapper reads `config` from its own ctx (the external webhook `messages`
  * handler receives `{ config, payload, store, ... }`) and creates a client
  * inline only when it needs to download media bytes.
  */

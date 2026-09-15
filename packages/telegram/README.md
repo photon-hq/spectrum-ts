@@ -1,6 +1,6 @@
 # @spectrum-ts/telegram
 
-Telegram provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts). Inbound is delivered through Fusor webhooks; outbound goes through the Telegram Bot API.
+Telegram provider for [spectrum-ts](https://github.com/photon-hq/spectrum-ts). Inbound is delivered through External webhooks; outbound goes through the Telegram Bot API.
 
 ## Install
 

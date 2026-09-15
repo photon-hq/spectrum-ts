@@ -11,7 +11,7 @@ export interface AsyncQueue<T> {
 }
 
 /**
- * Unbounded FIFO queue with `AsyncIterable` consumer. Used by FusorCore to feed
+ * Unbounded FIFO queue with `AsyncIterable` consumer. Used by ExternalWebhookCore to feed
  * the per-platform message stream — events pushed before a consumer attaches
  * are buffered, and a pending `next()` is woken when a value arrives.
  */

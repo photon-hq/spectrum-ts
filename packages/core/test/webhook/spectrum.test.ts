@@ -1,5 +1,8 @@
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
-import { encodeEvent, makeSlack } from "@spectrum-ts/test-support/fusor";
+import {
+  encodeEvent,
+  makeSlack,
+} from "@spectrum-ts/test-support/external-webhook";
 import {
   baseConfig,
   makeManagedProvider,
@@ -21,7 +24,8 @@ stubCloud();
 process.env.SPECTRUM_WEBHOOK_SECRET = "";
 
 const PLATFORM = "im";
-const NO_FUSOR_PROVIDER_ERROR = /no fusor provider is configured/;
+const NO_EXTERNAL_WEBHOOK_PROVIDER_ERROR =
+  /no external webhook provider is configured/;
 
 const withSpectrum = async (
   overrides: Record<string, unknown>,
@@ -191,8 +195,8 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
   });
 });
 
-describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
-  it("routes a protobuf body (no signature header) to the fusor path", async () => {
+describe("spectrum.webhook (dispatch / external webhook coexistence)", () => {
+  it("routes a protobuf body (no signature header) to the external webhook path", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
       providers: [makeSlack().config({})],
@@ -222,8 +226,8 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     await spectrum.stop();
   });
 
-  it("routes a SIGNED protobuf body to the fusor path (header doesn't force native)", async () => {
-    // Spectrum signs fusor deliveries too, so an `x-spectrum-signature` header on
+  it("routes a SIGNED protobuf body to the external webhook path (header doesn't force native)", async () => {
+    // Spectrum signs external webhook deliveries too, so an `x-spectrum-signature` header on
     // a protobuf body must NOT be misrouted into the native JSON parser.
     const spectrum = await Spectrum({
       ...baseConfig,
@@ -261,7 +265,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     await spectrum.stop();
   });
 
-  it("throws on a fusor request when no fusor provider is configured", async () => {
+  it("throws on an external webhook request when no external webhook provider is configured", async () => {
     await withSpectrum(
       { webhookSecret: SPECTRUM_WEBHOOK_SECRET },
       async (spectrum) => {
@@ -275,7 +279,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
               // unreachable
             }
           )
-        ).rejects.toThrow(NO_FUSOR_PROVIDER_ERROR);
+        ).rejects.toThrow(NO_EXTERNAL_WEBHOOK_PROVIDER_ERROR);
       }
     );
   });

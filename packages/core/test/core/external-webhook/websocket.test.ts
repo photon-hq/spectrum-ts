@@ -1,4 +1,4 @@
-// FusorCore streaming: drives the real `fusor.v1.json` protocol
+// ExternalWebhookCore streaming: drives the real `fusor.v1.json` protocol
 // against an in-process `ws` websocket server (runs under Node and Bun).
 
 import { once } from "node:events";
@@ -7,8 +7,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { NO_MESSAGE_WAIT_MS } from "@spectrum-ts/test-support/timing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
-import { FusorCore, type RegisteredFusorHandler } from "@/fusor/core";
-import type { FusorMessagesReturn } from "@/fusor/types";
+import {
+  ExternalWebhookCore,
+  type RegisteredExternalWebhookHandler,
+} from "@/external-webhook/core";
+import type { ExternalWebhookMessagesReturn } from "@/external-webhook/types";
 import { cloud } from "@/utils/cloud";
 
 const PLATFORM = "tg";
@@ -34,7 +37,7 @@ interface WsServerScript {
   onInit: (init: Frame, connection: number) => Frame[];
 }
 
-async function makeFusorWsServer(script: WsServerScript) {
+async function makeExternalWebhookWsServer(script: WsServerScript) {
   const inits: Frame[] = [];
   const replies: Frame[] = [];
   let connections = 0;
@@ -84,11 +87,11 @@ async function makeFusorWsServer(script: WsServerScript) {
 
 function makeHandler(capture: {
   payloads: unknown[];
-}): RegisteredFusorHandler<{ text: string }> {
+}): RegisteredExternalWebhookHandler<{ text: string }> {
   return {
     verify: (req) =>
       JSON.parse(new TextDecoder().decode(req.rawBody)) as { text: string },
-    messages: ({ payload, respond }): FusorMessagesReturn => {
+    messages: ({ payload, respond }): ExternalWebhookMessagesReturn => {
       capture.payloads.push(payload);
       respond({ status: 200, headers: { "X-T": "1" }, body: "ok" });
       // No derived records — the reply via respond() is the whole point.
@@ -138,15 +141,17 @@ afterEach(async () => {
   }
 });
 
-describe("fusor websocket streaming", () => {
+describe("external webhook websocket streaming", () => {
   it("streams events and replies only when asked", async () => {
-    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
-      token: "t1",
-      expiresIn: 900,
-    });
+    const tokenSpy = vi
+      .spyOn(cloud, "issueEventDeliveryToken")
+      .mockResolvedValue({
+        token: "t1",
+        expiresIn: 900,
+      });
     cleanups.push(() => tokenSpy.mockRestore());
 
-    const server = await makeFusorWsServer({
+    const server = await makeExternalWebhookWsServer({
       onInit: () => [
         { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
         eventFrame("evt-1", '{"text":"hello"}', true, 1),
@@ -156,7 +161,7 @@ describe("fusor websocket streaming", () => {
     cleanups.push(server.stop);
 
     const capture = { payloads: [] as unknown[] };
-    const core = new FusorCore({
+    const core = new ExternalWebhookCore({
       projectId: "proj",
       projectSecret: "secret",
       websocketEndpoint: server.url,
@@ -191,14 +196,14 @@ describe("fusor websocket streaming", () => {
   it("invalidates the token on a 4401 close and reconnects with a fresh one", async () => {
     let minted = 0;
     const tokenSpy = vi
-      .spyOn(cloud, "issueFusorToken")
+      .spyOn(cloud, "issueEventDeliveryToken")
       .mockImplementation(async () => {
         minted += 1;
         return { token: `t${minted}`, expiresIn: 900 };
       });
     cleanups.push(() => tokenSpy.mockRestore());
 
-    const server = await makeFusorWsServer({
+    const server = await makeExternalWebhookWsServer({
       onInit: (_init, connection) =>
         connection === 1
           ? [
@@ -219,7 +224,7 @@ describe("fusor websocket streaming", () => {
     });
     cleanups.push(server.stop);
 
-    const core = new FusorCore({
+    const core = new ExternalWebhookCore({
       projectId: "proj",
       projectSecret: "secret",
       websocketEndpoint: server.url,
@@ -236,20 +241,22 @@ describe("fusor websocket streaming", () => {
   });
 
   it("close() tears down an active websocket session promptly", async () => {
-    const tokenSpy = vi.spyOn(cloud, "issueFusorToken").mockResolvedValue({
-      token: "t1",
-      expiresIn: 900,
-    });
+    const tokenSpy = vi
+      .spyOn(cloud, "issueEventDeliveryToken")
+      .mockResolvedValue({
+        token: "t1",
+        expiresIn: 900,
+      });
     cleanups.push(() => tokenSpy.mockRestore());
 
-    const server = await makeFusorWsServer({
+    const server = await makeExternalWebhookWsServer({
       onInit: () => [
         { type: "ready", projectId: "proj", heartbeatIntervalMs: 30_000 },
       ],
     });
     cleanups.push(server.stop);
 
-    const core = new FusorCore({
+    const core = new ExternalWebhookCore({
       projectId: "proj",
       projectSecret: "secret",
       websocketEndpoint: server.url,

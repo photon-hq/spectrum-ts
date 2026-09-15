@@ -144,7 +144,7 @@ await app.stop()             // graceful shutdown
 
 Custom events emitted by providers are exposed as flat async iterables on the same object — see [Custom events and lifecycle](/spectrum-ts/custom-events-and-lifecycle).
 
-`app.webhook()` handles both native Spectrum webhooks and Fusor webhooks through the same method. See [Webhooks](/spectrum-ts/webhooks) for setup and framework adapters.
+`app.webhook()` handles both native Spectrum webhooks and External webhooks through the same method. See [Webhooks](/spectrum-ts/webhooks) for setup and framework adapters.
 
 ## Multi-platform in three lines
 

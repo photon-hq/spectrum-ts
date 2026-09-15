@@ -1,11 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
-import type { FusorVerify, FusorVerifyRequest } from "@spectrum-ts/core";
+import type {
+  ExternalWebhookVerify,
+  ExternalWebhookVerifyRequest,
+} from "@spectrum-ts/core";
 import type { TelegramConfig } from "./config";
 import type { TelegramPayload, Update } from "./types";
 
 /**
  * Telegram echoes the `secret_token` configured in `setWebhook` back in this
- * header (lowercased by Spectrum/Fusor). It is the ONLY inbound authentication
+ * header (lowercased by Spectrum/event delivery). It is the ONLY inbound authentication
  * — Telegram does not HMAC-sign the request body.
  */
 const SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
@@ -52,17 +55,17 @@ const parseUpdate = (bodyText: string): Update => {
 };
 
 /**
- * Build the Fusor `verify` hook. Receiving is pure parsing: it closes over
+ * Build the external webhook `verify` hook. Receiving is pure parsing: it closes over
  * `config` only to check the webhook secret token, then parses the raw body
  * into an `Update` and returns it as the payload — no client is involved. When
  * no `webhookSecret` is configured the token check is skipped and the body is
- * parsed directly. Throwing rejects the event (Fusor returns 400 — no retry).
+ * parsed directly. Throwing rejects the event (event delivery returns 400 — no retry).
  * The inbound mapper reads `config` from its own ctx and builds a client inline
  * only if it needs to download media.
  */
 export const verify =
-  (config: TelegramConfig): FusorVerify<TelegramPayload> =>
-  (req: FusorVerifyRequest): TelegramPayload => {
+  (config: TelegramConfig): ExternalWebhookVerify<TelegramPayload> =>
+  (req: ExternalWebhookVerifyRequest): TelegramPayload => {
     if (config.webhookSecret) {
       verifySecret(req.headers, config.webhookSecret);
     }

@@ -6,36 +6,43 @@ import type {
 import type { ProviderMessageRecord } from "../platform/types";
 import { officialProviderInstallHint } from "../utils/provider-packages";
 import { errorAttrs } from "../utils/telemetry";
-import { createFusorTokenProvider, type FusorTokenProvider } from "./auth";
-import { FUSOR_MESSAGES_CHANNEL, isFusorEvent } from "./event";
-import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
-import type { FusorMessagesReturn, FusorReply, FusorVerify } from "./types";
 import {
-  type FusorWsSession,
+  createEventDeliveryTokenProvider,
+  type EventDeliveryTokenProvider,
+} from "./auth";
+import { isProviderEvent, PROVIDER_MESSAGES_CHANNEL } from "./event";
+import { type ParsedHttpRequest, parseHttpRequest } from "./parse";
+import type {
+  ExternalWebhookMessagesReturn,
+  ExternalWebhookReply,
+  ExternalWebhookVerify,
+} from "./types";
+import {
+  type EventDeliveryWebSocketSession,
   isWsAuthError,
-  runFusorWsSession,
+  runEventDeliveryWebSocketSession,
 } from "./websocket";
 
-const DEFAULT_FUSOR_WS_URL =
+const DEFAULT_EVENT_DELIVERY_WS_URL =
   "wss://fusor-ws.spectrum.photon.codes/v1/subscribe";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 
-const log = createLogger("spectrum.fusor");
+const log = createLogger("spectrum.event_delivery");
 
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-export interface RegisteredFusorHandler<TPayload = unknown> {
+export interface RegisteredExternalWebhookHandler<TPayload = unknown> {
   messages: (ctx: {
     payload: TPayload;
-    respond: (reply: FusorReply) => void;
-  }) => FusorMessagesReturn | Promise<FusorMessagesReturn>;
-  // Route a `fusorEvent(channel, data)` to its custom event channel. Wired by
+    respond: (reply: ExternalWebhookReply) => void;
+  }) => ExternalWebhookMessagesReturn | Promise<ExternalWebhookMessagesReturn>;
+  // Route a `providerEvent(channel, data)` to its custom event channel. Wired by
   // the Spectrum bootstrap to the per-(platform, channel) queue.
   pushEvent: (channel: string, data: unknown) => void;
   pushMessage: (record: ProviderMessageRecord) => void;
-  verify: FusorVerify<TPayload>;
+  verify: ExternalWebhookVerify<TPayload>;
 }
 
 function toReplyBytes(body: string | Uint8Array | undefined): Uint8Array {
@@ -51,7 +58,7 @@ function toReplyBytes(body: string | Uint8Array | undefined): Uint8Array {
 interface HandlerOutcome {
   errorReason?: string;
   ok: boolean;
-  reply?: FusorReply;
+  reply?: ExternalWebhookReply;
 }
 
 function combineReplies(outcomes: HandlerOutcome[]): InboundReply {
@@ -99,13 +106,13 @@ function combineReplies(outcomes: HandlerOutcome[]): InboundReply {
   };
 }
 
-// Route a handler's return value. A bare record (or `fusorEvent("messages", …)`)
+// Route a handler's return value. A bare record (or `providerEvent("messages", …)`)
 // goes to the message sink (`deliver`, which the webhook path overrides);
-// `fusorEvent(channel, …)` goes to its per-channel queue via `pushEvent` —
+// `providerEvent(channel, …)` goes to its per-channel queue via `pushEvent` —
 // always, on both transports, since the webhook handler is messages-only.
 function routeHandlerResult(
-  result: FusorMessagesReturn,
-  handler: RegisteredFusorHandler,
+  result: ExternalWebhookMessagesReturn,
+  handler: RegisteredExternalWebhookHandler,
   deliver: (record: ProviderMessageRecord) => void
 ): void {
   if (result === undefined) {
@@ -113,11 +120,11 @@ function routeHandlerResult(
   }
   const items = Array.isArray(result) ? result : [result];
   for (const item of items) {
-    if (!isFusorEvent(item)) {
+    if (!isProviderEvent(item)) {
       deliver(item);
       continue;
     }
-    if (item.name === FUSOR_MESSAGES_CHANNEL) {
+    if (item.name === PROVIDER_MESSAGES_CHANNEL) {
       deliver(item.data as ProviderMessageRecord);
     } else {
       handler.pushEvent(item.name, item.data);
@@ -126,23 +133,27 @@ function routeHandlerResult(
 }
 
 function runHandlerOnce<TPayload>(
-  handler: RegisteredFusorHandler<TPayload>,
+  handler: RegisteredExternalWebhookHandler<TPayload>,
   parsedRequest: ParsedHttpRequest,
   deliver: (record: ProviderMessageRecord) => void = handler.pushMessage
 ): Promise<HandlerOutcome> {
   return (async () => {
     try {
       const payload = await handler.verify(parsedRequest);
-      let reply: FusorReply | undefined;
+      let reply: ExternalWebhookReply | undefined;
       let respondCalled = false;
       let returned = false;
-      const respond = (next: FusorReply): void => {
+      const respond = (next: ExternalWebhookReply): void => {
         if (returned) {
-          log.warn("fusor.respond called after handler returned; ignoring");
+          log.warn(
+            "external webhook.respond called after handler returned; ignoring"
+          );
           return;
         }
         if (respondCalled) {
-          log.debug("fusor.respond called more than once; last call wins");
+          log.debug(
+            "external webhook.respond called more than once; last call wins"
+          );
         }
         respondCalled = true;
         reply = next;
@@ -150,7 +161,11 @@ function runHandlerOnce<TPayload>(
       const result = await handler.messages({ payload, respond });
       returned = true;
 
-      routeHandlerResult(result, handler as RegisteredFusorHandler, deliver);
+      routeHandlerResult(
+        result,
+        handler as RegisteredExternalWebhookHandler,
+        deliver
+      );
       return { ok: true, reply };
     } catch (error) {
       return { ok: false, errorReason: errorText(error) };
@@ -158,7 +173,7 @@ function runHandlerOnce<TPayload>(
   })();
 }
 
-export interface FusorCoreOptions {
+export interface ExternalWebhookCoreOptions {
   // Optional: only the streaming transport (start) needs cloud credentials to
   // mint a token. The webhook path (processEvent) routes registered handlers
   // without them, so a webhook-only Spectrum can construct a core with
@@ -166,19 +181,22 @@ export interface FusorCoreOptions {
   projectId?: string;
   projectSecret?: string;
   /**
-   * fusor-fanout-websocket endpoint (`wss://…/v1/subscribe`) — the
-   * streaming transport. Defaults to the `SPECTRUM_FUSOR_WS_URL` env
+   * Event Delivery WebSocket endpoint (`wss://…/v1/subscribe`) — the
+   * streaming transport. Defaults to the `SPECTRUM_EVENT_DELIVERY_WS_URL` env
    * var, then the production endpoint.
    */
   websocketEndpoint?: string;
 }
 
-export class FusorCore {
-  private readonly options: FusorCoreOptions;
+export class ExternalWebhookCore {
+  private readonly options: ExternalWebhookCoreOptions;
   private readonly websocketEndpoint: string;
-  private readonly handlers = new Map<string, RegisteredFusorHandler[]>();
-  private tokenProvider?: FusorTokenProvider;
-  private wsSession?: FusorWsSession;
+  private readonly handlers = new Map<
+    string,
+    RegisteredExternalWebhookHandler[]
+  >();
+  private tokenProvider?: EventDeliveryTokenProvider;
+  private wsSession?: EventDeliveryWebSocketSession;
   private connectionLoop?: Promise<void>;
   private started = false;
   private stopped = false;
@@ -188,12 +206,12 @@ export class FusorCore {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private reconnectResolve?: () => void;
 
-  constructor(options: FusorCoreOptions) {
+  constructor(options: ExternalWebhookCoreOptions) {
     this.options = options;
     this.websocketEndpoint =
       options.websocketEndpoint ??
-      process.env.SPECTRUM_FUSOR_WS_URL ??
-      DEFAULT_FUSOR_WS_URL;
+      process.env.SPECTRUM_EVENT_DELIVERY_WS_URL ??
+      DEFAULT_EVENT_DELIVERY_WS_URL;
     this.stoppedPromise = new Promise<void>((resolve) => {
       this.stopResolve = resolve;
     });
@@ -201,17 +219,17 @@ export class FusorCore {
 
   register<TPayload>(
     platform: string,
-    handler: RegisteredFusorHandler<TPayload>
+    handler: RegisteredExternalWebhookHandler<TPayload>
   ): void {
     const list = this.handlers.get(platform) ?? [];
-    list.push(handler as RegisteredFusorHandler);
+    list.push(handler as RegisteredExternalWebhookHandler);
     this.handlers.set(platform, list);
   }
 
   async start(): Promise<void> {
     if (!(this.options.projectId && this.options.projectSecret)) {
       throw new Error(
-        "fusor: streaming via spectrum.messages requires projectId and projectSecret"
+        "external webhook: streaming via spectrum.messages requires projectId and projectSecret"
       );
     }
     // Idempotent: a second start() must not spin up a duplicate token provider,
@@ -221,12 +239,16 @@ export class FusorCore {
       return;
     }
     this.started = true;
-    this.tokenProvider = await createFusorTokenProvider(
+    this.tokenProvider = await createEventDeliveryTokenProvider(
       this.options.projectId,
       this.options.projectSecret
     );
     this.connectionLoop = this.runConnectionLoop().catch((error) => {
-      log.error("fusor connection loop crashed", errorAttrs(error), error);
+      log.error(
+        "external webhook connection loop crashed",
+        errorAttrs(error),
+        error
+      );
     });
   }
 
@@ -264,7 +286,7 @@ export class FusorCore {
       }
       if (!this.stopped) {
         log.warn(
-          "fusor websocket stream errored; reconnecting",
+          "external webhook websocket stream errored; reconnecting",
           errorAttrs(error),
           error
         );
@@ -292,10 +314,10 @@ export class FusorCore {
 
   private async runWebsocketOnce(): Promise<void> {
     if (!this.tokenProvider) {
-      throw new Error("fusor: token not initialized");
+      throw new Error("external webhook: token not initialized");
     }
     const token = await this.tokenProvider.getToken();
-    const session = runFusorWsSession({
+    const session = runEventDeliveryWebSocketSession({
       url: this.websocketEndpoint,
       token,
       onEvent: async (event, sendReply) => {
@@ -336,11 +358,11 @@ export class FusorCore {
       const hint = officialProviderInstallHint(event.platform);
       log.warn(
         hint
-          ? `fusor: no handler for platform — ${hint}`
-          : "fusor: no handler for platform",
+          ? `external webhook: no handler for platform — ${hint}`
+          : "external webhook: no handler for platform",
         {
-          "spectrum.fusor.platform": event.platform,
-          "spectrum.fusor.event_id": event.eventId,
+          "spectrum.event_delivery.platform": event.platform,
+          "spectrum.event_delivery.event_id": event.eventId,
         }
       );
       return {
@@ -357,9 +379,9 @@ export class FusorCore {
       parsedRequest = parseHttpRequest(event.rawRequest);
     } catch (error) {
       const errorReason = errorText(error);
-      log.warn("fusor: failed to parse raw_request", {
-        "spectrum.fusor.platform": event.platform,
-        "spectrum.fusor.event_id": event.eventId,
+      log.warn("external webhook: failed to parse raw_request", {
+        "spectrum.event_delivery.platform": event.platform,
+        "spectrum.event_delivery.event_id": event.eventId,
         ...errorAttrs(error),
       });
       return {

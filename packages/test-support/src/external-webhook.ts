@@ -1,9 +1,17 @@
 import { RawInboundEvent } from "@photon-ai/proto/photon/fusor/v1/inbound";
-import type { Content, FusorMessages, ProjectData } from "@spectrum-ts/core";
-import { definePlatform, fusor, fusorEvent } from "@spectrum-ts/core";
+import type {
+  Content,
+  ExternalWebhookMessages,
+  ProjectData,
+} from "@spectrum-ts/core";
+import {
+  definePlatform,
+  providerEvent,
+  webhookClient,
+} from "@spectrum-ts/core";
 import z from "zod";
 
-// A minimal fusor-mode provider standing in for a real platform (Slack-ish).
+// A minimal external webhook-mode provider standing in for a real platform (Slack-ish).
 // Its verify() parses the inner HTTP body to a typed payload; messages() turns
 // that into provider records (or a synchronous url_verification reply).
 export type SlackPayload =
@@ -12,11 +20,14 @@ export type SlackPayload =
   | { kind: "group"; texts: string[] }
   | { kind: "typing" };
 
-// A typed `FusorMessages` reference (not an inline arrow). Overload resolution
+// A typed `ExternalWebhookMessages` reference (not an inline arrow). Overload resolution
 // keys on this: a typed reference is non-context-sensitive, so it's checked in
-// pass 1, rejects the regular overload, and selects the fusor one. An inline
+// pass 1, rejects the regular overload, and selects the external webhook one. An inline
 // `messages: ({ payload }) => …` would be deferred and mis-commit to regular.
-const slackMessages: FusorMessages<SlackPayload> = ({ payload, respond }) => {
+const slackMessages: ExternalWebhookMessages<SlackPayload> = ({
+  payload,
+  respond,
+}) => {
   if (payload.kind === "verify") {
     respond({ status: 200, body: payload.challenge });
     return;
@@ -59,7 +70,7 @@ export const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
     lifecycle: {
       createClient: () =>
         Promise.resolve(
-          fusor<SlackPayload>("slack", (req) => {
+          webhookClient<SlackPayload>("slack", (req) => {
             if (opts.verifyThrows) {
               throw new Error("bad platform signature");
             }
@@ -91,7 +102,7 @@ export const makeSlack = (opts: { verifyThrows?: boolean } = {}) =>
     send: () => Promise.resolve(undefined),
   });
 
-// Build the protobuf POST body fusor would deliver: a RawInboundEvent whose
+// Build the protobuf POST body external webhook would deliver: a RawInboundEvent whose
 // rawRequest is the platform's original HTTP/1.1 wire bytes.
 export const encodeEvent = (
   platform: string,
@@ -110,7 +121,7 @@ export const encodeEvent = (
 };
 
 // ---------------------------------------------------------------------------
-// Fusor custom event channels (`events` schema + `fusorEvent`)
+// External webhook custom event channels (`events` schema + `providerEvent`)
 // ---------------------------------------------------------------------------
 
 export type PresencePayload =
@@ -121,16 +132,18 @@ export type PresencePayload =
 
 const presenceSchema = z.object({ user: z.string(), online: z.boolean() });
 
-// A typed `FusorMessages` reference (not inline) so overload resolution picks
-// the fusor overload. Demonstrates the three routes a fusor handler can take.
-const presenceMessages: FusorMessages<PresencePayload> = ({ payload }) => {
+// A typed `ExternalWebhookMessages` reference (not inline) so overload resolution picks
+// the external webhook overload. Demonstrates the three routes an external webhook handler can take.
+const presenceMessages: ExternalWebhookMessages<PresencePayload> = ({
+  payload,
+}) => {
   if (payload.kind === "presence") {
-    return fusorEvent("presence", { user: payload.user, online: true });
+    return providerEvent("presence", { user: payload.user, online: true });
   }
   if (payload.kind === "viaMessagesChannel") {
-    // `fusorEvent("messages", record)` must behave exactly like returning the
+    // `providerEvent("messages", record)` must behave exactly like returning the
     // record bare — i.e. route to the core `spectrum.messages` stream.
-    return fusorEvent("messages", {
+    return providerEvent("messages", {
       id: "viaev",
       content: { type: "text", text: payload.text } as Content,
       sender: { id: "u1" },
@@ -138,7 +151,7 @@ const presenceMessages: FusorMessages<PresencePayload> = ({ payload }) => {
     });
   }
   if (payload.kind === "undeclared") {
-    return fusorEvent("ghost", { dropped: true });
+    return providerEvent("ghost", { dropped: true });
   }
   return {
     id: "pm1",
@@ -156,7 +169,7 @@ export const makePresence = () =>
     lifecycle: {
       createClient: () =>
         Promise.resolve(
-          fusor<PresencePayload>(PRESENCE_PLATFORM, (req) => {
+          webhookClient<PresencePayload>(PRESENCE_PLATFORM, (req) => {
             const body = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
               type: string;
               text?: string;
@@ -186,7 +199,7 @@ export const makePresence = () =>
   });
 
 // ---------------------------------------------------------------------------
-// Runtime-context probe — asserts the fusor `messages` ctx now carries
+// Runtime-context probe — asserts the external webhook `messages` ctx now carries
 // config/store/projectConfig (parity with the regular-mode handler contract).
 // ---------------------------------------------------------------------------
 
@@ -202,12 +215,15 @@ export interface CtxProbeCapture {
 
 // Records the runtime ctx its `messages` handler is invoked with, so a test can
 // assert config/store/projectConfig were threaded in. A typed reference (not an
-// inline arrow) so overload resolution selects the fusor overload — and typed
+// inline arrow) so overload resolution selects the external webhook overload — and typed
 // `TConfig` so `config` lands as `{ token: string }`, not `unknown`.
 const ctxProbeMessages =
   (
     capture: CtxProbeCapture
-  ): FusorMessages<{ text: string }, z.infer<typeof ctxProbeConfig>> =>
+  ): ExternalWebhookMessages<
+    { text: string },
+    z.infer<typeof ctxProbeConfig>
+  > =>
   ({ payload, config, store, projectConfig }) => {
     capture.config = config;
     capture.projectConfig = projectConfig;
@@ -228,7 +244,7 @@ export const makeCtxProbe = (capture: CtxProbeCapture) =>
     lifecycle: {
       createClient: () =>
         Promise.resolve(
-          fusor<{ text: string }>(CTX_PROBE_PLATFORM, (req) => {
+          webhookClient<{ text: string }>(CTX_PROBE_PLATFORM, (req) => {
             const body = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
               text?: string;
             };

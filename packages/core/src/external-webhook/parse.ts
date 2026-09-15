@@ -30,7 +30,9 @@ function findHeaderEnd(bytes: Uint8Array): number {
 export function parseHttpRequest(bytes: Uint8Array): ParsedHttpRequest {
   const headerEnd = findHeaderEnd(bytes);
   if (headerEnd < 0) {
-    throw new Error("fusor: raw_request missing CRLFCRLF header terminator");
+    throw new Error(
+      "external webhook: raw_request missing CRLFCRLF header terminator"
+    );
   }
   const headerText = new TextDecoder("utf-8").decode(
     bytes.subarray(0, headerEnd)
@@ -40,13 +42,13 @@ export function parseHttpRequest(bytes: Uint8Array): ParsedHttpRequest {
   const lines = headerText.split("\r\n");
   const requestLine = lines[0];
   if (!requestLine) {
-    throw new Error("fusor: raw_request missing request line");
+    throw new Error("external webhook: raw_request missing request line");
   }
 
   const firstSpace = requestLine.indexOf(" ");
   const lastSpace = requestLine.lastIndexOf(" ");
   if (firstSpace < 0 || lastSpace <= firstSpace) {
-    throw new Error(`fusor: malformed request line: ${requestLine}`);
+    throw new Error(`external webhook: malformed request line: ${requestLine}`);
   }
   const method = requestLine.slice(0, firstSpace);
   const path = requestLine.slice(firstSpace + 1, lastSpace);

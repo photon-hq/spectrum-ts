@@ -76,7 +76,7 @@ This project uses [Ultracite](https://ultracite.ai) (Biome) for formatting and l
 
 ```
 packages/
-  core/                  # @spectrum-ts/core - the runtime: content, platform, fusor, utils
+  core/                  # @spectrum-ts/core - the runtime: content, platform, webhookClient, utils
   spectrum-ts/           # spectrum-ts metapackage (batteries: re-exports core + every provider)
   imessage/              # @spectrum-ts/imessage
   telegram/              # @spectrum-ts/telegram

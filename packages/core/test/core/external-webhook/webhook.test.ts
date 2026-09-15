@@ -7,7 +7,7 @@ import {
   makePresence,
   makeSlack,
   PRESENCE_PLATFORM,
-} from "@spectrum-ts/test-support/fusor";
+} from "@spectrum-ts/test-support/external-webhook";
 import { baseConfig } from "@spectrum-ts/test-support/platform";
 import {
   NO_MESSAGE_WAIT_MS,
@@ -15,13 +15,14 @@ import {
   TICK_MS,
 } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
-import { FusorCore } from "@/fusor/core";
+import { ExternalWebhookCore } from "@/external-webhook/core";
 import { Spectrum } from "@/spectrum";
 import type { Message } from "@/types/message";
 
 stubCloud();
 
-const NO_FUSOR_PROVIDER_ERROR = /no fusor provider is configured/;
+const NO_EXTERNAL_WEBHOOK_PROVIDER_ERROR =
+  /no external webhook provider is configured/;
 
 describe("spectrum.webhook", () => {
   it("routes by platform, resolves [space, message], and delivers to the handler", async () => {
@@ -132,14 +133,17 @@ describe("spectrum.webhook", () => {
       providers: [makeSlack().config({})],
     });
 
-    const request = new Request("https://app.example.com/webhooks/fusor", {
-      method: "POST",
-      headers: { "content-type": "application/x-protobuf" },
-      body: encodeEvent(
-        "slack",
-        JSON.stringify({ type: "url_verification", challenge: "abc123" })
-      ),
-    });
+    const request = new Request(
+      "https://app.example.com/webhooks/external-webhook",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-protobuf" },
+        body: encodeEvent(
+          "slack",
+          JSON.stringify({ type: "url_verification", challenge: "abc123" })
+        ),
+      }
+    );
 
     let delivered = 0;
     const response = await spectrum.webhook(request, () => {
@@ -332,19 +336,19 @@ describe("spectrum.webhook", () => {
     await spectrum.stop();
   });
 
-  it("throws when no fusor provider is configured", async () => {
+  it("throws when no external webhook provider is configured", async () => {
     const spectrum = await Spectrum({ providers: [] });
 
     await expect(
       spectrum.webhook({ headers: {}, body: new Uint8Array() }, () => undefined)
-    ).rejects.toThrow(NO_FUSOR_PROVIDER_ERROR);
+    ).rejects.toThrow(NO_EXTERNAL_WEBHOOK_PROVIDER_ERROR);
 
     await spectrum.stop();
   });
 
-  it("never opens the Fusor stream for webhook, but does for spectrum.messages", async () => {
+  it("never opens the ExternalWebhook stream for webhook, but does for spectrum.messages", async () => {
     const startSpy = vi
-      .spyOn(FusorCore.prototype, "start")
+      .spyOn(ExternalWebhookCore.prototype, "start")
       .mockResolvedValue(undefined);
     try {
       const spectrum = await Spectrum({
@@ -380,7 +384,7 @@ describe("spectrum.webhook", () => {
 
   it("does not feed spectrum.messages (webhook is request-scoped)", async () => {
     const startSpy = vi
-      .spyOn(FusorCore.prototype, "start")
+      .spyOn(ExternalWebhookCore.prototype, "start")
       .mockResolvedValue(undefined);
     try {
       const spectrum = await Spectrum({
@@ -420,8 +424,8 @@ describe("spectrum.webhook", () => {
   });
 });
 
-describe("fusor events", () => {
-  it("routes fusorEvent(channel) to spectrum.<channel>, not the message handler", async () => {
+describe("external webhook events", () => {
+  it("routes providerEvent(channel) to spectrum.<channel>, not the message handler", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
       providers: [makePresence().config({})],
@@ -461,7 +465,7 @@ describe("fusor events", () => {
     await spectrum.stop();
   });
 
-  it("treats fusorEvent('messages', record) like a bare record", async () => {
+  it("treats providerEvent('messages', record) like a bare record", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
       providers: [makePresence().config({})],

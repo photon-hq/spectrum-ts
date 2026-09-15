@@ -60,7 +60,7 @@ export interface SlackTokenData {
   teams: Record<string, SlackTeamMeta>;
 }
 
-export interface FusorTokenData {
+export interface EventDeliveryTokenData {
   expiresIn: number;
   token: string;
 }
@@ -84,7 +84,7 @@ export interface ProjectData {
   profile: ProjectProfile;
   /**
    * URL-safe project identifier (e.g. `what-c62a6`). Used as the subdomain of
-   * the Fusor "super webhook" edge a platform registers its provider webhook
+   * the external webhook edge a platform registers its provider webhook
    * against — see Telegram's `webhookUrl`.
    */
   slug: string;
@@ -210,10 +210,10 @@ export const cloud = {
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
-  issueFusorToken: (
+  issueEventDeliveryToken: (
     projectId: string,
     projectSecret: string
-  ): Promise<FusorTokenData> =>
+  ): Promise<EventDeliveryTokenData> =>
     request(`/projects/${projectId}/fusor/token`, {
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },

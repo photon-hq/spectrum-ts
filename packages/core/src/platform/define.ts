@@ -1,6 +1,9 @@
 import { createLogger, withSpan } from "@photon-ai/otel";
 import type z from "zod";
-import type { FusorClient, FusorMessages } from "../fusor/types";
+import type {
+  ExternalWebhookClient,
+  ExternalWebhookMessages,
+} from "../external-webhook/types";
 import type { Message } from "../types/message";
 import type { Space } from "../types/space";
 import type { ProjectData } from "../utils/cloud";
@@ -257,12 +260,12 @@ function createPlatformInstance<
       });
       continue;
     }
-    // Fusor platform: the channel is a Zod schema; its data arrives via the
-    // `messages` handler returning `fusorEvent(eventName, data)`, buffered on a
+    // External webhook platform: the channel is a Zod schema; its data arrives via the
+    // `messages` handler returning `providerEvent(eventName, data)`, buffered on a
     // per-channel queue that the runtime exposes as a fanout subscription.
-    const fusorEvents = runtime.subscribeEvent?.(eventName);
-    if (fusorEvents) {
-      eventProperties[eventName] = fusorEvents;
+    const externalWebhookEvents = runtime.subscribeEvent?.(eventName);
+    if (externalWebhookEvents) {
+      eventProperties[eventName] = externalWebhookEvents;
     }
   }
 
@@ -313,11 +316,11 @@ function createPlatformInstance<
 
 // `definePlatform` has two call shapes, expressed as overloads:
 //
-// 1. **Fusor mode** — `lifecycle.createClient` returns `fusor(name, verify)`
-//    (a branded `FusorClient<TPayload>`). There is no long-lived SDK client;
+// 1. **External webhook mode** — `lifecycle.createClient` returns `webhookClient(name, verify)`
+//    (a branded `ExternalWebhookClient<TPayload>`). There is no long-lived SDK client;
 //    `messages` runs once per inbound webhook against an already-verified
 //    payload, returning the message(s) to emit on `spectrum.messages` (and
-//    optionally calling `respond(reply)` to shape the HTTP reply to fusor).
+//    optionally calling `respond(reply)` to shape the HTTP reply to external webhook).
 // 2. **Regular mode** — `createClient` returns a normal SDK client and
 //    `messages` is a long-lived `EventProducer` (async-iterable) stream.
 //
@@ -329,11 +332,11 @@ function createPlatformInstance<
 // The REGULAR overload is listed first. Overload resolution defers
 // context-sensitive (unannotated-param) arrows during applicability, so a def
 // whose `createClient` and `messages` are both inline arrows — every regular
-// provider — matches the first applicable overload (regular). A fusor provider
-// opts in by giving `messages` a typed `FusorMessages` reference (e.g.
+// provider — matches the first applicable overload (regular). A external webhook provider
+// opts in by giving `messages` a typed `ExternalWebhookMessages` reference (e.g.
 // telegram's `handleMessages`): that's non-context-sensitive, checked in pass 1,
-// so it rejects the regular overload and selects the fusor one. The fusor input
-// reuses `PlatformDef` with `_Client = FusorClient<_TPayload>` (which fixes
+// so it rejects the regular overload and selects the external webhook one. The external webhook input
+// reuses `PlatformDef` with `_Client = ExternalWebhookClient<_TPayload>` (which fixes
 // every client position), overriding only `lifecycle`/`messages`.
 export function definePlatform<
   _Name extends string,
@@ -432,10 +435,10 @@ export function definePlatform<
   _ResolvedUser extends { id: string },
   _ResolvedSpace extends { id: string },
   _MessageSchema extends z.ZodType<object> | undefined = undefined,
-  // Fusor custom event channels: each value is a Zod schema; the key is the
+  // External webhook custom event channels: each value is a Zod schema; the key is the
   // channel name. Surfaced as `spectrum.<channel>` and emitted from `messages`
-  // via `fusorEvent(channel, data)`. (`messages` is reserved — the core stream.)
-  _FusorEvents extends
+  // via `providerEvent(channel, data)`. (`messages` is reserved — the core stream.)
+  _ExternalWebhookEvents extends
     | (Record<string, z.ZodType<object>> & { messages?: never })
     | undefined = undefined,
   _Static extends Record<string, unknown> = Record<never, never>,
@@ -453,7 +456,7 @@ export function definePlatform<
       _UserSchema,
       _SpaceSchema,
       _SpaceParamsSchema,
-      FusorClient<_TPayload>,
+      ExternalWebhookClient<_TPayload>,
       _ResolvedUser,
       _ResolvedSpace,
       _MessageSchema,
@@ -464,7 +467,7 @@ export function definePlatform<
           ? z.infer<_MessageSchema>
           : Record<never, never>
       >,
-      _FusorEvents,
+      _ExternalWebhookEvents,
       _SpaceActions,
       _MessageActions
     >,
@@ -473,13 +476,13 @@ export function definePlatform<
     lifecycle: {
       createClient: (
         ctx: CreateClientContext<_ConfigSchema>
-      ) => Promise<FusorClient<_TPayload>>;
+      ) => Promise<ExternalWebhookClient<_TPayload>>;
       destroyClient?: (ctx: {
-        client: FusorClient<_TPayload>;
+        client: ExternalWebhookClient<_TPayload>;
         store: Store;
       }) => Promise<void>;
     };
-    messages: FusorMessages<_TPayload, z.infer<_ConfigSchema>>;
+    messages: ExternalWebhookMessages<_TPayload, z.infer<_ConfigSchema>>;
     static?: _Static;
   }
 ): Platform<
@@ -489,7 +492,7 @@ export function definePlatform<
     _UserSchema,
     _SpaceSchema,
     _SpaceParamsSchema,
-    FusorClient<_TPayload>,
+    ExternalWebhookClient<_TPayload>,
     _ResolvedUser,
     _ResolvedSpace,
     _MessageSchema,
@@ -500,7 +503,7 @@ export function definePlatform<
         ? z.infer<_MessageSchema>
         : Record<never, never>
     >,
-    _FusorEvents,
+    _ExternalWebhookEvents,
     _SpaceActions,
     _MessageActions
   >
@@ -510,8 +513,8 @@ export function definePlatform<
 // Implementation signature — intentionally loose so both overloads above are
 // assignable to it. Callers only ever see the overloads; the body erases to
 // `AnyPlatformDef` and the overload return types restore precision at the call
-// site. The runtime is identical for both modes: fusor's `messages`/`events`
-// are read off `__definition` by FusorCore, never invoked here.
+// site. The runtime is identical for both modes: external webhook's `messages`/`events`
+// are read off `__definition` by ExternalWebhookCore, never invoked here.
 export function definePlatform(platformId: string, rawDef: unknown): unknown {
   assertValidPlatformId(platformId);
   const def = rawDef as AnyPlatformDef & {

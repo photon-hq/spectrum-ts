@@ -8,7 +8,7 @@ import { telegram } from "spectrum-ts/providers/telegram";
 ```
 
 {% set telegram = symbol("ts:spectrum-ts/providers/telegram#telegram") %}
-{{ telegram.doc.summary }} It connects your agent to the Telegram Bot API. Inbound messages are delivered through Fusor webhooks. Outbound messages use the Bot API directly. The provider supports text, media, reactions, replies, typing indicators, edits, and lazy media downloads.
+{{ telegram.doc.summary }} It connects your agent to the Telegram Bot API. Inbound messages are delivered through External webhooks. Outbound messages use the Bot API directly. The provider supports text, media, reactions, replies, typing indicators, edits, and lazy media downloads.
 
 ## Explore Telegram
 

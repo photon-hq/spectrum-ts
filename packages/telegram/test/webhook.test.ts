@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe("webhookUrl", () => {
-  it("builds the Fusor edge URL from the slug on the default domain", () => {
+  it("builds the external webhook edge URL from the slug on the default domain", () => {
     expect(webhookUrl(SLUG)).toBe(EXPECTED_URL);
   });
 

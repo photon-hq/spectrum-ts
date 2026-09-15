@@ -1,28 +1,34 @@
 import { cloud } from "../utils/cloud";
 import { createTokenRenewal } from "../utils/token-renewal";
 
-export interface FusorTokenProvider {
+export interface EventDeliveryTokenProvider {
   dispose(): Promise<void>;
   getToken(): Promise<string>;
   invalidate(): void;
 }
 
 /**
- * Single-token provider for the fusor stream. Mirrors the renewal cadence
+ * Single-token provider for the external webhook stream. Mirrors the renewal cadence
  * of the slack provider package's auth but without per-team bookkeeping —
- * fusor issues one bearer JWT per project.
+ * Photon issues one bearer JWT per project.
  */
-export function createFusorTokenProvider(
+export function createEventDeliveryTokenProvider(
   projectId: string,
   projectSecret: string
-): Promise<FusorTokenProvider> {
+): Promise<EventDeliveryTokenProvider> {
   return (async () => {
-    let tokenData = await cloud.issueFusorToken(projectId, projectSecret);
+    let tokenData = await cloud.issueEventDeliveryToken(
+      projectId,
+      projectSecret
+    );
     const renewal = createTokenRenewal({
       expiresInSeconds: () => tokenData.expiresIn,
-      name: "fusor",
+      name: "event delivery",
       refresh: async () => {
-        tokenData = await cloud.issueFusorToken(projectId, projectSecret);
+        tokenData = await cloud.issueEventDeliveryToken(
+          projectId,
+          projectSecret
+        );
       },
     });
 

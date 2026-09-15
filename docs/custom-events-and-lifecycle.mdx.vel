@@ -36,18 +36,18 @@ for await (const event of im.typing) {
 
 Use the flat form on `app` when you want a merged feed across platforms; use the narrowed form when you only care about one.
 
-### Fusor custom events
+### Provider custom events
 
-{% set fusorEventType = symbol("ts:spectrum-ts#FusorEvent") %}
-Fusor-backed providers can emit non-message events (presence, delivery status) into typed event streams using `fusorEvent`. The helper returns a <TypeTooltip name="FusorEvent" type={`{{ fusorEventType.signature }}`} /> envelope. Return a `fusorEvent(name, data)` from a Fusor `messages` handler to push it into an `app.<name>` stream:
+{% set externalWebhookEventType = symbol("ts:spectrum-ts#ProviderEvent") %}
+External webhook providers can emit non-message events (presence, delivery status) into typed event streams using `providerEvent`. The helper returns a <TypeTooltip name="ProviderEvent" type={`{{ externalWebhookEventType.signature }}`} /> envelope. Return a `providerEvent(name, data)` from an external webhook `messages` handler to push it into an `app.<name>` stream:
 
 ```ts
-import { fusorEvent } from "spectrum-ts";
+import { providerEvent } from "spectrum-ts";
 
-return fusorEvent("presence", { userId: update.userId, online: true });
+return providerEvent("presence", { userId: update.userId, online: true });
 ```
 
-Return an array when one webhook delivery produces both messages and custom events. Events emitted this way are available as `app.presence` (merged across providers) or `narrowedInstance.presence` (scoped to the emitting provider). Provider event declarations type the resulting streams. The `fusorEvent` helper itself accepts any name and data, so an undeclared event name produces a runtime warning.
+Return an array when one webhook delivery produces both messages and custom events. Events emitted this way are available as `app.presence` (merged across providers) or `narrowedInstance.presence` (scoped to the emitting provider). Provider event declarations type the resulting streams. The `providerEvent` helper itself accepts any name and data, so an undeclared event name produces a runtime warning.
 
 ## Lifecycle
 

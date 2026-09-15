@@ -1,6 +1,6 @@
 import type {
   Content,
-  FusorMessagesCtx,
+  ExternalWebhookMessagesCtx,
   Message as SpectrumMessage,
 } from "@spectrum-ts/core";
 import {
@@ -123,7 +123,7 @@ const fromReaction = (
 export const handleMessages = ({
   payload: update,
   config,
-}: FusorMessagesCtx<TelegramPayload, TelegramConfig>):
+}: ExternalWebhookMessagesCtx<TelegramPayload, TelegramConfig>):
   | ProviderMessageRecord
   | undefined => {
   const message = update.message ?? update.channel_post;

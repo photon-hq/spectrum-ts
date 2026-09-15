@@ -40,7 +40,7 @@ Spectrum currently supports these interfaces and development surfaces:
     Connect to the official WhatsApp Business Cloud API.
   </Card>
   <Card title="Telegram" icon="paper-plane" href="/spectrum-ts/providers/telegram">
-    Build bots on the Telegram Bot API with inbound webhooks through Fusor.
+    Build bots on the Telegram Bot API with incoming webhooks through Photon.
   </Card>
   <Card title="Terminal" icon="terminal" href="/spectrum-ts/providers/terminal">
     Build, test, and demo agents from your local terminal.
@@ -126,7 +126,7 @@ You do not have to manage Spectrum only from the dashboard. Use the dashboard fo
     Install `spectrum-ts` and send your first message.
   </Card>
   <Card title="Webhooks" icon="webhook" href="/spectrum-ts/webhooks">
-    Receive messages via HTTP with native and Fusor webhook support, plus Hono, Express, and Elysia adapters.
+    Receive messages via HTTP with native and External webhook support, plus Hono, Express, and Elysia adapters.
   </Card>
   <Card title="Voice calls" icon="phone" href="/spectrum-ts/providers/voice">
     Place and receive calls with SIP over TLS or TCP.

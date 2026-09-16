@@ -15,6 +15,7 @@ import {
   TICK_MS,
 } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
+import { webhookClient } from "@/external-webhook";
 import { ExternalWebhookCore } from "@/external-webhook/core";
 import { Spectrum } from "@/spectrum";
 import type { Message } from "@/types/message";
@@ -25,6 +26,22 @@ const NO_EXTERNAL_WEBHOOK_PROVIDER_ERROR =
   /no external webhook provider is configured/;
 
 describe("spectrum.webhook", () => {
+  it("rejects a webhook client whose platform does not match its provider", async () => {
+    const provider = makeSlack().config({});
+    vi.spyOn(provider.__definition.lifecycle, "createClient").mockResolvedValue(
+      webhookClient("other_platform", () => ({
+        kind: "message" as const,
+        text: "hello",
+      }))
+    );
+
+    await expect(
+      Spectrum({ ...baseConfig, providers: [provider] })
+    ).rejects.toThrow(
+      'External webhook client platform "other_platform" does not match provider platform "slack". Use the same platform id in definePlatform() and webhookClient().'
+    );
+  });
+
   it("routes by platform, resolves [space, message], and delivers to the handler", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,

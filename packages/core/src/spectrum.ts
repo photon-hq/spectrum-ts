@@ -567,6 +567,12 @@ export async function Spectrum<
             })
         );
 
+        if (isExternalWebhookClient(client) && client.platform !== def.name) {
+          throw new Error(
+            `External webhook client platform "${client.platform}" does not match provider platform "${def.name}". Use the same platform id in definePlatform() and webhookClient().`
+          );
+        }
+
         const state = {
           client,
           config: userConfig,

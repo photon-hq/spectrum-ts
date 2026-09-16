@@ -33,7 +33,7 @@ export interface SpectrumPluginOptions {
   /**
    * Invoked once per inbound message, fire-and-forget after the response — the
    * same `(space, message)` contract as `app.webhook(request, handler)`. Covers
-   * both native Spectrum webhooks and external webhook webhooks identically.
+   * both native Spectrum webhooks and external webhooks identically.
    */
   onMessage: WebhookHandler;
   /**

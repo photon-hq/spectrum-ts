@@ -72,7 +72,7 @@ Avoid all five and blocks are rare. When a line does get flagged, the cause is a
 - **Leave fallback lines dormant.** Apple deactivates lines with no traffic for ~2 months. Every line you keep around needs some traffic.
 - **Bombard non-responders.** Cap at 2–3 follow-ups, spaced across days, not hours.
 - **Segment Android users onto separate lines.** Spread them through the pool — they may be your power users.
-- **Use iMessage for cold outreach.** Cold belongs on A2P channels (Twilio etc.). iMessage is for warm conversations.
+- **Use iMessage for cold outreach.** Cold belongs on A2P channels. iMessage is for warm conversations.
 
 ## SMS and RCS fallback
 

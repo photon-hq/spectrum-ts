@@ -24,17 +24,21 @@ Two quotas govern how much traffic a deployment can carry. They're enforced limi
 
 | Limit | Guidance |
 |---|---|
-| **5,000 messages per server per day** | Counts every send across all chats on a server. Past this, sends are rejected until the window resets. Email [help@photon.codes](mailto:help@photon.codes) for an increase. |
+| **5,000 outbound messages per server per day** | Hard limit. Counts every outbound send across all chats on a server. |
 | **50 new conversations per line per day** | A "new conversation" is the first message a line sends to a recipient it has never messaged before. Replies within existing conversations don't count. Most relevant if you're initiating outbound. |
+
+<Warning>
+**5,000 outbound messages per server per day is a hard limit.** If you go past it, Apple has a significantly higher risk of banning the line.
+</Warning>
 
 Use these ranges as starting points when you assign users to lines:
 
 | Conversation pattern | Recommended users per line |
 |---|---:|
-| **Moderate conversational usage** | 700-1,000 |
-| **Intensive usage** | 500-700 |
+| **Moderate conversational usage** | 400-500 |
+| **Intensive usage** | 200-400 |
 
-These ranges are operating recommendations, not hard limits. A line may support more than 1,000 users. Total user count is only one part of capacity, though. A line can still hit activity limits when many existing users become active at once or many new users arrive within a short time window.
+These ranges are operating recommendations. Total user count is only one part of capacity. A line can still hit activity limits when many existing users become active at once or many new users arrive within a short time window.
 
 Always spread users across multiple lines. We strongly recommend enabling Photon's smart routing and [auto-scale](/spectrum-ts/providers/imessage/connection-and-routing#auto-scale) so the system can distribute users and traffic spikes automatically. When a server hits 70-80% utilization, stop assigning new users to it. When the whole pool reaches that point, add capacity. On the Business plan, auto-scale handles the second step automatically.
 
@@ -67,7 +71,7 @@ Avoid all five and blocks are rare. When a line does get flagged, the cause is a
 
 ## Don't
 
-- **Push past the per-server quota.** Add capacity; horizontal scaling is the design.
+- **Push past 5,000 outbound messages per server per day.** That is a hard limit. Crossing it significantly increases Apple's ban risk. Add capacity; horizontal scaling is the design.
 - **Include links or media in the first message.** Apple suppresses link-clicking until a reply lands. Ship a text-only opener built to get a response.
 - **Leave fallback lines dormant.** Apple deactivates lines with no traffic for ~2 months. Every line you keep around needs some traffic.
 - **Bombard non-responders.** Cap at 2–3 follow-ups, spaced across days, not hours.
@@ -80,6 +84,6 @@ When a message falls back from iMessage to SMS or RCS, the carrier monitors that
 
 ## Getting help
 
-If Apple flags a line, Photon escalates it into the recovery process. Recovery does not replace preventive line management. Keep auto-scale enabled, stay within the recommended user ranges, distribute new inbound contacts, and maintain healthy two-way response rates.
+If Apple flags a line, Photon escalates it into the recovery process. Recovery does not replace preventive line management. Keep auto-scale enabled, stay within the recommended user ranges, stay under the 5,000 outbound hard limit, distribute new inbound contacts, and maintain healthy two-way response rates.
 
 If you're scaling past a handful of lines, talk to us. We do capacity planning with customers, surface per-line analytics in the dashboard, and run a shared Slack or Discord channel with engineering for production deployments. For help with a flagged line, email [help@photon.codes](mailto:help@photon.codes) with your project ID and affected line.

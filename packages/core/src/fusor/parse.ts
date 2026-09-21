@@ -8,6 +8,17 @@ export interface ParsedHttpRequest {
 const CR = 0x0d;
 const LF = 0x0a;
 
+export function mergeHeaderValue(
+  headers: Record<string, string>,
+  name: string,
+  value: string
+): void {
+  const lowerName = name.toLowerCase();
+  headers[lowerName] = Object.hasOwn(headers, lowerName)
+    ? `${headers[lowerName]}, ${value}`
+    : value;
+}
+
 function findHeaderEnd(bytes: Uint8Array): number {
   for (let i = 0; i + 3 < bytes.length; i++) {
     if (
@@ -23,9 +34,9 @@ function findHeaderEnd(bytes: Uint8Array): number {
 }
 
 /**
- * Parses an HTTP/1.1 wire-format request out of `raw_request` from
- * `RawInboundEvent`. Headers are lowercased. Multiple header values with the
- * same name are joined with ", " (RFC 7230 §3.2.2).
+ * Parses the HTTP/1.1 wire-format request carried by the WebSocket protobuf
+ * transport. HTTP JSON deliveries already contain these parsed fields. Headers
+ * are lowercased; repeated values are joined with ", " (RFC 7230 §3.2.2).
  */
 export function parseHttpRequest(bytes: Uint8Array): ParsedHttpRequest {
   const headerEnd = findHeaderEnd(bytes);
@@ -61,13 +72,12 @@ export function parseHttpRequest(bytes: Uint8Array): ParsedHttpRequest {
     if (colon < 0) {
       continue;
     }
-    const key = line.slice(0, colon).trim().toLowerCase();
+    const key = line.slice(0, colon).trim();
     const value = line.slice(colon + 1).trim();
     if (!key) {
       continue;
     }
-    const existing = headers[key];
-    headers[key] = existing ? `${existing}, ${value}` : value;
+    mergeHeaderValue(headers, key, value);
   }
 
   return { method, path, headers, rawBody };

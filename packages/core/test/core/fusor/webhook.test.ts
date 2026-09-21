@@ -3,6 +3,9 @@ import {
   CTX_PROBE_PLATFORM,
   type CtxProbeCapture,
   encodeEvent,
+  encodeFusorEnvelope,
+  encodeLegacyEvent,
+  FUSOR_WEBHOOK_HEADERS,
   makeCtxProbe,
   makePresence,
   makeSlack,
@@ -16,6 +19,7 @@ import {
 } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it, vi } from "vitest";
 import { FusorCore } from "@/fusor/core";
+import type { FusorVerifyRequest } from "@/fusor/types";
 import { Spectrum } from "@/spectrum";
 import type { Message } from "@/types/message";
 
@@ -34,7 +38,7 @@ describe("spectrum.webhook", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: { "content-type": "application/x-protobuf" },
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           "slack",
           JSON.stringify({ type: "message", text: "hello" })
@@ -72,7 +76,7 @@ describe("spectrum.webhook", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           CTX_PROBE_PLATFORM,
           JSON.stringify({ text: "hello ctx" })
@@ -108,7 +112,7 @@ describe("spectrum.webhook", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent("slack", JSON.stringify({ type: "typing" })),
       },
       (_space, message) => {
@@ -134,7 +138,7 @@ describe("spectrum.webhook", () => {
 
     const request = new Request("https://app.example.com/webhooks/fusor", {
       method: "POST",
-      headers: { "content-type": "application/x-protobuf" },
+      headers: FUSOR_WEBHOOK_HEADERS,
       body: encodeEvent(
         "slack",
         JSON.stringify({ type: "url_verification", challenge: "abc123" })
@@ -165,11 +169,15 @@ describe("spectrum.webhook", () => {
     );
 
     const rawResult = await spectrum.webhook(
-      { headers: {}, body },
+      { headers: FUSOR_WEBHOOK_HEADERS, body },
       () => undefined
     );
     const webResult = await spectrum.webhook(
-      new Request("https://app.example.com/h", { method: "POST", body }),
+      new Request("https://app.example.com/h", {
+        method: "POST",
+        headers: FUSOR_WEBHOOK_HEADERS,
+        body,
+      }),
       () => undefined
     );
 
@@ -187,11 +195,224 @@ describe("spectrum.webhook", () => {
     });
 
     const result = await spectrum.webhook(
-      { headers: {}, body: new Uint8Array([0xff]) },
+      { headers: FUSOR_WEBHOOK_HEADERS, body: new Uint8Array([0xff]) },
       () => undefined
     );
 
     expect(result.status).toBe(400);
+    expect(new TextDecoder().decode(result.body)).toBe(
+      "malformed Fusor envelope"
+    );
+    await spectrum.stop();
+  });
+
+  it("passes exact body bytes and normalized request metadata to verify()", async () => {
+    const capture: { request?: FusorVerifyRequest } = {};
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack({ captureRequest: capture }).config({})],
+    });
+    const rawBody = new TextEncoder().encode(
+      '{ "type": "message", "text": "byte exact" }\n'
+    );
+    const body = encodeFusorEnvelope({
+      platform: "slack",
+      method: "PATCH",
+      path: "/hooks/slack?token=a%2Bb",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Probe": "first",
+        "x-probe": "second",
+      },
+      bodyEncoding: "json",
+      body: { type: "message", text: "byte exact" },
+      rawBody,
+    });
+
+    const result = await spectrum.webhook(
+      { headers: FUSOR_WEBHOOK_HEADERS, body },
+      () => undefined
+    );
+
+    expect(result.status).toBe(200);
+    expect(capture.request?.method).toBe("PATCH");
+    expect(capture.request?.path).toBe("/hooks/slack?token=a%2Bb");
+    expect(capture.request?.headers["content-type"]).toBe(
+      "application/json; charset=utf-8"
+    );
+    expect(capture.request?.headers["x-probe"]).toBe("first, second");
+    expect(capture.request?.rawBody).toEqual(rawBody);
+
+    await spectrum.stop();
+  });
+
+  it("preserves exact form, text, binary, and empty bodies", async () => {
+    const capture: { request?: FusorVerifyRequest } = {};
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [
+        makeSlack({ acceptRawBody: true, captureRequest: capture }).config({}),
+      ],
+    });
+    const binary = new Uint8Array([0, 255, 128, 1]);
+    const binaryBase64 = btoa(
+      Array.from(binary, (byte) => String.fromCharCode(byte)).join("")
+    );
+    const cases = [
+      {
+        bodyEncoding: "form" as const,
+        body: { name: "测试", tag: ["a", "b"] },
+        rawBody: new TextEncoder().encode(
+          "name=%E6%B5%8B%E8%AF%95&tag=a&tag=b"
+        ),
+      },
+      {
+        bodyEncoding: "text" as const,
+        body: "héllo 世界",
+        rawBody: new TextEncoder().encode("héllo 世界"),
+      },
+      {
+        bodyEncoding: "base64" as const,
+        body: binaryBase64,
+        rawBody: binary,
+      },
+      {
+        bodyEncoding: "text" as const,
+        body: "",
+        rawBody: new Uint8Array(0),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = await spectrum.webhook(
+        {
+          headers: FUSOR_WEBHOOK_HEADERS,
+          body: encodeFusorEnvelope({
+            platform: "slack",
+            ...testCase,
+          }),
+        },
+        () => undefined
+      );
+      expect(result.status).toBe(200);
+      expect(capture.request?.rawBody).toEqual(testCase.rawBody);
+    }
+
+    await spectrum.stop();
+  });
+
+  it("accepts additive v1 fields", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const encoded = encodeEvent(
+      "slack",
+      JSON.stringify({ type: "message", text: "future" })
+    );
+    const envelope = JSON.parse(new TextDecoder().decode(encoded)) as {
+      request: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    envelope.futureTopLevel = { enabled: true };
+    envelope.request.futureRequestField = 42;
+
+    const result = await spectrum.webhook(
+      {
+        headers: FUSOR_WEBHOOK_HEADERS,
+        body: new TextEncoder().encode(JSON.stringify(envelope)),
+      },
+      () => undefined
+    );
+
+    expect(result.status).toBe(200);
+    await spectrum.stop();
+  });
+
+  it("rejects legacy protobuf envelopes", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+
+    const result = await spectrum.webhook(
+      {
+        headers: FUSOR_WEBHOOK_HEADERS,
+        body: encodeLegacyEvent("slack", '{"type":"message"}'),
+      },
+      () => undefined
+    );
+
+    expect(result.status).toBe(400);
+    await spectrum.stop();
+  });
+
+  it("rejects invalid versions, encodings, body arms, and base64", async () => {
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [makeSlack().config({})],
+    });
+    const valid = JSON.parse(
+      new TextDecoder().decode(encodeEvent("slack", '{"type":"message"}'))
+    ) as {
+      eventId: string;
+      platform: string;
+      prevSubjectSeq: number;
+      projectId: string;
+      receivedAt: string;
+      schemaVersion: number;
+      request: {
+        body: unknown;
+        bodyEncoding: string;
+        method: string;
+        rawBodyBase64: string;
+      };
+    };
+    const invalidEnvelopes = [
+      { ...structuredClone(valid), schemaVersion: 2 },
+      { ...structuredClone(valid), eventId: "" },
+      { ...structuredClone(valid), projectId: "" },
+      { ...structuredClone(valid), platform: "" },
+      { ...structuredClone(valid), prevSubjectSeq: -1 },
+      { ...structuredClone(valid), receivedAt: "not-a-timestamp" },
+      {
+        ...structuredClone(valid),
+        request: { ...valid.request, method: "" },
+      },
+      {
+        ...structuredClone(valid),
+        request: { ...valid.request, bodyEncoding: "yaml" },
+      },
+      {
+        ...structuredClone(valid),
+        request: { ...valid.request, bodyEncoding: "text", body: {} },
+      },
+      {
+        ...structuredClone(valid),
+        request: { ...valid.request, rawBodyBase64: "AB==" },
+      },
+      {
+        ...structuredClone(valid),
+        request: {
+          ...valid.request,
+          bodyEncoding: "base64",
+          body: "AA==",
+          rawBodyBase64: "AQ==",
+        },
+      },
+    ];
+
+    for (const envelope of invalidEnvelopes) {
+      const result = await spectrum.webhook(
+        {
+          headers: FUSOR_WEBHOOK_HEADERS,
+          body: new TextEncoder().encode(JSON.stringify(envelope)),
+        },
+        () => undefined
+      );
+      expect(result.status).toBe(400);
+    }
+
     await spectrum.stop();
   });
 
@@ -202,7 +423,10 @@ describe("spectrum.webhook", () => {
     });
 
     const result = await spectrum.webhook(
-      { headers: {}, body: encodeEvent("discord", "{}") },
+      {
+        headers: FUSOR_WEBHOOK_HEADERS,
+        body: encodeEvent("discord", "{}"),
+      },
       () => undefined
     );
 
@@ -218,7 +442,7 @@ describe("spectrum.webhook", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           "slack",
           JSON.stringify({ type: "message", text: "x" })
@@ -242,7 +466,7 @@ describe("spectrum.webhook", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           "slack",
           JSON.stringify({ type: "message", text: "x" })
@@ -273,7 +497,7 @@ describe("spectrum.webhook", () => {
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
     await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           "slack",
           JSON.stringify({ type: "group", texts: ["a", "b"] })
@@ -307,7 +531,7 @@ describe("spectrum.webhook", () => {
     const { promise: finished, resolve: done } = Promise.withResolvers<void>();
     await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           "slack",
           JSON.stringify({ type: "group", texts: ["a", "b"] })
@@ -336,7 +560,13 @@ describe("spectrum.webhook", () => {
     const spectrum = await Spectrum({ providers: [] });
 
     await expect(
-      spectrum.webhook({ headers: {}, body: new Uint8Array() }, () => undefined)
+      spectrum.webhook(
+        {
+          headers: FUSOR_WEBHOOK_HEADERS,
+          body: encodeEvent("slack", '{"type":"message"}'),
+        },
+        () => undefined
+      )
     ).rejects.toThrow(NO_FUSOR_PROVIDER_ERROR);
 
     await spectrum.stop();
@@ -354,7 +584,7 @@ describe("spectrum.webhook", () => {
 
       await spectrum.webhook(
         {
-          headers: {},
+          headers: FUSOR_WEBHOOK_HEADERS,
           body: encodeEvent(
             "slack",
             JSON.stringify({ type: "message", text: "x" })
@@ -393,7 +623,7 @@ describe("spectrum.webhook", () => {
 
       await spectrum.webhook(
         {
-          headers: {},
+          headers: FUSOR_WEBHOOK_HEADERS,
           body: encodeEvent(
             "slack",
             JSON.stringify({ type: "message", text: "x" })
@@ -435,7 +665,7 @@ describe("fusor events", () => {
     let handlerCalls = 0;
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           PRESENCE_PLATFORM,
           JSON.stringify({ type: "presence", user: "alice" })
@@ -471,7 +701,7 @@ describe("fusor events", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           PRESENCE_PLATFORM,
           JSON.stringify({ type: "via-messages", text: "hi" })
@@ -499,7 +729,7 @@ describe("fusor events", () => {
     let handlerCalls = 0;
     const result = await spectrum.webhook(
       {
-        headers: {},
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           PRESENCE_PLATFORM,
           JSON.stringify({ type: "undeclared" })

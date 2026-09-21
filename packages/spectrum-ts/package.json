@@ -1,6 +1,6 @@
 {
   "name": "spectrum-ts",
-  "version": "12.9.0",
+  "version": "12.9.1",
   "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
   "repository": {
     "type": "git",
@@ -72,12 +72,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@spectrum-ts/core": "12.9.0",
-    "@spectrum-ts/imessage": "12.9.0",
-    "@spectrum-ts/slack": "12.9.0",
-    "@spectrum-ts/telegram": "12.9.0",
-    "@spectrum-ts/terminal": "12.9.0",
-    "@spectrum-ts/whatsapp-business": "12.9.0"
+    "@spectrum-ts/core": "12.9.1",
+    "@spectrum-ts/imessage": "12.9.1",
+    "@spectrum-ts/slack": "12.9.1",
+    "@spectrum-ts/telegram": "12.9.1",
+    "@spectrum-ts/terminal": "12.9.1",
+    "@spectrum-ts/whatsapp-business": "12.9.1"
   },
   "devDependencies": {
     "@spectrum-ts/test-support": "workspace:*",

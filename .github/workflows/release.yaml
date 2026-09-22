@@ -11,9 +11,20 @@
 #   { version: 5.0.0, dry-run: true }    -> full rehearsal, nothing pushed
 #   { version: 5.0.0 }                   -> exact-version release (skips AI)
 #   { publish-only: true }               -> resume a partially failed publish
+#   { …, skip-oidc-preflight: true }     -> knowingly release via NPM_TOKEN
 #
-# NOTE: keep this filename — npm Trusted Publishing binds to the top-level
-# workflow file name.
+# npm auth: publishing is tokenless via npm Trusted Publishing (OIDC). Every
+# publishable package (scripts/release/packages.ts) needs a trusted publisher
+# on npmjs.com — package → Settings → Trusted Publisher → GitHub Actions:
+#   Organization or user: photon-hq
+#   Repository:           spectrum-ts
+#   Workflow filename:    release.yaml   (this file's basename — keep it)
+#   Environment name:     (empty — the publish job sets no `environment:`)
+# The oidc-preflight job proves the exchange works for every package BEFORE
+# anything is bumped or tagged, and prints exactly those values on failure.
+# NPM_TOKEN is a fallback only: npm is removing direct publish for 2FA-bypass
+# tokens (~Jan 2027), and it is the only path that works for the FIRST
+# publish of a brand-new package name (no trusted publisher can exist yet).
 
 name: Release
 
@@ -34,6 +45,10 @@ on:
         type: boolean
         default: false
         description: "Build and clean, but do not push, release, or publish"
+      skip-oidc-preflight:
+        type: boolean
+        default: false
+        description: "Proceed even if npm trusted publishing (OIDC) is not verified — publish will fall back to NPM_TOKEN"
 
 permissions:
   contents: write
@@ -71,6 +86,28 @@ jobs:
           fi
           echo "release=$release" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  # Fail fast, before bump-version pushes a release commit and github-release
+  # cuts a tag, if npm would reject our OIDC token for any package. Runs in
+  # this workflow file on purpose: the ID token's workflow_ref claim is what
+  # npm matches the trusted publisher against, so a check from anywhere else
+  # would prove nothing.
+  oidc-preflight:
+    needs: check-labels
+    if: needs.check-labels.outputs.release == 'true' && inputs.skip-oidc-preflight != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Verify npm trusted publishing for every package
+        run: bun scripts/release/oidc-preflight.ts
 
   release-info:
     needs: check-labels
@@ -116,8 +153,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   bump-version:
-    needs: [check-labels, release-info]
-    if: needs.release-info.result == 'success' && inputs.dry-run != true
+    needs: [check-labels, release-info, oidc-preflight]
+    # always(): oidc-preflight is legitimately `skipped` when bypassed via the
+    # dispatch input; a `failure` there must still block the bump.
+    if: >-
+      always() &&
+      needs.release-info.result == 'success' &&
+      (needs.oidc-preflight.result == 'success' || needs.oidc-preflight.result == 'skipped') &&
+      inputs.dry-run != true
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -175,10 +218,11 @@ jobs:
           app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
   npm-publish:
-    needs: [check-labels, release-info, bump-version]
+    needs: [check-labels, release-info, oidc-preflight, bump-version]
     if: >-
       always() &&
       needs.check-labels.outputs.release == 'true' &&
+      (needs.oidc-preflight.result == 'success' || needs.oidc-preflight.result == 'skipped') &&
       (needs.bump-version.result == 'success' ||
        (inputs.publish-only == true && needs.bump-version.result == 'skipped') ||
        (inputs.dry-run == true && needs.bump-version.result == 'skipped'))

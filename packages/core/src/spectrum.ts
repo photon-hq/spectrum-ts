@@ -849,9 +849,6 @@ export async function Spectrum<
       ),
     ];
 
-    process.off("SIGINT", handleSignal);
-    process.off("SIGTERM", handleSignal);
-
     // Phase 1: stream cascade (bounded). Start the close, but don't let a
     // misbehaving provider whose stream can't be cancelled block teardown
     // forever — after a timeout, proceed to fusor close + destroyClient (which
@@ -935,14 +932,10 @@ export async function Spectrum<
     }
   };
 
-  const handleSignal = () => {
-    setTimeout(() => process.exit(1), 3000).unref();
-    stopOnce()
-      .then(() => process.exit(0))
-      .catch(() => process.exit(1));
-  };
-  process.on("SIGINT", handleSignal);
-  process.on("SIGTERM", handleSignal);
+  // Deliberately no process.on("SIGINT"/"SIGTERM") here. Spectrum is a library
+  // and doesn't own the process: a handler that exits after stop() would kill
+  // the host's own shutdown work (Nest hooks, BullMQ drains) as soon as our
+  // few-ms teardown finished. Wire `app.stop()` into your own signal handler.
 
   const messages: AsyncIterable<[Space, Message]> = messagesStream;
 

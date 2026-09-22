@@ -4,8 +4,8 @@ import {
   makeManagedProvider,
   makeNativeProvider,
 } from "@spectrum-ts/test-support/platform";
-import { withinMs } from "@spectrum-ts/test-support/timing";
-import { describe, expect, it } from "vitest";
+import { flush, withinMs } from "@spectrum-ts/test-support/timing";
+import { describe, expect, it, vi } from "vitest";
 import { Spectrum } from "@/spectrum";
 
 stubCloud();
@@ -97,4 +97,57 @@ describe("Spectrum.stop() shutdown", () => {
     },
     NATIVE_TEST_TIMEOUT_MS
   );
+});
+
+// Spectrum is a library: it must never install process signal handlers or call
+// process.exit(). The old handler exited ~ms after a signal, killing the host's
+// own still-draining shutdown work (Nest hooks, BullMQ jobs).
+describe("Spectrum() process signal handling", () => {
+  it("registers no SIGINT/SIGTERM listeners", async () => {
+    const sigintBefore = process.listenerCount("SIGINT");
+    const sigtermBefore = process.listenerCount("SIGTERM");
+
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [makeManagedProvider("managed_signals").config({})],
+    });
+
+    expect(process.listenerCount("SIGINT")).toBe(sigintBefore);
+    expect(process.listenerCount("SIGTERM")).toBe(sigtermBefore);
+
+    await app.stop();
+  });
+
+  it("leaves shutdown to the host: its SIGTERM handler drains without process.exit", async () => {
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [makeManagedProvider("managed_host_drain").config({})],
+    });
+
+    let hostDrained = false;
+    const hostHandler = async () => {
+      // Stand-in for in-flight work the host must finish before exiting.
+      await flush();
+      await app.stop();
+      hostDrained = true;
+    };
+    process.once("SIGTERM", hostHandler);
+    try {
+      // Dispatch through the emitter directly rather than process.kill(), which
+      // would also hit any listener the runner itself installed.
+      process.emit("SIGTERM", "SIGTERM");
+      await vi.waitFor(() => {
+        expect(hostDrained).toBe(true);
+      });
+    } finally {
+      process.off("SIGTERM", hostHandler);
+    }
+
+    expect(exit).not.toHaveBeenCalled();
+    // Restore only this spy: restoreAllMocks() would also undo stubCloud().
+    exit.mockRestore();
+  });
 });

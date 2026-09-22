@@ -3,6 +3,15 @@ import { terminal } from "spectrum-ts/providers/terminal";
 
 const app = await Spectrum({ providers: [terminal.config()] });
 
+// Spectrum never installs signal handlers or exits the process itself, so wire
+// Ctrl-C / `docker stop` to a graceful stop() here.
+const shutdown = async () => {
+  await app.stop();
+  process.exit(0);
+};
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
+
 // Seed each new space with something to reply/react to.
 const seeded = new Set<string>();
 

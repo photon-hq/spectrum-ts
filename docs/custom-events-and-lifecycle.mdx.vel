@@ -61,16 +61,28 @@ This closes the merged message stream, drains and disposes every custom event st
 
 ### Signal handling
 
-Spectrum registers `SIGINT` and `SIGTERM` handlers on startup. When a signal fires:
+Spectrum does **not** register `SIGINT`/`SIGTERM` handlers and never calls `process.exit()`. It's a library, and the process belongs to you: call `stop()` from whatever shutdown hook your application already has so Spectrum tears down alongside the rest of your work rather than racing it.
 
-1. `stop()` is invoked with a 3-second timeout.
-2. If cleanup completes in time, the process exits with code 0.
-3. If not, the process exits with code 1.
+For a standalone script, a plain signal handler is enough:
 
-You don't need to wire this up yourself — running your app in a container with `docker stop` or hitting Ctrl-C in a terminal will drain cleanly.
+```ts
+const shutdown = async () => {
+  await app.stop();
+  process.exit(0);
+};
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
+```
 
-### When to call `stop()` manually
+In a framework, hook `stop()` into its lifecycle instead — for example NestJS's `onModuleDestroy` / `enableShutdownHooks()`, or after `worker.close()` in a BullMQ worker — so in-flight jobs finish draining before the process exits.
 
+<Note>
+Versions up to 12.9.x installed their own `SIGINT`/`SIGTERM` handler that called `stop()` and then `process.exit()` after at most 3 seconds. Embedded in a host with its own graceful shutdown, that exit fired as soon as Spectrum's few-millisecond teardown finished and killed the host's still-draining work. If you relied on the old handler in a standalone script, add the snippet above.
+</Note>
+
+### When to call `stop()`
+
+- You're shutting down in response to a signal (see above).
 - You're embedding Spectrum in a longer-running process and want to tear it down without exiting.
 - You're writing tests that create and dispose an app per case.
 - You want deterministic cleanup before re-initializing with a different provider set.

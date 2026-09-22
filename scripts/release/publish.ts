@@ -11,11 +11,16 @@
  * 2. `bunx clean-publish --package-manager npm` — applies
  *    publishConfig.exports (dist-only map), strips scripts/devDependencies
  *    (including the workspace:* dev dep on core), then `npm publish`es the
- *    cleaned copy. Attempt 1 runs tokenless with --provenance (npm OIDC
+ *    cleaned copy. Attempt 1 runs tokenless with `-- --provenance` (npm OIDC
  *    trusted publishing — requires the job's id-token: write and a trusted
- *    publisher configured on npmjs.com); on failure it retries with
- *    NPM_TOKEN. First-ever publishes of a new package name can only use the
- *    token path (trusted publishers can't exist for unpublished names).
+ *    publisher per package on npmjs.com; oidc-preflight.ts verifies that
+ *    up-front). npm only reports OIDC failures at `--loglevel verbose` and
+ *    otherwise surfaces them as a bare `E404`, so attempt 1 runs verbose and
+ *    its `oidc` lines are echoed on failure. On failure it retries with
+ *    NPM_TOKEN and emits a workflow warning: that path is deprecated (npm
+ *    removes direct publish for 2FA-bypass tokens around Jan 2027) and is
+ *    only legitimately needed for the first-ever publish of a new package
+ *    name (trusted publishers can't exist for unpublished names).
  * 3. Grep the captured output for npm errors even on exit 0 — clean-publish
  *    has historically swallowed npm publish failures (spectrum-ts
  *    1.10.0–1.11.1 silently never reached npm).
@@ -36,6 +41,12 @@ if (!tag || tag.startsWith("--")) {
 }
 
 const NPM_ERROR_RE = /^npm (error|ERR!)/m;
+// npm's trusted-publishing diagnostics ("npm verbose oidc …"). Echoed when the
+// OIDC attempt fails so the real reason isn't buried under a generic E404.
+const NPM_OIDC_LINE_RE = /^npm (verbose|silly|http) .*oidc/im;
+// Everything npm prints at levels below `notice` — dropped from a successful
+// verbose run so the happy path stays readable.
+const NPM_CHATTER_RE = /^npm (verbose|silly|http|info) /;
 const REGISTRY = "https://registry.npmjs.org";
 const REGISTRY_TIMEOUT_MS = 15_000;
 
@@ -92,17 +103,28 @@ async function runPublishAttempt(
     "--tag",
     tag,
   ];
+  // Flags meant for `npm publish` itself go after `--`: clean-publish treats
+  // any flag it doesn't know (e.g. a bare `--provenance`) as its positional
+  // argument and drops it. `--dry-run` rides along here too rather than as a
+  // clean-publish flag, because clean-publish 7.1.0's `--dry-run` parser
+  // consumes the following argument — which would eat the `--` itself.
+  const npmOptions: string[] = [];
   if (oidc) {
-    cmd.push("--provenance");
+    npmOptions.push("--provenance");
   }
   if (dryRun) {
-    cmd.push("--dry-run");
+    npmOptions.push("--dry-run");
+  }
+  if (npmOptions.length > 0) {
+    cmd.push("--", ...npmOptions);
   }
   const env: Record<string, string | undefined> = { ...process.env };
   if (oidc) {
     // Tokenless: npm >= 11.5.1 exchanges the Actions OIDC token itself.
     env.NODE_AUTH_TOKEN = undefined;
     env.npm_config__authToken = undefined;
+    // The only level at which npm explains an OIDC failure.
+    env.npm_config_loglevel = "verbose";
   } else {
     env.NODE_AUTH_TOKEN = process.env.NPM_TOKEN;
   }
@@ -118,8 +140,25 @@ async function runPublishAttempt(
   ]);
   const exitCode = await proc.exited;
   const output = `${stdout}\n${stderr}`;
-  process.stdout.write(output);
-  return { ok: exitCode === 0 && !NPM_ERROR_RE.test(output), output };
+  const ok = exitCode === 0 && !NPM_ERROR_RE.test(output);
+  if (oidc && ok) {
+    process.stdout.write(
+      `${output
+        .split("\n")
+        .filter((line) => !NPM_CHATTER_RE.test(line))
+        .join("\n")}\n`
+    );
+  } else {
+    process.stdout.write(output);
+  }
+  return { ok, output };
+}
+
+// Pull npm's own explanation of why trusted publishing didn't happen out of a
+// failed verbose run (e.g. "Failed token exchange request with body message:
+// …", "Skipped because incorrect permissions for id-token …").
+function oidcDiagnostics(output: string): string[] {
+  return output.split("\n").filter((line) => NPM_OIDC_LINE_RE.test(line));
 }
 
 const pkgs = await publishablePackages();
@@ -136,7 +175,16 @@ for (const pkg of pkgs) {
   console.log(`• publish ${name}@${version} from ${pkg.dir}`);
   let result = await runPublishAttempt(pkg, true);
   if (!result.ok) {
-    console.log(`  OIDC attempt failed for ${name} — retrying with NPM_TOKEN`);
+    const diagnostics = oidcDiagnostics(result.output);
+    console.log(`  OIDC attempt failed for ${name} — npm's reason:`);
+    for (const line of diagnostics.length > 0
+      ? diagnostics
+      : ["    (npm printed no oidc diagnostics)"]) {
+      console.log(`    ${line}`);
+    }
+    console.log(
+      `::warning::${name}@${version}: trusted publishing (OIDC) failed; falling back to NPM_TOKEN. Fix the trusted publisher on npmjs.com — the token path is deprecated.`
+    );
     result = await runPublishAttempt(pkg, false);
   }
   if (!result.ok) {

@@ -53,7 +53,7 @@
       },
       "peerDependencies": {
         "ffmpeg-static": "^5",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
       "optionalPeers": [
         "ffmpeg-static",
@@ -73,7 +73,7 @@
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
         "elysia": "^1",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/express": {
@@ -91,7 +91,7 @@
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
         "express": "^4 || ^5",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/fastify": {
@@ -108,7 +108,7 @@
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
         "fastify": "^4 || ^5",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/hono": {
@@ -125,7 +125,7 @@
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
         "hono": "^4",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/imessage": {
@@ -150,7 +150,7 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/imessage-local": {
@@ -169,7 +169,7 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/slack": {
@@ -188,19 +188,19 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
       "version": "12.10.1",
       "dependencies": {
-        "@spectrum-ts/core": "12.9.1",
-        "@spectrum-ts/imessage": "12.9.1",
-        "@spectrum-ts/slack": "12.9.1",
-        "@spectrum-ts/telegram": "12.9.1",
-        "@spectrum-ts/terminal": "12.9.1",
-        "@spectrum-ts/whatsapp-business": "12.9.1",
+        "@spectrum-ts/core": "12.10.1",
+        "@spectrum-ts/imessage": "12.10.1",
+        "@spectrum-ts/slack": "12.10.1",
+        "@spectrum-ts/telegram": "12.10.1",
+        "@spectrum-ts/terminal": "12.10.1",
+        "@spectrum-ts/whatsapp-business": "12.10.1",
       },
       "devDependencies": {
         "@spectrum-ts/test-support": "workspace:*",
@@ -226,7 +226,7 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/terminal": {
@@ -244,7 +244,7 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
     "packages/test-support": {
@@ -281,7 +281,7 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "^12.0.0",
-        "typescript": "^5 || ^6.0.0",
+        "typescript": "^5 || ^6.0.0 || ^7.0.0",
       },
     },
   },

@@ -69,24 +69,39 @@ async function registryHas(name: string, version: string): Promise<boolean> {
   }
 }
 
-// ~2min budget. The publish already succeeded, so a failure here only means
-// registry propagation is lagging — poll generously rather than abort an
-// otherwise-fine release. Core publishes first, so an early throw would leave
-// every provider and the metapackage unpublished.
+// ~10min budget. By the time this runs npm has already answered
+// `+ name@version` — the publish succeeded — so not seeing the version yet only
+// means registry propagation is lagging. Provenance publishes now go through
+// async processing ("Your package is being processed and may take a few
+// minutes to become available"); the previous 2min budget expired ~1.5s before
+// @spectrum-ts/express@12.10.1 appeared and aborted the release with the
+// metapackage still unpublished. On timeout, warn and continue rather than
+// throw: the remaining packages only need the registry to catch up, and a
+// stale peer range surfaces on install, not on publish.
+const REGISTRY_VISIBILITY_ATTEMPTS = 120;
+const REGISTRY_VISIBILITY_DELAY_MS = 5000;
+
 async function verifyOnRegistry(
   name: string,
   version: string,
-  attempts = 24,
-  delayMs = 5000
+  attempts = REGISTRY_VISIBILITY_ATTEMPTS,
+  delayMs = REGISTRY_VISIBILITY_DELAY_MS
 ): Promise<void> {
+  const started = Date.now();
   for (let i = 0; i < attempts; i++) {
     if (await registryHas(name, version)) {
-      console.log(`  ✓ ${name}@${version} visible on registry`);
+      const seconds = Math.round((Date.now() - started) / 1000);
+      console.log(
+        `  ✓ ${name}@${version} visible on registry (after ${seconds}s)`
+      );
       return;
     }
     await sleep(delayMs);
   }
-  throw new Error(`${name}@${version} not visible on registry after publish`);
+  const minutes = Math.round((attempts * delayMs) / 60_000);
+  console.log(
+    `::warning::${name}@${version} was accepted by npm but is still not visible on the registry after ${minutes}min; continuing — check https://www.npmjs.com/package/${name} before announcing the release.`
+  );
 }
 
 async function runPublishAttempt(

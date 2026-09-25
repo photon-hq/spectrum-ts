@@ -124,13 +124,20 @@ Example: `feat: add reply support to WhatsApp provider`
 
 ## Adding a Platform Provider
 
-New platform providers are welcome. See the [custom platform provider guide](https://docs.photon.codes) for the full API. At a minimum, a provider must implement:
+New platform providers are welcome. For a webhook-driven integration published
+as an independent package, follow [Building a Fusor-backed Spectrum
+adapter](./FUSOR_ADAPTERS.md). The [custom platform provider
+guide](https://docs.photon.codes/spectrum-ts/custom-platforms) documents the
+full authoring API.
+
+At a minimum, a current provider definition implements:
 
 - `config` — a Zod schema for user-supplied configuration
-- `user.resolve` and `space.resolve`
-- `lifecycle.createClient` and `lifecycle.destroyClient`
-- `events.messages` — an async generator that yields incoming messages
-- `actions.send`
+- `user.resolve` and `space.create`
+- `lifecycle.createClient`; `lifecycle.destroyClient` is optional
+- top-level `messages` — either a long-lived async iterable or a Fusor payload
+  handler
+- top-level `send` — the outbound content dispatcher
 
 Optional capabilities (typing indicators, reactions, threaded replies) should be implemented when the underlying platform supports them.
 

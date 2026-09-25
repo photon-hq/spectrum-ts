@@ -138,4 +138,46 @@ describe("spectrum (express plugin)", () => {
       await app.stop();
     }
   });
+
+  it("forwards rejected webhook processing to Express error middleware", async () => {
+    const failure = new Error("webhook processing failed");
+    const app = {
+      webhook: async () => {
+        throw failure;
+      },
+    };
+    let forwardedError: unknown;
+    const errorHandler: express.ErrorRequestHandler = (
+      error,
+      _request,
+      response,
+      _next
+    ) => {
+      forwardedError = error;
+      response.status(503).send("handled");
+    };
+    const server = express()
+      .use(
+        spectrum({
+          app,
+          onMessage: () => undefined,
+        })
+      )
+      .use(errorHandler);
+    const { url, close } = await listen(server);
+
+    try {
+      const response = await fetch(`${url}/spectrum/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+
+      expect(response.status).toBe(503);
+      expect(await response.text()).toBe("handled");
+      expect(forwardedError).toBe(failure);
+    } finally {
+      await close();
+    }
+  });
 });

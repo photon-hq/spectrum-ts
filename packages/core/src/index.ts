@@ -108,19 +108,31 @@ export type { Space } from "./types/space";
 export type { AgentSender, User } from "./types/user";
 export type {
   CloudPlatform,
+  CreatedWebhookData,
+  CreateWebhookInput,
   DedicatedTokenData,
+  DeletedWebhookData,
   FusorTokenData,
   ImessageInfoData,
   PlatformStatus,
   PlatformsData,
   ProjectData,
   ProjectProfile,
+  RotatedWebhookSecretData,
+  RotateWebhookSecretInput,
   SharedTokenData,
   SlackTeamMeta,
   SlackTokenData,
   SubscriptionData,
   SubscriptionStatus,
   TokenData,
+  UpdateWebhookInput,
+  WebhookData,
+  WebhookDisabledReason,
+  WebhookEgressIpsData,
+  WebhookEventType,
+  WebhookSchemaVersion,
+  WebhookStatus,
 } from "./utils/cloud";
 export { cloud, SpectrumCloudError } from "./utils/cloud";
 export { UnsupportedError, type UnsupportedKind } from "./utils/errors";
@@ -136,3 +148,16 @@ export {
   stream,
 } from "./utils/stream";
 export { fromVCard, toVCard } from "./utils/vcard";
+export type {
+  MessageReceivedWebhook,
+  MessageReceivedWebhookRequest,
+  StandardWebhookEvent,
+  StandardWebhookHeaders,
+  VerifyStandardWebhookInput,
+  VerifyStandardWebhookResult,
+  WebhookJsonValue,
+} from "./webhook/standard";
+export {
+  parseStandardWebhookEvent,
+  verifyStandardWebhookSignature,
+} from "./webhook/standard";

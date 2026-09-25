@@ -84,15 +84,19 @@ export function spectrum(options: SpectrumPluginOptions): Router {
   const { app, onMessage, path = "/spectrum/webhook" } = options;
 
   const router = express.Router();
-  router.post(path, express.raw({ type: "*/*" }), async (req, res) => {
-    const result = await app.webhook(
-      { body: req.body, headers: req.headers as Record<string, string> },
-      onMessage
-    );
-    res
-      .status(result.status)
-      .set(result.headers)
-      .send(Buffer.from(result.body));
+  router.post(path, express.raw({ type: "*/*" }), async (req, res, next) => {
+    try {
+      const result = await app.webhook(
+        { body: req.body, headers: req.headers as Record<string, string> },
+        onMessage
+      );
+      res
+        .status(result.status)
+        .set(result.headers)
+        .send(Buffer.from(result.body));
+    } catch (error) {
+      next(error);
+    }
   });
   return router;
 }

@@ -65,6 +65,31 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
     );
   });
 
+  it("delivers when the payload platform differs from the provider name only in casing", async () => {
+    await withSpectrum(
+      {
+        webhookSecret: SPECTRUM_WEBHOOK_SECRET,
+        providers: [makeManagedProvider("imessage").config({})],
+      },
+      async (spectrum) => {
+        const received: Message[] = [];
+        const { promise: finished, resolve: done } =
+          Promise.withResolvers<void>();
+
+        const signed = signSpectrum(textEnvelope("iMessage", "cased"));
+        const result = await spectrum.webhook(signed, (_space, message) => {
+          received.push(message);
+          done();
+        });
+        await finished;
+
+        expect(result.status).toBe(200);
+        expect(received).toHaveLength(1);
+        expect(received[0]?.content).toEqual({ type: "text", text: "cased" });
+      }
+    );
+  });
+
   it("rejects a bad signature with 401 and never calls the handler", async () => {
     await withSpectrum(
       { webhookSecret: SPECTRUM_WEBHOOK_SECRET },

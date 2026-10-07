@@ -1148,12 +1148,31 @@ export async function Spectrum<
     | undefined
   >;
 
+  // Webhook payloads name the platform as the cloud spells it (e.g. "iMessage"),
+  // while providers register under their own name (e.g. "imessage"). Prefer an
+  // exact match, then fall back to the normalized key.
+  const findWebhookRuntime = (
+    platform: string
+  ): PlatformRuntime | undefined => {
+    const exact = platformStates.get(platform);
+    if (exact) {
+      return exact;
+    }
+    const key = normalizePlatformKey(platform);
+    for (const [name, state] of platformStates) {
+      if (normalizePlatformKey(name) === key) {
+        return state;
+      }
+    }
+    return;
+  };
+
   const resolveWebhookAttachment: DeserializeContext["resolveAttachment"] = (
     platform,
     spaceRef,
     attachmentId
   ) => {
-    const runtime = platformStates.get(platform);
+    const runtime = findWebhookRuntime(platform);
     const action = (
       runtime?.definition as { actions?: Record<string, unknown> } | undefined
     )?.actions?.getAttachment;
@@ -1250,7 +1269,7 @@ export async function Spectrum<
     }
 
     const { platform, record } = deserialized;
-    const runtime = platformStates.get(platform);
+    const runtime = findWebhookRuntime(platform);
     if (!runtime) {
       lifecycleLog.warn(
         `spectrum.webhook: no provider configured for platform "${platform}"; acknowledging without delivery`,

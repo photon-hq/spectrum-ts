@@ -177,12 +177,23 @@ const uploadAttachment = async (
   return { guid: attachment.attachment.guid, name: content.name };
 };
 
+const FILE_EXTENSION = /\.[^./\\]+$/;
+
+// A transcoded upload is M4A whatever the source was, so its name has to say so.
+const voiceUploadName = (name: string | undefined, transcoded: boolean) => {
+  if (!name) {
+    return "voice.m4a";
+  }
+  return transcoded ? `${name.replace(FILE_EXTENSION, "")}.m4a` : name;
+};
+
 const uploadVoice = async (
   remote: AdvancedIMessage,
   content: Extract<Content, { type: "voice" }>
 ): Promise<{ guid: AttachmentGuid; name: string }> => {
-  const { buffer } = await ensureM4a(await content.read(), content.mimeType);
-  const name = content.name ?? "voice.m4a";
+  const source = await content.read();
+  const { buffer } = await ensureM4a(source, content.mimeType);
+  const name = voiceUploadName(content.name, buffer !== source);
   const attachment = await remote.attachments.upload({
     data: buffer,
     fileName: name,

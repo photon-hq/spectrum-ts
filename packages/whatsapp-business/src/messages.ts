@@ -864,6 +864,90 @@ const toTemplateInput = (content: WhatsAppTemplate): TemplateInput => ({
     : [],
 });
 
+const typingLog = createLogger("spectrum.whatsapp.typing");
+
+// Inbound content Meta won't mark read, so it can't anchor a typing bubble.
+// Reaction removals surface as `unsend`; system and unknown events as custom.
+const NON_ANCHOR_TYPES = new Set(["reaction", "unsend"]);
+const NON_ANCHOR_CUSTOM_TYPES = new Set(["system", "unknown"]);
+
+// Meta's `from` is digits only, but a space id is whatever the developer
+// passed to `space.create()`, which may carry a leading "+".
+const LEADING_PLUS = /^\+/;
+const sameUser = (a: string, b: string): boolean =>
+  a.replace(LEADING_PLUS, "") === b.replace(LEADING_PLUS, "");
+
+const isNonAnchorCustom = (raw: unknown): boolean =>
+  typeof raw === "object" &&
+  raw !== null &&
+  "whatsapp_type" in raw &&
+  NON_ANCHOR_CUSTOM_TYPES.has(String(raw.whatsapp_type));
+
+const typingAnchor = (
+  spaceId: string,
+  target: ContentOfType<"typing">["target"]
+): string | undefined => {
+  if (target?.direction !== "inbound") {
+    return;
+  }
+  // Core only checks that a target has `id` and `content`, so a plain-JS
+  // caller can hand over a partial message. Typing is a hint: skip, don't
+  // throw.
+  const targetSpaceId: unknown = target.space?.id;
+  const { content } = target;
+  if (typeof targetSpaceId !== "string" || !content) {
+    return;
+  }
+  // Marking another chat's message read would show the bubble (and blue
+  // ticks) in the wrong conversation.
+  if (!sameUser(targetSpaceId, spaceId)) {
+    return;
+  }
+  if (NON_ANCHOR_TYPES.has(content.type)) {
+    return;
+  }
+  if (content.type === "custom" && isNonAnchorCustom(content.raw)) {
+    return;
+  }
+  return parentWamid(target.id);
+};
+
+// Meta's typing indicator rides on mark-as-read and must name the inbound
+// message being answered, so it anchors on `target` (core fills it in on
+// spaces that arrived with a message) and no-ops without one. The bubble
+// clears when we reply or after 25s and has no "stop" call, so `stop` is a
+// no-op. Showing it also marks the target read (blue ticks). Typing is a
+// hint: the call runs in the background and a failure is logged, never
+// thrown, so it can't delay or abort `space.responding()`.
+const startTyping = (
+  clients: WhatsAppClients,
+  spaceId: string,
+  content: ContentOfType<"typing">
+): void => {
+  if (content.state === "stop") {
+    return;
+  }
+  const messageId = typingAnchor(spaceId, content.target);
+  if (!messageId) {
+    typingLog.debug("whatsapp typing skipped: no inbound message to anchor", {
+      "spectrum.whatsapp.space_id": spaceId,
+    });
+    return;
+  }
+  primary(clients)
+    .messages.markRead(messageId, { typingIndicator: true })
+    .catch((error: unknown) => {
+      typingLog.warn(
+        "whatsapp typing indicator failed",
+        {
+          "spectrum.whatsapp.message_id": messageId,
+          ...errorAttrs(error),
+        },
+        error instanceof Error ? error : undefined
+      );
+    });
+};
+
 export const send = async (
   clients: WhatsAppClients,
   spaceId: string,
@@ -891,9 +975,7 @@ export const send = async (
     return await reactToMessage(clients, spaceId, content);
   }
   if (content.type === "typing") {
-    // WhatsApp Business has no typing-indicator API. Silently ignore so
-    // `space.startTyping()` / `space.responding()` work portably across
-    // platforms — typing is a hint, not a critical message.
+    startTyping(clients, spaceId, content);
     return;
   }
   if (content.type === "read") {

@@ -196,6 +196,30 @@ describe("iMessage remote toReactionMessages", () => {
     expect(messages).toEqual([]);
   });
 
+  it("drops the reaction instead of stalling when the target lookup never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const get = vi.fn(
+        (_message: string) => new Promise<SDKMessage>(() => undefined)
+      );
+      const remote = {
+        messages: { get },
+      } as unknown as AdvancedIMessage;
+
+      const pending = toReactionMessages(
+        remote,
+        new MessageCache(),
+        reactionEvent(),
+        "+15551234567"
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      await expect(pending).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("carries the actor's address, country, and service onto the reaction sender", async () => {
     const get = vi.fn((_message: string) => Promise.resolve(sdkMessage()));
     const remote = {

@@ -443,6 +443,10 @@ export interface BuildSpaceParams {
   config: unknown;
   definition: AnyPlatformDef;
   extras: Record<string, unknown>;
+  // The inbound message this space was built for, if any. Late-bound because
+  // the message is wrapped after its space. Typing sugar targets it so
+  // platforms that anchor typing on a message (WhatsApp) work without state.
+  inboundMessage?: () => Message | undefined;
   spaceRef: SpaceRef;
   store: Store;
 }
@@ -633,8 +637,16 @@ const isRawProviderRecord = (v: unknown): v is ProviderMessageRecord => {
 };
 
 export function buildSpace(params: BuildSpaceParams): Space {
-  const { spaceRef, extras, actionCtx, definition, client, config, store } =
-    params;
+  const {
+    spaceRef,
+    extras,
+    actionCtx,
+    definition,
+    client,
+    config,
+    store,
+    inboundMessage,
+  } = params;
   // Declared first so inner arrows can reference it after assignment.
   let space: Space;
 
@@ -693,6 +705,14 @@ export function buildSpace(params: BuildSpaceParams): Space {
     );
   }
 
+  // A typing signal sent on a space that arrived with a message targets that
+  // message unless the caller named one, so `space.send(typing())` and the
+  // startTyping()/responding() sugar behave the same.
+  const withTypingTarget = (item: Content): Content =>
+    item.type === "typing" && !item.target
+      ? { ...item, target: inboundMessage?.() }
+      : item;
+
   async function sendImpl(
     ...content: [ContentInput, ...ContentInput[]]
   ): Promise<
@@ -701,7 +721,7 @@ export function buildSpace(params: BuildSpaceParams): Space {
     const resolved = await resolveContents(content);
     const results: Message<string, AgentSender>[] = [];
     for (const item of resolved) {
-      const sent = await dispatchSend(item);
+      const sent = await dispatchSend(withTypingTarget(item));
       if (sent) {
         results.push(sent);
       }

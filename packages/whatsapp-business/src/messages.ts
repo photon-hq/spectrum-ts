@@ -145,73 +145,6 @@ const getCachedReaction = (
 ): CachedReaction | undefined =>
   reactionCaches.get(client)?.get(reactionCacheKey(reactedId, from));
 
-// Meta's typing indicator is a rider on mark-as-read and must name an inbound
-// wamid, but `typing` content carries no target. Remember each user's latest
-// inbound message per line so `startTyping()` has one to anchor on.
-interface LatestInbound {
-  id: string;
-  timestamp: Date;
-}
-const MAX_LATEST_INBOUND_CACHE_SIZE = 10_000;
-const latestInboundCaches = new WeakMap<
-  WhatsAppClient,
-  Map<string, LatestInbound>
->();
-
-// Inbound events Meta won't mark read, so they can't anchor a typing bubble.
-const NON_ANCHOR_TYPES = new Set(["reaction", "system", "unknown"]);
-
-// Meta's `from` is digits only, but a space id is whatever the developer
-// passed to `space.create()`, which may carry a leading "+".
-const LEADING_PLUS = /^\+/;
-const anchorKey = (userId: string): string => userId.replace(LEADING_PLUS, "");
-
-const rememberLatestInbound = (
-  client: WhatsAppClient,
-  msg: InboundMessage
-): void => {
-  if (NON_ANCHOR_TYPES.has(msg.content.type)) {
-    return;
-  }
-  let cache = latestInboundCaches.get(client);
-  if (!cache) {
-    cache = new Map<string, LatestInbound>();
-    latestInboundCaches.set(client, cache);
-  }
-  const key = anchorKey(msg.from);
-  // Reconnect gap-fill can replay older events after newer ones.
-  const current = cache.get(key);
-  if (current && current.timestamp > msg.timestamp) {
-    return;
-  }
-  // Delete-then-set keeps an active conversation fresh in LRU order.
-  cache.delete(key);
-  cache.set(key, { id: msg.id, timestamp: msg.timestamp });
-  if (cache.size > MAX_LATEST_INBOUND_CACHE_SIZE) {
-    const first = cache.keys().next().value;
-    if (first !== undefined) {
-      cache.delete(first);
-    }
-  }
-};
-
-// The user may have written to any line; the bubble must come from the line
-// that received their latest message, since only it can mark that wamid read.
-const findLatestInbound = (
-  clients: WhatsAppClients,
-  spaceId: string
-): { client: WhatsAppClient; latest: LatestInbound } | undefined => {
-  const key = anchorKey(spaceId);
-  let found: { client: WhatsAppClient; latest: LatestInbound } | undefined;
-  for (const client of clients) {
-    const latest = latestInboundCaches.get(client)?.get(key);
-    if (latest && (!found || latest.timestamp > found.latest.timestamp)) {
-      found = { client, latest };
-    }
-  }
-  return found;
-};
-
 const reactionTargetStub = (reactedId: string) => ({
   id: reactedId,
   content: asCustom({ whatsapp_type: "reaction-target", stub: true }),
@@ -767,8 +700,6 @@ const clientStream = (
             );
             continue;
           }
-          // Before emit, so a handler's `startTyping()` can anchor on it.
-          rememberLatestInbound(client, event.message);
           for (const m of mapped) {
             await emit(m);
           }
@@ -935,10 +866,52 @@ const toTemplateInput = (content: WhatsAppTemplate): TemplateInput => ({
 
 const typingLog = createLogger("spectrum.whatsapp.typing");
 
-// Meta shows the bubble until we reply or 25s pass, and has no "stop" call, so
-// `stop` is a no-op. Showing it also marks the anchor message read (blue
-// ticks). Typing is a hint: the call runs in the background and a failure is
-// logged, never thrown, so it can't delay or abort `space.responding()`.
+// Inbound content Meta won't mark read, so it can't anchor a typing bubble.
+// Reaction removals surface as `unsend`; system and unknown events as custom.
+const NON_ANCHOR_TYPES = new Set(["reaction", "unsend"]);
+const NON_ANCHOR_CUSTOM_TYPES = new Set(["system", "unknown"]);
+
+// Meta's `from` is digits only, but a space id is whatever the developer
+// passed to `space.create()`, which may carry a leading "+".
+const LEADING_PLUS = /^\+/;
+const sameUser = (a: string, b: string): boolean =>
+  a.replace(LEADING_PLUS, "") === b.replace(LEADING_PLUS, "");
+
+const isNonAnchorCustom = (raw: unknown): boolean =>
+  typeof raw === "object" &&
+  raw !== null &&
+  "whatsapp_type" in raw &&
+  NON_ANCHOR_CUSTOM_TYPES.has(String(raw.whatsapp_type));
+
+const typingAnchor = (
+  spaceId: string,
+  target: ContentOfType<"typing">["target"]
+): string | undefined => {
+  if (target?.direction !== "inbound") {
+    return;
+  }
+  // Marking another chat's message read would show the bubble (and blue
+  // ticks) in the wrong conversation.
+  if (!sameUser(target.space.id, spaceId)) {
+    return;
+  }
+  const { content } = target;
+  if (NON_ANCHOR_TYPES.has(content.type)) {
+    return;
+  }
+  if (content.type === "custom" && isNonAnchorCustom(content.raw)) {
+    return;
+  }
+  return parentWamid(target.id);
+};
+
+// Meta's typing indicator rides on mark-as-read and must name the inbound
+// message being answered, so it anchors on `target` (core fills it in on
+// spaces that arrived with a message) and no-ops without one. The bubble
+// clears when we reply or after 25s and has no "stop" call, so `stop` is a
+// no-op. Showing it also marks the target read (blue ticks). Typing is a
+// hint: the call runs in the background and a failure is logged, never
+// thrown, so it can't delay or abort `space.responding()`.
 const startTyping = (
   clients: WhatsAppClients,
   spaceId: string,
@@ -947,21 +920,20 @@ const startTyping = (
   if (content.state === "stop") {
     return;
   }
-  const found = findLatestInbound(clients, spaceId);
-  if (!found) {
+  const messageId = typingAnchor(spaceId, content.target);
+  if (!messageId) {
     typingLog.debug("whatsapp typing skipped: no inbound message to anchor", {
       "spectrum.whatsapp.space_id": spaceId,
     });
     return;
   }
-  const { client, latest } = found;
-  client.messages
-    .markRead(latest.id, { typingIndicator: true })
+  primary(clients)
+    .messages.markRead(messageId, { typingIndicator: true })
     .catch((error: unknown) => {
       typingLog.warn(
         "whatsapp typing indicator failed",
         {
-          "spectrum.whatsapp.message_id": latest.id,
+          "spectrum.whatsapp.message_id": messageId,
           ...errorAttrs(error),
         },
         error instanceof Error ? error : undefined

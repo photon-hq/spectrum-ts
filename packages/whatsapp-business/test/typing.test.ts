@@ -1,174 +1,114 @@
-import type { WhatsAppClient } from "@photon-ai/whatsapp-business";
-import { typing } from "@spectrum-ts/core";
-import { collectUntilIdle } from "@spectrum-ts/test-support/timing";
+import { type Message, typing } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
-import { messages, send } from "@/messages";
+import { send } from "@/messages";
+import type { WhatsAppClients } from "@/types";
 
-// Meta's typing indicator rides on mark-as-read and must name an inbound
-// wamid, so these drive the real inbound path first — messages() ->
-// clientStream — to seed the latest-inbound cache, then send `typing`.
-const USER = "15551234567";
+const SPACE = "15551234567";
 
-const fakeClient = (
-  inbounds: unknown[],
-  markRead = vi.fn(() => Promise.resolve())
-) => {
-  const filtered = {
-    async *[Symbol.asyncIterator]() {
-      for (const inbound of inbounds) {
-        yield { type: "message", message: inbound };
-      }
-    },
-    close: async () => undefined,
-  };
-  const client = {
-    events: { subscribe: () => ({ filter: () => filtered }) },
-    messages: { markRead },
-  } as unknown as WhatsAppClient;
-  return { client, markRead };
-};
+const inbound = (
+  id: string,
+  content: unknown = { type: "text", text: "hi" },
+  spaceId = SPACE
+) =>
+  ({
+    id,
+    content,
+    direction: "inbound",
+    space: { id: spaceId },
+  }) as unknown as Message;
 
-const textEvent = (id: string, at: string, from = USER) => ({
-  id,
-  from,
-  timestamp: new Date(at),
-  content: { type: "text", body: "hi" },
-});
-
-const reactionEvent = (id: string, at: string) => ({
-  id,
-  from: USER,
-  timestamp: new Date(at),
-  content: {
-    type: "reaction",
-    reaction: { messageId: "wamid.TEXT1", emoji: "\u{1F44D}" },
-  },
-});
-
-const systemEvent = (id: string, at: string) => ({
-  id,
-  from: USER,
-  timestamp: new Date(at),
-  content: { type: "system", system: { body: "number changed" } },
+const fakeClients = (markRead = vi.fn(() => Promise.resolve())) => ({
+  clients: [{ messages: { markRead } }] as unknown as WhatsAppClients,
+  markRead,
 });
 
 const sendTyping = async (
-  client: WhatsAppClient | WhatsAppClient[],
-  state: "start" | "stop" = "start",
-  spaceId = USER
-) =>
-  await send(
-    Array.isArray(client) ? client : [client],
-    spaceId,
-    await typing(state).build()
-  );
+  clients: WhatsAppClients,
+  state: "start" | "stop",
+  target?: Message
+) => await send(clients, SPACE, await typing(state, target).build());
 
 describe("whatsapp send — typing", () => {
-  it("marks the latest inbound message read with a typing indicator", async () => {
-    const { client, markRead } = fakeClient([
-      textEvent("wamid.TEXT1", "2026-10-08T00:00:00.000Z"),
-      textEvent("wamid.TEXT2", "2026-10-08T00:00:01.000Z"),
-    ]);
-    await collectUntilIdle(messages([client]));
+  it("marks the target read with a typing indicator", async () => {
+    const { clients, markRead } = fakeClients();
 
-    const result = await sendTyping(client);
+    const result = await sendTyping(clients, "start", inbound("wamid.TEXT1"));
 
     expect(result).toBeUndefined();
-    expect(markRead).toHaveBeenCalledWith("wamid.TEXT2", {
-      typingIndicator: true,
-    });
-  });
-
-  it("keeps the newer message when gap-fill replays an older one", async () => {
-    const { client, markRead } = fakeClient([
-      textEvent("wamid.TEXT2", "2026-10-08T00:00:01.000Z"),
-      textEvent("wamid.TEXT1", "2026-10-08T00:00:00.000Z"),
-    ]);
-    await collectUntilIdle(messages([client]));
-
-    await sendTyping(client);
-
-    expect(markRead).toHaveBeenCalledWith("wamid.TEXT2", {
-      typingIndicator: true,
-    });
-  });
-
-  it("does not anchor on reactions or system events", async () => {
-    const { client, markRead } = fakeClient([
-      textEvent("wamid.TEXT1", "2026-10-08T00:00:00.000Z"),
-      reactionEvent("wamid.REACT1", "2026-10-08T00:00:01.000Z"),
-      systemEvent("wamid.SYS1", "2026-10-08T00:00:02.000Z"),
-    ]);
-    await collectUntilIdle(messages([client]));
-
-    await sendTyping(client);
-
     expect(markRead).toHaveBeenCalledWith("wamid.TEXT1", {
       typingIndicator: true,
     });
+  });
+
+  it("anchors a group item on its parent wamid", async () => {
+    const { clients, markRead } = fakeClients();
+
+    await sendTyping(clients, "start", inbound("wamid.CONTACTS1:1"));
+
+    expect(markRead).toHaveBeenCalledWith("wamid.CONTACTS1", {
+      typingIndicator: true,
+    });
+  });
+
+  it("no-ops without a target", async () => {
+    const { clients, markRead } = fakeClients();
+
+    await sendTyping(clients, "start");
+
+    expect(markRead).not.toHaveBeenCalled();
   });
 
   it("matches a space id written with a leading +", async () => {
-    const { client, markRead } = fakeClient([
-      textEvent("wamid.TEXT1", "2026-10-08T00:00:00.000Z"),
-    ]);
-    await collectUntilIdle(messages([client]));
+    const { clients, markRead } = fakeClients();
 
-    await sendTyping(client, "start", `+${USER}`);
+    await send(
+      clients,
+      `+${SPACE}`,
+      await typing("start", inbound("wamid.TEXT1")).build()
+    );
 
     expect(markRead).toHaveBeenCalledWith("wamid.TEXT1", {
       typingIndicator: true,
     });
   });
 
-  it("shows typing from the line that received the latest message", async () => {
-    const first = fakeClient([
-      textEvent("wamid.LINE1", "2026-10-08T00:00:00.000Z"),
-    ]);
-    const second = fakeClient([
-      textEvent("wamid.LINE2", "2026-10-08T00:00:01.000Z"),
-    ]);
-    await collectUntilIdle(messages([first.client, second.client]));
+  it("no-ops on a target from another chat", async () => {
+    const { clients, markRead } = fakeClients();
+    const otherChat = inbound("wamid.OTHER", undefined, "15559990000");
 
-    await sendTyping([first.client, second.client]);
+    await sendTyping(clients, "start", otherChat);
 
-    expect(first.markRead).not.toHaveBeenCalled();
-    expect(second.markRead).toHaveBeenCalledWith("wamid.LINE2", {
-      typingIndicator: true,
-    });
+    expect(markRead).not.toHaveBeenCalled();
   });
 
-  it("no-ops when the user has not messaged in", async () => {
-    const { client, markRead } = fakeClient([
-      textEvent("wamid.OTHER", "2026-10-08T00:00:00.000Z", "15559990000"),
-    ]);
-    await collectUntilIdle(messages([client]));
+  it.each([
+    ["reaction", { type: "reaction", emoji: "\u{1F44D}" }],
+    ["reaction removal", { type: "unsend" }],
+    ["system event", { type: "custom", raw: { whatsapp_type: "system" } }],
+    ["unknown event", { type: "custom", raw: { whatsapp_type: "unknown" } }],
+  ])("no-ops on a %s, which Meta can't mark read", async (_, content) => {
+    const { clients, markRead } = fakeClients();
 
-    await sendTyping(client);
+    await sendTyping(clients, "start", inbound("wamid.EVT1", content));
 
     expect(markRead).not.toHaveBeenCalled();
   });
 
   it("no-ops on stop, since Meta has no call to dismiss the bubble", async () => {
-    const { client, markRead } = fakeClient([
-      textEvent("wamid.TEXT1", "2026-10-08T00:00:00.000Z"),
-    ]);
-    await collectUntilIdle(messages([client]));
+    const { clients, markRead } = fakeClients();
 
-    await sendTyping(client, "stop");
+    await sendTyping(clients, "stop", inbound("wamid.TEXT1"));
 
     expect(markRead).not.toHaveBeenCalled();
   });
 
   it("does not let a Meta failure reach responding()", async () => {
     const markRead = vi.fn(() => Promise.reject(new Error("message too old")));
-    const { client } = fakeClient(
-      [textEvent("wamid.TEXT1", "2026-10-08T00:00:00.000Z")],
-      markRead
-    );
-    await collectUntilIdle(messages([client]));
+    const { clients } = fakeClients(markRead);
 
-    await expect(sendTyping(client)).resolves.toBeUndefined();
+    await expect(
+      sendTyping(clients, "start", inbound("wamid.TEXT1"))
+    ).resolves.toBeUndefined();
     expect(markRead).toHaveBeenCalledOnce();
   });
 });

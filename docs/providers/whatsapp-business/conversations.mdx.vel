@@ -33,10 +33,9 @@ for await (const [space, message] of app.messages) {
 }
 ```
 
-Meta ties the bubble to an incoming message, so a few rules apply:
+Meta ties the bubble to the message you're answering, so a few rules apply:
 
-- The user must have messaged you first. The provider anchors the bubble on their latest message received through `app.messages` since your app started; without one, typing is a no-op.
-- Messages delivered through `app.webhook()` do not anchor typing yet.
-- Showing the bubble also marks the user's latest message as read (blue ticks).
+- Typing works on the `space` you receive with a message, from `app.messages` or `app.webhook()`. On a space you created with `space.create()`, pass the message yourself: `space.send(typing("start", message))`. Without one, typing is a no-op.
+- Showing the bubble also marks that message as read (blue ticks).
 - The bubble disappears when you reply or after 25 seconds, whichever comes first. Call `startTyping()` again for longer work.
 - `stopTyping()` is a no-op. Meta has no call to dismiss the bubble early.

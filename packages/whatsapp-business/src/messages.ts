@@ -890,12 +890,19 @@ const typingAnchor = (
   if (target?.direction !== "inbound") {
     return;
   }
-  // Marking another chat's message read would show the bubble (and blue
-  // ticks) in the wrong conversation.
-  if (!sameUser(target.space.id, spaceId)) {
+  // Core only checks that a target has `id` and `content`, so a plain-JS
+  // caller can hand over a partial message. Typing is a hint: skip, don't
+  // throw.
+  const targetSpaceId: unknown = target.space?.id;
+  const { content } = target;
+  if (typeof targetSpaceId !== "string" || !content) {
     return;
   }
-  const { content } = target;
+  // Marking another chat's message read would show the bubble (and blue
+  // ticks) in the wrong conversation.
+  if (!sameUser(targetSpaceId, spaceId)) {
+    return;
+  }
   if (NON_ANCHOR_TYPES.has(content.type)) {
     return;
   }

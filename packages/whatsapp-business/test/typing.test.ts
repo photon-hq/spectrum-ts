@@ -81,6 +81,20 @@ describe("whatsapp send — typing", () => {
     expect(markRead).not.toHaveBeenCalled();
   });
 
+  it("no-ops on a partial target with no space", async () => {
+    const { clients, markRead } = fakeClients();
+    const partial = {
+      id: "wamid.TEXT1",
+      content: { type: "text", text: "hi" },
+      direction: "inbound",
+    } as unknown as Message;
+
+    await expect(
+      sendTyping(clients, "start", partial)
+    ).resolves.toBeUndefined();
+    expect(markRead).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["reaction", { type: "reaction", emoji: "\u{1F44D}" }],
     ["reaction removal", { type: "unsend" }],

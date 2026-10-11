@@ -27,13 +27,14 @@ import {
   type ProviderMessageRecord,
 } from "@spectrum-ts/core/authoring";
 import { getMessageCache, type MessageCache } from "../cache";
+import { isConversationEventItemType } from "../conversation-events";
 import {
   appleAudioMimeType,
   normalizeAppleAttachmentMimeType,
 } from "../shared/audio";
 import { type OrderedPart, toOrderedParts } from "../shared/inbound-parts";
 import { isVCardAttachment } from "../shared/vcard";
-import type { IMessageMessage } from "../types";
+import type { IMessageConversationEvent, IMessageMessage } from "../types";
 import {
   downloadPrimaryAttachment,
   downloadPrimaryAttachmentStream,
@@ -257,8 +258,15 @@ const buildOrderedPartMessage = async (
         part.attachment.guid === voiceAttachmentGuid
       );
 
-const unsupportedMessageContent = (): Content =>
-  asCustom({ imessage_type: "unsupported-message" });
+const unsupportedMessageContent = (message: AppleMessage): Content => {
+  if (isConversationEventItemType(message.itemType)) {
+    return asCustom({
+      imessage_type: "conversation-event",
+      itemType: message.itemType,
+    } satisfies IMessageConversationEvent);
+  }
+  return asCustom({ imessage_type: "unsupported-message" });
+};
 
 /**
  * Fold an inbound app card's decoded slots into an `AppLayout`.
@@ -327,7 +335,7 @@ const buildUnwrappedContentMessage = async (
     return {
       ...base,
       id: messageGuidStr,
-      content: text ? asText(text) : unsupportedMessageContent(),
+      content: text ? asText(text) : unsupportedMessageContent(message),
     };
   }
 
@@ -337,7 +345,7 @@ const buildUnwrappedContentMessage = async (
     return {
       ...base,
       id: messageGuidStr,
-      content: unsupportedMessageContent(),
+      content: unsupportedMessageContent(message),
     };
   }
 

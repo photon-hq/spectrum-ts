@@ -195,6 +195,12 @@ const miniAppSchema = z
   })
   .readonly();
 
+/** Native conversation update with no supported message content. */
+export interface IMessageConversationEvent {
+  readonly imessage_type: "conversation-event";
+  readonly itemType: "chatAction" | "groupNameChange" | "participantChange";
+}
+
 export const nativeMessageMetadataSchema = z.object({
   dateDelivered: z.date().optional(),
   dateEdited: z.date().optional(),

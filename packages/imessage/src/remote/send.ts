@@ -6,7 +6,7 @@ import type {
   Message as SDKMessage,
   SendOptions,
   TextFormatInput,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { type Content, type Message, toVCard } from "@spectrum-ts/core";
 import {
   asGroup,

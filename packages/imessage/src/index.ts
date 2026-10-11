@@ -1,8 +1,7 @@
-import {
-  type AdvancedIMessage,
-  createGrpcClient,
-  type MiniAppCardSession,
-} from "@photon-ai/advanced-imessage/grpc";
+import type {
+  AdvancedIMessage,
+  MiniAppCardSession,
+} from "@photon-ai/advanced-imessage/http";
 import { withSpan } from "@photon-ai/otel";
 import {
   type AddMember,
@@ -109,6 +108,7 @@ import {
   getProfileSyncGate,
   registerProfileSyncGate,
 } from "./remote/profile-sync-gate";
+import { createHandle, DEFAULT_IMESSAGE_TRANSPORT } from "./transport";
 import {
   configSchema,
   type IMessageClient,
@@ -498,21 +498,21 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
         const entries = Array.isArray(config.clients)
           ? config.clients
           : [config.clients];
+        const transport = config.transport ?? DEFAULT_IMESSAGE_TRANSPORT;
         clients = entries.map((e) => ({
           phone: e.phone,
-          client: createGrpcClient({
+          ...createHandle(transport, {
             address: e.address,
-            // Auto-retry transient unary failures (idempotency-keyed so retries
-            // can't double-apply) so a server blip during an outbound action
-            // doesn't crash the app.
-            autoIdempotency: true,
-            retry: true,
-            tls: true,
+            server: e.server,
             token: e.token,
           }),
         }));
       } else if (projectId && projectSecret) {
-        clients = await createCloudClients(projectId, projectSecret);
+        clients = await createCloudClients(
+          projectId,
+          projectSecret,
+          config.transport
+        );
       } else {
         throw new Error(
           "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use localIMessage.config()."

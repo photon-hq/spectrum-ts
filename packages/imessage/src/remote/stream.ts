@@ -1,12 +1,13 @@
+import type {
+  CatchUpEvent,
+  GroupEvent,
+  MessageEvent,
+  PollEvent,
+} from "@photon-ai/advanced-imessage/grpc";
 import {
-  type AdvancedIMessage,
-  type CatchUpEvent,
-  type GroupEvent,
-  type MessageEvent,
-  type PollEvent,
   type SingleServiceAddressInfo,
   ValidationError,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { sanitizePhone } from "@photon-ai/otel";
 import {
   type ManagedStream,
@@ -24,6 +25,10 @@ import {
 import { getCloudRecover } from "../auth";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
 import { addLineObserver, lineKey } from "../lines";
+import {
+  type IMessageStreamingClient,
+  requireStreamingClient,
+} from "../transport";
 import {
   type IMessageMessage,
   type RemoteClient,
@@ -124,7 +129,7 @@ const skipUnmappable = async <T>(
 type OnInboundMessage = (chatGuid: string) => void;
 
 const toMessageItem = async (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   event: MessageEvent,
   phone: string,
   cursor: string,
@@ -216,7 +221,7 @@ const toMessageItem = async (
 };
 
 const toPollItem = async (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   pollCache: PollCache,
   event: PollEvent,
   phone: string,
@@ -239,7 +244,7 @@ const toPollItem = async (
 };
 
 const toGroupItem = async (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   event: GroupEvent,
   phone: string,
   cursor: string
@@ -283,7 +288,7 @@ const isGroupEvent = (event: CatchUpEvent): event is GroupEvent =>
   event.type === "group.changed";
 
 async function* catchUpEvents<T extends MessageEvent | PollEvent | GroupEvent>(
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   cursor: string,
   isWanted: (event: CatchUpEvent) => event is T
 ): AsyncGenerator<T | CatchUpCompleteEvent> {
@@ -339,7 +344,7 @@ const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
   });
 
 const messageStream = (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   phone: string,
   onInbound?: OnInboundMessage,
   recover?: () => Promise<void>
@@ -376,7 +381,7 @@ const messageStream = (
   });
 
 const pollStream = (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   pollCache: PollCache,
   phone: string,
   recover?: () => Promise<void>
@@ -410,7 +415,7 @@ const pollStream = (
   });
 
 const groupStream = (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   phone: string,
   recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
@@ -436,7 +441,7 @@ const groupStream = (
   });
 
 const clientStream = (
-  client: AdvancedIMessage,
+  client: IMessageStreamingClient,
   pollCache: PollCache,
   phone: string,
   includeGroupEvents: boolean,
@@ -521,7 +526,7 @@ export const messages = (
         ? getContactShareTracker(entry.client)
         : undefined;
     return clientStream(
-      entry.client,
+      requireStreamingClient(entry),
       pollCache,
       entry.phone,
       includeGroupEvents,

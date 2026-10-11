@@ -1,7 +1,7 @@
 import type {
   AdvancedIMessage,
   MessageEvent,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import { sanitizePhone } from "@photon-ai/otel";
 import type { Read as ReadContent } from "@spectrum-ts/core";
 import { createLogger, readSchema } from "@spectrum-ts/core/authoring";

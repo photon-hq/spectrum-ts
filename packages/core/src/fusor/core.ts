@@ -38,6 +38,11 @@ export interface RegisteredFusorHandler<TPayload = unknown> {
   verify: FusorVerify<TPayload>;
 }
 
+export interface FusorEventMetadata {
+  eventId: string;
+  platform: string;
+}
+
 function toReplyBytes(body: string | Uint8Array | undefined): Uint8Array {
   if (body === undefined) {
     return new Uint8Array(0);
@@ -160,7 +165,7 @@ function runHandlerOnce<TPayload>(
 
 export interface FusorCoreOptions {
   // Optional: only the streaming transport (start) needs cloud credentials to
-  // mint a token. The webhook path (processEvent) routes registered handlers
+  // mint a token. The webhook path (processRequest) routes registered handlers
   // without them, so a webhook-only Spectrum can construct a core with
   // neither set.
   projectId?: string;
@@ -316,40 +321,53 @@ export class FusorCore {
     }
   }
 
-  // Transport-independent event processing: route by platform, parse the wire
-  // request, run every registered handler (verify → messages), and combine the
-  // results into a single InboundReply. Returns the reply instead of writing it
-  // anywhere, so both the streaming session (sendReply) and the synchronous
-  // webhook path can drive it. `deliver` controls where produced records go:
-  // the streaming path defaults to each handler's pushMessage (the per-platform
-  // queue feeding spectrum.messages); the webhook path collects them for the
-  // request instead.
+  private noHandlerReply(event: FusorEventMetadata): InboundReply {
+    // Reply shape stays wire-compatible; only the local log gets the install
+    // hint (since v5 the official providers are separate packages, so "no
+    // handler" is usually a missing install, not a routing bug).
+    const hint = officialProviderInstallHint(event.platform);
+    log.warn(
+      hint
+        ? `fusor: no handler for platform — ${hint}`
+        : "fusor: no handler for platform",
+      {
+        "spectrum.fusor.platform": event.platform,
+        "spectrum.fusor.event_id": event.eventId,
+      }
+    );
+    return {
+      eventId: event.eventId,
+      errorReason: `no handler for platform ${event.platform}`,
+      status: 0,
+      headers: {},
+      body: new Uint8Array(0),
+    };
+  }
+
+  private async processParsedRequest(
+    event: FusorEventMetadata,
+    parsedRequest: ParsedHttpRequest,
+    handlers: RegisteredFusorHandler[],
+    deliver?: (record: ProviderMessageRecord) => void
+  ): Promise<InboundReply> {
+    const outcomes = await Promise.all(
+      handlers.map((handler) => runHandlerOnce(handler, parsedRequest, deliver))
+    );
+
+    const combined = combineReplies(outcomes);
+    combined.eventId = event.eventId;
+    return combined;
+  }
+
+  // WebSocket events still carry protobuf/raw HTTP. Parse that transport shape,
+  // then hand the resulting request to the shared provider pipeline.
   async processEvent(
     event: RawInboundEvent,
     deliver?: (record: ProviderMessageRecord) => void
   ): Promise<InboundReply> {
     const handlers = this.handlers.get(event.platform) ?? [];
     if (handlers.length === 0) {
-      // Reply shape stays wire-compatible; only the local log gets the
-      // install hint (since v5 the official providers are separate packages,
-      // so "no handler" is usually a missing install, not a routing bug).
-      const hint = officialProviderInstallHint(event.platform);
-      log.warn(
-        hint
-          ? `fusor: no handler for platform — ${hint}`
-          : "fusor: no handler for platform",
-        {
-          "spectrum.fusor.platform": event.platform,
-          "spectrum.fusor.event_id": event.eventId,
-        }
-      );
-      return {
-        eventId: event.eventId,
-        errorReason: `no handler for platform ${event.platform}`,
-        status: 0,
-        headers: {},
-        body: new Uint8Array(0),
-      };
+      return this.noHandlerReply(event);
     }
 
     let parsedRequest: ParsedHttpRequest;
@@ -371,13 +389,22 @@ export class FusorCore {
       };
     }
 
-    const outcomes = await Promise.all(
-      handlers.map((handler) => runHandlerOnce(handler, parsedRequest, deliver))
-    );
+    return this.processParsedRequest(event, parsedRequest, handlers, deliver);
+  }
 
-    const combined = combineReplies(outcomes);
-    combined.eventId = event.eventId;
-    return combined;
+  // HTTP JSON deliveries already provide method/path/headers plus the exact
+  // original body bytes, so they enter after raw HTTP parsing. Keeping this
+  // seam shared means WebSocket protobuf behavior remains unchanged.
+  async processRequest(
+    event: FusorEventMetadata,
+    parsedRequest: ParsedHttpRequest,
+    deliver?: (record: ProviderMessageRecord) => void
+  ): Promise<InboundReply> {
+    const handlers = this.handlers.get(event.platform) ?? [];
+    if (handlers.length === 0) {
+      return this.noHandlerReply(event);
+    }
+    return this.processParsedRequest(event, parsedRequest, handlers, deliver);
   }
 
   async close(): Promise<void> {

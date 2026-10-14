@@ -11,6 +11,7 @@ import {
   leaveSpaceSchema,
   removeMemberSchema,
 } from "../content/membership";
+import { pollOptionSchema, pollSchema } from "../content/poll";
 import { renameSchema } from "../content/rename";
 import type { Content } from "../content/types";
 import { asVoice } from "../content/voice";
@@ -135,6 +136,10 @@ const mapContent = (
     case "richlink":
       // Outbound-only content type; inbound URLs always surface as text.
       return { type: "text", text: asString(raw.url) };
+    case "poll":
+      return pollSchema.parse(content);
+    case "poll_option":
+      return pollOptionSchema.parse(content);
     case "contact":
       return deserializeContact(raw);
     case "reaction":
@@ -273,7 +278,7 @@ const deserializeReaction = (
   raw: Record<string, unknown>,
   spaceRef: SpaceRef
 ): Content =>
-  // `target` is a raw record; `wrapNestedContent` wraps it into a Message.
+  // SAFETY: wrapNestedContent turns the raw target record into a Message before delivery.
   ({
     type: "reaction",
     emoji: asString(raw.emoji),
@@ -288,6 +293,7 @@ const deserializeRead = (
   // rides on the envelope (`message.sender`); `target` is our message.
   // `direction: "outbound"` marks it as ours so `wrapNestedContent`'s read arm
   // builds it with the outbound affordances.
+  // SAFETY: wrapNestedContent builds this outbound target into a Message before delivery.
   ({
     type: "read",
     target: {
@@ -302,6 +308,7 @@ const deserializeReply = (
   spaceRef: SpaceRef,
   ctx: DeserializeContext
 ): Content =>
+  // SAFETY: wrapNestedContent builds the raw target and recursively wraps reply content.
   ({
     type: "reply",
     content: isRecord(raw.content)
@@ -333,7 +340,7 @@ const deserializeGroup = (
   ctx: DeserializeContext
 ): Content => {
   const rawItems = Array.isArray(raw.items) ? raw.items : [];
-  // Each item is a raw record; `wrapNestedContent` wraps it into a Message.
+  // SAFETY: wrapNestedContent turns each raw item record into a Message before delivery.
   return {
     type: "group",
     items: rawItems.map((item) =>

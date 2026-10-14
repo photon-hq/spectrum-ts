@@ -29,7 +29,8 @@ type UnvotedPollEvent = PollEvent & {
 
 interface PollMetadataInput {
   options: readonly IMessagePollOption[];
-  title: string;
+  pollMessageGuid: string;
+  title?: string;
 }
 
 interface PollOptionMessageInput {
@@ -50,9 +51,11 @@ const isUnvotedPollEvent = (event: PollEvent): event is UnvotedPollEvent =>
 
 const toCachedPoll = (input: PollMetadataInput): CachedPoll => {
   const poll = asPoll({
-    title: input.title,
+    pollMessageGuid: input.pollMessageGuid,
+    title: input.title ?? "",
     options: input.options.map((optionInfo) => ({
       title: optionInfo.text,
+      optionIdentifier: optionInfo.optionIdentifier,
     })),
   });
   const optionsByIdentifier = new Map<string, PollChoice>();
@@ -65,7 +68,14 @@ const toCachedPoll = (input: PollMetadataInput): CachedPoll => {
   return { poll, optionsByIdentifier };
 };
 
-const cachePollInfo = (cache: PollCache, info: IMessagePoll): CachedPoll => {
+const cachePollInfo = (
+  cache: PollCache,
+  info: IMessagePoll,
+  expectedGuid: string
+): CachedPoll => {
+  if (info.pollMessageGuid !== expectedGuid) {
+    throw new Error("poll metadata GUID does not match the requested poll");
+  }
   const cached = toCachedPoll(info);
   cache.set(info.pollMessageGuid, cached);
   return cached;
@@ -78,6 +88,7 @@ export const cachePollEvent = (
   if (event.delta.type === "created" || event.delta.type === "optionAdded") {
     try {
       const cached = toCachedPoll({
+        pollMessageGuid: event.pollMessageGuid,
         title: event.delta.title,
         options: event.delta.options,
       });
@@ -103,7 +114,7 @@ const fetchPollInfo = async (
 ): Promise<IMessagePoll | undefined> => {
   try {
     const info = await client.polls.get(event.pollMessageGuid);
-    cachePollInfo(cache, info);
+    cachePollInfo(cache, info, event.pollMessageGuid);
     return info;
   } catch (e) {
     log.error(
@@ -130,7 +141,7 @@ const resolvePoll = async (
 
   try {
     const info = await client.polls.get(event.pollMessageGuid);
-    return cachePollInfo(cache, info);
+    return cachePollInfo(cache, info, event.pollMessageGuid);
   } catch (e) {
     log.error(
       "failed to resolve poll",
@@ -226,6 +237,29 @@ export const toPollDeltaMessages = async (
   event: PollEvent,
   phone: string
 ): Promise<IMessageMessage[]> => {
+  if (event.delta.type === "created" || event.delta.type === "optionAdded") {
+    // Use this delta's validated snapshot, never stale metadata after a failed update.
+    const cached = cachePollEvent(pollCache, event);
+    if (!cached) {
+      return [];
+    }
+    return [
+      {
+        id:
+          event.delta.type === "created"
+            ? event.pollMessageGuid
+            : `${event.pollMessageGuid}:poll:${event.sequence}`,
+        sender: event.actor?.address ? toSenderRef(event.actor) : undefined,
+        space: {
+          id: event.chatGuid,
+          type: chatTypeFromGuid(event.chatGuid),
+          phone,
+        },
+        timestamp: event.occurredAt,
+        content: { ...cached.poll, change: event.delta.type },
+      },
+    ];
+  }
   if (isVotedPollEvent(event)) {
     return toPollOptionMessage(client, pollCache, event, phone);
   }

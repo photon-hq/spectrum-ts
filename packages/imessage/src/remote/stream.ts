@@ -222,8 +222,8 @@ const toPollItem = async (
   phone: string,
   cursor: string
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
-  cachePollEvent(pollCache, event);
   if (isEventFromCurrentAccount(event, phone)) {
+    cachePollEvent(pollCache, event);
     return {
       cursor,
       id: `${event.pollMessageGuid}:poll:${event.sequence}`,

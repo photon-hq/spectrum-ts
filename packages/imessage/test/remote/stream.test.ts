@@ -207,6 +207,40 @@ const remoteClient = (phone: string) => {
   };
 };
 
+const POLL_OPTIONS = [
+  { optionIdentifier: "option-A", text: "Same label" },
+  { optionIdentifier: "option-B", text: "Same label" },
+];
+
+const pollEvent = (
+  sequence: number,
+  delta: unknown,
+  overrides: Record<string, unknown> = {}
+) => ({
+  type: "poll.changed",
+  sequence,
+  pollMessageGuid: "poll-root",
+  chatGuid: "iMessage;+;chat123",
+  isFromMe: false,
+  actor: { address: "+15550111" },
+  occurredAt: new Date(1_700_000_000_000 + sequence),
+  delta,
+  ...overrides,
+});
+
+const pollClient = (events: unknown[]) => {
+  const get = vi.fn();
+  const entry: RemoteClient = {
+    phone: "+15550100",
+    client: {
+      messages: { subscribeEvents: idleEventStream },
+      groups: { subscribeEvents: idleEventStream },
+      polls: { get, subscribeEvents: () => finiteEventStream(events) },
+    } as unknown as AdvancedIMessage,
+  };
+  return { entry, get };
+};
+
 const startAndClose = async (clients: RemoteClient[]): Promise<void> => {
   const stream = messages(clients);
   const pendingMessage = stream[Symbol.asyncIterator]().next();
@@ -214,6 +248,151 @@ const startAndClose = async (clients: RemoteClient[]): Promise<void> => {
   await stream.close();
   await settleSoon(pendingMessage);
 };
+
+describe("remote iMessage poll stream", () => {
+  it("delivers titleless created, voted, unvoted and optionAdded through the provider stream", async () => {
+    const { entry, get } = pollClient([
+      pollEvent(1, { type: "created", title: "", options: POLL_OPTIONS }),
+      pollEvent(2, { type: "voted", optionIdentifier: "option-B" }),
+      pollEvent(3, { type: "unvoted", optionIdentifier: "option-B" }),
+      pollEvent(
+        4,
+        {
+          type: "optionAdded",
+          title: "",
+          options: [
+            ...POLL_OPTIONS,
+            { optionIdentifier: "option-C", text: "New" },
+          ],
+        },
+        { actor: undefined }
+      ),
+    ]);
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    try {
+      const created = (await iterator.next()).value;
+      const voted = (await iterator.next()).value;
+      const unvoted = (await iterator.next()).value;
+      const added = (await iterator.next()).value;
+      expect(created?.id).toBe("poll-root");
+      expect(created?.content).toMatchObject({
+        type: "poll",
+        title: "",
+        pollMessageGuid: "poll-root",
+        change: "created",
+      });
+      expect(voted?.content).toMatchObject({
+        type: "poll_option",
+        selected: true,
+        pollMessageGuid: "poll-root",
+        option: { optionIdentifier: "option-B" },
+      });
+      expect(unvoted?.content).toMatchObject({
+        type: "poll_option",
+        selected: false,
+        pollMessageGuid: "poll-root",
+        option: { optionIdentifier: "option-B" },
+      });
+      expect(added?.id).toBe("poll-root:poll:4");
+      expect(added?.sender).toBeUndefined();
+      expect(added?.content).toMatchObject({
+        type: "poll",
+        change: "optionAdded",
+        options: [
+          ...POLL_OPTIONS.map((option) => ({
+            title: option.text,
+            optionIdentifier: option.optionIdentifier,
+          })),
+          { title: "New", optionIdentifier: "option-C" },
+        ],
+      });
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      await stream.close();
+      await settleSoon(iterator.next());
+    }
+  });
+
+  it.each([
+    { type: "created", isFromMe: true, actor: { address: "+15550111" } },
+    { type: "created", isFromMe: false, actor: { address: "+15550100" } },
+    { type: "optionAdded", isFromMe: true, actor: { address: "+15550111" } },
+    { type: "optionAdded", isFromMe: false, actor: { address: "+15550100" } },
+  ])("caches a suppressed self $type for a subsequent peer vote (isFromMe=$isFromMe)", async ({
+    type,
+    isFromMe,
+    actor,
+  }) => {
+    const { entry, get } = pollClient([
+      pollEvent(
+        1,
+        { type, title: "", options: POLL_OPTIONS },
+        { isFromMe, actor }
+      ),
+      pollEvent(
+        2,
+        { type: "voted", optionIdentifier: "option-A" },
+        { isFromMe, actor }
+      ),
+      pollEvent(
+        3,
+        { type: "unvoted", optionIdentifier: "option-A" },
+        { isFromMe, actor }
+      ),
+      pollEvent(4, { type: "voted", optionIdentifier: "option-B" }),
+    ]);
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    try {
+      const first = (await iterator.next()).value;
+      expect(first?.id).toBe(
+        "poll-root:+15550111:option-B:selected:1700000000004"
+      );
+      expect(first?.content).toMatchObject({
+        type: "poll_option",
+        pollMessageGuid: "poll-root",
+        option: { optionIdentifier: "option-B" },
+      });
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      await stream.close();
+      await settleSoon(iterator.next());
+    }
+  });
+
+  it("skips missing-actor votes and invalid updates without emitting an old snapshot", async () => {
+    const { entry, get } = pollClient([
+      pollEvent(1, { type: "created", title: "", options: POLL_OPTIONS }),
+      pollEvent(
+        2,
+        { type: "voted", optionIdentifier: "option-A" },
+        { actor: undefined }
+      ),
+      pollEvent(
+        3,
+        { type: "unvoted", optionIdentifier: "option-A" },
+        { actor: undefined }
+      ),
+      pollEvent(4, {
+        type: "optionAdded",
+        title: "",
+        options: [{ text: "Missing ID" }, { text: "Another" }],
+      }),
+      pollEvent(5, { type: "optionAdded", title: "", options: POLL_OPTIONS }),
+    ]);
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    try {
+      expect((await iterator.next()).value?.id).toBe("poll-root");
+      expect((await iterator.next()).value?.id).toBe("poll-root:poll:5");
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      await stream.close();
+      await settleSoon(iterator.next());
+    }
+  });
+});
 
 describe("remote iMessage streams", () => {
   it("does not subscribe to group events in shared mode", async () => {

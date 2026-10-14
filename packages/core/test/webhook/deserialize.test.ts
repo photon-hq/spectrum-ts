@@ -82,6 +82,65 @@ describe("deserializeSpectrumMessage", () => {
     expect(result).toBeNull();
   });
 
+  it.each([
+    "created",
+    "optionAdded",
+  ] as const)("maps a titleless %s poll snapshot", (change) => {
+    const content = {
+      type: "poll",
+      title: "",
+      pollMessageGuid: "poll-a",
+      change,
+      options: [
+        { title: "Same", optionIdentifier: "a" },
+        { title: "Same", optionIdentifier: "b" },
+      ],
+    };
+    expect(deserialize(content).record.content).toEqual(content);
+  });
+
+  it.each([
+    true,
+    false,
+  ])("maps a native vote with selected=%s and preserves identity", (selected) => {
+    const content = {
+      type: "poll_option",
+      title: "Same",
+      pollMessageGuid: "poll-a",
+      selected,
+      option: { title: "Same", optionIdentifier: "b" },
+      poll: {
+        type: "poll",
+        title: "",
+        pollMessageGuid: "poll-a",
+        options: [
+          { title: "Same", optionIdentifier: "a" },
+          { title: "Same", optionIdentifier: "b" },
+        ],
+      },
+    };
+    expect(deserialize(content).record.content).toEqual(content);
+    const invalid = { ...content, pollMessageGuid: "wrong-poll" };
+    expect(deserialize(invalid).record.content).toEqual({
+      type: "custom",
+      raw: invalid,
+    });
+  });
+
+  it("keeps legacy polls typed and invalid polls inspectable as custom content", () => {
+    const content = {
+      type: "poll",
+      title: "Question?",
+      options: [{ title: "A" }, { title: "B" }],
+    };
+    expect(deserialize(content).record.content).toEqual(content);
+    const invalid = { ...content, title: "" };
+    expect(deserialize(invalid).record.content).toEqual({
+      type: "custom",
+      raw: invalid,
+    });
+  });
+
   it("maps text content", () => {
     const { record } = deserialize({ type: "text", text: "hello" });
     expect(record.content).toEqual({ type: "text", text: "hello" });

@@ -31,6 +31,40 @@ await space.send(nativeContactCard());
 await space.shareContactCard();
 ```
 
+## Incoming polls
+
+Native iMessage polls can have an empty title. Match a poll with
+`content.pollMessageGuid`, not its title. Match a selected option with
+`content.option.optionIdentifier`, not its label. Different options can have
+identical labels.
+
+Poll creation and option additions arrive as `content.type === "poll"`, with
+`content.change` set to `"created"` or `"optionAdded"`. Both contain the full
+current option set. An option addition does not represent a vote.
+
+Votes and removed votes arrive as `content.type === "poll_option"`, with
+`selected` set to `true` or `false`. The nested `content.poll` retains the poll
+GUID and option identifiers. Use the vote/update message ID for duplicate
+detection and the poll GUID for correlation. A created poll uses its root GUID
+as its message ID.
+
+```ts
+if (message.content.type === "poll_option") {
+  const { pollMessageGuid, option, selected } = message.content;
+  // Correlate by pollMessageGuid and option.optionIdentifier.
+}
+```
+
+These fields are optional on shared Spectrum content because other providers
+can still supply polls without native identifiers. The `poll(title, ...)`
+builder still requires a nonempty title. Native snapshots with a poll GUID
+require distinct option identifiers, even when their labels are equal.
+
+The native `app.webhook()` handler preserves the same poll content types and
+identifiers. Hosted delivery also requires the corresponding webhook-worker
+update and SDK rollout; updating only the receiving application is not enough.
+Previously skipped events are not automatically replayed.
+
 See the [spectrum-ts documentation](https://photon.codes/spectrum) for the full guide.
 
 For direct access to the local macOS Messages database, install and import

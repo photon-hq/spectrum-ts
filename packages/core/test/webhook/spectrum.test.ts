@@ -65,6 +65,56 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
     );
   });
 
+  it.each([
+    "created",
+    "optionAdded",
+    "voted",
+    "unvoted",
+  ] as const)("delivers a signed %s poll event with native identifiers", async (change) => {
+    await withSpectrum(
+      { webhookSecret: SPECTRUM_WEBHOOK_SECRET },
+      async (spectrum) => {
+        const pollContent = {
+          type: "poll",
+          title: "",
+          pollMessageGuid: "poll-a",
+          options: [
+            { title: "Same", optionIdentifier: "a" },
+            { title: "Same", optionIdentifier: "b" },
+          ],
+        };
+        const content =
+          change === "created" || change === "optionAdded"
+            ? { ...pollContent, change }
+            : {
+                type: "poll_option",
+                title: "Same",
+                pollMessageGuid: "poll-a",
+                option: { title: "Same", optionIdentifier: "b" },
+                poll: pollContent,
+                selected: change === "voted",
+              };
+        const received: Message[] = [];
+        const { promise: finished, resolve: done } =
+          Promise.withResolvers<void>();
+        const signed = signSpectrum(textEnvelope(PLATFORM, "", { content }));
+        const request = new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: signed.headers,
+          body: signed.body,
+        });
+        const response = await spectrum.webhook(request, (_space, message) => {
+          received.push(message);
+          done();
+        });
+        await finished;
+        expect(response.status).toBe(200);
+        expect(received).toHaveLength(1);
+        expect(received[0]?.content).toEqual(content);
+      }
+    );
+  });
+
   it("rejects a bad signature with 401 and never calls the handler", async () => {
     await withSpectrum(
       { webhookSecret: SPECTRUM_WEBHOOK_SECRET },

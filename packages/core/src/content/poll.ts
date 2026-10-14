@@ -3,13 +3,52 @@ import type { ContentBuilder } from "./types";
 
 export const pollChoiceSchema = z.object({
   title: z.string().nonempty(),
+  optionIdentifier: z.string().nonempty().optional(),
 });
 
-export const pollSchema = z.object({
-  type: z.literal("poll"),
-  title: z.string().nonempty().max(300),
-  options: z.array(pollChoiceSchema).min(2).max(10),
-});
+export const pollSchema = z
+  .object({
+    type: z.literal("poll"),
+    title: z.string().max(300),
+    options: z.array(pollChoiceSchema).min(2).max(10),
+    pollMessageGuid: z.string().nonempty().optional(),
+    // Option additions carry the full current option set, not a vote.
+    change: z.enum(["created", "optionAdded"]).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.pollMessageGuid) {
+      if (!value.title) {
+        ctx.addIssue({
+          code: "custom",
+          message: "poll title must not be empty",
+          path: ["title"],
+        });
+      }
+      if (value.change) {
+        ctx.addIssue({
+          code: "custom",
+          message: "poll change requires pollMessageGuid",
+          path: ["pollMessageGuid"],
+        });
+      }
+      return;
+    }
+    const identifiers = new Set<string>();
+    for (const [index, choice] of value.options.entries()) {
+      if (
+        !choice.optionIdentifier ||
+        identifiers.has(choice.optionIdentifier)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "native poll options require unique optionIdentifier values",
+          path: ["options", index, "optionIdentifier"],
+        });
+      } else {
+        identifiers.add(choice.optionIdentifier);
+      }
+    }
+  });
 
 export const pollOptionSchema = z
   .object({
@@ -18,6 +57,7 @@ export const pollOptionSchema = z
     poll: pollSchema,
     selected: z.boolean(),
     title: z.string().nonempty(),
+    pollMessageGuid: z.string().nonempty().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.title !== value.option.title) {
@@ -27,9 +67,23 @@ export const pollOptionSchema = z
         path: ["title"],
       });
     }
+    if (value.pollMessageGuid !== value.poll.pollMessageGuid) {
+      ctx.addIssue({
+        code: "custom",
+        message: "poll_option pollMessageGuid must match poll.pollMessageGuid",
+        path: ["pollMessageGuid"],
+      });
+    }
+    const usesIdentifiers = Boolean(
+      value.poll.pollMessageGuid || value.option.optionIdentifier
+    );
     if (
-      !value.poll.options.some(
-        (pollOption) => pollOption.title === value.option.title
+      !value.poll.options.some((pollOption) =>
+        usesIdentifiers
+          ? Boolean(value.option.optionIdentifier) &&
+            pollOption.optionIdentifier === value.option.optionIdentifier &&
+            pollOption.title === value.option.title
+          : pollOption.title === value.option.title
       )
     ) {
       ctx.addIssue({
@@ -47,7 +101,11 @@ export type PollOption = z.infer<typeof pollOptionSchema>;
 export type PollChoiceInput = string | { title: string };
 
 export interface PollInput {
+  /** A definition snapshot, not an option selection. */
+  change?: "created" | "optionAdded";
   options: PollChoice[];
+  /** Native poll identity; required for titleless iMessage snapshots. */
+  pollMessageGuid?: string;
   title: string;
 }
 
@@ -62,6 +120,9 @@ export const asPollOption = (input: {
   pollOptionSchema.parse({
     type: "poll_option",
     ...input,
+    ...(input.poll.pollMessageGuid
+      ? { pollMessageGuid: input.poll.pollMessageGuid }
+      : {}),
     title: input.option.title,
   });
 

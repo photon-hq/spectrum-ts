@@ -50,9 +50,11 @@ Semantics to rely on:
 - The agent's own reads never echo back: `space.read(...)` and `message.read()`
   are suppressed from the inbound stream.
 - Receipts ride the same durable catch-up log as messages, so those that arrive
-  while the app is down are replayed on reconnect. A receipt whose target can
-  no longer be resolved (an old message evicted from the in-process cache and
-  since deleted upstream) is dropped rather than surfaced with a stub.
+  while the app is down are replayed on reconnect. The target is always
+  re-read upstream, never served from the in-process cache; a receipt whose
+  target upstream reports as not found or hidden is dropped rather than
+  surfaced with a stub. See
+  [Related content in streams](/spectrum-ts/providers/imessage/messaging-features/message-metadata#related-content-in-streams).
 
 If receipts are not arriving, run with `LOG_LEVEL=debug` (or
 `Spectrum({ options: { logLevel: "debug" } })`). Every receipt logs its outcome

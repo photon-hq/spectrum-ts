@@ -287,6 +287,25 @@ describe.each(PUBLIC_READ_ACTIONS)("public %s upstream reads", (action) => {
     });
   });
 
+  it("rejects instead of stubbing a reply target whose access is unknown", async () => {
+    const unavailable = new ConnectionError("access check unavailable", {
+      code: "serviceUnavailable",
+      grpcCode: 14,
+      retryable: true,
+    });
+    const reply = nativeMessage({ replyTargetGuid: "target-guid" });
+    const get = vi.fn((guid: string) =>
+      guid === "target-guid"
+        ? Promise.reject(unavailable)
+        : Promise.resolve(reply)
+    );
+    const remote = remoteWith(get);
+
+    await expect(publicGetMessage(remote, "message-guid")).rejects.toBe(
+      unavailable
+    );
+  });
+
   it("reads through the single shared-mode client for any space phone", async () => {
     const get = vi.fn().mockResolvedValue(nativeMessage());
     const result = await callRead(

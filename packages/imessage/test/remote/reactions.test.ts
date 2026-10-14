@@ -1,14 +1,17 @@
-import type {
-  AdvancedIMessage,
-  MessageEvent,
-  Message as SDKMessage,
-  SettableMessageReaction,
+import {
+  type AdvancedIMessage,
+  AuthenticationError,
+  type MessageEvent,
+  NotFoundError,
+  type Message as SDKMessage,
+  type SettableMessageReaction,
 } from "@photon-ai/advanced-imessage/grpc";
 import { text } from "@spectrum-ts/core";
 import { describe, expect, it, vi } from "vitest";
 import { getMessageCache, MessageCache } from "@/cache";
 import { imessage } from "@/index";
 import { reactToMessage, toReactionMessages } from "@/remote/reactions";
+import { RelatedContentUnavailableError } from "@/remote/related-lookup";
 import type { IMessageMessage } from "@/types";
 
 const SENT_DATE = new Date(1_700_000_000_000);
@@ -178,10 +181,19 @@ describe("iMessage remote toReactionMessages", () => {
     }
   });
 
-  it("drops the reaction when the target cannot be fetched", async () => {
-    // Regression guard for the shared `resolveTargetMessage` extraction: a
-    // failed fetch must keep dropping the event rather than propagating.
-    const get = vi.fn((_message: string) => Promise.reject(new Error("gone")));
+  it.each([
+    new NotFoundError("hidden", {
+      code: "messageNotFound",
+      grpcCode: 5,
+      retryable: false,
+    }),
+    new AuthenticationError("not owned", {
+      code: "unauthorized",
+      grpcCode: 7,
+      retryable: false,
+    }),
+  ])("drops the reaction when upstream denies the target (%s)", async (error) => {
+    const get = vi.fn((_message: string) => Promise.reject(error));
     const remote = {
       messages: { get },
     } as unknown as AdvancedIMessage;
@@ -194,6 +206,34 @@ describe("iMessage remote toReactionMessages", () => {
     );
 
     expect(messages).toEqual([]);
+  });
+
+  it.each([
+    new Error("gone"),
+    // UNAUTHENTICATED says nothing about this target: not a denial.
+    new AuthenticationError("token expired", {
+      code: "tokenExpired",
+      grpcCode: 16,
+      retryable: false,
+    }),
+  ])("rejects retryably when target access is unknown (%s)", async (error) => {
+    const get = vi.fn((_message: string) => Promise.reject(error));
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+
+    const result = toReactionMessages(
+      remote,
+      new MessageCache(),
+      reactionEvent(),
+      "+15551234567"
+    );
+
+    await expect(result).rejects.toBeInstanceOf(RelatedContentUnavailableError);
+    await expect(result).rejects.toMatchObject({
+      cause: error,
+      retryable: true,
+    });
   });
 
   it("carries the actor's address, country, and service onto the reaction sender", async () => {
@@ -223,7 +263,7 @@ describe("iMessage remote toReactionMessages", () => {
     });
   });
 
-  it("resolves tapbacks on a just-sent streamText message from the outbound cache", async () => {
+  it("revalidates a just-sent streamText target upstream instead of trusting the outbound cache", async () => {
     const sent = sdkMessage({ guid: "outbound-stream-guid" });
     const sendText = vi.fn((_chat: string, _text: string) =>
       Promise.resolve(sent)
@@ -232,7 +272,17 @@ describe("iMessage remote toReactionMessages", () => {
       Promise.resolve(sent)
     );
     const get = vi.fn((_message: string) =>
-      Promise.reject(new Error("message API has not caught up"))
+      Promise.resolve(
+        sdkMessage({
+          guid: "outbound-stream-guid",
+          content: {
+            attachments: [],
+            formatting: [],
+            mentions: [],
+            text: "hello, edited",
+          },
+        })
+      )
     );
     const remote = {
       messages: { edit, get, sendText },
@@ -252,6 +302,7 @@ describe("iMessage remote toReactionMessages", () => {
 
     expect(record?.id).toBe("outbound-stream-guid");
     expect(sendText).toHaveBeenCalledTimes(1);
+    expect(getMessageCache(remote).get("outbound-stream-guid")).toBeDefined();
 
     const messages = await toReactionMessages(
       remote,
@@ -260,7 +311,7 @@ describe("iMessage remote toReactionMessages", () => {
       "+15551234567"
     );
 
-    expect(get).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledTimes(1);
     expect(messages).toHaveLength(1);
     const message = messages[0];
     expect(message?.content.type).toBe("reaction");
@@ -268,10 +319,52 @@ describe("iMessage remote toReactionMessages", () => {
       expect(message.content.target.direction).toBe("outbound");
       expect(message.content.target.id).toBe("outbound-stream-guid");
       expect(message.content.target.content).toEqual({
-        text: "hello",
+        text: "hello, edited",
         type: "text",
       });
     }
+  });
+
+  it("drops a tapback on a cached outbound message that predates the current assignment", async () => {
+    // The send-time cache entry is from an earlier assignment; the native
+    // policy now rejects the target, so the reaction must not resurrect it.
+    const sent = sdkMessage({ guid: "old-outbound-guid" });
+    const get = vi.fn((_message: string) =>
+      Promise.reject(
+        new NotFoundError("before_assignment", {
+          code: "messageNotFound",
+          grpcCode: 5,
+          retryable: false,
+        })
+      )
+    );
+    const remote = {
+      messages: {
+        get,
+        sendText: vi.fn(() => Promise.resolve(sent)),
+      },
+    } as unknown as AdvancedIMessage;
+    await imessage.config().__definition.send({
+      client: [{ client: remote, phone: "+15551234567" }],
+      content: await text("old secret").build(),
+      space: {
+        __platform: "imessage",
+        id: "s1",
+        phone: "+15551234567",
+        type: "dm",
+      },
+    });
+    expect(getMessageCache(remote).get("old-outbound-guid")).toBeDefined();
+
+    const messages = await toReactionMessages(
+      remote,
+      getMessageCache(remote),
+      reactionEvent({ messageGuid: "old-outbound-guid" }),
+      "+15551234567"
+    );
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(messages).toEqual([]);
   });
 
   it("resolves tapbacks to the ordered part inside an interleaved message", async () => {

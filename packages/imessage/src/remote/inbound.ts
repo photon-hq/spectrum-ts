@@ -45,6 +45,7 @@ import {
   toMessageGuid,
 } from "./ids";
 import { toMessageMetadata } from "./message-metadata";
+import { isRetryableError, lookupRelated } from "./related-lookup";
 
 const log = createLogger("spectrum.imessage.inbound");
 
@@ -90,6 +91,7 @@ export const toSenderRef = (
 
 type RawProviderMessage = Pick<IMessageMessage, "content" | "id">;
 interface BuildContentOptions {
+  /** Write-only here: freshly fetched reply targets are stored, never read. */
   cache?: MessageCache;
   phone: string;
   visitedReplyGuids?: ReadonlySet<string>;
@@ -395,6 +397,21 @@ const stubReplyTarget = (
   space: base.space,
 });
 
+/**
+ * Resolve the message a reply quotes, for both stream delivery and public
+ * reads. Always an upstream `messages.get` — the assembly cache is never read
+ * here, because an entry cached while the target was visible would otherwise
+ * resurface after it was hidden, reassigned, or edited.
+ *
+ * - allowed: the freshly rebuilt target is embedded (and written to the cache);
+ * - hidden/not-found/permission-denied: a content-free stub;
+ * - access unknown (transient or unclassified failure): rejects retryably, so
+ *   the stream redelivers the reply later and `getMessage` rejects, instead of
+ *   either embedding stale content or silently stubbing.
+ *
+ * Cycles stay bounded by `visitedReplyGuids`: a guid already on the chain is
+ * stubbed without a lookup.
+ */
 const resolveReplyTarget = async (
   client: AdvancedIMessage,
   base: RemoteMessageBase,
@@ -409,15 +426,16 @@ const resolveReplyTarget = async (
     return stubReplyTarget(base, targetGuid);
   }
 
-  const cached = options.cache?.get(targetGuid);
-  if (cached) {
-    return cached;
+  const fetched = await lookupRelated("reply-target", targetGuid, () =>
+    client.messages.get(toMessageGuid(targetGuid))
+  );
+  if (!fetched) {
+    return stubReplyTarget(base, targetGuid);
   }
 
+  const visitedReplyGuids = new Set(options.visitedReplyGuids);
+  visitedReplyGuids.add(currentGuid);
   try {
-    const visitedReplyGuids = new Set(options.visitedReplyGuids);
-    visitedReplyGuids.add(currentGuid);
-    const fetched = await client.messages.get(toMessageGuid(targetGuid));
     const rebuilt = await rebuildFromAppleMessage(
       client,
       fetched,
@@ -431,17 +449,21 @@ const resolveReplyTarget = async (
     }
     return rebuilt;
   } catch (err) {
-    if (!(err instanceof NotFoundError)) {
-      log.warn(
-        "failed to resolve iMessage reply target; falling back to stub target",
-        {
-          "spectrum.imessage.message.guid": currentGuid,
-          "spectrum.imessage.reply.target_guid": targetGuid,
-          ...errorAttrs(err),
-        },
-        err
-      );
+    // Uncertainty further up the chain must still propagate.
+    if (isRetryableError(err)) {
+      throw err;
     }
+    // A target upstream allowed but that cannot be mapped deterministically
+    // must not take the reply down with it; the stub carries no content.
+    log.warn(
+      "failed to rebuild iMessage reply target; falling back to stub target",
+      {
+        "spectrum.imessage.message.guid": currentGuid,
+        "spectrum.imessage.reply.target_guid": targetGuid,
+        ...errorAttrs(err),
+      },
+      err
+    );
     return stubReplyTarget(base, targetGuid);
   }
 };
@@ -524,17 +546,20 @@ export const cacheMessage = (
 
 /**
  * Resolve a guid to the spectrum message it maps to, for events that reference
- * their target only by guid (reactions, read receipts). Cache first — outbound
- * sends are cached at send time by `cacheRemoteOutbound`, inbound messages when
- * they are converted — then one `messages.get` + rebuild, which also warms the
- * cache so sibling events for the same guid (a group's other participants) are
- * free.
+ * their target only by guid (reactions, read receipts). Always one upstream
+ * `messages.get` + rebuild: the target is embedded in the event payload, so a
+ * cached copy (outbound sends cached by `cacheRemoteOutbound`, inbound
+ * messages cached on conversion) cannot decide whether it is still visible.
+ * The fresh result is written back to the cache, which is never read here.
  *
- * Any failure drops the event: these are secondary signals and must never wedge
- * the stream. Deliberately unlike `getMessage` below (the public
- * `space.getMessage` action), which rethrows non-`NotFoundError` failures; and
- * unlike it this never resolves `p:N/guid` child ids, because event payloads
- * always carry the parent guid.
+ * - allowed: the rebuilt target;
+ * - hidden/not-found/permission-denied: `undefined` — the target-only event is
+ *   dropped and the stream cursor advances past it;
+ * - access unknown: rejects retryably, so the stream refetches the event
+ *   without advancing its cursor (see `skipUnmappable` in stream.ts).
+ *
+ * Unlike `getMessage` below this never resolves `p:N/guid` child ids, because
+ * event payloads always carry the parent guid.
  */
 export const resolveTargetMessage = async (
   client: AdvancedIMessage,
@@ -543,26 +568,35 @@ export const resolveTargetMessage = async (
   targetGuid: string,
   phone: string
 ): Promise<IMessageMessage | undefined> => {
-  const cached = cache.get(targetGuid);
-  if (cached) {
-    return cached;
+  const fetched = await lookupRelated("event-target", targetGuid, () =>
+    client.messages.get(toMessageGuid(targetGuid))
+  );
+  if (!fetched) {
+    log.debug("event target hidden upstream; dropping the event", {
+      "spectrum.imessage.target_guid": targetGuid,
+      "spectrum.imessage.chat_guid": chatGuid,
+    });
+    return;
   }
   try {
-    const fetched = await client.messages.get(toMessageGuid(targetGuid));
     const rebuilt = await rebuildFromAppleMessage(
       client,
       fetched,
       phone,
-      chatGuid
+      chatGuid,
+      cache
     );
     cacheMessage(cache, rebuilt);
     return rebuilt;
   } catch (error) {
-    // The drop is intentional (a secondary signal must never wedge the
-    // stream), but silently swallowing the cause makes an unresolvable target
-    // indistinguishable from a mapping bug — log it before returning.
+    if (isRetryableError(error)) {
+      throw error;
+    }
+    // An allowed target that cannot be mapped deterministically still drops
+    // only this secondary event; log it so it is distinguishable from a
+    // hidden target.
     log.debug(
-      "event target could not be resolved; dropping the event",
+      "event target could not be rebuilt; dropping the event",
       {
         "spectrum.imessage.target_guid": targetGuid,
         "spectrum.imessage.chat_guid": chatGuid,

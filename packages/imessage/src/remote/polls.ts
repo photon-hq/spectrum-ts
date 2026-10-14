@@ -16,6 +16,7 @@ import type { CachedPoll, PollCache } from "../cache";
 import type { IMessageMessage } from "../types";
 import { chatTypeFromGuid } from "./ids";
 import { toSenderRef } from "./inbound";
+import { lookupRelated } from "./related-lookup";
 
 const log = createLogger("spectrum.imessage.poll");
 
@@ -96,52 +97,29 @@ export const cachePollEvent = (
   }
 };
 
-const fetchPollInfo = async (
-  client: AdvancedIMessage,
-  cache: PollCache,
-  event: PollEvent
-): Promise<IMessagePoll | undefined> => {
-  try {
-    const info = await client.polls.get(event.pollMessageGuid);
-    cachePollInfo(cache, info);
-    return info;
-  } catch (e) {
-    log.error(
-      "failed to fetch poll",
-      {
-        "spectrum.imessage.poll.guid": event.pollMessageGuid,
-        ...errorAttrs(e),
-      },
-      e
-    );
-    return;
-  }
-};
-
+/**
+ * Poll title/options for a vote event, always from a fresh `polls.get`. The
+ * poll cache (warmed by `created`/`optionAdded` events and by this lookup) is
+ * write-only on this path: metadata cached while the poll was visible must
+ * not be emitted after it is hidden, reassigned, or edited.
+ *
+ * The fresh read is authoritative for option matching, so there is no second
+ * "refresh on unknown option" fetch. Hidden/not-found/permission-denied
+ * resolves `undefined` (the vote is dropped and the cursor advances); any
+ * other failure rejects retryably so the stream redelivers the vote.
+ */
 const resolvePoll = async (
   client: AdvancedIMessage,
   cache: PollCache,
   event: PollEvent
 ): Promise<CachedPoll | undefined> => {
-  const cached = cache.get(event.pollMessageGuid);
-  if (cached) {
-    return cached;
-  }
-
-  try {
-    const info = await client.polls.get(event.pollMessageGuid);
-    return cachePollInfo(cache, info);
-  } catch (e) {
-    log.error(
-      "failed to resolve poll",
-      {
-        "spectrum.imessage.poll.guid": event.pollMessageGuid,
-        ...errorAttrs(e),
-      },
-      e
-    );
+  const info = await lookupRelated("poll", event.pollMessageGuid, () =>
+    client.polls.get(event.pollMessageGuid)
+  );
+  if (!info) {
     return;
   }
+  return cachePollInfo(cache, info);
 };
 
 const buildPollOptionMessage = (
@@ -171,18 +149,6 @@ const buildPollOptionMessage = (
   };
 };
 
-const refreshPollMetadata = async (
-  client: AdvancedIMessage,
-  pollCache: PollCache,
-  event: VotedPollEvent | UnvotedPollEvent
-): Promise<CachedPoll | undefined> => {
-  const info = await fetchPollInfo(client, pollCache, event);
-  if (!info) {
-    return;
-  }
-  return pollCache.get(info.pollMessageGuid);
-};
-
 const toPollOptionMessage = async (
   client: AdvancedIMessage,
   pollCache: PollCache,
@@ -195,18 +161,12 @@ const toPollOptionMessage = async (
     return [];
   }
 
-  let cached = await resolvePoll(client, pollCache, event);
+  const cached = await resolvePoll(client, pollCache, event);
   if (!cached) {
     return [];
   }
 
-  if (!cached.optionsByIdentifier.has(optionId)) {
-    const refreshed = await refreshPollMetadata(client, pollCache, event);
-    if (refreshed) {
-      cached = refreshed;
-    }
-  }
-
+  // An option absent from the fresh poll is dropped by buildPollOptionMessage.
   const message = buildPollOptionMessage({
     cached,
     chatGuid: event.chatGuid,

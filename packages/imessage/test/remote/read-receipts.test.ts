@@ -1,11 +1,14 @@
-import type {
-  AdvancedIMessage,
-  MessageEvent,
-  Message as SDKMessage,
+import {
+  type AdvancedIMessage,
+  ConnectionError,
+  type MessageEvent,
+  NotFoundError,
+  type Message as SDKMessage,
 } from "@photon-ai/advanced-imessage/grpc";
 import { describe, expect, it, vi } from "vitest";
 import { MessageCache } from "@/cache";
 import { toReadReceiptMessages } from "@/remote/read-receipts";
+import { RelatedContentUnavailableError } from "@/remote/related-lookup";
 import { type IMessageMessage, SHARED_PHONE } from "@/types";
 
 const SENT_DATE = new Date(1_700_000_000_000);
@@ -300,20 +303,66 @@ describe("iMessage remote toReadReceiptMessages", () => {
     }
   });
 
-  it("drops the receipt when the target cannot be fetched", async () => {
-    const remote = remoteWith(() => Promise.reject(new Error("gone")));
+  it("drops the receipt when upstream hides a cached target", async () => {
+    const remote = remoteWith(() =>
+      Promise.reject(
+        new NotFoundError("hidden", {
+          code: "messageNotFound",
+          grpcCode: 5,
+          retryable: false,
+        })
+      )
+    );
+    const cache = new MessageCache();
+    cache.set("msg-guid", {
+      content: { type: "text", text: "cached secret" },
+      direction: "outbound",
+      id: "msg-guid",
+      space: { id: "s1", phone: PHONE, type: "dm" },
+      timestamp: SENT_DATE,
+    } as IMessageMessage);
 
     const messages = await toReadReceiptMessages(
       remote,
-      new MessageCache(),
+      cache,
       readEvent(),
       PHONE
     );
 
     expect(messages).toEqual([]);
+    expect(getMock(remote)).toHaveBeenCalledTimes(1);
   });
 
-  it("resolves the target once and warms the cache for sibling receipts", async () => {
+  it("propagates a transient target failure instead of dropping or using the cache", async () => {
+    const error = new ConnectionError("access check unavailable", {
+      code: "serviceUnavailable",
+      grpcCode: 14,
+      retryable: true,
+    });
+    const remote = remoteWith(() => Promise.reject(error));
+    const cache = new MessageCache();
+    cache.set("msg-guid", {
+      content: { type: "text", text: "cached secret" },
+      direction: "outbound",
+      id: "msg-guid",
+      space: { id: "s1", phone: PHONE, type: "dm" },
+      timestamp: SENT_DATE,
+    } as IMessageMessage);
+
+    await expect(
+      toReadReceiptMessages(remote, cache, readEvent(), PHONE)
+    ).rejects.toBe(error);
+  });
+
+  it("promotes an unclassified target failure to retryable", async () => {
+    const remote = remoteWith(() => Promise.reject(new Error("gone")));
+
+    await expect(
+      toReadReceiptMessages(remote, new MessageCache(), readEvent(), PHONE)
+    ).rejects.toBeInstanceOf(RelatedContentUnavailableError);
+  });
+
+  it("revalidates the target for every sibling receipt and refreshes the cache", async () => {
     const remote = remoteWith(() => Promise.resolve(sdkMessage()));
     const cache = new MessageCache();
 
@@ -338,8 +387,13 @@ describe("iMessage remote toReadReceiptMessages", () => {
 
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(1);
-    // Amplification is O(distinct messages read), not O(messages x readers).
-    expect(getMock(remote)).toHaveBeenCalledTimes(1);
+    // The cache cannot authorize, so each receipt pays one upstream read
+    // (O(messages x readers)); the fresh result is still written back.
+    expect(getMock(remote)).toHaveBeenCalledTimes(2);
+    expect(cache.get("msg-guid")?.content).toEqual({
+      type: "text",
+      text: "from the bot",
+    });
   });
 
   it("emits one message per participant in a group", async () => {

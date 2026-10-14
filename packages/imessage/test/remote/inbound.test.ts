@@ -1,11 +1,14 @@
 import {
   type AdvancedIMessage,
+  ConnectionError,
+  IMessageError,
   type MessageEvent,
   NotFoundError,
 } from "@photon-ai/advanced-imessage/grpc";
 import { describe, expect, it } from "vitest";
 import { MessageCache } from "@/cache";
 import { toInboundMessages } from "@/remote/inbound";
+import { RelatedContentUnavailableError } from "@/remote/related-lookup";
 
 type ReceivedEvent = Extract<MessageEvent, { type: "message.received" }>;
 type AttachmentContent = Extract<
@@ -250,7 +253,7 @@ describe("iMessage remote toInboundMessages content", () => {
     expect(message?.content).toEqual({ type: "text", text: "plain text" });
   });
 
-  it("resolves reply targets from the message cache", async () => {
+  it("stubs a cached reply target that the remote now hides", async () => {
     const cache = new MessageCache();
     cache.set("target-guid", {
       content: { type: "text", text: "cached target" },
@@ -274,10 +277,123 @@ describe("iMessage remote toInboundMessages content", () => {
     if (message?.content.type !== "reply") {
       throw new Error("expected reply content");
     }
+    // The cache cannot authorize: upstream NotFound wins over the entry.
+    expect(message.content.target.id).toBe("target-guid");
+    expect(message.content.target.content).toEqual({
+      raw: { imessage_type: "reply-target", stub: true },
+      type: "custom",
+    });
+  });
+
+  it("embeds the fresh upstream reply target, not the cached one", async () => {
+    const cache = new MessageCache();
+    cache.set("target-guid", {
+      content: { type: "text", text: "cached target" },
+      id: "target-guid",
+      space: { id: "s1", phone: "+15550000000", type: "dm" },
+      timestamp: RECEIVED_AT,
+    } as Awaited<ReturnType<typeof toInboundMessages>>[number]);
+    const fetchedGuids: string[] = [];
+    const remote = {
+      messages: {
+        get: async (guid: string) => {
+          fetchedGuids.push(guid);
+          return {
+            chatGuids: ["s1"],
+            content: {
+              attachments: [],
+              formatting: [],
+              mentions: [],
+              text: "edited target",
+            },
+            dateCreated: RECEIVED_AT,
+            guid,
+            isFromMe: false,
+            sender: { address: "+15557654321" },
+          };
+        },
+      },
+    } as unknown as AdvancedIMessage;
+
+    const [message] = await toInboundMessages(
+      remote,
+      cache,
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    expect(fetchedGuids).toEqual(["target-guid"]);
+    if (message?.content.type !== "reply") {
+      throw new Error("expected reply content");
+    }
     expect(message.content.target.content).toEqual({
       type: "text",
-      text: "cached target",
+      text: "edited target",
     });
+    // Fresh results are still written back for later assembly.
+    expect(cache.get("target-guid")?.content).toEqual({
+      type: "text",
+      text: "edited target",
+    });
+  });
+
+  it.each([
+    [
+      "a retryable failure as-is",
+      new ConnectionError("access check unavailable", {
+        code: "serviceUnavailable",
+        grpcCode: 14,
+        retryable: true,
+      }),
+      true,
+    ],
+    [
+      "an unclassified failure as retryable",
+      new IMessageError("internal", {
+        code: "internalError",
+        grpcCode: 13,
+        retryable: false,
+      }),
+      false,
+    ],
+  ])("propagates %s instead of stubbing the reply target", async (_label, error, same) => {
+    const cache = new MessageCache();
+    cache.set("target-guid", {
+      content: { type: "text", text: "cached target" },
+      id: "target-guid",
+      space: { id: "s1", phone: "+15550000000", type: "dm" },
+      timestamp: RECEIVED_AT,
+    } as Awaited<ReturnType<typeof toInboundMessages>>[number]);
+    const remote = {
+      messages: { get: () => Promise.reject(error) },
+    } as unknown as AdvancedIMessage;
+
+    const result = toInboundMessages(
+      remote,
+      cache,
+      receivedEvent(
+        { address: "+15551234567" },
+        { text: "reply text" },
+        { replyTargetGuid: "target-guid" }
+      ),
+      "+15550000000"
+    );
+
+    if (same) {
+      await expect(result).rejects.toBe(error);
+    } else {
+      await expect(result).rejects.toBeInstanceOf(
+        RelatedContentUnavailableError
+      );
+      await expect(result).rejects.toMatchObject({
+        cause: error,
+        retryable: true,
+      });
+    }
   });
 
   it("resolves reply targets from the remote client when absent from cache", async () => {

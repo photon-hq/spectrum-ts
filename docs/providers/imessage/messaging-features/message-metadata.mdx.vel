@@ -123,3 +123,32 @@ const record = await im.getMessageFresh(space, messageId);
 
 `getMessageFresh` requires `@spectrum-ts/imessage`. `@spectrum-ts/imessage-local`
 does not provide it.
+
+## Related content in streams
+
+Some inbound stream events embed content they do not own: a reply carries
+the message it quotes, a tapback or read receipt carries its target, and a
+poll vote carries the poll's title and options. Spectrum fetches that related
+content from Advanced iMessage every time it maps the event (`messages.get`
+for messages, `polls.get` for polls). Its local caches can store the fresh
+result, but they never decide whether related content is visible.
+
+| Upstream lookup result | Reply (`message.received`) | Tapback, read receipt, poll vote |
+| --- | --- | --- |
+| Allowed | Embeds the current target | Emits with the current target or poll |
+| Definitive (non-retryable) not found, hidden, or permission denied | Embeds a content-free stub target | Drops the event, and the stream cursor moves past it |
+| Any retryable error, including a retryable not found or permission denied | Withholds the event, then retries it | Withholds the event, then retries it |
+| Any other failure, such as an expired token or a non-retryable transport error | Withholds the event, then retries it | Withholds the event, then retries it |
+
+A retried event is redelivered from the durable catch-up log. The stream
+cursor does not advance past it, so the event arrives once, late, and not
+with stale content. Until the lookup succeeds, later events on the same line
+wait behind it. A request upstream rejects as malformed (`INVALID_ARGUMENT`)
+is the one exception: it is skipped like any other unmappable event.
+
+`space.getMessage()` and `getMessageFresh` resolve reply targets the same way.
+When the reply target's access cannot be determined, they reject rather than
+returning a stub target. Older SDKs returned a stub in this case.
+
+These lookups cost one upstream read per event, so each reader's receipt
+on the same message triggers its own read.

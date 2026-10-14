@@ -176,6 +176,15 @@ const notFound = () =>
     retryable: false,
   });
 
+// What the real advanced-imessage mapper builds for grpc 5 + `x-retryable`:
+// a transient failure, not an absence.
+const retryableNotFound = () =>
+  new NotFoundError("message lookup temporarily unavailable", {
+    code: "messageNotFound",
+    grpcCode: 5,
+    retryable: true,
+  });
+
 const remoteWith = (get: (guid: string) => Promise<unknown>) =>
   ({ messages: { get } }) as unknown as AdvancedIMessage;
 
@@ -208,6 +217,7 @@ describe.each(PUBLIC_READ_ACTIONS)("public %s upstream reads", (action) => {
         grpcCode: 14,
         retryable: true,
       }),
+      retryableNotFound(),
     ])("propagates %s without serving cached content", async (error) => {
       const get = vi.fn().mockRejectedValue(error);
       const remote = remoteWith(get);
@@ -304,6 +314,24 @@ describe.each(PUBLIC_READ_ACTIONS)("public %s upstream reads", (action) => {
     await expect(publicGetMessage(remote, "message-guid")).rejects.toBe(
       unavailable
     );
+  });
+
+  it.each([
+    "message-guid",
+    "p:0/message-guid",
+  ])("rejects %s with a retryable not-found reply target as-is", async (id) => {
+    const transient = retryableNotFound();
+    const reply = nativeMessage({ replyTargetGuid: "target-guid" });
+    const get = vi.fn((guid: string) =>
+      guid === "target-guid"
+        ? Promise.reject(transient)
+        : Promise.resolve(reply)
+    );
+    const remote = remoteWith(get);
+
+    await expect(publicGetMessage(remote, id)).rejects.toBe(transient);
+    expect(get).toHaveBeenCalledWith("message-guid");
+    expect(get).toHaveBeenCalledWith("target-guid");
   });
 
   it("reads through the single shared-mode client for any space phone", async () => {

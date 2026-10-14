@@ -632,6 +632,13 @@ export const toInboundMessages = async (
   return [msg];
 };
 
+// Only a non-retryable not found is an absence. The SDK sets `retryable` from
+// `x-retryable` independently of the error class, so a retryable NOT_FOUND
+// (from the read itself or a nested reply-target lookup) is transient and must
+// reject as-is rather than read as a permanent `undefined`.
+const isDefinitelyAbsent = (err: unknown): boolean =>
+  err instanceof NotFoundError && !isRetryableError(err);
+
 export const getMessage = async (
   remote: AdvancedIMessage,
   spaceId: string,
@@ -661,7 +668,7 @@ export const getMessage = async (
       const item = group.items[childRef.partIndex];
       return isIMessageMessage(item) ? item : undefined;
     } catch (err) {
-      if (err instanceof NotFoundError) {
+      if (isDefinitelyAbsent(err)) {
         return;
       }
       throw err;
@@ -679,7 +686,7 @@ export const getMessage = async (
     cacheMessage(cache, rebuilt);
     return rebuilt;
   } catch (err) {
-    if (err instanceof NotFoundError) {
+    if (isDefinitelyAbsent(err)) {
       return;
     }
     throw err;

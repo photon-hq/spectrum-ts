@@ -385,9 +385,9 @@ interface IMessageSpaceRef {
  * by `space.getMessage`) and `getMessageFresh` (provider-specific capability
  * marker). Always performs an upstream `messages.get` on the client routed for
  * `space.phone` (shared or dedicated) and rebuilds the record; it never
- * returns a message from the local assembly cache. Upstream not-found/hidden
- * resolves `undefined`; every other upstream failure (auth, transport,
- * access-check unavailable) rejects.
+ * returns a message from the local assembly cache. A non-retryable upstream
+ * not-found/hidden resolves `undefined`; every other upstream failure (auth,
+ * transport, access-check unavailable, retryable not-found) rejects.
  *
  * Generic over the space so assigning it to the platform-wise `getMessage`
  * slot does not become an inference source for `definePlatform`'s resolved

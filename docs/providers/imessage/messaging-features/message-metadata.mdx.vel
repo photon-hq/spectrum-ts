@@ -88,3 +88,38 @@ if (message && imessage.is(message)) {
 `sendErrorCode === 0` means Apple recorded no send error. The metadata is
 intentionally curated: Spectrum does not expose the raw Advanced iMessage
 database row or unstable Apple-private fields.
+
+## Fresh upstream reads
+
+Use `getMessageFresh` on the narrowed platform instance when a read must
+observe the current upstream message and access state. Every call fetches the
+message from Advanced iMessage through the client that serves `space.phone`;
+it never returns a message from Spectrum's local cache.
+
+```ts
+const im = imessage(app);
+
+if (typeof im.getMessageFresh !== "function") {
+  // Older SDK: fresh reads are unavailable. Do not fall back to a cached read.
+  throw new Error("iMessage fresh message reads are not supported");
+}
+
+const record = await im.getMessageFresh(space, messageId);
+```
+
+- **Returns** the raw iMessage provider record (`id`, `content`, `sender`,
+  `space`, `timestamp`, and the native metadata fields above), not a wrapped
+  Spectrum `Message`. Use `space.getMessage(messageId)` for the wrapped form.
+  Both calls use the same provider function, so they behave identically.
+- **Resolves `undefined`** when the upstream service reports that the message
+  or multipart child is not found or hidden.
+- **Rejects** on other upstream errors, such as revoked authentication or an
+  unavailable access check. A rejection never falls back to cached content.
+- **Older SDKs do not provide it.** Releases before `getMessageFresh` could
+  serve `space.getMessage()` from a local cache, and `im.getMessageFresh` is
+  `undefined` there. Unlike `getMessage`, it is not stubbed with an
+  `UnsupportedError`, so checking for the method is a reliable capability
+  test.
+
+`getMessageFresh` requires `@spectrum-ts/imessage`. `@spectrum-ts/imessage-local`
+does not provide it.

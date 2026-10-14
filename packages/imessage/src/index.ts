@@ -374,6 +374,37 @@ const handleAvatar = async (
   await remoteSetIcon(remote, space.id, content);
 };
 
+/** Routing fields a public message read needs from an iMessage space. */
+interface IMessageSpaceRef {
+  id: string;
+  phone: string;
+}
+
+/**
+ * The single implementation behind both `getMessage` (platform-wise, wrapped
+ * by `space.getMessage`) and `getMessageFresh` (provider-specific capability
+ * marker). Always performs an upstream `messages.get` on the client routed for
+ * `space.phone` (shared or dedicated) and rebuilds the record; it never
+ * returns a message from the local assembly cache. Upstream not-found/hidden
+ * resolves `undefined`; every other upstream failure (auth, transport,
+ * access-check unavailable) rejects.
+ *
+ * Generic over the space so assigning it to the platform-wise `getMessage`
+ * slot does not become an inference source for `definePlatform`'s resolved
+ * space type.
+ */
+const getMessageFromUpstream = async <TSpace extends IMessageSpaceRef>(
+  { client }: { client: IMessageClient },
+  space: TSpace,
+  messageId: string
+): Promise<IMessageMessage | undefined> =>
+  await remoteGetMessage(
+    clientForPhone(client, space.phone),
+    space.id,
+    messageId,
+    space.phone
+  );
+
 /**
  * Shared guard for the membership handlers: remote-only, group-only, then
  * per-phone client resolution. Mirrors the `handleRename` / `handleAvatar`
@@ -741,10 +772,29 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
   },
 
   actions: {
-    getMessage: async ({ client }, space, messageId) => {
-      const remote = clientForPhone(client, space.phone);
-      return remoteGetMessage(remote, space.id, messageId, space.phone);
-    },
+    getMessage: getMessageFromUpstream,
+    /**
+     * Explicit uncached message read: `im.getMessageFresh(space, messageId)`.
+     *
+     * The exact same function as `getMessage` above (so `space.getMessage(id)`
+     * has identical semantics). It exists as a separate, provider-specific
+     * key so callers can feature-detect fresh-read support: older SDK
+     * releases served `getMessage` from a local cache first and do NOT define
+     * this action, so `definition.actions.getMessageFresh` /
+     * `im.getMessageFresh` is `undefined` there. It is intentionally not a
+     * platform-wise key — platform-wise keys get an `UnsupportedError`
+     * default on every platform, which would make missing support look like
+     * a present method.
+     *
+     * Every call reads upstream through the space's routed client. Resolves
+     * the raw provider record (`IMessageMessage`, not a wrapped `Message`),
+     * `undefined` when upstream reports the message (or multipart child) as
+     * not found/hidden, and rejects on any other upstream error.
+     *
+     * The instantiation expression only gives this key a concrete type for
+     * `InstanceActionMethods`; at runtime it is the same function reference.
+     */
+    getMessageFresh: getMessageFromUpstream<IMessageSpaceRef>,
     // List a remote group chat's current participants. Remote + group only;
     // the agent's own number is excluded. `id` is the canonical address
     // (E.164 phone or email); `address`/`country`/`service` ride along per

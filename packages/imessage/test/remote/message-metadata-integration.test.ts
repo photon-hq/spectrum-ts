@@ -2,12 +2,18 @@ import {
   type AdvancedIMessage,
   AuthenticationError,
   ConnectionError,
+  createGrpcClient,
   type MessageEvent,
   NotFoundError,
   type Message as SDKMessage,
 } from "@photon-ai/advanced-imessage/grpc";
-import type { Content, Message } from "@spectrum-ts/core";
+import { type Content, type Message, Spectrum } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
+import { stubCloud } from "@spectrum-ts/test-support/cloud";
+import {
+  baseConfig,
+  makeManagedProvider,
+} from "@spectrum-ts/test-support/platform";
 import { describe, expect, it, vi } from "vitest";
 import { getMessageCache, MessageCache } from "@/cache";
 import { imessage } from "@/index";
@@ -17,7 +23,20 @@ import {
   toInboundMessages,
 } from "@/remote/inbound";
 import { send } from "@/remote/send";
-import type { IMessageMessage } from "@/types";
+import { type IMessageMessage, type RemoteClient, SHARED_PHONE } from "@/types";
+
+// Only `createGrpcClient` is replaced, so a real Spectrum can register the
+// iMessage provider against a synthetic client without any network access.
+vi.mock("@photon-ai/advanced-imessage/grpc", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@photon-ai/advanced-imessage/grpc")
+  >()),
+  createGrpcClient: vi.fn(),
+}));
+
+stubCloud();
+
+const UNROUTED_PHONE_ERROR = /No iMessage client serves phone \+15550000000/;
 
 const CREATED_AT = new Date("2026-02-03T04:05:06.000Z");
 const DELIVERED_AT = new Date("2026-02-03T04:05:07.000Z");
@@ -95,24 +114,37 @@ const groupOf = (...contents: Content[]): Content =>
     ),
   });
 
-const getMessageAction = imessage.config({}).__definition.actions?.getMessage;
-if (!getMessageAction) {
-  throw new Error("iMessage must declare the getMessage action");
-}
+const PHONE = "+15550000000";
+const SPACE = {
+  __platform: "imessage",
+  id: "iMessage;+;chat-guid",
+  phone: PHONE,
+  type: "group",
+} as const;
 
-const publicGetMessage = (remote: AdvancedIMessage, id: string) =>
-  getMessageAction(
-    {
-      client: [{ client: remote, phone: "+15550000000" }],
-      config: {} as never,
-      store: undefined as never,
-    },
-    {
-      __platform: "imessage",
-      id: "iMessage;+;chat-guid",
-      phone: "+15550000000",
-      type: "group",
-    },
+const definition = imessage.config({}).__definition;
+// Both public read keys must resolve to the one upstream-read function, so
+// every stale-cache regression below runs against each of them.
+const PUBLIC_READ_ACTIONS = ["getMessage", "getMessageFresh"] as const;
+type PublicReadAction = (typeof PUBLIC_READ_ACTIONS)[number];
+
+const readAction = (action: PublicReadAction) => {
+  const fn = definition.actions?.[action];
+  if (!fn) {
+    throw new Error(`iMessage must declare the ${action} action`);
+  }
+  return fn;
+};
+
+const callRead = (
+  action: PublicReadAction,
+  client: RemoteClient[],
+  space: { id: string; phone: string },
+  id: string
+) =>
+  readAction(action)(
+    { client, config: {} as never, store: undefined as never },
+    { ...SPACE, ...space },
     id
   ) as Promise<IMessageMessage | undefined>;
 
@@ -132,129 +164,243 @@ const prefillMessageCache = async (remote: AdvancedIMessage) => {
     remote,
     cache,
     receivedEvent(multipartMessage("previously visible")),
-    "+15550000000"
+    PHONE
   );
   return cache;
 };
 
-describe.each([
-  "message-guid",
-  "p:0/message-guid",
-])("public getMessage revalidates cached %s", (id) => {
-  it("returns undefined when the remote hides the message", async () => {
-    const get = vi.fn().mockRejectedValue(
-      new NotFoundError("message not found", {
-        code: "messageNotFound",
-        grpcCode: 5,
+const notFound = () =>
+  new NotFoundError("message not found", {
+    code: "messageNotFound",
+    grpcCode: 5,
+    retryable: false,
+  });
+
+const remoteWith = (get: (guid: string) => Promise<unknown>) =>
+  ({ messages: { get } }) as unknown as AdvancedIMessage;
+
+describe.each(PUBLIC_READ_ACTIONS)("public %s upstream reads", (action) => {
+  const publicGetMessage = (remote: AdvancedIMessage, id: string) =>
+    callRead(action, [{ client: remote, phone: PHONE }], SPACE, id);
+
+  describe.each([
+    "message-guid",
+    "p:0/message-guid",
+  ])("revalidates cached %s", (id) => {
+    it("returns undefined when the remote hides the message", async () => {
+      const get = vi.fn().mockRejectedValue(notFound());
+      const remote = remoteWith(get);
+      const cache = await prefillMessageCache(remote);
+      expect(cache.get(id)).toBeDefined();
+
+      await expect(publicGetMessage(remote, id)).resolves.toBeUndefined();
+      expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+    });
+
+    it.each([
+      new AuthenticationError("access revoked", {
+        code: "unauthorized",
+        grpcCode: 7,
         retryable: false,
-      })
-    );
-    const remote = { messages: { get } } as unknown as AdvancedIMessage;
+      }),
+      new ConnectionError("access check unavailable", {
+        code: "serviceUnavailable",
+        grpcCode: 14,
+        retryable: true,
+      }),
+    ])("propagates %s without serving cached content", async (error) => {
+      const get = vi.fn().mockRejectedValue(error);
+      const remote = remoteWith(get);
+      const cache = await prefillMessageCache(remote);
+      expect(cache.get(id)).toBeDefined();
+
+      await expect(publicGetMessage(remote, id)).rejects.toBe(error);
+      expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+    });
+
+    it("rebuilds allowed messages and refreshes the assembly cache", async () => {
+      const updated = multipartMessage("currently visible");
+      const get = vi.fn().mockResolvedValue(updated);
+      const remote = remoteWith(get);
+      const cache = await prefillMessageCache(remote);
+      const previous = cache.get(id);
+      expect(previous).toBeDefined();
+
+      const result = await publicGetMessage(remote, id);
+      expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+      expect(result).not.toBe(previous);
+      expect(result).toMatchObject({ id, nativeText: updated.content.text });
+      expect(cache.get(id)).toBe(result);
+      expect(cache.get("message-guid")?.nativeText).toBe(updated.content.text);
+      expect(cache.get("p:0/message-guid")?.content).toEqual(
+        asText("currently visible")
+      );
+    });
+  });
+
+  it("does not return a cached child removed from an allowed parent", async () => {
+    const get = vi.fn().mockResolvedValue(nativeMessage());
+    const remote = remoteWith(get);
     const cache = await prefillMessageCache(remote);
-    expect(cache.get(id)).toBeDefined();
+    expect(cache.get("p:0/message-guid")).toBeDefined();
 
-    await expect(publicGetMessage(remote, id)).resolves.toBeUndefined();
+    await expect(
+      publicGetMessage(remote, "p:0/message-guid")
+    ).resolves.toBeUndefined();
     expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+    expect(cache.get("message-guid")?.content).toEqual(asText("Hello @Taylor"));
   });
 
-  it.each([
-    new AuthenticationError("access revoked", {
-      code: "unauthorized",
-      grpcCode: 7,
-      retryable: false,
-    }),
-    new ConnectionError("access check unavailable", {
-      code: "serviceUnavailable",
-      grpcCode: 14,
-      retryable: true,
-    }),
-  ])("propagates %s without serving cached content", async (error) => {
-    const get = vi.fn().mockRejectedValue(error);
-    const remote = { messages: { get } } as unknown as AdvancedIMessage;
-    const cache = await prefillMessageCache(remote);
-    expect(cache.get(id)).toBeDefined();
-
-    await expect(publicGetMessage(remote, id)).rejects.toBe(error);
-    expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
-  });
-
-  it("rebuilds allowed messages and refreshes the assembly cache", async () => {
-    const updated = multipartMessage("currently visible");
-    const get = vi.fn().mockResolvedValue(updated);
-    const remote = { messages: { get } } as unknown as AdvancedIMessage;
-    const cache = await prefillMessageCache(remote);
-    const previous = cache.get(id);
-    expect(previous).toBeDefined();
-
-    const result = await publicGetMessage(remote, id);
-    expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
-    expect(result).not.toBe(previous);
-    expect(result).toMatchObject({ id, nativeText: updated.content.text });
-    expect(cache.get(id)).toBe(result);
-    expect(cache.get("message-guid")?.nativeText).toBe(updated.content.text);
-    expect(cache.get("p:0/message-guid")?.content).toEqual(
-      asText("currently visible")
-    );
-  });
-});
-
-it("does not return a cached child removed from an allowed parent", async () => {
-  const get = vi.fn().mockResolvedValue(nativeMessage());
-  const remote = { messages: { get } } as unknown as AdvancedIMessage;
-  const cache = await prefillMessageCache(remote);
-  expect(cache.get("p:0/message-guid")).toBeDefined();
-
-  await expect(
-    publicGetMessage(remote, "p:0/message-guid")
-  ).resolves.toBeUndefined();
-  expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
-  expect(cache.get("message-guid")?.content).toEqual(asText("Hello @Taylor"));
-});
-
-it("does not embed a cached reply target hidden by the remote", async () => {
-  const hiddenTarget = nativeMessage({
-    content: {
-      attachments: [],
-      formatting: [],
-      mentions: [],
-      text: "previously visible target",
-    },
-    guid: "target-guid",
-  });
-  const reply = nativeMessage({ replyTargetGuid: "target-guid" });
-  const get = vi.fn((guid: string) =>
-    guid === "target-guid"
-      ? Promise.reject(
-          new NotFoundError("message not found", {
-            code: "messageNotFound",
-            grpcCode: 5,
-            retryable: false,
-          })
-        )
-      : Promise.resolve(reply)
-  );
-  const remote = { messages: { get } } as unknown as AdvancedIMessage;
-  const cache = getMessageCache(remote);
-  await toInboundMessages(
-    remote,
-    cache,
-    receivedEvent(hiddenTarget),
-    "+15550000000"
-  );
-  expect(cache.get("target-guid")).toBeDefined();
-
-  const result = await publicGetMessage(remote, "message-guid");
-  expect(get).toHaveBeenCalledWith("message-guid");
-  expect(get).toHaveBeenCalledWith("target-guid");
-  expect(result?.content).toMatchObject({
-    target: {
+  it("does not embed a cached reply target hidden by the remote", async () => {
+    const hiddenTarget = nativeMessage({
       content: {
-        raw: { imessage_type: "reply-target", stub: true },
-        type: "custom",
+        attachments: [],
+        formatting: [],
+        mentions: [],
+        text: "previously visible target",
       },
-      id: "target-guid",
-    },
-    type: "reply",
+      guid: "target-guid",
+    });
+    const reply = nativeMessage({ replyTargetGuid: "target-guid" });
+    const get = vi.fn((guid: string) =>
+      guid === "target-guid"
+        ? Promise.reject(notFound())
+        : Promise.resolve(reply)
+    );
+    const remote = remoteWith(get);
+    const cache = getMessageCache(remote);
+    await toInboundMessages(remote, cache, receivedEvent(hiddenTarget), PHONE);
+    expect(cache.get("target-guid")).toBeDefined();
+
+    const result = await publicGetMessage(remote, "message-guid");
+    expect(get).toHaveBeenCalledWith("message-guid");
+    expect(get).toHaveBeenCalledWith("target-guid");
+    expect(result?.content).toMatchObject({
+      target: {
+        content: {
+          raw: { imessage_type: "reply-target", stub: true },
+          type: "custom",
+        },
+        id: "target-guid",
+      },
+      type: "reply",
+    });
+  });
+
+  it("reads through the single shared-mode client for any space phone", async () => {
+    const get = vi.fn().mockResolvedValue(nativeMessage());
+    const result = await callRead(
+      action,
+      [{ client: remoteWith(get), phone: SHARED_PHONE }],
+      { id: "any;-;+15551230001", phone: SHARED_PHONE },
+      "message-guid"
+    );
+    expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+    expect(result).toMatchObject({ id: "message-guid" });
+  });
+
+  it("routes dedicated reads to the client that owns space.phone", async () => {
+    const otherGet = vi.fn().mockRejectedValue(new Error("wrong line"));
+    const ownerGet = vi.fn().mockResolvedValue(nativeMessage());
+    const result = await callRead(
+      action,
+      [
+        { client: remoteWith(otherGet), phone: "+15550000001" },
+        { client: remoteWith(ownerGet), phone: PHONE },
+      ],
+      SPACE,
+      "message-guid"
+    );
+    expect(ownerGet).toHaveBeenCalledExactlyOnceWith("message-guid");
+    expect(otherGet).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: "message-guid" });
+  });
+
+  it("rejects instead of reading when no dedicated client owns space.phone", async () => {
+    const get = vi.fn();
+    await expect(
+      callRead(
+        action,
+        [{ client: remoteWith(get), phone: "+15550000001" }],
+        SPACE,
+        "message-guid"
+      )
+    ).rejects.toThrow(UNROUTED_PHONE_ERROR);
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("getMessageFresh capability", () => {
+  it("is the exact same provider function as getMessage", () => {
+    expect(typeof definition.actions?.getMessageFresh).toBe("function");
+    expect(definition.actions?.getMessageFresh).toBe(
+      definition.actions?.getMessage
+    );
+  });
+
+  it("is exposed on a real Spectrum runtime and shares space.getMessage's read", async () => {
+    const get = vi.fn().mockResolvedValue(nativeMessage());
+    vi.mocked(createGrpcClient).mockReturnValue(
+      remoteWith(get) as ReturnType<typeof createGrpcClient>
+    );
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [
+        imessage.config({
+          clients: [{ address: "grpc.invalid:443", phone: PHONE, token: "t" }],
+        }),
+      ],
+    });
+    try {
+      // The worker's feature detection path: the registered runtime's
+      // provider definition, not the always-present platform-wise surface.
+      const runtime = app.__internal.platforms.get("imessage");
+      const actions = runtime?.definition.actions;
+      expect(typeof actions?.getMessageFresh).toBe("function");
+      expect(actions?.getMessageFresh).toBe(actions?.getMessage);
+
+      const im = imessage(app);
+      const space = await im.space.get(SPACE.id);
+      const raw = await im.getMessageFresh(space, "message-guid");
+      const wrapped = await space.getMessage("message-guid");
+
+      // Each call reads upstream; nothing is served from the assembly cache.
+      expect(get).toHaveBeenCalledTimes(2);
+      expect(get).toHaveBeenNthCalledWith(1, "message-guid");
+      expect(get).toHaveBeenNthCalledWith(2, "message-guid");
+      // Instance action: raw provider record. Space sugar: wrapped Message.
+      expect(raw).toMatchObject({
+        id: "message-guid",
+        nativeText: "Hello @Taylor",
+        space: { id: SPACE.id },
+      });
+      expect(raw).not.toHaveProperty("platform");
+      expect(wrapped).toMatchObject({
+        id: "message-guid",
+        nativeText: "Hello @Taylor",
+        platform: "imessage",
+      });
+      expect(wrapped && imessage.is(wrapped)).toBe(true);
+    } finally {
+      await app.stop();
+    }
+  });
+
+  it("is absent, not an UnsupportedError stub, on providers that do not declare it", async () => {
+    const provider = makeManagedProvider("no_fresh_read");
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+    try {
+      const runtime = app.__internal.platforms.get("no_fresh_read");
+      expect(runtime?.definition.actions?.getMessageFresh).toBeUndefined();
+      expect(
+        (provider(app) as unknown as Record<string, unknown>).getMessageFresh
+      ).toBeUndefined();
+    } finally {
+      await app.stop();
+    }
   });
 });
 

@@ -30,7 +30,6 @@ type UnvotedPollEvent = PollEvent & {
 interface PollMetadataInput {
   options: readonly IMessagePollOption[];
   pollMessageGuid: string;
-  title?: string;
 }
 
 interface PollOptionMessageInput {
@@ -52,7 +51,6 @@ const isUnvotedPollEvent = (event: PollEvent): event is UnvotedPollEvent =>
 const toCachedPoll = (input: PollMetadataInput): CachedPoll => {
   const poll = asPoll({
     pollMessageGuid: input.pollMessageGuid,
-    title: input.title ?? "",
     options: input.options.map((optionInfo) => ({
       title: optionInfo.text,
       optionIdentifier: optionInfo.optionIdentifier,
@@ -89,7 +87,6 @@ export const cachePollEvent = (
     try {
       const cached = toCachedPoll({
         pollMessageGuid: event.pollMessageGuid,
-        title: event.delta.title,
         options: event.delta.options,
       });
       cache.set(event.pollMessageGuid, cached);

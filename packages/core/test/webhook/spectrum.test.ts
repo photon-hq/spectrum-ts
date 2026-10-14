@@ -76,7 +76,6 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
       async (spectrum) => {
         const pollContent = {
           type: "poll",
-          title: "",
           pollMessageGuid: "poll-a",
           options: [
             { title: "Same", optionIdentifier: "a" },

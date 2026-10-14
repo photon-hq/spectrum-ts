@@ -33,8 +33,9 @@ await space.shareContactCard();
 
 ## Incoming polls
 
-Native iMessage polls can have an empty title. Match a poll with
-`content.pollMessageGuid`, not its title. Match a selected option with
+Native iMessage polls have no title. Their snapshots and nested vote context
+omit the `title` field; option labels still use `title`. Match a poll with
+`content.pollMessageGuid`. Match a selected option with
 `content.option.optionIdentifier`, not its label. Different options can have
 identical labels.
 

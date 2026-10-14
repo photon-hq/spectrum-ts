@@ -6,6 +6,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import { PollCache } from "@/cache";
 import { cachePollEvent, toPollDeltaMessages } from "@/remote/polls";
+import { send } from "@/remote/send";
 
 const OCCURRED_AT = new Date(1_700_000_000_000);
 const POLL_GUID = "poll-root-A";
@@ -60,8 +61,7 @@ const PUBLIC_OPTIONS = OPTIONS.map((option) => ({
 }));
 
 const PUBLIC_POLL = {
-  type: "poll",
-  title: "",
+  type: "poll" as const,
   pollMessageGuid: POLL_GUID,
   options: PUBLIC_OPTIONS,
 };
@@ -98,15 +98,42 @@ describe("iMessage poll conversion", () => {
     expect(get).not.toHaveBeenCalled();
   });
 
-  it("normalizes a missing native title to empty, not whitespace", async () => {
-    const { client } = makeClient();
+  it.each([
+    undefined,
+    "",
+    "Legacy title",
+  ])("omits native title %s from snapshots and lookup results", async (title) => {
+    const { client, get } = makeClient();
+    get.mockResolvedValue(pollInfo({ title }));
     const messages = await toPollDeltaMessages(
       client,
       new PollCache(),
-      pollEvent({ type: "created", options: OPTIONS }),
+      pollEvent({ type: "created", title, options: OPTIONS }),
       PHONE
     );
-    expect(messages[0]?.content).toEqual({ ...PUBLIC_POLL, change: "created" });
+    expect(messages[0]?.content).toStrictEqual({
+      ...PUBLIC_POLL,
+      change: "created",
+    });
+    expect(messages[0]?.content).not.toHaveProperty("title");
+    const votes = await toPollDeltaMessages(
+      client,
+      new PollCache(),
+      pollEvent({ type: "voted", optionIdentifier: "option-A" }),
+      PHONE
+    );
+    expect(votes[0]?.content).toMatchObject({ poll: PUBLIC_POLL });
+    expect(votes[0]?.content).not.toHaveProperty("poll.title");
+  });
+
+  it("rejects sending a titleless inbound snapshot without calling native create", async () => {
+    const create = vi.fn();
+    // SAFETY: this rejection path must not access any other client method.
+    const client = { polls: { create } } as unknown as AdvancedIMessage;
+    await expect(send(client, GROUP_GUID, PUBLIC_POLL)).rejects.toThrow(
+      "outbound polls require a title"
+    );
+    expect(create).not.toHaveBeenCalled();
   });
 
   it.each(SNAPSHOT_CASES)("allows a missing actor for %s", async (type) => {

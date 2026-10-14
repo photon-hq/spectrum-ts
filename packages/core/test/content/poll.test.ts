@@ -10,7 +10,6 @@ import { contentSchema } from "@/content/types";
 
 const nativePoll = () =>
   asPoll({
-    title: "",
     pollMessageGuid: "poll-a",
     options: [
       { title: "Same label", optionIdentifier: "option-a" },
@@ -21,7 +20,7 @@ const nativePoll = () =>
 describe("poll identity", () => {
   it("accepts titleless native polls without inventing display text", () => {
     const value = nativePoll();
-    expect(value.title).toBe("");
+    expect(value).not.toHaveProperty("title");
     expect(contentSchema.parse(value)).toEqual(value);
     expect(value.pollMessageGuid).toBe("poll-a");
     expect(value.options.map((choice) => choice.optionIdentifier)).toEqual([
@@ -34,6 +33,9 @@ describe("poll identity", () => {
     await expect(poll("", "A", "B").build()).rejects.toThrow();
     expect(() =>
       asPoll({ title: "", options: [{ title: "A" }, { title: "B" }] })
+    ).toThrow();
+    expect(() =>
+      asPoll({ options: [{ title: "A" }, { title: "B" }] })
     ).toThrow();
     const value = await poll("Question?", "A", "B").build();
     expect(value).toEqual({

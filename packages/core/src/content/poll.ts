@@ -9,7 +9,7 @@ export const pollChoiceSchema = z.object({
 export const pollSchema = z
   .object({
     type: z.literal("poll"),
-    title: z.string().max(300),
+    title: z.string().max(300).optional(),
     options: z.array(pollChoiceSchema).min(2).max(10),
     pollMessageGuid: z.string().nonempty().optional(),
     // Option additions carry the full current option set, not a vote.
@@ -106,7 +106,7 @@ export interface PollInput {
   options: PollChoice[];
   /** Native poll identity; required for titleless iMessage snapshots. */
   pollMessageGuid?: string;
-  title: string;
+  title?: string;
 }
 
 export const asPoll = (input: PollInput): Poll =>

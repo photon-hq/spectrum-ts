@@ -80,6 +80,7 @@ const outboundGroupItem = (
     parentId,
   }) as IMessageMessage;
 
+// SAFETY: asGroup validates only id/content, which these provider records contain.
 const providerGroup = (items: IMessageMessage[]): Content =>
   asGroup({ items: items as unknown as Message[] });
 
@@ -270,6 +271,12 @@ const sendContent = async (
         throw unsupportedRemoteContent(
           "poll",
           "polls cannot be sent as replies"
+        );
+      }
+      if (!content.title) {
+        throw unsupportedRemoteContent(
+          "poll",
+          "outbound polls require a title"
         );
       }
       return outboundPoll(

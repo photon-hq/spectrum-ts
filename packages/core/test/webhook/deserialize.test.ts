@@ -88,7 +88,6 @@ describe("deserializeSpectrumMessage", () => {
   ] as const)("maps a titleless %s poll snapshot", (change) => {
     const content = {
       type: "poll",
-      title: "",
       pollMessageGuid: "poll-a",
       change,
       options: [
@@ -111,7 +110,6 @@ describe("deserializeSpectrumMessage", () => {
       option: { title: "Same", optionIdentifier: "b" },
       poll: {
         type: "poll",
-        title: "",
         pollMessageGuid: "poll-a",
         options: [
           { title: "Same", optionIdentifier: "a" },

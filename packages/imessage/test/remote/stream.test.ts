@@ -278,10 +278,13 @@ describe("remote iMessage poll stream", () => {
       expect(created?.id).toBe("poll-root");
       expect(created?.content).toMatchObject({
         type: "poll",
-        title: "",
         pollMessageGuid: "poll-root",
         change: "created",
       });
+      expect(created?.content).not.toHaveProperty("title");
+      expect(added?.content).not.toHaveProperty("title");
+      expect(voted?.content).not.toHaveProperty("poll.title");
+      expect(unvoted?.content).not.toHaveProperty("poll.title");
       expect(voted?.content).toMatchObject({
         type: "poll_option",
         selected: true,

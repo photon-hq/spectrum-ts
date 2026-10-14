@@ -605,11 +605,8 @@ export const getMessage = async (
   phone: string
 ): Promise<IMessageMessage | undefined> => {
   const cache = getMessageCache(remote);
-  const cached = cache.get(msgId);
-  if (cached) {
-    return cached;
-  }
-
+  // Public reads, including reply targets, must not be served from assembly
+  // caches that cannot observe remote access changes.
   const childRef = parseChildId(msgId);
   if (childRef) {
     try {
@@ -620,8 +617,7 @@ export const getMessage = async (
         remote,
         fetched,
         phone,
-        spaceId,
-        cache
+        spaceId
       );
       cacheMessage(cache, parent);
       const group = messageGroupContent(parent);
@@ -644,8 +640,7 @@ export const getMessage = async (
       remote,
       fetched,
       phone,
-      spaceId,
-      cache
+      spaceId
     );
     cacheMessage(cache, rebuilt);
     return rebuilt;

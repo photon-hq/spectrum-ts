@@ -1,12 +1,16 @@
-import type {
-  AdvancedIMessage,
-  MessageEvent,
-  Message as SDKMessage,
+import {
+  type AdvancedIMessage,
+  AuthenticationError,
+  ConnectionError,
+  type MessageEvent,
+  NotFoundError,
+  type Message as SDKMessage,
 } from "@photon-ai/advanced-imessage/grpc";
 import type { Content, Message } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
-import { MessageCache } from "@/cache";
+import { getMessageCache, MessageCache } from "@/cache";
+import { imessage } from "@/index";
 import {
   getMessage,
   type ReceivedEvent,
@@ -91,6 +95,169 @@ const groupOf = (...contents: Content[]): Content =>
     ),
   });
 
+const getMessageAction = imessage.config({}).__definition.actions?.getMessage;
+if (!getMessageAction) {
+  throw new Error("iMessage must declare the getMessage action");
+}
+
+const publicGetMessage = (remote: AdvancedIMessage, id: string) =>
+  getMessageAction(
+    {
+      client: [{ client: remote, phone: "+15550000000" }],
+      config: {} as never,
+      store: undefined as never,
+    },
+    {
+      __platform: "imessage",
+      id: "iMessage;+;chat-guid",
+      phone: "+15550000000",
+      type: "group",
+    },
+    id
+  ) as Promise<IMessageMessage | undefined>;
+
+const multipartMessage = (text: string): SDKMessage =>
+  nativeMessage({
+    content: {
+      attachments: [nativeAttachment()],
+      formatting: [],
+      mentions: [],
+      text: `${text} ${ATTACHMENT_PLACEHOLDER}`,
+    },
+  });
+
+const prefillMessageCache = async (remote: AdvancedIMessage) => {
+  const cache = getMessageCache(remote);
+  await toInboundMessages(
+    remote,
+    cache,
+    receivedEvent(multipartMessage("previously visible")),
+    "+15550000000"
+  );
+  return cache;
+};
+
+describe.each([
+  "message-guid",
+  "p:0/message-guid",
+])("public getMessage revalidates cached %s", (id) => {
+  it("returns undefined when the remote hides the message", async () => {
+    const get = vi.fn().mockRejectedValue(
+      new NotFoundError("message not found", {
+        code: "messageNotFound",
+        grpcCode: 5,
+        retryable: false,
+      })
+    );
+    const remote = { messages: { get } } as unknown as AdvancedIMessage;
+    const cache = await prefillMessageCache(remote);
+    expect(cache.get(id)).toBeDefined();
+
+    await expect(publicGetMessage(remote, id)).resolves.toBeUndefined();
+    expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+  });
+
+  it.each([
+    new AuthenticationError("access revoked", {
+      code: "unauthorized",
+      grpcCode: 7,
+      retryable: false,
+    }),
+    new ConnectionError("access check unavailable", {
+      code: "serviceUnavailable",
+      grpcCode: 14,
+      retryable: true,
+    }),
+  ])("propagates %s without serving cached content", async (error) => {
+    const get = vi.fn().mockRejectedValue(error);
+    const remote = { messages: { get } } as unknown as AdvancedIMessage;
+    const cache = await prefillMessageCache(remote);
+    expect(cache.get(id)).toBeDefined();
+
+    await expect(publicGetMessage(remote, id)).rejects.toBe(error);
+    expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+  });
+
+  it("rebuilds allowed messages and refreshes the assembly cache", async () => {
+    const updated = multipartMessage("currently visible");
+    const get = vi.fn().mockResolvedValue(updated);
+    const remote = { messages: { get } } as unknown as AdvancedIMessage;
+    const cache = await prefillMessageCache(remote);
+    const previous = cache.get(id);
+    expect(previous).toBeDefined();
+
+    const result = await publicGetMessage(remote, id);
+    expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+    expect(result).not.toBe(previous);
+    expect(result).toMatchObject({ id, nativeText: updated.content.text });
+    expect(cache.get(id)).toBe(result);
+    expect(cache.get("message-guid")?.nativeText).toBe(updated.content.text);
+    expect(cache.get("p:0/message-guid")?.content).toEqual(
+      asText("currently visible")
+    );
+  });
+});
+
+it("does not return a cached child removed from an allowed parent", async () => {
+  const get = vi.fn().mockResolvedValue(nativeMessage());
+  const remote = { messages: { get } } as unknown as AdvancedIMessage;
+  const cache = await prefillMessageCache(remote);
+  expect(cache.get("p:0/message-guid")).toBeDefined();
+
+  await expect(
+    publicGetMessage(remote, "p:0/message-guid")
+  ).resolves.toBeUndefined();
+  expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+  expect(cache.get("message-guid")?.content).toEqual(asText("Hello @Taylor"));
+});
+
+it("does not embed a cached reply target hidden by the remote", async () => {
+  const hiddenTarget = nativeMessage({
+    content: {
+      attachments: [],
+      formatting: [],
+      mentions: [],
+      text: "previously visible target",
+    },
+    guid: "target-guid",
+  });
+  const reply = nativeMessage({ replyTargetGuid: "target-guid" });
+  const get = vi.fn((guid: string) =>
+    guid === "target-guid"
+      ? Promise.reject(
+          new NotFoundError("message not found", {
+            code: "messageNotFound",
+            grpcCode: 5,
+            retryable: false,
+          })
+        )
+      : Promise.resolve(reply)
+  );
+  const remote = { messages: { get } } as unknown as AdvancedIMessage;
+  const cache = getMessageCache(remote);
+  await toInboundMessages(
+    remote,
+    cache,
+    receivedEvent(hiddenTarget),
+    "+15550000000"
+  );
+  expect(cache.get("target-guid")).toBeDefined();
+
+  const result = await publicGetMessage(remote, "message-guid");
+  expect(get).toHaveBeenCalledWith("message-guid");
+  expect(get).toHaveBeenCalledWith("target-guid");
+  expect(result?.content).toMatchObject({
+    target: {
+      content: {
+        raw: { imessage_type: "reply-target", stub: true },
+        type: "custom",
+      },
+      id: "target-guid",
+    },
+    type: "reply",
+  });
+});
+
 describe("curated metadata across native message paths", () => {
   it("includes metadata on ordinary inbound messages without extra RPCs", async () => {
     const get = vi.fn();
@@ -115,7 +282,7 @@ describe("curated metadata across native message paths", () => {
     });
   });
 
-  it("includes metadata on getMessage and preserves cache-first behavior", async () => {
+  it("includes metadata on getMessage and refetches cached messages", async () => {
     const get = vi.fn(() => Promise.resolve(nativeMessage()));
     const remote = {
       messages: { get },
@@ -134,10 +301,11 @@ describe("curated metadata across native message paths", () => {
       "+15550000000"
     );
 
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
     expect(first?.dateDelivered).toEqual(DELIVERED_AT);
     expect(first?.nativeText).toBe("Hello @Taylor");
-    expect(second).toBe(first);
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
   });
 
   it("computes multipart metadata once and carries it to every child", async () => {

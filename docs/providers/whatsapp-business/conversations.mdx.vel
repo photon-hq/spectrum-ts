@@ -19,3 +19,23 @@ await space.send("Thanks for reaching out.");
 ```
 
 Passing more than one user to `space.create()` throws.
+
+## Typing indicators
+
+`space.startTyping()` and `space.responding(fn)` show WhatsApp's typing bubble:
+
+```ts
+for await (const [space, message] of app.messages) {
+  await space.responding(async () => {
+    const result = await generateResponse(message);
+    await space.send(result);
+  });
+}
+```
+
+Meta ties the bubble to the message you're answering, so a few rules apply:
+
+- Typing works on the `space` you receive with a message, from `app.messages` or `app.webhook()`. On a space you created with `space.create()`, pass the message yourself: `space.send(typing("start", message))`. Without one, typing is a no-op.
+- Showing the bubble also marks that message as read (blue ticks).
+- The bubble disappears when you reply or after 25 seconds, whichever comes first. Call `startTyping()` again for longer work.
+- `stopTyping()` is a no-op. Meta has no call to dismiss the bubble early.

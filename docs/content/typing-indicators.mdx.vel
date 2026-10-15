@@ -15,3 +15,9 @@ await space.send(typing("stop"));  // stop typing
 `space.startTyping()`, `space.stopTyping()`, and `space.responding(fn)` are sugar over `space.send(typing(...))`.
 
 Platforms without a typing-indicator API silently no-op.
+
+Some platforms (WhatsApp Business) attach typing to the message being answered. Spaces you receive with a message fill this in automatically; otherwise pass it as the second argument:
+
+```ts
+await space.send(typing("start", message));
+```

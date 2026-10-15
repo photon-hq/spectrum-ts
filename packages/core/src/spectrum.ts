@@ -414,6 +414,9 @@ export async function Spectrum<
           __platform: definition.name,
         };
         const actionCtx = { space: spaceRef, client, config, store };
+        // Bound once the message is wrapped below, so this space's typing
+        // sugar can target the message it arrived with.
+        let inbound: Message | undefined;
         const space = buildSpace({
           spaceRef,
           extras: {},
@@ -422,6 +425,7 @@ export async function Spectrum<
           client,
           config,
           store,
+          inboundMessage: () => inbound,
         });
         const normalizedMessage = wrapProviderMessage(
           record,
@@ -435,6 +439,7 @@ export async function Spectrum<
           },
           "inbound"
         );
+        inbound = normalizedMessage;
         return { space, normalizedMessage };
       }
     );

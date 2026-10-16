@@ -196,6 +196,82 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
     );
   });
 
+  it("delivers a webhook message whose wire platform uses display casing", async () => {
+    await withSpectrum(
+      { webhookSecret: SPECTRUM_WEBHOOK_SECRET },
+      async (spectrum) => {
+        const received: [unknown, Message][] = [];
+        const { promise: finished, resolve: done } =
+          Promise.withResolvers<void>();
+
+        // Provider registered as "im"; the wire format carries "iM".
+        const signed = signSpectrum(textEnvelope("iM", "mixed case hello"));
+        const result = await spectrum.webhook(signed, (space, message) => {
+          received.push([space, message]);
+          done();
+        });
+        await finished;
+
+        expect(result.status).toBe(200);
+        expect(received).toHaveLength(1);
+        expect(received[0]?.[1]?.content).toEqual({
+          type: "text",
+          text: "mixed case hello",
+        });
+      }
+    );
+  });
+
+  it("resolves webhook attachments when the wire platform uses display casing", async () => {
+    const configured = makeManagedProvider("im").config({});
+    (
+      configured as unknown as {
+        __definition: {
+          actions?: Record<string, (...args: never[]) => unknown>;
+        };
+      }
+    ).__definition.actions = {
+      getAttachment: async () => ({
+        read: async () => Buffer.from("attachment-bytes"),
+      }),
+    };
+    const spectrum = await Spectrum({
+      ...baseConfig,
+      providers: [configured],
+      webhookSecret: SPECTRUM_WEBHOOK_SECRET,
+    });
+    try {
+      const { promise: finished, resolve: done } =
+        Promise.withResolvers<void>();
+      const received: Message[] = [];
+      const envelope = textEnvelope("iM", "ignored", {
+        content: {
+          type: "attachment",
+          id: "att-1",
+          name: "photo.png",
+          mimeType: "image/png",
+        },
+      });
+      const signed = signSpectrum(envelope);
+      const result = await spectrum.webhook(signed, (_space, message) => {
+        received.push(message);
+        done();
+      });
+      await finished;
+
+      expect(result.status).toBe(200);
+      const content = received[0]?.content;
+      expect(content?.type).toBe("attachment");
+      if (content?.type === "attachment") {
+        await expect(content.read()).resolves.toEqual(
+          Buffer.from("attachment-bytes")
+        );
+      }
+    } finally {
+      await spectrum.stop();
+    }
+  });
+
   it("returns 200 even when the handler throws (fire-and-forget)", async () => {
     await withSpectrum(
       { webhookSecret: SPECTRUM_WEBHOOK_SECRET },

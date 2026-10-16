@@ -1148,12 +1148,20 @@ export async function Spectrum<
     | undefined
   >;
 
+  // Providers register under a canonical lowercase key (e.g. "imessage"), but
+  // the webhook wire format may carry the documented display casing (e.g.
+  // "iMessage"). Exact match first so mixed-case custom providers keep
+  // working, then fall back to the normalized key.
+  const resolvePlatformRuntime = (platform: string) =>
+    platformStates.get(platform) ??
+    platformStates.get(normalizePlatformKey(platform));
+
   const resolveWebhookAttachment: DeserializeContext["resolveAttachment"] = (
     platform,
     spaceRef,
     attachmentId
   ) => {
-    const runtime = platformStates.get(platform);
+    const runtime = resolvePlatformRuntime(platform);
     const action = (
       runtime?.definition as { actions?: Record<string, unknown> } | undefined
     )?.actions?.getAttachment;
@@ -1250,7 +1258,7 @@ export async function Spectrum<
     }
 
     const { platform, record } = deserialized;
-    const runtime = platformStates.get(platform);
+    const runtime = resolvePlatformRuntime(platform);
     if (!runtime) {
       lifecycleLog.warn(
         `spectrum.webhook: no provider configured for platform "${platform}"; acknowledging without delivery`,

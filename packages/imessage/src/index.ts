@@ -36,9 +36,11 @@ export {
   customizedMiniApp,
 } from "./content/customized-mini-app";
 export { effect, type IMessageMessageEffect } from "./content/effect";
+export { isIMessageConversationEvent } from "./conversation-events";
 export type {
   IMessageAppliedReaction,
   IMessageAttachmentMetadata,
+  IMessageConversationEvent,
   IMessageMention,
   IMessageMessage,
   IMessageMiniApp,

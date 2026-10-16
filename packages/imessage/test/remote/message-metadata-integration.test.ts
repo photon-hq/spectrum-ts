@@ -7,6 +7,7 @@ import type { Content, Message } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
 import { MessageCache } from "@/cache";
+import { isIMessageConversationEvent } from "@/conversation-events";
 import {
   getMessage,
   type ReceivedEvent,
@@ -267,7 +268,8 @@ describe("curated metadata across native message paths", () => {
 
     expect(message?.content).toEqual({
       raw: {
-        imessage_type: "unsupported-message",
+        imessage_type: "conversation-event",
+        itemType: "chatAction",
       },
       type: "custom",
     });
@@ -278,5 +280,109 @@ describe("curated metadata across native message paths", () => {
     expect(message.content.raw).not.toHaveProperty("guid");
     expect(message.content.raw).not.toHaveProperty("content");
     expect(message.content.raw).not.toHaveProperty("chatGuids");
+  });
+});
+
+const conversationItemTypes = [
+  "chatAction",
+  "groupNameChange",
+  "participantChange",
+] as const;
+
+it.each(
+  conversationItemTypes
+)("classifies empty %s consistently for live and fetched messages", async (itemType) => {
+  const native = nativeMessage({
+    itemType,
+    content: { attachments: [], formatting: [], mentions: [] },
+  });
+  const remote = {
+    messages: { get: vi.fn().mockResolvedValue(native) },
+  } as unknown as AdvancedIMessage;
+  const [live] = await toInboundMessages(
+    remote,
+    new MessageCache(),
+    receivedEvent(native),
+    "+15550000000"
+  );
+  const fetched = await getMessage(
+    remote,
+    "iMessage;+;chat-guid",
+    native.guid,
+    "+15550000000"
+  );
+  expect(live?.content).toEqual({
+    type: "custom",
+    raw: { imessage_type: "conversation-event", itemType },
+  });
+  expect(fetched?.content).toEqual(live?.content);
+  expect(live).toMatchObject({
+    id: native.guid,
+    itemType,
+    timestamp: CREATED_AT,
+    sender: { id: "+15551230001" },
+  });
+  expect(
+    isIMessageConversationEvent({ content: live?.content ?? asText("missing") })
+  ).toBe(true);
+});
+
+it.each(
+  conversationItemTypes
+)("preserves supported content on %s", async (itemType) => {
+  for (const content of [
+    { attachments: [], text: "Hello" },
+    { attachments: [nativeAttachment()] },
+    { attachments: [nativeAttachment()], text: "Hello" },
+    {
+      attachments: [],
+      miniApp: {
+        appName: "Game",
+        teamId: "team",
+        extensionBundleId: "game",
+        live: true,
+        url: "https://example.com/game",
+        layout: { caption: "Your turn" },
+      },
+    },
+  ]) {
+    const [message] = await toInboundMessages(
+      { messages: {} } as unknown as AdvancedIMessage,
+      new MessageCache(),
+      receivedEvent(
+        nativeMessage({
+          itemType,
+          content: { formatting: [], mentions: [], ...content },
+        })
+      ),
+      "+15550000000"
+    );
+    expect(message?.content.type).not.toBe("custom");
+    expect(
+      isIMessageConversationEvent({
+        content: message?.content ?? asText("missing"),
+      })
+    ).toBe(false);
+  }
+});
+
+it.each([
+  "normal",
+  "unknown",
+] as const)("keeps empty %s messages unsupported", async (itemType) => {
+  const [message] = await toInboundMessages(
+    { messages: {} } as unknown as AdvancedIMessage,
+    new MessageCache(),
+    receivedEvent(
+      nativeMessage({
+        itemType,
+        content: { attachments: [], formatting: [], mentions: [] },
+      })
+    ),
+    "+15550000000"
+  );
+  expect(message?.content).toEqual({
+    type: "custom",
+    raw: { imessage_type: "unsupported-message" },
   });
 });

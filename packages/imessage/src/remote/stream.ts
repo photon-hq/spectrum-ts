@@ -23,6 +23,7 @@ import {
 } from "@spectrum-ts/core/authoring";
 import { getCloudRecover } from "../auth";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
+import { isIMessageConversationEvent } from "../conversation-events";
 import { addLineObserver, lineKey } from "../lines";
 import {
   type IMessageMessage,
@@ -142,7 +143,10 @@ const toMessageItem = async (
     // trigger a contact-card share (and burn its 24h dedupe slot) for a
     // message that was never delivered.
     const inboundChatGuid = event.message.chatGuids?.[0];
-    if (inboundChatGuid) {
+    if (
+      inboundChatGuid &&
+      values.some((message) => !isIMessageConversationEvent(message))
+    ) {
       onInbound?.(inboundChatGuid);
     }
 

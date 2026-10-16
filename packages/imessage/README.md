@@ -75,3 +75,26 @@ not included in the batteries-included `spectrum-ts` package.
 ```sh
 bun add @spectrum-ts/imessage-local
 ```
+
+### Conversation updates
+
+Content-less native `chatAction`, `groupNameChange`, and `participantChange`
+records arrive as `custom` content with
+`raw: { imessage_type: "conversation-event", itemType }`. They retain message
+metadata and remain available to consumers. Records with supported content
+(text, attachments, or app cards) keep their existing content mapping; other
+unsupported messages still use `unsupported-message`.
+
+Agent consumers can filter these updates with the exported helper:
+
+```ts
+import { isIMessageConversationEvent } from "@spectrum-ts/imessage";
+
+if (isIMessageConversationEvent(message)) {
+  return;
+}
+```
+
+The helper checks reply-wrapped content, not reply targets. Structured group
+updates such as `rename` and `addMember` retain their existing content types
+and can be handled separately by the consumer.

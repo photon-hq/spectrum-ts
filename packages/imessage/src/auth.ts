@@ -83,10 +83,22 @@ export async function createCloudClients(
     await entry.client.close();
   };
 
-  const removeMissing = (data: DedicatedTokenData): number => {
+  // Fire-and-forget with a warn on failure, so a wedged line can't stall the
+  // token refresh that the other lines depend on.
+  const retireEntry = (entry: RemoteClient, instance: string): void => {
+    retire(entry).catch((error: unknown) => {
+      authLog.warn(
+        "failed to retire imessage line",
+        { ...instanceAttrs(instance), ...errorAttrs(error) },
+        error instanceof Error ? error : undefined
+      );
+    });
+  };
+
+  const removeMissing = (auth: DedicatedTokenData["auth"]): number => {
     let removed = 0;
     for (const [instanceId, entry] of records) {
-      if (data.auth[instanceId]) {
+      if (auth[instanceId]) {
         continue;
       }
       records.delete(instanceId);
@@ -95,13 +107,7 @@ export async function createCloudClients(
         entries.splice(index, 1);
       }
       removed += 1;
-      retire(entry).catch((error: unknown) => {
-        authLog.warn(
-          "failed to retire imessage line",
-          { ...instanceAttrs(instanceId), ...errorAttrs(error) },
-          error instanceof Error ? error : undefined
-        );
-      });
+      retireEntry(entry, instanceId);
     }
     return removed;
   };
@@ -161,7 +167,7 @@ export async function createCloudClients(
    * caller contains before any line is removed.
    */
   const reconcile = (data: DedicatedTokenData): void => {
-    const removed = removeMissing(data);
+    const removed = removeMissing(data.auth);
     const added = addOrSync(data);
     if (added > 0 || removed > 0) {
       authLog.info("imessage lines reconciled", {
@@ -172,16 +178,95 @@ export async function createCloudClients(
     }
   };
 
+  const buildSharedEntry = (): RemoteClient => ({
+    phone: SHARED_PHONE,
+    client: createGrpcClient({
+      address:
+        process.env.SPECTRUM_IMESSAGE_ADDRESS ??
+        "imessage.spectrum.photon.codes:443",
+      // Auto-retry transient unary failures so a brief server blip during
+      // an outbound action (send/react/reply) doesn't surface as an
+      // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
+      // mutating RPCs so the retry can't double-apply.
+      autoIdempotency: true,
+      retry: true,
+      tls: true,
+      token: async () => {
+        await renewal.refreshIfNeeded();
+        return (tokenData as SharedTokenData).token;
+      },
+    }),
+  });
+
+  /**
+   * A plan change swaps the whole line inventory: a dedicated payload carries
+   * no shared token and a shared payload carries no auth map, so entries built
+   * for the old mode can never authenticate again — they are retired and
+   * rebuilt for the new mode. The entries array itself is never replaced
+   * (same identity contract as `reconcile`).
+   */
+  const retireSharedEntry = (): void => {
+    const index = entries.findIndex((entry) => entry.phone === SHARED_PHONE);
+    if (index < 0) {
+      return;
+    }
+    const [entry] = entries.splice(index, 1);
+    if (entry) {
+      retireEntry(entry, "shared");
+    }
+  };
+
+  const transitionToShared = (): void => {
+    // Every dedicated line's token getter resolves through `auth`, which a
+    // shared payload does not carry — an empty inventory retires them all.
+    const removed = removeMissing({});
+    const entry = buildSharedEntry();
+    entries.push(entry);
+    // Synchronous, adjacent to the push, so an observer can never see a
+    // half-applied array.
+    notifyLineAttached(entries, entry);
+    authLog.info("imessage plan changed to shared", {
+      "spectrum.imessage.lines.removed": removed,
+      "spectrum.imessage.lines.total": entries.length,
+    });
+  };
+
   const renewal = createTokenRenewal({
     expiresInSeconds: () => tokenData.expiresIn,
     name: "imessage",
     refresh: async () => {
-      tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+      const previousType = tokenData.type;
+      const next = await cloud.issueImessageTokens(projectId, projectSecret);
       lastRefreshAt = Date.now();
-      if (tokenData.type !== "dedicated") {
-        return;
-      }
       try {
+        if (next.type !== "dedicated") {
+          tokenData = next;
+          // dedicated → shared: the dedicated lines' token getters resolve
+          // through `auth`, which a shared payload does not carry — retire
+          // them and stand up the shared gateway client.
+          if (previousType === "dedicated") {
+            transitionToShared();
+          }
+          return;
+        }
+        // A dedicated response with no `auth` map is malformed (the Cloud
+        // endpoint's contract guarantees one). Validate before touching the
+        // live client set: retiring the shared gateway first and then throwing
+        // out of `reconcile` would leave the client set empty until the next
+        // refresh. Keeping the old payload means the next refresh retries.
+        const auth: unknown = (next as { auth?: unknown }).auth;
+        if (typeof auth !== "object" || auth === null) {
+          throw new Error(
+            "imessage token refresh returned a dedicated payload without an auth map; keeping the existing client set"
+          );
+        }
+        tokenData = next;
+        // shared → dedicated: the shared gateway entry's token getter
+        // resolves `tokenData.token`, which a dedicated payload does not
+        // carry — retire it before reconciling the new line inventory.
+        if (previousType === "shared") {
+          retireSharedEntry();
+        }
         reconcile(tokenData);
       } catch (error) {
         // Rejecting here would leave the renewal's expiry unadvanced, and since
@@ -210,26 +295,7 @@ export async function createCloudClients(
   const cloudAuth: CloudAuth = { dispose: renewal.dispose, forceRefresh };
 
   if (tokenData.type === "shared") {
-    const address =
-      process.env.SPECTRUM_IMESSAGE_ADDRESS ??
-      "imessage.spectrum.photon.codes:443";
-    entries.push({
-      phone: SHARED_PHONE,
-      client: createGrpcClient({
-        address,
-        // Auto-retry transient unary failures so a brief server blip during
-        // an outbound action (send/react/reply) doesn't surface as an
-        // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
-        // mutating RPCs so the retry can't double-apply.
-        autoIdempotency: true,
-        retry: true,
-        tls: true,
-        token: async () => {
-          await renewal.refreshIfNeeded();
-          return (tokenData as SharedTokenData).token;
-        },
-      }),
-    });
+    entries.push(buildSharedEntry());
 
     cloudAuthState.set(entries, cloudAuth);
 

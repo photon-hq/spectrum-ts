@@ -1,11 +1,10 @@
-import type { AdvancedIMessage } from "@photon-ai/advanced-imessage/grpc";
 import type { SchemaMessage } from "@spectrum-ts/core";
 import z from "zod";
+import type { IMessageTransportHandle } from "./transport";
 
-export interface RemoteClient {
-  client: AdvancedIMessage;
+export type RemoteClient = IMessageTransportHandle & {
   phone: string;
-}
+};
 
 export type IMessageClient = RemoteClient[];
 
@@ -20,10 +19,12 @@ const clientEntry = z.object({
   address: z.string(),
   token: z.string(),
   phone: z.string(),
+  server: z.string().optional(),
 });
 
 export const configSchema = z.strictObject({
   clients: clientEntry.or(z.array(clientEntry)).optional(),
+  transport: z.enum(["grpc", "http"]).optional(),
 });
 
 /**

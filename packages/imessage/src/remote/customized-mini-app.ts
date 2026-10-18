@@ -2,7 +2,7 @@ import type {
   AdvancedIMessage,
   MiniAppCardSession,
   MiniAppMessageResult,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { Content } from "@spectrum-ts/core";
 import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";

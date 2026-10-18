@@ -19,6 +19,7 @@ interface FakeClientOptions {
   address: string;
   autoIdempotency?: boolean;
   retry?: boolean;
+  server?: string;
   tls?: boolean;
   token: () => Promise<string>;
 }
@@ -69,10 +70,25 @@ vi.doMock("@spectrum-ts/core", async (importOriginal) => {
 
 vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({ createGrpcClient }));
 
+const httpClientOptions: FakeClientOptions[] = [];
+const createHttpClient = vi.fn((options: FakeClientOptions) => {
+  httpClientOptions.push(options);
+  return { close: vi.fn(() => Promise.resolve()) };
+});
+
+vi.doMock("@photon-ai/advanced-imessage/http", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@photon-ai/advanced-imessage/http")
+  >()),
+  createHttpClient,
+}));
+
 const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
   "@/auth"
 );
 const { addLineObserver } = await import("@/lines");
+
+const MIDDLEWARE_GUIDANCE = /SPECTRUM_IMESSAGE_HTTP_ADDRESS/;
 
 // The recover hook runs the same closure the renewal timer does, so it is the
 // cheapest way to drive a refresh. It is throttled to one re-mint per 5s.
@@ -196,6 +212,7 @@ describe("imessage cloud auth", () => {
     });
     expect(transport(second)).toEqual(transport(first));
     expect(second?.address).toBe("instance-2.imsg.photon.codes:443");
+    expect(second?.server).toBeUndefined();
     expect(await second?.token()).toBe("token-instance-2");
 
     await disposeCloudAuth(clients);
@@ -334,5 +351,63 @@ describe("imessage cloud auth", () => {
     expect(clients).toHaveLength(2);
 
     await disposeCloudAuth(clients);
+  });
+});
+
+describe("imessage cloud auth over http", () => {
+  const MIDDLEWARE = "imessage-http.example.com";
+
+  beforeEach(() => {
+    issueImessageTokens.mockReset();
+    createGrpcClient.mockClear();
+    createHttpClient.mockClear();
+    httpClientOptions.length = 0;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("routes dedicated lines through the middleware, naming each instance", async () => {
+    vi.stubEnv("SPECTRUM_IMESSAGE_HTTP_ADDRESS", MIDDLEWARE);
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicated({ "instance-1": "+15550000001" })
+    );
+
+    const clients = await createCloudClients("project-1", "secret-1", "http");
+
+    expect(createGrpcClient).not.toHaveBeenCalled();
+    expect(httpClientOptions[0]?.address).toBe(MIDDLEWARE);
+    expect(httpClientOptions[0]?.server).toBe("instance-1");
+    expect(await httpClientOptions[0]?.token()).toBe("token-instance-1");
+    expect(clients[0]?.transport).toBe("http");
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("routes a shared line through the middleware without an instance", async () => {
+    vi.stubEnv("SPECTRUM_IMESSAGE_HTTP_ADDRESS", MIDDLEWARE);
+    issueImessageTokens.mockResolvedValueOnce({
+      expiresIn: 3600,
+      token: "shared-token",
+      type: "shared",
+    });
+
+    const clients = await createCloudClients("project-1", "secret-1", "http");
+
+    expect(httpClientOptions[0]?.address).toBe(MIDDLEWARE);
+    expect(httpClientOptions[0]?.server).toBeUndefined();
+    expect(await httpClientOptions[0]?.token()).toBe("shared-token");
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("refuses the http transport without a middleware address", async () => {
+    vi.stubEnv("SPECTRUM_IMESSAGE_HTTP_ADDRESS", "");
+
+    await expect(
+      createCloudClients("project-1", "secret-1", "http")
+    ).rejects.toThrow(MIDDLEWARE_GUIDANCE);
+    expect(issueImessageTokens).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,7 @@ import {
   type MiniAppContent,
   NotFoundError,
   type SingleServiceAddressInfo,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import {
   type AppLayout,
   appLayoutSchema,

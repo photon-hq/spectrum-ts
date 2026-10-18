@@ -1,4 +1,3 @@
-import { createGrpcClient } from "@photon-ai/advanced-imessage/grpc";
 import {
   cloud,
   type DedicatedTokenData,
@@ -15,6 +14,11 @@ import {
   notifyLineDetached,
   setLineId,
 } from "./lines";
+import {
+  createHandle,
+  DEFAULT_IMESSAGE_TRANSPORT,
+  type IMessageTransport,
+} from "./transport";
 import { type RemoteClient, SHARED_PHONE } from "./types";
 
 // Floor between forced re-mints so a stream reconnect storm can't hammer the
@@ -23,6 +27,19 @@ import { type RemoteClient, SHARED_PHONE } from "./types";
 const FORCE_REFRESH_MIN_INTERVAL_MS = 5000;
 
 const authLog = createLogger("spectrum.imessage.auth");
+
+const httpMiddleware = (transport: IMessageTransport): string | undefined => {
+  if (transport !== "http") {
+    return;
+  }
+  const address = process.env.SPECTRUM_IMESSAGE_HTTP_ADDRESS;
+  if (!address) {
+    throw new Error(
+      "The iMessage HTTP transport needs SPECTRUM_IMESSAGE_HTTP_ADDRESS, the address of an Advanced iMessage HTTP middleware."
+    );
+  }
+  return address;
+};
 
 interface CloudAuth {
   dispose: () => void;
@@ -37,8 +54,10 @@ const instanceAttrs = (instanceId: string) => ({
 
 export async function createCloudClients(
   projectId: string,
-  projectSecret: string
+  projectSecret: string,
+  transport: IMessageTransport = DEFAULT_IMESSAGE_TRANSPORT
 ): Promise<RemoteClient[]> {
+  const middleware = httpMiddleware(transport);
   let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
   let lastRefreshAt = Date.now();
 
@@ -57,11 +76,10 @@ export async function createCloudClients(
     initialToken: string
   ): RemoteClient => ({
     phone,
-    client: createGrpcClient({
-      address: `${instanceId}.imsg.photon.codes:443`,
-      autoIdempotency: true,
-      retry: true,
-      tls: true,
+    ...createHandle(transport, {
+      ...(middleware
+        ? { address: middleware, server: instanceId }
+        : { address: `${instanceId}.imsg.photon.codes:443` }),
       token: async () => {
         await renewal.refreshIfNeeded();
         // Narrowed, not asserted: a refresh can in principle come back shared
@@ -211,19 +229,13 @@ export async function createCloudClients(
 
   if (tokenData.type === "shared") {
     const address =
+      middleware ??
       process.env.SPECTRUM_IMESSAGE_ADDRESS ??
       "imessage.spectrum.photon.codes:443";
     entries.push({
       phone: SHARED_PHONE,
-      client: createGrpcClient({
+      ...createHandle(transport, {
         address,
-        // Auto-retry transient unary failures so a brief server blip during
-        // an outbound action (send/react/reply) doesn't surface as an
-        // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
-        // mutating RPCs so the retry can't double-apply.
-        autoIdempotency: true,
-        retry: true,
-        tls: true,
         token: async () => {
           await renewal.refreshIfNeeded();
           return (tokenData as SharedTokenData).token;

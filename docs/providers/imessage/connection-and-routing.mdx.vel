@@ -41,6 +41,21 @@ can register both when it needs both transports.
     ```
 
     Explicit clients let you control which cloud-owned lines this SDK instance subscribes to. They still use the cloud package. Their tokens are not renewed by the SDK, so you are responsible for keeping them current; most applications should use automatic discovery.
+
+    To run on a runtime that only has `fetch`, such as Cloudflare Workers, select the HTTP transport:
+
+    ```ts
+    imessage.config({
+      transport: "http",
+      clients: [
+        { address: "https://imessage-middleware.example.com", server: "your-instance-id", token: "your-token", phone: "+15551111111" },
+      ],
+    });
+    ```
+
+    With the HTTP transport, `address` is the Advanced iMessage REST middleware rather than a gRPC `host:port`. Set `server` to a dedicated line's instance ID so the middleware routes to it. With automatic discovery, set `SPECTRUM_IMESSAGE_HTTP_ADDRESS` to the middleware instead.
+
+    The HTTP transport carries every unary call, including sending, reactions, replies, and typing, but no event streams, so inbound messages arrive over [webhooks](/webhooks) instead of the live message stream. The default transport is `"grpc"`.
   </Tab>
   <Tab title="Local: @spectrum-ts/imessage-local">
     Reads the macOS Messages SQLite database directly. It is an explicit,

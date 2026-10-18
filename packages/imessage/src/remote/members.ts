@@ -1,7 +1,7 @@
 import type {
   AdvancedIMessage,
   ChatServiceType,
-} from "@photon-ai/advanced-imessage/grpc";
+} from "@photon-ai/advanced-imessage/http";
 import type { AddMember, RemoveMember } from "@spectrum-ts/core";
 import { toChatGuid } from "./ids";
 

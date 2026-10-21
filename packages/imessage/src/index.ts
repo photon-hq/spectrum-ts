@@ -492,49 +492,68 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
       projectConfig,
       projectId,
       projectSecret,
+      signal,
     }): Promise<IMessageClient> => {
-      let clients: IMessageClient;
-      if (config.clients) {
-        const entries = Array.isArray(config.clients)
-          ? config.clients
-          : [config.clients];
-        clients = entries.map((e) => ({
-          phone: e.phone,
-          client: createGrpcClient({
-            address: e.address,
-            // Auto-retry transient unary failures (idempotency-keyed so retries
-            // can't double-apply) so a server blip during an outbound action
-            // doesn't crash the app.
-            autoIdempotency: true,
-            retry: true,
-            tls: true,
-            token: e.token,
-          }),
-        }));
-      } else if (projectId && projectSecret) {
-        clients = await createCloudClients(projectId, projectSecret);
-      } else {
-        throw new Error(
-          "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use localIMessage.config()."
-        );
-      }
+      let clients: IMessageClient = [];
+      try {
+        if (config.clients) {
+          const entries = Array.isArray(config.clients)
+            ? config.clients
+            : [config.clients];
+          for (const e of entries) {
+            clients.push({
+              phone: e.phone,
+              client: createGrpcClient({
+                address: e.address,
+                // Auto-retry transient unary failures (idempotency-keyed so retries
+                // can't double-apply) so a server blip during an outbound action
+                // doesn't crash the app.
+                autoIdempotency: true,
+                retry: true,
+                tls: true,
+                token: e.token,
+              }),
+            });
+          }
+        } else if (projectId && projectSecret) {
+          clients = await createCloudClients(projectId, projectSecret, signal);
+        } else {
+          throw new Error(
+            "Cloud iMessage requires projectId and projectSecret. Pass credentials to Spectrum() or provide explicit clients with imessage.config({ clients: [...] }). For local Messages access, install @spectrum-ts/imessage-local and use localIMessage.config()."
+          );
+        }
 
-      if (projectId && projectSecret && projectConfig) {
-        registerProfileSyncGate(
-          clients,
-          projectId,
-          projectSecret,
-          projectConfig
-        );
-      }
+        if (projectId && projectSecret && projectConfig) {
+          registerProfileSyncGate(
+            clients,
+            projectId,
+            projectSecret,
+            projectConfig
+          );
+        }
 
-      return clients;
+        return clients;
+      } catch (error) {
+        disposeProfileSyncGate(clients);
+        try {
+          await disposeCloudAuth(clients);
+        } catch (cleanupError) {
+          throw Object.assign(
+            new AggregateError(
+              [cleanupError],
+              "Spectrum startup cleanup failed",
+              { cause: error }
+            ),
+            { name: "SpectrumStartupCleanupError" }
+          );
+        }
+        throw error;
+      }
     },
 
     destroyClient: async ({ client }) => {
       disposeProfileSyncGate(client);
       await disposeCloudAuth(client);
-      await Promise.all(client.map((entry) => entry.client.close()));
     },
   },
 

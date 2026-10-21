@@ -37,6 +37,7 @@ import type { Space } from "./types/space";
 import type { AgentSender } from "./types/user";
 import { cloud, type ProjectData } from "./utils/cloud";
 import { envFor } from "./utils/env";
+import { SpectrumStartupCleanupError } from "./utils/errors";
 import {
   normalizePlatformKey,
   officialProviderInstallHint,
@@ -177,6 +178,7 @@ const spectrumConfigSchema = z.union([
     projectId: z.string().min(1),
     projectSecret: z.string().min(1),
     providers: z.array(z.custom<PlatformProviderConfig>()),
+    signal: z.instanceof(AbortSignal).optional(),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
     webhookSecret: z.string().min(1).optional(),
@@ -185,6 +187,7 @@ const spectrumConfigSchema = z.union([
     projectId: z.undefined().optional(),
     projectSecret: z.undefined().optional(),
     providers: z.array(z.custom<PlatformProviderConfig>()),
+    signal: z.instanceof(AbortSignal).optional(),
     options: spectrumOptionsSchema,
     telemetry: z.boolean().optional(),
     webhookSecret: z.string().min(1).optional(),
@@ -262,9 +265,62 @@ function resolveProjectCredentials(options: {
 interface SpectrumFactoryOptions<Providers extends PlatformProviderConfig[]> {
   options?: SpectrumOptions;
   providers: [...Providers];
+  /** Cancels initialization only. Providers must cooperate; cleanup is awaited. */
+  signal?: AbortSignal;
   telemetry?: boolean;
   webhookSecret?: string;
 }
+
+const destroyProviderClients = (
+  states: Iterable<PlatformRuntime>
+): Promise<PromiseSettledResult<void>[]> =>
+  Promise.allSettled(
+    Array.from(states, async (state) => {
+      const destroy = state.definition.lifecycle.destroyClient;
+      if (destroy) {
+        await withSpan(
+          "spectrum.provider.destroy_client",
+          { "spectrum.provider": state.definition.name },
+          () => destroy({ client: state.client, store: state.store })
+        );
+      }
+    })
+  );
+
+const rollbackStartup = async (
+  states: Map<string, PlatformRuntime>,
+  otelHandle: OtelHandle | undefined,
+  cause: unknown
+): Promise<never> => {
+  const results = await destroyProviderClients(
+    Array.from(states.values()).reverse()
+  );
+  states.clear();
+  // Providers use the error name, not a new import, to support older core peers.
+  const providerError =
+    cause instanceof AggregateError &&
+    cause.name === "SpectrumStartupCleanupError"
+      ? cause
+      : undefined;
+  const cleanupErrors: unknown[] = [
+    ...(providerError?.errors ?? []),
+    ...results
+      .filter((result) => result.status === "rejected")
+      .map((result) => result.reason),
+  ];
+  try {
+    await otelHandle?.shutdown();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (cleanupErrors.length > 0) {
+    throw new SpectrumStartupCleanupError(
+      providerError ? providerError.cause : cause,
+      cleanupErrors
+    );
+  }
+  throw cause;
+};
 
 export async function Spectrum<
   const Providers extends PlatformProviderConfig[],
@@ -294,10 +350,12 @@ export async function Spectrum<
   const { projectId, projectSecret } = resolveProjectCredentials(options);
   spectrumConfigSchema.parse({ ...options, projectId, projectSecret });
   assertUniquePlatformNames(options.providers);
+  options.signal?.throwIfAborted();
 
   const {
     options: runtimeOptions,
     providers,
+    signal,
     telemetry,
     webhookSecret,
   } = options;
@@ -315,14 +373,7 @@ export async function Spectrum<
     ? bootstrapTelemetry({ projectId, projectSecret })
     : undefined;
 
-  // Fetch project metadata up-front (before any provider createClient) so that
-  // bad credentials fail fast with no half-initialized providers to clean up,
-  // and so the resolved config is available to thread into platform `messages`
-  // and `events` ctx (e.g. iMessage reads `profile.imessageSynced` from here).
-  const projectConfig: ProjectData | undefined =
-    projectId !== undefined && projectSecret !== undefined
-      ? await cloud.getProject(projectId, projectSecret)
-      : undefined;
+  let projectConfig: ProjectData | undefined;
 
   const platformStates = new Map<string, PlatformRuntime>();
 
@@ -528,9 +579,8 @@ export async function Spectrum<
     return broadcaster;
   };
 
-  // Initialize all provider clients eagerly. Each runtime exposes
-  // `subscribeMessages()` that returns a fresh fanout consumer of the
-  // platform's single upstream message stream.
+  // Fetch metadata before creating providers, and retain each returned client
+  // before checking cancellation so even an uncooperative late return is owned.
   await withSpan(
     "spectrum.init",
     {
@@ -538,7 +588,13 @@ export async function Spectrum<
       "spectrum.flatten_groups": flattenGroups,
     },
     async () => {
+      projectConfig =
+        projectId !== undefined && projectSecret !== undefined
+          ? await cloud.getProject(projectId, projectSecret, signal)
+          : undefined;
+      signal?.throwIfAborted();
       for (const provider of providers) {
+        signal?.throwIfAborted();
         const providerConfig = provider as PlatformProviderConfig;
         const def = providerConfig.__definition;
         const userConfig = def.config.parse(providerConfig.config);
@@ -546,40 +602,31 @@ export async function Spectrum<
 
         const client = await withSpan(
           "spectrum.provider.create_client",
-          {
-            "spectrum.provider": def.name,
-          },
+          { "spectrum.provider": def.name },
           () =>
             def.lifecycle.createClient({
               config: userConfig,
               projectId,
               projectSecret,
               projectConfig,
+              signal,
               store,
             })
         );
-
-        const state = {
-          client,
-          config: userConfig,
-          definition: def,
-          store,
-        };
-
+        const state = { client, config: userConfig, definition: def, store };
         platformStates.set(def.name, {
           ...state,
           projectConfig,
           subscribeMessages: () =>
             getOrCreateMessageBroadcast(state).subscribe(),
-          // Fanout subscription to a fusor event channel. Returns undefined for
-          // regular platforms (no per-channel queue) — callers fall back to the
-          // producer path. Resolved lazily, after the fusor bootstrap below has
-          // created the per-(platform, channel) queues.
           subscribeEvent: (channel: string) =>
             getOrCreateEventBroadcast(def.name, channel)?.subscribe(),
         });
+        signal?.throwIfAborted();
       }
     }
+  ).catch((error: unknown) =>
+    rollbackStartup(platformStates, otelHandle, error)
   );
 
   // Bootstrap fusor: if any provider's createClient returned a FusorClient,
@@ -888,28 +935,8 @@ export async function Spectrum<
     }
 
     // Phase 3: destroy clients
-    const clientShutdowns: Promise<void>[] = [];
-    for (const state of platformStates.values()) {
-      const destroy = state.definition.lifecycle.destroyClient;
-      if (!destroy) {
-        continue;
-      }
-      clientShutdowns.push(
-        withSpan(
-          "spectrum.provider.destroy_client",
-          {
-            "spectrum.provider": state.definition.name,
-          },
-          () =>
-            destroy({
-              client: state.client,
-              store: state.store,
-            })
-        )
-      );
-    }
     const clientCloseStart = performance.now();
-    await Promise.allSettled(clientShutdowns);
+    await destroyProviderClients(platformStates.values());
     const clientCloseMs = Math.round(performance.now() - clientCloseStart);
 
     // Any stream rescued by destroyClient (Phase 3) drains now — ensure it has

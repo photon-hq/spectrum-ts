@@ -7,7 +7,7 @@ const MIN_RENEWAL_DELAY_MS = 5000;
 const RETRY_DELAY_MS = 30_000;
 
 export interface TokenRenewal {
-  dispose(): void;
+  dispose(): Promise<void>;
   forceRefresh(): Promise<void>;
   invalidate(): void;
   refreshIfNeeded(): Promise<void>;
@@ -16,7 +16,7 @@ export interface TokenRenewal {
 export interface TokenRenewalOptions {
   expiresInSeconds(): number;
   name: string;
-  refresh(): Promise<void>;
+  refresh(signal: AbortSignal): Promise<void>;
 }
 
 export const createTokenRenewal = (
@@ -24,6 +24,7 @@ export const createTokenRenewal = (
 ): TokenRenewal => {
   const telemetryPrefix = `spectrum.${options.name}.auth`;
   const log = createLogger(telemetryPrefix);
+  const lifetime = new AbortController();
   let disposed = false;
   let refreshFailures = 0;
   let refreshInFlight: Promise<void> | undefined;
@@ -60,13 +61,17 @@ export const createTokenRenewal = (
   };
 
   const refreshNow = async (): Promise<void> => {
-    await options.refresh();
+    await options.refresh(lifetime.signal);
+    lifetime.signal.throwIfAborted();
     tokenExpiresAt = Date.now() + options.expiresInSeconds() * 1000;
     onRefreshSuccess();
     scheduleRenewal();
   };
 
   const coalescedRefresh = (): Promise<void> => {
+    if (disposed) {
+      return Promise.reject(lifetime.signal.reason);
+    }
     if (!refreshInFlight) {
       refreshInFlight = refreshNow().finally(() => {
         refreshInFlight = undefined;
@@ -80,10 +85,10 @@ export const createTokenRenewal = (
       return;
     }
     coalescedRefresh().catch((error) => {
-      onRefreshFailure(error);
       if (disposed) {
         return;
       }
+      onRefreshFailure(error);
       renewalTimer = setTimeout(runScheduledRefresh, RETRY_DELAY_MS);
       renewalTimer?.unref?.();
     });
@@ -103,15 +108,20 @@ export const createTokenRenewal = (
   scheduleRenewal();
 
   return {
-    dispose(): void {
+    async dispose(): Promise<void> {
       disposed = true;
       clearRenewalTimer();
+      lifetime.abort();
+      await refreshInFlight?.catch(() => undefined);
     },
     forceRefresh: coalescedRefresh,
     invalidate(): void {
-      tokenExpiresAt = 0;
+      if (!disposed) {
+        tokenExpiresAt = 0;
+      }
     },
     async refreshIfNeeded(): Promise<void> {
+      lifetime.signal.throwIfAborted();
       if (Date.now() < tokenExpiresAt - EXPIRY_BUFFER_MS) {
         return;
       }

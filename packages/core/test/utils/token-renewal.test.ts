@@ -202,4 +202,73 @@ describe("createTokenRenewal", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(refresh).toHaveBeenCalledTimes(1);
   });
+
+  it("aborts and awaits an in-flight refresh before dispose resolves", async () => {
+    const started = Promise.withResolvers<AbortSignal>();
+    const finish = Promise.withResolvers<void>();
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => 60,
+      name: "test",
+      refresh: async (signal) => {
+        started.resolve(signal);
+        await finish.promise;
+        signal.throwIfAborted();
+      },
+    });
+    const refresh = renewal.forceRefresh().catch((error: unknown) => error);
+    const signal = await started.promise;
+    let disposed = false;
+    const disposal = Promise.resolve(renewal.dispose()).then(() => {
+      disposed = true;
+    });
+    expect(signal.aborted).toBe(true);
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+    finish.resolve();
+    await disposal;
+    expect(await refresh).toBe(signal.reason);
+  });
+
+  it("never starts another refresh after disposal", async () => {
+    const refresh = vi.fn(async () => undefined);
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => 3600,
+      name: "test",
+      refresh,
+    });
+    await renewal.dispose();
+    renewal.invalidate();
+    await expect(renewal.forceRefresh()).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await expect(renewal.refreshIfNeeded()).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("contains scheduled refresh cancellation without rearming", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const refresh = vi.fn((active: AbortSignal) => {
+      signal = active;
+      return new Promise<void>((_resolve, reject) => {
+        active.addEventListener("abort", () => reject(active.reason), {
+          once: true,
+        });
+      });
+    });
+    const renewal = createTokenRenewal({
+      expiresInSeconds: () => 10,
+      name: "test",
+      refresh,
+    });
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await renewal.dispose();
+    expect(signal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

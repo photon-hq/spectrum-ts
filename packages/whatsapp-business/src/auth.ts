@@ -50,11 +50,13 @@ const cloudAuthState = new WeakMap<WhatsAppClient[], CloudAuth>();
 // and transparently re-subscribe long-lived event streams across swaps.
 export async function createCloudClients(
   projectId: string,
-  projectSecret: string
+  projectSecret: string,
+  signal?: AbortSignal
 ): Promise<WhatsAppClient[]> {
   let tokenData = await cloud.issueWhatsappBusinessTokens(
     projectId,
-    projectSecret
+    projectSecret,
+    signal
   );
 
   const lines = new Map<string, LineState>();
@@ -64,6 +66,9 @@ export async function createCloudClients(
   // phoneNumberId -> the public proxy, so a refresh can tell an existing line
   // from a newly provisioned one.
   const records = new Map<string, WhatsAppClient>();
+  // Removed lines still belong to this instance until their cleanup settles.
+  const retirements = new Set<Promise<void>>();
+  const retirementErrors: unknown[] = [];
 
   const buildRawClient = (phoneNumberId: string): WhatsAppClient => {
     const accessToken = tokenData.auth[phoneNumberId];
@@ -111,13 +116,17 @@ export async function createCloudClients(
         clients.splice(index, 1);
       }
       removed += 1;
-      retire(proxy).catch((error: unknown) => {
-        authLog.warn(
-          "failed to retire whatsapp line",
-          { ...lineAttrs(phoneNumberId), ...errorAttrs(error) },
-          error instanceof Error ? error : undefined
-        );
-      });
+      const retirement = retire(proxy)
+        .catch((error: unknown) => {
+          retirementErrors.push(error);
+          authLog.warn(
+            "failed to retire whatsapp line",
+            { ...lineAttrs(phoneNumberId), ...errorAttrs(error) },
+            error instanceof Error ? error : undefined
+          );
+        })
+        .finally(() => retirements.delete(retirement));
+      retirements.add(retirement);
     }
     return removed;
   };
@@ -159,13 +168,15 @@ export async function createCloudClients(
     }
   };
 
-  const refreshTokens = async (): Promise<void> => {
+  const refreshTokens = async (refreshSignal?: AbortSignal): Promise<void> => {
     tokenData = await cloud.issueWhatsappBusinessTokens(
       projectId,
-      projectSecret
+      projectSecret,
+      refreshSignal
     );
 
     for (const [phoneNumberId, state] of lines) {
+      refreshSignal?.throwIfAborted();
       if (!tokenData.auth[phoneNumberId]) {
         continue;
       }
@@ -174,9 +185,12 @@ export async function createCloudClients(
       for (const sub of state.subscriptions) {
         sub.swap();
       }
-      await old.close().catch(() => undefined);
+      await old.close().catch((error: unknown) => {
+        retirementErrors.push(error);
+      });
     }
 
+    refreshSignal?.throwIfAborted();
     try {
       reconcile(tokenData.auth);
     } catch (error) {
@@ -197,26 +211,48 @@ export async function createCloudClients(
     refresh: refreshTokens,
   });
 
-  // Startup is the same reconcile against an empty set, so there is one code
-  // path building lines.
-  reconcile(tokenData.auth);
-
   cloudAuthState.set(clients, {
     dispose: async () => {
-      renewal.dispose();
-      for (const state of lines.values()) {
-        for (const sub of state.subscriptions) {
-          sub.close();
-        }
-      }
-      await Promise.allSettled(
-        Array.from(lines.values()).map((s) => s.current.close())
-      );
+      await renewal.dispose();
+      const results = await Promise.allSettled([
+        ...retirements,
+        ...Array.from(lines.values(), async (state) => {
+          for (const sub of state.subscriptions) {
+            sub.close();
+          }
+          await state.current.close();
+        }),
+      ]);
       lines.clear();
+      const errors: unknown[] = [
+        ...retirementErrors,
+        ...results
+          .filter((result) => result.status === "rejected")
+          .map((result) => result.reason),
+      ];
+      if (errors.length > 0) {
+        throw new AggregateError(errors, "WhatsApp client cleanup failed");
+      }
     },
   });
 
-  return clients;
+  try {
+    // Register cleanup before constructing any line so partial builds are owned.
+    reconcile(tokenData.auth);
+    return clients;
+  } catch (error) {
+    try {
+      await disposeCloudAuth(clients);
+    } catch (cleanupError) {
+      throw Object.assign(
+        new AggregateError([cleanupError], "Spectrum startup cleanup failed", {
+          cause: error,
+        }),
+        { name: "SpectrumStartupCleanupError" }
+      );
+    }
+    throw error;
+  }
 }
 
 export async function disposeCloudAuth(
@@ -224,11 +260,20 @@ export async function disposeCloudAuth(
 ): Promise<void> {
   clearLineObservers(clients);
   const auth = cloudAuthState.get(clients);
-  if (!auth) {
+  if (auth) {
+    await auth.dispose();
+    cloudAuthState.delete(clients);
     return;
   }
-  await auth.dispose();
-  cloudAuthState.delete(clients);
+  const results = await Promise.allSettled(
+    clients.map(async (client) => await client.close())
+  );
+  const errors: unknown[] = results
+    .filter((result) => result.status === "rejected")
+    .map((result) => result.reason);
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "WhatsApp client cleanup failed");
+  }
 }
 
 const buildClientProxy = (

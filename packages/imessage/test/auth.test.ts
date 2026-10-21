@@ -48,7 +48,11 @@ const dedicated = (
 });
 
 const issueImessageTokens = vi.fn(
-  (): Promise<FakeTokenData> => Promise.resolve(initialTokenData)
+  (
+    _projectId: string,
+    _projectSecret: string,
+    _signal?: AbortSignal
+  ): Promise<FakeTokenData> => Promise.resolve(initialTokenData)
 );
 const clientOptions: FakeClientOptions[] = [];
 const fakeClients: FakeClient[] = [];
@@ -73,6 +77,8 @@ const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
   "@/auth"
 );
 const { addLineObserver } = await import("@/lines");
+const { imessage } = await import("@/index");
+const { Spectrum } = await import("@spectrum-ts/core");
 
 // The recover hook runs the same closure the renewal timer does, so it is the
 // cheapest way to drive a refresh. It is throttled to one re-mint per 5s.
@@ -110,6 +116,200 @@ describe("imessage cloud auth", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it("cleans up earlier explicit clients when a later constructor fails", async () => {
+    vi.stubEnv("SPECTRUM_PROJECT_ID", "");
+    vi.stubEnv("SPECTRUM_PROJECT_SECRET", "");
+    const original = createGrpcClient.getMockImplementation();
+    if (!original) {
+      throw new Error("missing client constructor");
+    }
+    const failure = new Error("second explicit client failed");
+    createGrpcClient
+      .mockImplementationOnce(original)
+      .mockImplementationOnce(() => {
+        throw failure;
+      });
+    await expect(
+      Spectrum({
+        providers: [
+          imessage.config({
+            clients: [
+              {
+                address: "127.0.0.1:1",
+                phone: "+15550000001",
+                token: "test-token",
+              },
+              {
+                address: "127.0.0.1:2",
+                phone: "+15550000002",
+                token: "test-token",
+              },
+            ],
+          }),
+        ],
+      })
+    ).rejects.toBe(failure);
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
+    expect(issueImessageTokens).not.toHaveBeenCalled();
+  });
+
+  it("forwards lifecycle cancellation to the initial token request without creating clients", async () => {
+    vi.useFakeTimers();
+    const actualCore =
+      await vi.importActual<typeof import("@spectrum-ts/core")>(
+        "@spectrum-ts/core"
+      );
+    const projectLookup = vi
+      .spyOn(actualCore.cloud, "getProject")
+      .mockResolvedValue({
+        id: "project-1",
+        name: "Test project",
+        profile: {},
+        slug: "test-project",
+      });
+    const platformsLookup = vi
+      .spyOn(actualCore.cloud, "getPlatforms")
+      .mockResolvedValue({
+        imessage: { enabled: false },
+        slack: { enabled: false },
+        whatsapp_business: { enabled: false },
+      });
+    const startup = new AbortController();
+    const reason = new DOMException("startup deadline", "TimeoutError");
+    const started = Promise.withResolvers<void>();
+    const response = Promise.withResolvers<FakeTokenData>();
+    issueImessageTokens.mockImplementationOnce((_id, _secret, signal) => {
+      signal?.addEventListener("abort", () => response.reject(signal.reason), {
+        once: true,
+      });
+      started.resolve();
+      return response.promise;
+    });
+    try {
+      const pending = Spectrum({
+        projectId: "project-1",
+        projectSecret: "secret-1",
+        providers: [imessage.config()],
+        signal: startup.signal,
+      });
+      const rejection = expect(pending).rejects.toBe(reason);
+      await started.promise;
+      expect(issueImessageTokens).toHaveBeenCalledExactlyOnceWith(
+        "project-1",
+        "secret-1",
+        startup.signal
+      );
+      startup.abort(reason);
+      await rejection;
+      expect(createGrpcClient).not.toHaveBeenCalled();
+      expect(fakeClients).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      startup.abort(reason);
+      projectLookup.mockRestore();
+      platformsLookup.mockRestore();
+    }
+  });
+
+  it("uses the startup signal only for the initial token request", async () => {
+    vi.useFakeTimers();
+    const startup = new AbortController();
+    const clients = await createCloudClients(
+      "project-1",
+      "secret-1",
+      startup.signal
+    );
+    expect(issueImessageTokens.mock.calls[0]?.[2]).toBe(startup.signal);
+    startup.abort();
+    await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
+    await getCloudRecover(clients)?.();
+    const refreshSignal = issueImessageTokens.mock.calls[1]?.[2];
+    expect(refreshSignal).toBeInstanceOf(AbortSignal);
+    expect(refreshSignal).not.toBe(startup.signal);
+    expect(refreshSignal?.aborted).toBe(false);
+    await disposeCloudAuth(clients);
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels an in-flight refresh before closing clients", async () => {
+    vi.useFakeTimers();
+    const clients = await createCloudClients("project-1", "secret-1");
+    issueImessageTokens.mockImplementationOnce(
+      (_id, _secret, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        })
+    );
+    await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
+    const refresh = getCloudRecover(clients)?.().catch(
+      (error: unknown) => error
+    );
+    const signal = issueImessageTokens.mock.calls[1]?.[2];
+    await disposeCloudAuth(clients);
+    expect(signal?.aborted).toBe(true);
+    expect(await refresh).toBe(signal?.reason);
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(createGrpcClient).toHaveBeenCalledTimes(1);
+    expect(issueImessageTokens).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("closes partial clients and cancels renewal when a later constructor throws", async () => {
+    vi.useFakeTimers();
+    const original = createGrpcClient.getMockImplementation();
+    if (!original) {
+      throw new Error("missing client constructor");
+    }
+    createGrpcClient
+      .mockImplementationOnce(original)
+      .mockImplementationOnce(() => {
+        throw new Error("second client failed");
+      });
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicated({ first: "+15550000001", second: "+15550000002" })
+    );
+    await expect(createCloudClients("project-1", "secret-1")).rejects.toThrow(
+      "second client failed"
+    );
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not hide failed cleanup of a partially constructed client", async () => {
+    vi.useFakeTimers();
+    const original = createGrpcClient.getMockImplementation();
+    if (!original) {
+      throw new Error("missing client constructor");
+    }
+    const failure = new Error("second client failed");
+    const cleanupFailure = new Error("close failed");
+    createGrpcClient
+      .mockImplementationOnce((options) => {
+        const client = original(options);
+        client.close.mockRejectedValue(cleanupFailure);
+        return client;
+      })
+      .mockImplementationOnce(() => {
+        throw failure;
+      });
+    issueImessageTokens.mockResolvedValueOnce(
+      dedicated({ first: "+15550000001", second: "+15550000002" })
+    );
+    await expect(
+      createCloudClients("project-1", "secret-1")
+    ).rejects.toMatchObject({
+      name: "SpectrumStartupCleanupError",
+      cause: failure,
+      errors: [expect.objectContaining({ errors: [cleanupFailure] })],
+    });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("coalesces forced recovery and updates dedicated clients in place", async () => {
@@ -215,6 +415,51 @@ describe("imessage cloud auth", () => {
     expect(fakeClients[1]?.close).not.toHaveBeenCalled();
 
     await disposeCloudAuth(clients);
+  });
+
+  it.each([
+    "pending-success",
+    "pending-failure",
+    "failed",
+  ])("owns removed-line cleanup until disposal (%s)", async (mode) => {
+    const { clients, refresh } = await startClients(
+      dedicated({ "instance-1": "+15550000001" })
+    );
+    const close = Promise.withResolvers<void>();
+    const failure = new Error("removed line close failed");
+    fakeClients[0]?.close.mockReturnValue(close.promise);
+    await refresh(dedicated({}));
+    expect(clients).toHaveLength(0);
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
+    if (mode === "failed") {
+      close.reject(failure);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    let settled = false;
+    const disposal = disposeCloudAuth(clients)
+      .catch((error: unknown) => error)
+      .finally(() => {
+        settled = true;
+      });
+    try {
+      if (mode !== "failed") {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(settled).toBe(false);
+      }
+    } finally {
+      if (mode === "pending-success") {
+        close.resolve();
+      } else {
+        close.reject(failure);
+      }
+      await disposal;
+    }
+    if (mode === "pending-success") {
+      expect(await disposal).toBeUndefined();
+    } else {
+      expect(await disposal).toMatchObject({ errors: [failure] });
+    }
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("skips a line without a phone number instead of failing startup", async () => {

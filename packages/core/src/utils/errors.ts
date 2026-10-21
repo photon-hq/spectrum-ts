@@ -1,3 +1,11 @@
+/** Initialization failed and at least one resource could not be cleaned up. */
+export class SpectrumStartupCleanupError extends AggregateError {
+  constructor(cause: unknown, cleanupErrors: unknown[]) {
+    super(cleanupErrors, "Spectrum startup cleanup failed", { cause });
+    this.name = "SpectrumStartupCleanupError";
+  }
+}
+
 export type UnsupportedKind = "content" | "action";
 
 interface UnsupportedErrorOptions {

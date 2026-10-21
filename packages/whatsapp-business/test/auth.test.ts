@@ -6,7 +6,11 @@ interface FakeTokenResponse {
 }
 
 const issueWhatsappBusinessTokens = vi.fn(
-  async (): Promise<FakeTokenResponse> => ({
+  async (
+    _projectId: string,
+    _projectSecret: string,
+    _signal?: AbortSignal
+  ): Promise<FakeTokenResponse> => ({
     auth: { "phone-1": "token-1" },
     expiresIn: 0,
   })
@@ -134,6 +138,7 @@ vi.doMock("@photon-ai/whatsapp-business", () => ({
 
 const { createCloudClients, disposeCloudAuth } = await import("@/auth");
 const { addLineObserver } = await import("@/lines");
+const { whatsappBusiness } = await import("@/index");
 
 const waitFor = async (
   predicate: () => boolean,
@@ -165,6 +170,254 @@ describe("whatsapp cloud auth stream renewal", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("forwards lifecycle cancellation to the initial token request without creating clients", async () => {
+    vi.useFakeTimers();
+    const actualCore =
+      await vi.importActual<typeof import("@spectrum-ts/core")>(
+        "@spectrum-ts/core"
+      );
+    const projectLookup = vi
+      .spyOn(actualCore.cloud, "getProject")
+      .mockResolvedValue({
+        id: "project-1",
+        name: "Test project",
+        profile: {},
+        slug: "test-project",
+      });
+    const platformsLookup = vi
+      .spyOn(actualCore.cloud, "getPlatforms")
+      .mockResolvedValue({
+        imessage: { enabled: false },
+        slack: { enabled: false },
+        whatsapp_business: { enabled: false },
+      });
+    const startup = new AbortController();
+    const reason = new DOMException("startup deadline", "TimeoutError");
+    const started = Promise.withResolvers<void>();
+    const response = Promise.withResolvers<FakeTokenResponse>();
+    issueWhatsappBusinessTokens.mockImplementationOnce(
+      (_id, _secret, signal) => {
+        signal?.addEventListener(
+          "abort",
+          () => response.reject(signal.reason),
+          {
+            once: true,
+          }
+        );
+        started.resolve();
+        return response.promise;
+      }
+    );
+    try {
+      const pending = actualCore.Spectrum({
+        projectId: "project-1",
+        projectSecret: "secret-1",
+        providers: [whatsappBusiness.config()],
+        signal: startup.signal,
+      });
+      const rejection = expect(pending).rejects.toBe(reason);
+      await started.promise;
+      expect(issueWhatsappBusinessTokens).toHaveBeenCalledExactlyOnceWith(
+        "project-1",
+        "secret-1",
+        startup.signal
+      );
+      startup.abort(reason);
+      await rejection;
+      expect(createClient).not.toHaveBeenCalled();
+      expect(rawClients).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      startup.abort(reason);
+      projectLookup.mockRestore();
+      platformsLookup.mockRestore();
+    }
+  });
+
+  it("keeps successful client renewals independent of the startup signal", async () => {
+    vi.useFakeTimers();
+    const startup = new AbortController();
+    const clients = await createCloudClients(
+      "project-1",
+      "secret-1",
+      startup.signal
+    );
+    expect(issueWhatsappBusinessTokens.mock.calls[0]?.[2]).toBe(startup.signal);
+    startup.abort();
+    await clients[0]?.messages.markRead("test-message");
+    const refreshSignal = issueWhatsappBusinessTokens.mock.calls[1]?.[2];
+    expect(refreshSignal).toBeInstanceOf(AbortSignal);
+    expect(refreshSignal).not.toBe(startup.signal);
+    expect(refreshSignal?.aborted).toBe(false);
+    await disposeCloudAuth(clients);
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels a pending scheduled refresh without recreating clients after disposal", async () => {
+    vi.useFakeTimers();
+    const clients = await createCloudClients("project-1", "secret-1");
+    issueWhatsappBusinessTokens.mockImplementationOnce(
+      (_id, _secret, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        })
+    );
+    await vi.advanceTimersByTimeAsync(SCHEDULED_RENEWAL_DELAY_MS);
+    const signal = issueWhatsappBusinessTokens.mock.calls[1]?.[2];
+    await disposeCloudAuth(clients);
+    expect(signal?.aborted).toBe(true);
+    expect(rawClients[0]?.close).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(createClient).toHaveBeenCalledTimes(1);
+    expect(issueWhatsappBusinessTokens).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cleans up existing lines and renewal if a later line constructor fails", async () => {
+    vi.useFakeTimers();
+    const original = createClient.getMockImplementation();
+    if (!original) {
+      throw new Error("missing client constructor");
+    }
+    const failure = new Error("second line failed");
+    createClient.mockImplementationOnce(original).mockImplementationOnce(() => {
+      throw failure;
+    });
+    issueWhatsappBusinessTokens.mockResolvedValueOnce({
+      auth: { first: "first-token", second: "second-token" },
+      expiresIn: 3600,
+    });
+    await expect(createCloudClients("project-1", "secret-1")).rejects.toBe(
+      failure
+    );
+    expect(rawClients[0]?.close).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("surfaces partial line cleanup failures separately from the startup failure", async () => {
+    vi.useFakeTimers();
+    const original = createClient.getMockImplementation();
+    if (!original) {
+      throw new Error("missing client constructor");
+    }
+    const failure = new Error("second line failed");
+    const cleanupFailure = new Error("close failed");
+    createClient
+      .mockImplementationOnce((options) => {
+        const client = original(options);
+        client.close.mockRejectedValue(cleanupFailure);
+        return client;
+      })
+      .mockImplementationOnce(() => {
+        throw failure;
+      });
+    issueWhatsappBusinessTokens.mockResolvedValueOnce({
+      auth: { first: "first-token", second: "second-token" },
+      expiresIn: 3600,
+    });
+    await expect(
+      createCloudClients("project-1", "secret-1")
+    ).rejects.toMatchObject({
+      name: "SpectrumStartupCleanupError",
+      cause: failure,
+      errors: [expect.objectContaining({ errors: [cleanupFailure] })],
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps disposal pending until an old client close actually finishes", async () => {
+    const clients = await createCloudClients("project-1", "secret-1");
+    const oldClosed = Promise.withResolvers<void>();
+    rawClients[0]?.close.mockReturnValueOnce(oldClosed.promise);
+    const request = clients[0]?.messages
+      .markRead("test-message")
+      .catch((error: unknown) => error);
+    await waitFor(
+      () => rawClients.length === 2,
+      "refresh did not replace the client"
+    );
+    let disposed = false;
+    const disposal = disposeCloudAuth(clients).then(() => {
+      disposed = true;
+    });
+    await Promise.resolve();
+    try {
+      expect(disposed).toBe(false);
+      expect(rawClients[1]?.close).not.toHaveBeenCalled();
+    } finally {
+      oldClosed.resolve();
+      await disposal;
+    }
+    expect(await request).toMatchObject({ name: "AbortError" });
+    expect(rawClients[1]?.close).toHaveBeenCalledTimes(1);
+    expect(rawClients[1]?.messages.markRead).not.toHaveBeenCalled();
+    expect(rawClients).toHaveLength(2);
+  });
+
+  it.each([
+    "pending-success",
+    "pending-failure",
+    "failed",
+  ])("owns removed-line cleanup until disposal (%s)", async (mode) => {
+    vi.useFakeTimers();
+    const clients = await createCloudClients("project-1", "secret-1");
+    const close = Promise.withResolvers<void>();
+    const failure = new Error("removed line close failed");
+    rawClients[0]?.close.mockReturnValue(close.promise);
+    issueWhatsappBusinessTokens.mockResolvedValueOnce({
+      auth: {},
+      expiresIn: 3600,
+    });
+    await vi.advanceTimersByTimeAsync(SCHEDULED_RENEWAL_DELAY_MS);
+    expect(clients).toHaveLength(0);
+    expect(rawClients[0]?.close).toHaveBeenCalledTimes(1);
+    if (mode === "failed") {
+      close.reject(failure);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    let settled = false;
+    const disposal = disposeCloudAuth(clients)
+      .catch((error: unknown) => error)
+      .finally(() => {
+        settled = true;
+      });
+    try {
+      if (mode !== "failed") {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(settled).toBe(false);
+      }
+    } finally {
+      if (mode === "pending-success") {
+        close.resolve();
+      } else {
+        close.reject(failure);
+      }
+      await disposal;
+    }
+    if (mode === "pending-success") {
+      expect(await disposal).toBeUndefined();
+    } else {
+      expect(await disposal).toMatchObject({ errors: [failure] });
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reports failed cleanup of a client replaced during renewal", async () => {
+    vi.useFakeTimers();
+    const clients = await createCloudClients("project-1", "secret-1");
+    const failure = new Error("replaced client close failed");
+    rawClients[0]?.close.mockRejectedValue(failure);
+    await vi.advanceTimersByTimeAsync(SCHEDULED_RENEWAL_DELAY_MS);
+    await expect(disposeCloudAuth(clients)).rejects.toMatchObject({
+      errors: [failure],
+    });
+    expect(rawClients[1]?.close).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("opens a fresh subscription after token refresh even when the old SDK iterator does not return", async () => {

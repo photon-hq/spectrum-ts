@@ -43,6 +43,13 @@ interface LineState {
   subscriptions: Set<LineSubscription>;
 }
 
+const closeLine = async (state: LineState): Promise<void> => {
+  for (const sub of state.subscriptions) {
+    sub.close();
+  }
+  await state.current.close();
+};
+
 const cloudAuthState = new WeakMap<WhatsAppClient[], CloudAuth>();
 
 // `@photon-ai/whatsapp-business` 0.1.x does not accept a token callback, so we
@@ -216,12 +223,7 @@ export async function createCloudClients(
       await renewal.dispose();
       const results = await Promise.allSettled([
         ...retirements,
-        ...Array.from(lines.values(), async (state) => {
-          for (const sub of state.subscriptions) {
-            sub.close();
-          }
-          await state.current.close();
-        }),
+        ...Array.from(lines.values(), closeLine),
       ]);
       lines.clear();
       const errors: unknown[] = [
@@ -310,18 +312,8 @@ const buildClientProxy = (
     events,
     media: forwarder((c) => c.media),
     messages: forwarder((c) => c.messages),
-    close: async () => {
-      for (const sub of state.subscriptions) {
-        sub.close();
-      }
-      await state.current.close();
-    },
-    [Symbol.asyncDispose]: async () => {
-      for (const sub of state.subscriptions) {
-        sub.close();
-      }
-      await state.current.close();
-    },
+    close: () => closeLine(state),
+    [Symbol.asyncDispose]: () => closeLine(state),
   };
 };
 

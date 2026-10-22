@@ -522,6 +522,9 @@ export const cacheMessage = (
   }
 };
 
+/** Upper bound for resolving a reaction or read-receipt target; 0 disables it. */
+export const TARGET_LOOKUP_TIMEOUT_MS = 15_000;
+
 /**
  * Resolve a guid to the spectrum message it maps to, for events that reference
  * their target only by guid (reactions, read receipts). Cache first — outbound
@@ -541,20 +544,38 @@ export const resolveTargetMessage = async (
   cache: MessageCache,
   chatGuid: string,
   targetGuid: string,
-  phone: string
+  phone: string,
+  timeoutMs: number = TARGET_LOOKUP_TIMEOUT_MS
 ): Promise<IMessageMessage | undefined> => {
   const cached = cache.get(targetGuid);
   if (cached) {
     return cached;
   }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const fetched = await client.messages.get(toMessageGuid(targetGuid));
-    const rebuilt = await rebuildFromAppleMessage(
-      client,
-      fetched,
-      phone,
-      chatGuid
-    );
+    const lookup = (async () => {
+      const fetched = await client.messages.get(toMessageGuid(targetGuid));
+      return await rebuildFromAppleMessage(client, fetched, phone, chatGuid);
+    })();
+    // A lookup the server never answers must not wedge the ordered stream.
+    const rebuilt =
+      timeoutMs > 0
+        ? await Promise.race([
+            lookup,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `target message lookup timed out after ${timeoutMs}ms`
+                    )
+                  ),
+                timeoutMs
+              );
+            }),
+          ])
+        : await lookup;
+    lookup.catch(() => undefined);
     cacheMessage(cache, rebuilt);
     return rebuilt;
   } catch (error) {
@@ -571,6 +592,10 @@ export const resolveTargetMessage = async (
       error instanceof Error ? error : undefined
     );
     return;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 };
 

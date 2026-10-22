@@ -82,8 +82,10 @@ Find your `PROJECT_ID` and `SECRET_KEY` in your project **Settings** on the [das
 
 You can pass these to `Spectrum(...)` directly, or omit them and let Spectrum
 read `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET` from the environment.
-The same explicit-wins-over-env fallback applies to `webhookSecret` (`SPECTRUM_WEBHOOK_SECRET`)
-and to every provider's config.
+The same explicit-wins-over-env fallback applies to `webhookSecret`
+(`SPECTRUM_WEBHOOK_SECRET`) and every provider's config. A complete `whsec_`
+value selects Standard Webhooks verification; an unprefixed value uses the
+legacy Spectrum signature.
 
 Provider config fallbacks are automatic and convention-based: any text config
 field can be supplied through the environment as `SPECTRUM_<PLATFORM>_<FIELD>`,

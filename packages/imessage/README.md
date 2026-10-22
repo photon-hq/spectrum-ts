@@ -31,6 +31,51 @@ await space.send(nativeContactCard());
 await space.shareContactCard();
 ```
 
+## Observing live heartbeats
+
+Set the optional `onHeartbeat` observer on the remote iMessage provider:
+
+```ts
+imessage.config({
+  onHeartbeat(heartbeat) {
+    console.debug("iMessage heartbeat", heartbeat);
+  },
+});
+```
+
+The observer uses the existing subscriptions started by consuming
+`spectrum.messages`. Configuring it alone does not start subscriptions.
+
+The exported `IMessageHeartbeat` payload contains `provider` (`"imessage"`),
+`projectId`, `lineId`, `phone`, `stream`, `subscriptionId`, and `receivedAt`.
+`projectId` is undefined without a Cloud project. `lineId` is the Cloud instance
+ID or a process-local key for an explicit client; phone numbers alone are not
+unique. `stream` is `"messages"`, `"polls"`, or `"groups"`. Shared-token mode
+keeps its existing messages/polls subscriptions and does not subscribe to groups.
+This observer does not create chat or location subscriptions.
+
+`subscriptionId` is an opaque ID for one live subscription. Reconnects get a new
+ID, even for the same line and stream. `receivedAt` is local Unix time in
+milliseconds when the SDK consumes the heartbeat, not the server's send time.
+Keep observations separate by project, line, stream, and subscription: a healthy
+poll stream does not prove the message stream is progressing. Closing or removing
+a subscription retires its observer; `spectrum.stop()` prevents new callbacks.
+
+**These are pull-driven observations, not independent transport monitoring.**
+Mapping work and application backpressure can pause a stream's reads, including
+its heartbeats, while a sibling continues. A callback is not a domain message,
+a processing-completion signal, or a durable delivery acknowledgement. Neither
+ordinary message silence nor missing callbacks alone proves a dead connection.
+Use this signal with lifecycle and processing diagnostics before deciding how to
+recover. No watchdog, heartbeat timeout, reconnect policy, or replay is added.
+
+Keep the observer quick. The exported `IMessageHeartbeatHandler` accepts a
+synchronous callback or a promise; promises are not awaited and may finish out of
+order. Throws and rejections are logged without interrupting the stream. Stopping
+does not cancel or wait for asynchronous work an observer has already started.
+The option is off by default; existing configurations and message payloads are
+unchanged. This provider requires `@photon-ai/advanced-imessage` 2.4.0 or newer.
+
 ## Incoming polls
 
 Native iMessage polls have no title. Their snapshots and nested vote context

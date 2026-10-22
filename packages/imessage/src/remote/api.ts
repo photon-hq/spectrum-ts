@@ -16,7 +16,11 @@ import type {
 import type { ProviderMessageRecord } from "@spectrum-ts/core/authoring";
 import type { Background } from "../content/background";
 import type { CustomizedMiniApp } from "../content/customized-mini-app";
-import type { IMessageMessage, RemoteClient } from "../types";
+import type {
+  IMessageHeartbeatHandler,
+  IMessageMessage,
+  RemoteClient,
+} from "../types";
 import { getIcon as getRemoteIcon, setIcon as setRemoteIcon } from "./avatar";
 import { setBackground as setRemoteBackground } from "./background";
 import { shareContactCard as shareRemoteContactCard } from "./contact-card";
@@ -58,9 +62,10 @@ import {
 export const messages = (
   clients: RemoteClient[],
   projectConfig: ProjectData | undefined,
-  profileSyncGate?: ProfileSyncGate | undefined
+  profileSyncGate?: ProfileSyncGate | undefined,
+  onHeartbeat?: IMessageHeartbeatHandler
 ): ManagedStream<IMessageMessage> =>
-  remoteMessages(clients, projectConfig, profileSyncGate);
+  remoteMessages(clients, projectConfig, profileSyncGate, onHeartbeat);
 
 export const setBackground = async (
   remote: AdvancedIMessage,

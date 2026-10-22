@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   type AdvancedIMessage,
   type CatchUpEvent,
@@ -25,6 +26,8 @@ import { getCloudRecover } from "../auth";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
 import { addLineObserver, lineKey } from "../lines";
 import {
+  type IMessageHeartbeat,
+  type IMessageHeartbeatHandler,
   type IMessageMessage,
   type RemoteClient,
   SHARED_PHONE,
@@ -313,7 +316,8 @@ const toResumeAfter = (cursor: string | undefined): number | undefined => {
 
 async function* afterCursor(
   stream: CloseableAsyncIterable<MessageEvent | PollEvent | GroupEvent>,
-  cursor?: string
+  cursor: string | undefined,
+  close: () => Promise<void>
 ): AsyncGenerator<MessageEvent | PollEvent | GroupEvent> {
   const resumeAfter = toResumeAfter(cursor);
   try {
@@ -324,25 +328,79 @@ async function* afterCursor(
       yield event;
     }
   } finally {
-    await stream.close?.();
+    await close();
   }
 }
 
-const withClose = <T extends MessageEvent | PollEvent | GroupEvent>(
-  source: CloseableAsyncIterable<T>,
-  cursor?: string
-): CloseableAsyncIterable<T> =>
-  Object.assign(afterCursor(source, cursor) as AsyncGenerator<T>, {
-    close: async () => {
-      await source.close?.();
-    },
-  });
+interface HeartbeatContext {
+  lineId: string;
+  onHeartbeat: IMessageHeartbeatHandler;
+  phone: string;
+  projectId: string | undefined;
+}
+
+const reportHeartbeatError = (error: unknown): void => {
+  streamLog.warn(
+    "imessage heartbeat observer failed",
+    errorAttrs(error),
+    error instanceof Error ? error : undefined
+  );
+};
+
+const subscribeWithHeartbeat = <
+  T extends MessageEvent | PollEvent | GroupEvent,
+>(
+  resource: {
+    subscribeEvents(filter?: {
+      onHeartbeat?: () => void;
+    }): CloseableAsyncIterable<T>;
+  },
+  stream: IMessageHeartbeat["stream"],
+  cursor: string | undefined,
+  heartbeat?: HeartbeatContext
+): CloseableAsyncIterable<T> => {
+  let active = false;
+  const subscriptionId = heartbeat ? randomUUID() : undefined;
+  const onHeartbeat = (): void => {
+    if (!(active && heartbeat && subscriptionId)) {
+      return;
+    }
+    try {
+      Promise.resolve(
+        heartbeat.onHeartbeat({
+          provider: "imessage",
+          projectId: heartbeat.projectId,
+          lineId: heartbeat.lineId,
+          phone: heartbeat.phone,
+          stream,
+          subscriptionId,
+          receivedAt: Date.now(),
+        })
+      ).catch(reportHeartbeatError);
+    } catch (error) {
+      reportHeartbeatError(error);
+    }
+  };
+  const source = heartbeat
+    ? resource.subscribeEvents({ onHeartbeat })
+    : resource.subscribeEvents();
+  active = true;
+  const close = async (): Promise<void> => {
+    active = false;
+    await source.close?.();
+  };
+  return Object.assign(
+    afterCursor(source, cursor, close) as AsyncGenerator<T>,
+    { close }
+  );
+};
 
 const messageStream = (
   client: AdvancedIMessage,
   phone: string,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>
+  recover?: () => Promise<void>,
+  heartbeat?: HeartbeatContext
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
@@ -372,14 +430,15 @@ const messageStream = (
               )
           ),
     subscribeLive: (cursor) =>
-      withClose(client.messages.subscribeEvents(), cursor),
+      subscribeWithHeartbeat(client.messages, "messages", cursor, heartbeat),
   });
 
 const pollStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
   phone: string,
-  recover?: () => Promise<void>
+  recover?: () => Promise<void>,
+  heartbeat?: HeartbeatContext
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
@@ -406,13 +465,14 @@ const pollStream = (
               )
           ),
     subscribeLive: (cursor) =>
-      withClose(client.polls.subscribeEvents(), cursor),
+      subscribeWithHeartbeat(client.polls, "polls", cursor, heartbeat),
   });
 
 const groupStream = (
   client: AdvancedIMessage,
   phone: string,
-  recover?: () => Promise<void>
+  recover?: () => Promise<void>,
+  heartbeat?: HeartbeatContext
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isGroupEvent),
@@ -432,7 +492,7 @@ const groupStream = (
             () => toGroupItem(client, event, phone, String(event.sequence))
           ),
     subscribeLive: (cursor) =>
-      withClose(client.groups.subscribeEvents(), cursor),
+      subscribeWithHeartbeat(client.groups, "groups", cursor, heartbeat),
   });
 
 const clientStream = (
@@ -441,15 +501,16 @@ const clientStream = (
   phone: string,
   includeGroupEvents: boolean,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>
+  recover?: () => Promise<void>,
+  heartbeat?: HeartbeatContext
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
-    messageStream(client, phone, onInbound, recover),
-    pollStream(client, pollCache, phone, recover),
+    messageStream(client, phone, onInbound, recover, heartbeat),
+    pollStream(client, pollCache, phone, recover, heartbeat),
   ];
 
   if (includeGroupEvents) {
-    streams.push(groupStream(client, phone, recover));
+    streams.push(groupStream(client, phone, recover, heartbeat));
   }
 
   return mergeStreams(streams);
@@ -499,7 +560,8 @@ const contactShareHandler = (
 export const messages = (
   clients: RemoteClient[],
   projectConfig?: ProjectData | undefined,
-  profileSyncGate?: ProfileSyncGate | undefined
+  profileSyncGate?: ProfileSyncGate | undefined,
+  onHeartbeat?: IMessageHeartbeatHandler
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
   // Direct callers retain the initialization-snapshot behavior. Cloud-backed
@@ -526,7 +588,15 @@ export const messages = (
       entry.phone,
       includeGroupEvents,
       tracker ? contactShareHandler(tracker, profileSyncGate) : undefined,
-      recover
+      recover,
+      onHeartbeat
+        ? {
+            onHeartbeat,
+            projectId: projectConfig?.id,
+            lineId: lineKey(entry),
+            phone: entry.phone,
+          }
+        : undefined
     );
   };
 

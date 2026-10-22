@@ -39,6 +39,8 @@ export { effect, type IMessageMessageEffect } from "./content/effect";
 export type {
   IMessageAppliedReaction,
   IMessageAttachmentMetadata,
+  IMessageHeartbeat,
+  IMessageHeartbeatHandler,
   IMessageMention,
   IMessageMessage,
   IMessageMiniApp,
@@ -651,8 +653,13 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
     schema: messageSchema,
   },
 
-  messages: ({ client, projectConfig }) =>
-    remoteMessages(client, projectConfig, getProfileSyncGate(client)),
+  messages: ({ client, config, projectConfig }) =>
+    remoteMessages(
+      client,
+      projectConfig,
+      getProfileSyncGate(client),
+      config.onHeartbeat
+    ),
 
   send: async ({ space, content, client }) => {
     if (content.type === "reply") {

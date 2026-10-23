@@ -47,7 +47,7 @@
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
     "@spectrum-ts/test-support": "workspace:*",
-    "@types/bun": "latest",
+    "@types/bun": "1.4.3",
     "fastify": "^5",
     "tsdown": "^0.23.0",
     "vitest": "^5.0.0"

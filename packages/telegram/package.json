@@ -45,7 +45,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@photon-ai/telegram-ts": "10.0.0",
+    "@photon-ai/telegram-ts": "10.1.1",
     "marked": "^18.0.5",
     "zod": "^4.2.1"
   },

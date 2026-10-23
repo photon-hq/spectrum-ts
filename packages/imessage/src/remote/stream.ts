@@ -276,6 +276,17 @@ type MessageCatchUpEvent = MessageEvent | CatchUpCompleteEvent;
 type PollCatchUpEvent = PollEvent | CatchUpCompleteEvent;
 type GroupCatchUpEvent = GroupEvent | CatchUpCompleteEvent;
 
+const eventDiagnosticAttrs = (
+  event: MessageEvent | PollEvent | GroupEvent | CatchUpCompleteEvent
+) => ({
+  "spectrum.stream.event_cursor": String(
+    event.type === "catchup.complete" ? event.headSequence : event.sequence
+  ),
+  "spectrum.stream.event_cursor_kind":
+    event.type === "catchup.complete" ? "catch-up-head" : "event",
+  "spectrum.stream.event_type": event.type,
+});
+
 const isMessageEvent = (event: CatchUpEvent): event is MessageEvent =>
   event.type.startsWith("message.");
 
@@ -332,9 +343,9 @@ async function* afterCursor(
   }
 }
 
-interface HeartbeatContext {
+interface SubscriptionContext {
   lineId: string;
-  onHeartbeat: IMessageHeartbeatHandler;
+  onHeartbeat: IMessageHeartbeatHandler | undefined;
   phone: string;
   projectId: string | undefined;
 }
@@ -357,21 +368,21 @@ const subscribeWithHeartbeat = <
   },
   stream: IMessageHeartbeat["stream"],
   cursor: string | undefined,
-  heartbeat?: HeartbeatContext
+  context: SubscriptionContext
 ): CloseableAsyncIterable<T> => {
   let active = false;
-  const subscriptionId = heartbeat ? randomUUID() : undefined;
+  const subscriptionId = randomUUID();
   const onHeartbeat = (): void => {
-    if (!(active && heartbeat && subscriptionId)) {
+    if (!(active && context.onHeartbeat)) {
       return;
     }
     try {
       Promise.resolve(
-        heartbeat.onHeartbeat({
+        context.onHeartbeat({
           provider: "imessage",
-          projectId: heartbeat.projectId,
-          lineId: heartbeat.lineId,
-          phone: heartbeat.phone,
+          projectId: context.projectId,
+          lineId: context.lineId,
+          phone: context.phone,
           stream,
           subscriptionId,
           receivedAt: Date.now(),
@@ -381,7 +392,7 @@ const subscribeWithHeartbeat = <
       reportHeartbeatError(error);
     }
   };
-  const source = heartbeat
+  const source = context.onHeartbeat
     ? resource.subscribeEvents({ onHeartbeat })
     : resource.subscribeEvents();
   active = true;
@@ -391,18 +402,28 @@ const subscribeWithHeartbeat = <
   };
   return Object.assign(
     afterCursor(source, cursor, close) as AsyncGenerator<T>,
-    { close }
+    {
+      close,
+      diagnosticAttrs: Object.freeze({
+        provider: "imessage",
+        projectId: context.projectId,
+        lineId: context.lineId,
+        stream,
+        subscriptionId,
+      }),
+    }
   );
 };
 
 const messageStream = (
   client: AdvancedIMessage,
   phone: string,
+  context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>,
-  heartbeat?: HeartbeatContext
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
+    eventDiagnosticAttrs,
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isMessageEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("messages", phone),
@@ -430,17 +451,18 @@ const messageStream = (
               )
           ),
     subscribeLive: (cursor) =>
-      subscribeWithHeartbeat(client.messages, "messages", cursor, heartbeat),
+      subscribeWithHeartbeat(client.messages, "messages", cursor, context),
   });
 
 const pollStream = (
   client: AdvancedIMessage,
   pollCache: PollCache,
   phone: string,
-  recover?: () => Promise<void>,
-  heartbeat?: HeartbeatContext
+  context: SubscriptionContext,
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
+    eventDiagnosticAttrs,
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isPollEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("polls", phone),
@@ -465,16 +487,17 @@ const pollStream = (
               )
           ),
     subscribeLive: (cursor) =>
-      subscribeWithHeartbeat(client.polls, "polls", cursor, heartbeat),
+      subscribeWithHeartbeat(client.polls, "polls", cursor, context),
   });
 
 const groupStream = (
   client: AdvancedIMessage,
   phone: string,
-  recover?: () => Promise<void>,
-  heartbeat?: HeartbeatContext
+  context: SubscriptionContext,
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
+    eventDiagnosticAttrs,
     fetchMissed: (cursor) => catchUpEvents(client, cursor, isGroupEvent),
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("groups", phone),
@@ -492,7 +515,7 @@ const groupStream = (
             () => toGroupItem(client, event, phone, String(event.sequence))
           ),
     subscribeLive: (cursor) =>
-      subscribeWithHeartbeat(client.groups, "groups", cursor, heartbeat),
+      subscribeWithHeartbeat(client.groups, "groups", cursor, context),
   });
 
 const clientStream = (
@@ -500,17 +523,17 @@ const clientStream = (
   pollCache: PollCache,
   phone: string,
   includeGroupEvents: boolean,
+  context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>,
-  heartbeat?: HeartbeatContext
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
-    messageStream(client, phone, onInbound, recover, heartbeat),
-    pollStream(client, pollCache, phone, recover, heartbeat),
+    messageStream(client, phone, context, onInbound, recover),
+    pollStream(client, pollCache, phone, context, recover),
   ];
 
   if (includeGroupEvents) {
-    streams.push(groupStream(client, phone, recover, heartbeat));
+    streams.push(groupStream(client, phone, context, recover));
   }
 
   return mergeStreams(streams);
@@ -587,16 +610,14 @@ export const messages = (
       pollCache,
       entry.phone,
       includeGroupEvents,
+      {
+        onHeartbeat,
+        projectId: projectConfig?.id,
+        lineId: lineKey(entry),
+        phone: entry.phone,
+      },
       tracker ? contactShareHandler(tracker, profileSyncGate) : undefined,
-      recover,
-      onHeartbeat
-        ? {
-            onHeartbeat,
-            projectId: projectConfig?.id,
-            lineId: lineKey(entry),
-            phone: entry.phone,
-          }
-        : undefined
+      recover
     );
   };
 

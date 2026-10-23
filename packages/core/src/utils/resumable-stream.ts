@@ -6,6 +6,7 @@ export const CATCH_UP_PAGE_SIZE = 100;
 export const MAX_BUFFERED_LIVE_EVENTS = 1000;
 export const RECONNECT_INITIAL_DELAY_MS = 500;
 export const RECONNECT_MAX_DELAY_MS = 30_000;
+export const PENDING_OPERATION_WARNING_MS = 30_000;
 // After this many consecutive failures the reconnect log escalates from warn
 // to error so persistent causes (credential mismatch, dead proxy, DNS) surface
 // in telemetry while the stream keeps retrying.
@@ -17,6 +18,8 @@ type StreamPhase = "catch-up" | "live";
 
 export interface CloseableAsyncIterable<T> extends AsyncIterable<T> {
   close?: () => Promise<void> | void;
+  /** Enables pending-operation diagnostics. Identity only; never payloads or secrets. */
+  readonly diagnosticAttrs?: Readonly<LogAttrs>;
 }
 
 export interface ResumableStreamItem<T> {
@@ -32,6 +35,8 @@ export interface FetchMissedOptions {
 export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   bufferLimit?: number;
   catchUpPageSize?: number;
+  /** Raw event provenance before mapping; exclude payloads, phones, and secrets. */
+  eventDiagnosticAttrs?: (event: TLive | TMissed) => LogAttrs;
   fetchMissed: (
     cursor: string,
     options: FetchMissedOptions
@@ -198,6 +203,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     let lastCursor: string | undefined;
     let retryDelayMs = initialRetryDelayMs;
     let sleepTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingTimer: ReturnType<typeof setTimeout> | undefined;
     let wakeSleep: (() => void) | undefined;
     const deliveredSinceCursor = new Set<string>();
     // Stable id so concurrent streams (and one stream's reconnect storm) are
@@ -245,15 +251,91 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       }
     };
 
-    const deliverItem = async (
-      item: ResumableStreamItem<TOutput>,
+    const diagnosticAttrs = (
+      live: CloseableAsyncIterable<TLive>,
+      event: TLive | TMissed,
+      origin: "live" | "catch-up" | "buffered-live"
+    ): LogAttrs | undefined => {
+      if (!live.diagnosticAttrs) {
+        return;
+      }
+      let eventAttrs: LogAttrs | undefined;
+      try {
+        eventAttrs = options.eventDiagnosticAttrs?.(event);
+      } catch {
+        // Missing diagnostic metadata must not change event delivery.
+      }
+      return {
+        ...eventAttrs,
+        ...live.diagnosticAttrs,
+        "spectrum.stream.id": streamId,
+        "spectrum.stream.origin": origin,
+        "spectrum.stream.subscription_role":
+          origin === "catch-up" ? "concurrent-live" : "source",
+        "spectrum.stream.cursor": lastCursor,
+      };
+    };
+
+    const observePending = async <TResult>(
+      operation: "mapping" | "emit",
+      attrs: LogAttrs | undefined,
+      work: () => Promise<TResult>
+    ): Promise<TResult> => {
+      if (!attrs || closed) {
+        return work();
+      }
+      const startedAt = performance.now();
+      let warned = false;
+      let outcome = "failed";
+      const operationAttrs = () => ({
+        ...attrs,
+        "spectrum.stream.operation": operation,
+        "spectrum.stream.pending_ms": Math.round(performance.now() - startedAt),
+      });
+      const timer = setTimeout(() => {
+        if (closed) {
+          return;
+        }
+        warned = true;
+        try {
+          log.warn("stream operation still pending", operationAttrs());
+        } catch {
+          // Diagnostics must not interrupt the stream.
+        }
+      }, PENDING_OPERATION_WARNING_MS);
+      timer.unref?.();
+      pendingTimer = timer;
+      try {
+        const result = await work();
+        outcome = "completed";
+        return result;
+      } finally {
+        clearTimeout(timer);
+        pendingTimer = undefined;
+        if (warned && !closed) {
+          try {
+            log.info("previously pending stream operation settled", {
+              ...operationAttrs(),
+              "spectrum.stream.outcome": outcome,
+            });
+          } catch {
+            // Preserve the original operation outcome.
+          }
+        }
+      }
+    };
+
+    const processItem = async (
+      map: () => Promise<ResumableStreamItem<TOutput>>,
       resetRetry: boolean,
-      clearOnCursorAdvance: boolean
+      clearOnCursorAdvance: boolean,
+      attrs: LogAttrs | undefined
     ) => {
+      const item = await observePending("mapping", attrs, map);
       const alreadyDelivered = deliveredSinceCursor.has(item.id);
       if (!alreadyDelivered) {
         for (const value of item.values) {
-          await emit(value);
+          await observePending("emit", attrs, () => emit(value));
         }
       }
       advanceCursor(item.cursor, clearOnCursorAdvance);
@@ -261,6 +343,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       if (resetRetry) {
         noteRecovery();
       }
+      return item;
     };
 
     const isCursorRejected = (error: unknown): boolean =>
@@ -382,7 +465,12 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       activeLive = live;
       try {
         for await (const event of live) {
-          await deliverItem(await options.processLive(event), true, true);
+          await processItem(
+            () => options.processLive(event),
+            true,
+            true,
+            diagnosticAttrs(live, event, "live")
+          );
         }
         throw new RetryableStreamError("Live stream ended");
       } finally {
@@ -419,7 +507,12 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
               bufferLiveEvent(liveBuffer, event);
               continue;
             }
-            await deliverItem(await options.processLive(event), true, true);
+            await processItem(
+              () => options.processLive(event),
+              true,
+              true,
+              diagnosticAttrs(live, event, "live")
+            );
           }
           throw new RetryableStreamError("Live stream ended");
         } catch (error) {
@@ -434,7 +527,8 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
 
     const replayMissed = async (
       cursor: string,
-      getLiveError: () => unknown
+      getLiveError: () => unknown,
+      live: CloseableAsyncIterable<TLive>
     ) => {
       const missed = throwOnCursorRejection(
         options.fetchMissed(cursor, { limit: catchUpPageSize }),
@@ -442,7 +536,12 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       );
       for await (const event of missed) {
         throwLiveError(getLiveError());
-        await deliverItem(await options.processMissed(event), false, false);
+        await processItem(
+          () => options.processMissed(event),
+          false,
+          false,
+          diagnosticAttrs(live, event, "catch-up")
+        );
       }
       throwLiveError(getLiveError());
     };
@@ -450,7 +549,8 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     const flushLiveBuffer = async (
       liveBuffer: TLive[],
       getLiveError: () => unknown,
-      stopBuffering: () => void
+      stopBuffering: () => void,
+      live: CloseableAsyncIterable<TLive>
     ): Promise<void> => {
       let index = 0;
       let lastFlushedId: string | undefined;
@@ -463,8 +563,12 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
         if (event === undefined) {
           throw new RetryableStreamError("Live stream buffer index missing");
         }
-        const item = await options.processLive(event);
-        await deliverItem(item, true, false);
+        const item = await processItem(
+          () => options.processLive(event),
+          true,
+          false,
+          diagnosticAttrs(live, event, "buffered-live")
+        );
         lastFlushedId = item.id;
         index += 1;
       }
@@ -494,10 +598,15 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       const livePump = startLivePump(live, () => buffering, liveBuffer);
 
       try {
-        await replayMissed(cursor, livePump.getError);
-        await flushLiveBuffer(liveBuffer, livePump.getError, () => {
-          buffering = false;
-        });
+        await replayMissed(cursor, livePump.getError, live);
+        await flushLiveBuffer(
+          liveBuffer,
+          livePump.getError,
+          () => {
+            buffering = false;
+          },
+          live
+        );
         noteRecovery();
 
         await livePump.pump;
@@ -551,6 +660,8 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
 
     return async () => {
       closed = true;
+      clearTimeout(pendingTimer);
+      pendingTimer = undefined;
       cancelSleep();
       await closeIterable(activeLive);
       await pump.catch(ignoreCleanupError);

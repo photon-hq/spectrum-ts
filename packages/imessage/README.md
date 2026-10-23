@@ -76,6 +76,55 @@ does not cancel or wait for asynchronous work an observer has already started.
 The option is off by default; existing configurations and message payloads are
 unchanged. This provider requires `@photon-ai/advanced-imessage` 2.4.0 or newer.
 
+## Pending processing diagnostics
+
+Remote iMessage streams log `stream operation still pending` once when a mapping
+or emission call remains pending for 30 seconds. These warnings use existing SDK
+telemetry and do not require `onHeartbeat` or another application option. A quiet
+subscription waiting for its next raw event has no diagnostic timer.
+
+`mapping` means the SDK is awaiting conversion of a raw event, including any
+lookups that conversion needs. `emit` means it is awaiting the next downstream
+consumer pull. Downstream consumers include SDK merge streams and the application.
+Neither state proves a broken connection. Each warning proves that the SDK
+already pulled that raw event. Normal receipt and short operations produce no
+new diagnostic records.
+
+| Field | Meaning |
+| --- | --- |
+| `provider`, `projectId`, `lineId`, `stream`, `subscriptionId` | The same identities as heartbeat observations, without the phone number. IDs exist even when the heartbeat observer is off. |
+| `spectrum.stream.id` | One core stream lifetime, including its reconnects. This differs from a live subscription ID. |
+| `spectrum.stream.operation` | `mapping` or `emit`. |
+| `spectrum.stream.origin` | `live`, `catch-up`, or `buffered-live`. Buffered events remain distinct until the catch-up buffer drains. |
+| `spectrum.stream.subscription_role` | `source` for live events. For catch-up, `concurrent-live` identifies the parallel live subscription, not the historical event's source subscription. |
+| `spectrum.stream.event_cursor`, `spectrum.stream.event_cursor_kind`, `spectrum.stream.event_type` | The raw event sequence and type. A catch-up completion marker uses its head sequence with kind `catch-up-head`. |
+| `spectrum.stream.cursor` | The stream's resume cursor when this event started mapping. This is not a durable application acknowledgement. |
+| `spectrum.stream.pending_ms` | Elapsed time for this pending call, measured with a monotonic clock. |
+
+If a warned call settles while the stream remains active, the SDK logs
+`previously pending stream operation settled`. Its `spectrum.stream.outcome` is
+`completed` or `failed`. Completion means only that the awaited SDK call returned.
+It does not prove that a domain message was emitted, forwarded, or acknowledged.
+
+Closing or removing a line stops its diagnostics before awaiting remaining
+cleanup. A missing settlement record after close does not prove that work still
+runs. Warnings do not cancel work, release ownership, advance cursors, retry,
+restart, or replay. The 30-second threshold is an observation threshold, not a
+production-calibrated health limit. Timers do not keep Node running.
+
+The new records contain no message content, phone numbers, callback URLs,
+credentials, or signing secrets. Existing logs and the public heartbeat payload
+keep their existing fields. No per-message success log, background watchdog,
+subscription registry, or metric label is added. Other providers remain unchanged
+unless their authoring code supplies `CloseableAsyncIterable.diagnosticAttrs`.
+Provider authors can add raw event metadata with `eventDiagnosticAttrs` on
+`resumableOrderedStream`. Both metadata sources must exclude private data.
+
+These records cannot identify a stall before raw receipt, during synchronous
+JavaScript that blocks timers, or inside the transport. Use proxy diagnostics and
+worker receipt records to examine those remaining boundaries. Server subscription,
+SDK subscription, and worker-instance IDs still represent separate lifetimes.
+
 ## Incoming polls
 
 Native iMessage polls have no title. Their snapshots and nested vote context

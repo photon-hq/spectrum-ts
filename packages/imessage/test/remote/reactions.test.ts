@@ -91,11 +91,14 @@ const attachment = (
     uti: undefined,
   }) as unknown as SDKMessage["content"]["attachments"][number];
 
-const reactionEvent = (
-  overrides: Partial<
-    Extract<MessageEvent, { type: "message.reactionAdded" }>
-  > = {}
-): Extract<MessageEvent, { type: "message.reactionAdded" }> =>
+const reactionEvent = <
+  T extends
+    | "message.reactionAdded"
+    | "message.reactionRemoved" = "message.reactionAdded",
+>(
+  type: T = "message.reactionAdded" as T,
+  overrides: Partial<Extract<MessageEvent, { type: T }>> = {}
+): Extract<MessageEvent, { type: T }> =>
   ({
     actor: { address: "user@example.com" },
     chatGuid: "s1",
@@ -104,9 +107,9 @@ const reactionEvent = (
     occurredAt: SENT_DATE,
     reaction: { kind: "like" },
     sequence: 1,
-    type: "message.reactionAdded",
+    type,
     ...overrides,
-  }) as unknown as Extract<MessageEvent, { type: "message.reactionAdded" }>;
+  }) as unknown as Extract<MessageEvent, { type: T }>;
 
 describe("iMessage remote reactToMessage", () => {
   it("maps a native tapback emoji and returns the tapback record", async () => {
@@ -178,6 +181,28 @@ describe("iMessage remote toReactionMessages", () => {
     }
   });
 
+  it("surfaces reaction removals without losing the target", async () => {
+    const get = vi.fn((_message: string) => Promise.resolve(sdkMessage()));
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+
+    const messages = await toReactionMessages(
+      remote,
+      new MessageCache(),
+      reactionEvent("message.reactionRemoved"),
+      "+15551234567"
+    );
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toMatchObject({
+      emoji: "👍",
+      removed: true,
+      target: { id: "msg-guid" },
+      type: "reaction",
+    });
+  });
+
   it("drops the reaction when the target cannot be fetched", async () => {
     // Regression guard for the shared `resolveTargetMessage` extraction: a
     // failed fetch must keep dropping the event rather than propagating.
@@ -205,7 +230,7 @@ describe("iMessage remote toReactionMessages", () => {
     const messages = await toReactionMessages(
       remote,
       new MessageCache(),
-      reactionEvent({
+      reactionEvent("message.reactionAdded", {
         actor: {
           address: "+15557654321",
           country: "ca",
@@ -256,7 +281,9 @@ describe("iMessage remote toReactionMessages", () => {
     const messages = await toReactionMessages(
       remote,
       getMessageCache(remote),
-      reactionEvent({ messageGuid: "outbound-stream-guid" }),
+      reactionEvent("message.reactionAdded", {
+        messageGuid: "outbound-stream-guid",
+      }),
       "+15551234567"
     );
 
@@ -300,7 +327,7 @@ describe("iMessage remote toReactionMessages", () => {
     const messages = await toReactionMessages(
       remote,
       new MessageCache(),
-      reactionEvent({ targetPartIndex: 5 }),
+      reactionEvent("message.reactionAdded", { targetPartIndex: 5 }),
       "+15551234567"
     );
 

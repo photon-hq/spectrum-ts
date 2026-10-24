@@ -595,11 +595,9 @@ export const messages = (
   // return undefined (nothing to refresh). Shared across this client array's
   // streams so the message + poll loops coalesce onto one re-mint.
   const recover = getCloudRecover(clients);
-  const shared = isSharedMode(clients);
-  // Frozen for the life of the stream, which is correct: only a shared array
-  // makes this false, and a shared array never reconciles.
-  const includeGroupEvents = !shared;
-
+  // Evaluated when each line's stream is built, not once for the group: a
+  // shared→dedicated plan change flips the client array mid-process, and
+  // lines attached after the flip must subscribe with dedicated semantics.
   const build = (entry: RemoteClient) => (): ManagedStream<IMessageMessage> => {
     const tracker =
       staticShareEnabled || profileSyncGate
@@ -609,7 +607,7 @@ export const messages = (
       entry.client,
       pollCache,
       entry.phone,
-      includeGroupEvents,
+      !isSharedMode(clients),
       {
         onHeartbeat,
         projectId: projectConfig?.id,
@@ -631,10 +629,10 @@ export const messages = (
     group.add(lineKey(entry), build(entry));
   }
 
-  if (shared) {
-    return group;
-  }
-
+  // The observer is registered even in shared mode: a plan change can flip
+  // the client array to dedicated mid-process, and only an observer
+  // subscribes lines that a later reconcile attaches. In pure shared mode the
+  // token refresh never reconciles, so this is a no-op there.
   const disposeObserver = addLineObserver(clients, {
     attach: (entry) => {
       group.add(lineKey(entry), build(entry));

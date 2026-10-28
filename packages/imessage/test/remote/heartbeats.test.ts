@@ -261,6 +261,36 @@ describe("identified iMessage heartbeats", () => {
     expect(remote.messages.subscribeEvents).toHaveBeenCalledTimes(1);
   });
 
+  it("counts a line as recovered once its subscription outlives a flap", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const remote = client();
+    await start([remote.entry]);
+    const drops = 3;
+    for (let drop = 0; drop < drops; drop += 1) {
+      current(remote.polls).disconnect();
+      await flush();
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    expect(remote.polls.subscribeEvents).toHaveBeenCalledTimes(drops + 1);
+    const recoveries = () =>
+      diagnostics.info.mock.calls.filter(
+        ([message]) => message === "stream recovered"
+      );
+
+    const healthy = current(remote.polls);
+    healthy.heartbeat();
+    await flush();
+    expect(recoveries()).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    healthy.heartbeat();
+    await flush();
+    expect(recoveries()).toHaveLength(1);
+    expect(recoveries()[0]?.[1]).toMatchObject({
+      "spectrum.stream.attempt": drops,
+    });
+  });
+
   it("assigns a new subscription identity on reconnect and rejects old callbacks", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const remote = client();

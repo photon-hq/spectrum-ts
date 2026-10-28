@@ -378,6 +378,8 @@ const subscribeWithHeartbeat = <
     if (!active) {
       return;
     }
+    // Servers send one heartbeat on subscribe and then every 30 s, so the
+    // second one is the first to outlast LIVE_HEALTHY_AFTER_MS.
     signals.alive();
     if (!context.onHeartbeat) {
       return;

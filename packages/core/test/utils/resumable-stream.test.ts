@@ -2,7 +2,6 @@ import { flush, withinMs } from "@spectrum-ts/test-support/timing";
 import { describe, expect, it } from "vitest";
 import {
   type CloseableAsyncIterable,
-  type LiveSignals,
   PERSISTENT_FAILURE_ERROR_THRESHOLD,
   type ResumableStreamItem,
   resumableOrderedStream,
@@ -82,15 +81,12 @@ interface FixtureConfig {
   jitter?: (delayMs: number) => number;
   live: (
     call: number,
-    cursor: string | undefined,
-    signals: LiveSignals
+    cursor: string | undefined
   ) => CloseableAsyncIterable<Item>;
-  liveHealthyAfterMs?: number;
   maxRetryDelayMs?: number;
   processMissed?: (event: Item) => Promise<Item>;
   recover?: (error: unknown, failureCount: number) => Promise<void> | void;
   recoverTimeoutMs?: number;
-  shouldRecover?: (error: unknown) => boolean;
 }
 
 const buildStream = (config: FixtureConfig) => {
@@ -116,16 +112,14 @@ const buildStream = (config: FixtureConfig) => {
         delays.push(delayMs);
         return 0;
       }),
-    liveHealthyAfterMs: config.liveHealthyAfterMs,
     maxRetryDelayMs: config.maxRetryDelayMs ?? 8,
     processLive: (event) => Promise.resolve(event),
     processMissed: config.processMissed ?? ((event) => Promise.resolve(event)),
     recover: config.recover,
     recoverTimeoutMs: config.recoverTimeoutMs,
-    shouldRecover: config.shouldRecover,
-    subscribeLive: (cursor, signals) => {
+    subscribeLive: (cursor) => {
       liveCalls.push(cursor);
-      return config.live(liveCalls.length, cursor, signals);
+      return config.live(liveCalls.length, cursor);
     },
   });
 
@@ -149,17 +143,6 @@ const buildStream = (config: FixtureConfig) => {
     received,
   };
 };
-
-// Reports liveness (a server heartbeat) and then drops without any event, the
-// shape of an idle subscription closed by the transport.
-const aliveThenDrop = (signals: LiveSignals): CloseableAsyncIterable<Item> => ({
-  [Symbol.asyncIterator]: () => ({
-    next: () => {
-      signals.alive();
-      return Promise.reject(new Error("stream closed by transport"));
-    },
-  }),
-});
 
 // Yields through the timer queue (not just the check phase) so the stream's
 // jittered setTimeout backoff sleeps get a chance to fire between turns.
@@ -464,111 +447,6 @@ describe("resumableOrderedStream", () => {
     // Never before the threshold; re-armed exactly one window later.
     expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
     expect(recoverAt[1]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD * 2);
-    await fx.close();
-    expect(await fx.ended).toBe("done");
-  });
-
-  it("treats a healthy idle subscription as recovered, so drops never reach recover", async () => {
-    const recoverAt: number[] = [];
-    const fx = buildStream({
-      liveHealthyAfterMs: 0,
-      live: (_call, _cursor, signals) => aliveThenDrop(signals),
-      recover: (_error, failureCount) => {
-        recoverAt.push(failureCount);
-      },
-    });
-
-    await waitUntil(
-      () => fx.liveCalls.length >= PERSISTENT_FAILURE_ERROR_THRESHOLD * 3
-    );
-    expect(recoverAt).toEqual([]);
-    // Backoff also resets, so every reconnect waits the initial delay.
-    expect(new Set(fx.delays)).toEqual(new Set([1]));
-    await fx.close();
-    expect(await fx.ended).toBe("done");
-  });
-
-  it("keeps counting failures for a subscription that drops before it is healthy", async () => {
-    const recoverAt: number[] = [];
-    const fx = buildStream({
-      liveHealthyAfterMs: 60_000,
-      live: (_call, _cursor, signals) => aliveThenDrop(signals),
-      recover: (_error, failureCount) => {
-        recoverAt.push(failureCount);
-      },
-    });
-
-    await waitUntil(() => recoverAt.length >= 1);
-    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
-    await fx.close();
-    expect(await fx.ended).toBe("done");
-  });
-
-  it("does not count liveness during catch-up as recovery", async () => {
-    const recoverAt: number[] = [];
-    const fx = buildStream({
-      liveHealthyAfterMs: 0,
-      fetchMissed: () => failingSource(() => new Error("catch-up failed")),
-      live: (call, _cursor, signals) => {
-        if (call === 1) {
-          return liveSession([item("1", "v1")], "throw");
-        }
-        signals.alive();
-        return liveSession([], "pending");
-      },
-      recover: (_error, failureCount) => {
-        recoverAt.push(failureCount);
-      },
-    });
-
-    await waitUntil(() => recoverAt.length >= 1);
-    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
-    await fx.close();
-    expect(await fx.ended).toBe("done");
-  });
-
-  it("lets failures recover cannot fix pass without spending its window", async () => {
-    const recoverAt: number[] = [];
-    const fx = buildStream({
-      live: (call) =>
-        liveSession([], "throw", () =>
-          call <= PERSISTENT_FAILURE_ERROR_THRESHOLD
-            ? new Error("stream closed by transport")
-            : new FakeCursorError()
-        ),
-      shouldRecover: isFakeCursorError,
-      recover: (_error, failureCount) => {
-        recoverAt.push(failureCount);
-      },
-    });
-
-    await waitUntil(() => recoverAt.length >= 1);
-    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD + 1);
-    await fx.close();
-    expect(await fx.ended).toBe("done");
-  });
-
-  it("ignores liveness reported by a superseded subscription", async () => {
-    const recoverAt: number[] = [];
-    let staleSignals: LiveSignals | undefined;
-    const fx = buildStream({
-      liveHealthyAfterMs: 0,
-      live: (call, _cursor, signals) => {
-        if (call === 1) {
-          staleSignals = signals;
-        }
-        // A late heartbeat from the first subscription must not reset the
-        // count of the current, failing one.
-        staleSignals?.alive();
-        return liveSession([], "throw", () => new Error("Invalid credentials"));
-      },
-      recover: (_error, failureCount) => {
-        recoverAt.push(failureCount);
-      },
-    });
-
-    await waitUntil(() => recoverAt.length >= 1);
-    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
     await fx.close();
     expect(await fx.ended).toBe("done");
   });

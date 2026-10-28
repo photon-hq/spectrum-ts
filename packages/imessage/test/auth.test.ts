@@ -80,12 +80,9 @@ vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({
   createGrpcClient,
 }));
 
-const {
-  createCloudClients,
-  disposeCloudAuth,
-  getCloudRecover,
-  isCloudRecoverable,
-} = await import("@/auth");
+const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
+  "@/auth"
+);
 const { addLineObserver } = await import("@/lines");
 const { imessage } = await import("@/index");
 const { Spectrum } = await import("@spectrum-ts/core");
@@ -378,7 +375,6 @@ describe("imessage cloud auth", () => {
     await recover(new FakeConnectionError("stream closed by transport"));
     await recover(new Error("socket hang up"));
     expect(issueImessageTokens).toHaveBeenCalledTimes(1);
-    expect(isCloudRecoverable(authRejection())).toBe(true);
 
     await recover(authRejection());
     expect(issueImessageTokens).toHaveBeenCalledTimes(2);

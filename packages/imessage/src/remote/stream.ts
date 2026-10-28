@@ -19,11 +19,10 @@ import {
   createLogger,
   createStreamGroup,
   errorAttrs,
-  type LiveSignals,
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "@spectrum-ts/core/authoring";
-import { getCloudRecover, isCloudRecoverable } from "../auth";
+import { getCloudRecover } from "../auth";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
 import { addLineObserver, lineKey } from "../lines";
 import {
@@ -369,20 +368,12 @@ const subscribeWithHeartbeat = <
   },
   stream: IMessageHeartbeat["stream"],
   cursor: string | undefined,
-  // Undefined on cores that predate liveness signals.
-  signals: LiveSignals | undefined,
   context: SubscriptionContext
 ): CloseableAsyncIterable<T> => {
   let active = false;
   const subscriptionId = randomUUID();
   const onHeartbeat = (): void => {
-    if (!active) {
-      return;
-    }
-    // Servers send one heartbeat on subscribe and then every 30 s, so the
-    // second one is the first to outlast LIVE_HEALTHY_AFTER_MS.
-    signals?.alive();
-    if (!context.onHeartbeat) {
+    if (!(active && context.onHeartbeat)) {
       return;
     }
     try {
@@ -401,7 +392,9 @@ const subscribeWithHeartbeat = <
       reportHeartbeatError(error);
     }
   };
-  const source = resource.subscribeEvents({ onHeartbeat });
+  const source = context.onHeartbeat
+    ? resource.subscribeEvents({ onHeartbeat })
+    : resource.subscribeEvents();
   active = true;
   const close = async (): Promise<void> => {
     active = false;
@@ -435,7 +428,6 @@ const messageStream = (
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("messages", phone),
     recover,
-    shouldRecover: isCloudRecoverable,
     processLive: (event) =>
       skipUnmappable(
         streamLabel("messages", phone),
@@ -458,14 +450,8 @@ const messageStream = (
                 onInbound
               )
           ),
-    subscribeLive: (cursor, signals) =>
-      subscribeWithHeartbeat(
-        client.messages,
-        "messages",
-        cursor,
-        signals,
-        context
-      ),
+    subscribeLive: (cursor) =>
+      subscribeWithHeartbeat(client.messages, "messages", cursor, context),
   });
 
 const pollStream = (
@@ -481,7 +467,6 @@ const pollStream = (
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("polls", phone),
     recover,
-    shouldRecover: isCloudRecoverable,
     processLive: (event) =>
       skipUnmappable(streamLabel("polls", phone), String(event.sequence), () =>
         toPollItem(client, pollCache, event, phone, String(event.sequence))
@@ -501,8 +486,8 @@ const pollStream = (
                 String(event.sequence)
               )
           ),
-    subscribeLive: (cursor, signals) =>
-      subscribeWithHeartbeat(client.polls, "polls", cursor, signals, context),
+    subscribeLive: (cursor) =>
+      subscribeWithHeartbeat(client.polls, "polls", cursor, context),
   });
 
 const groupStream = (
@@ -517,7 +502,6 @@ const groupStream = (
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("groups", phone),
     recover,
-    shouldRecover: isCloudRecoverable,
     processLive: (event) =>
       skipUnmappable(streamLabel("groups", phone), String(event.sequence), () =>
         toGroupItem(client, event, phone, String(event.sequence))
@@ -530,8 +514,8 @@ const groupStream = (
             String(event.sequence),
             () => toGroupItem(client, event, phone, String(event.sequence))
           ),
-    subscribeLive: (cursor, signals) =>
-      subscribeWithHeartbeat(client.groups, "groups", cursor, signals, context),
+    subscribeLive: (cursor) =>
+      subscribeWithHeartbeat(client.groups, "groups", cursor, context),
   });
 
 const clientStream = (

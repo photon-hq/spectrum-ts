@@ -11,9 +11,6 @@ export const PENDING_OPERATION_WARNING_MS = 30_000;
 // to error so persistent causes (credential mismatch, dead proxy, DNS) surface
 // in telemetry while the stream keeps retrying.
 export const PERSISTENT_FAILURE_ERROR_THRESHOLD = 5;
-// A live subscription that stays up this long counts as recovered even before
-// an event arrives, so idle streams do not accumulate failures forever.
-export const LIVE_HEALTHY_AFTER_MS = 20_000;
 
 const log = createLogger("spectrum.stream");
 
@@ -23,11 +20,6 @@ export interface CloseableAsyncIterable<T> extends AsyncIterable<T> {
   close?: () => Promise<void> | void;
   /** Enables pending-operation diagnostics. Identity only; never payloads or secrets. */
   readonly diagnosticAttrs?: Readonly<LogAttrs>;
-}
-
-/** Passed to `subscribeLive`; `alive()` reports a server liveness signal such as a heartbeat. */
-export interface LiveSignals {
-  alive: () => void;
 }
 
 export interface ResumableStreamItem<T> {
@@ -61,8 +53,6 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   jitter?: (delayMs: number) => number;
   /** Log provenance, e.g. "imessage.messages:+1555…". */
   label?: string;
-  /** Uptime after which a live `alive()` signal resets the failure count; injectable for tests. */
-  liveHealthyAfterMs?: number;
   maxRetryDelayMs?: number;
   processLive: (event: TLive) => Promise<ResumableStreamItem<TOutput>>;
   processMissed: (event: TMissed) => Promise<ResumableStreamItem<TOutput>>;
@@ -78,12 +68,7 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   recover?: (error: unknown, failureCount: number) => Promise<void> | void;
   /** Cap on how long a `recover` hook may run before it is abandoned; injectable for tests. */
   recoverTimeoutMs?: number;
-  /** Return false for failures `recover` cannot fix; they skip the hook without spending its window. */
-  shouldRecover?: (error: unknown) => boolean;
-  subscribeLive: (
-    cursor: string | undefined,
-    signals: LiveSignals
-  ) => CloseableAsyncIterable<TLive>;
+  subscribeLive: (cursor?: string) => CloseableAsyncIterable<TLive>;
 }
 
 class RetryableStreamError extends Error {
@@ -206,8 +191,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     const maxRetryDelayMs = options.maxRetryDelayMs ?? RECONNECT_MAX_DELAY_MS;
     const jitter = options.jitter ?? jitterDelay;
     const recoverTimeoutMs = options.recoverTimeoutMs ?? RECOVER_TIMEOUT_MS;
-    const liveHealthyAfterMs =
-      options.liveHealthyAfterMs ?? LIVE_HEALTHY_AFTER_MS;
     const label = options.label;
 
     let activeLive: CloseableAsyncIterable<TLive> | undefined;
@@ -217,7 +200,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     // at most once per `PERSISTENT_FAILURE_ERROR_THRESHOLD` window instead of on
     // every retry. Reset on recovery so a later outage triggers it again.
     let lastRecoverAttempt = 0;
-    let liveGeneration = 0;
     let lastCursor: string | undefined;
     let retryDelayMs = initialRetryDelayMs;
     let sleepTimer: ReturnType<typeof setTimeout> | undefined;
@@ -250,27 +232,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
         "spectrum.stream.attempt": failedAttempts,
       });
       failedAttempts = 0;
-    };
-
-    // Only the newest subscription may report liveness, and only once it has
-    // outlived a connect-then-drop flap. With a cursor, finishing catch-up is
-    // the recovery signal instead.
-    const liveSignals = (phase: StreamPhase): LiveSignals => {
-      liveGeneration += 1;
-      const generation = liveGeneration;
-      const openedAt = Date.now();
-      return {
-        alive: () => {
-          if (
-            phase === "live" &&
-            !closed &&
-            generation === liveGeneration &&
-            Date.now() - openedAt >= liveHealthyAfterMs
-          ) {
-            noteRecovery();
-          }
-        },
-      };
     };
 
     const advanceCursor = (
@@ -465,7 +426,6 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     const maybeRecover = async (error: unknown): Promise<void> => {
       if (
         !options.recover ||
-        options.shouldRecover?.(error) === false ||
         failedAttempts < PERSISTENT_FAILURE_ERROR_THRESHOLD ||
         failedAttempts - lastRecoverAttempt < PERSISTENT_FAILURE_ERROR_THRESHOLD
       ) {
@@ -501,7 +461,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     const consumeLive = async (): Promise<void> => {
-      const live = options.subscribeLive(lastCursor, liveSignals("live"));
+      const live = options.subscribeLive(lastCursor);
       activeLive = live;
       try {
         for await (const event of live) {
@@ -630,7 +590,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     const catchUpThenConsumeLive = async (cursor: string): Promise<void> => {
-      const live = options.subscribeLive(cursor, liveSignals("catch-up"));
+      const live = options.subscribeLive(cursor);
       activeLive = live;
 
       let buffering = true;

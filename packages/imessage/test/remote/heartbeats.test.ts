@@ -259,9 +259,6 @@ describe("identified iMessage heartbeats", () => {
     current(remote.messages).heartbeat();
     await flush();
     expect(remote.messages.subscribeEvents).toHaveBeenCalledTimes(1);
-    expect(
-      remote.messages.subscribeEvents.mock.calls[0]?.[0]?.onHeartbeat
-    ).toBeUndefined();
   });
 
   it("assigns a new subscription identity on reconnect and rejects old callbacks", async () => {
@@ -605,12 +602,6 @@ describe("iMessage pending processing diagnostics", () => {
         expect(attrs.subscriptionId).toBe(observed[0]?.subscriptionId);
         expect(attrs.subscriptionId).not.toBe(observed.at(-1)?.subscriptionId);
       } else {
-        expect(
-          remote.messages.subscribeEvents.mock.calls[0]?.[0]
-        ).toBeUndefined();
-        expect(
-          sibling.messages.subscribeEvents.mock.calls[0]?.[0]
-        ).toBeUndefined();
         expect(observed).toHaveLength(0);
       }
       await vi.advanceTimersByTimeAsync(60_000);
@@ -719,7 +710,7 @@ describe("iMessage pending processing diagnostics", () => {
     }
   });
 
-  it("enables bounded warnings through real Spectrum config without requesting heartbeats", async () => {
+  it("enables bounded warnings through real Spectrum config without a heartbeat observer", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     const remote = client();
     const completion = Promise.withResolvers<void>();
@@ -751,9 +742,6 @@ describe("iMessage pending processing diagnostics", () => {
         projectId: "proj",
         "spectrum.stream.operation": "mapping",
       });
-      expect(
-        remote.messages.subscribeEvents.mock.calls[0]?.[0]
-      ).toBeUndefined();
       expect(JSON.stringify(pendingWarnings())).not.toMatch(
         PRIVATE_DIAGNOSTIC_DATA
       );

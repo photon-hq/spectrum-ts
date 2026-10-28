@@ -80,6 +80,7 @@ export {
 } from "./utils/photo-content";
 export {
   type CloseableAsyncIterable,
+  type LiveSignals,
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "./utils/resumable-stream";

@@ -19,6 +19,7 @@ import {
   createLogger,
   createStreamGroup,
   errorAttrs,
+  type LiveSignals,
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "@spectrum-ts/core/authoring";
@@ -368,12 +369,17 @@ const subscribeWithHeartbeat = <
   },
   stream: IMessageHeartbeat["stream"],
   cursor: string | undefined,
+  signals: LiveSignals,
   context: SubscriptionContext
 ): CloseableAsyncIterable<T> => {
   let active = false;
   const subscriptionId = randomUUID();
   const onHeartbeat = (): void => {
-    if (!(active && context.onHeartbeat)) {
+    if (!active) {
+      return;
+    }
+    signals.alive();
+    if (!context.onHeartbeat) {
       return;
     }
     try {
@@ -392,9 +398,7 @@ const subscribeWithHeartbeat = <
       reportHeartbeatError(error);
     }
   };
-  const source = context.onHeartbeat
-    ? resource.subscribeEvents({ onHeartbeat })
-    : resource.subscribeEvents();
+  const source = resource.subscribeEvents({ onHeartbeat });
   active = true;
   const close = async (): Promise<void> => {
     active = false;
@@ -420,7 +424,7 @@ const messageStream = (
   phone: string,
   context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -450,8 +454,14 @@ const messageStream = (
                 onInbound
               )
           ),
-    subscribeLive: (cursor) =>
-      subscribeWithHeartbeat(client.messages, "messages", cursor, context),
+    subscribeLive: (cursor, signals) =>
+      subscribeWithHeartbeat(
+        client.messages,
+        "messages",
+        cursor,
+        signals,
+        context
+      ),
   });
 
 const pollStream = (
@@ -459,7 +469,7 @@ const pollStream = (
   pollCache: PollCache,
   phone: string,
   context: SubscriptionContext,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -486,15 +496,15 @@ const pollStream = (
                 String(event.sequence)
               )
           ),
-    subscribeLive: (cursor) =>
-      subscribeWithHeartbeat(client.polls, "polls", cursor, context),
+    subscribeLive: (cursor, signals) =>
+      subscribeWithHeartbeat(client.polls, "polls", cursor, signals, context),
   });
 
 const groupStream = (
   client: AdvancedIMessage,
   phone: string,
   context: SubscriptionContext,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -514,8 +524,8 @@ const groupStream = (
             String(event.sequence),
             () => toGroupItem(client, event, phone, String(event.sequence))
           ),
-    subscribeLive: (cursor) =>
-      subscribeWithHeartbeat(client.groups, "groups", cursor, context),
+    subscribeLive: (cursor, signals) =>
+      subscribeWithHeartbeat(client.groups, "groups", cursor, signals, context),
   });
 
 const clientStream = (
@@ -525,7 +535,7 @@ const clientStream = (
   includeGroupEvents: boolean,
   context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
     messageStream(client, phone, context, onInbound, recover),

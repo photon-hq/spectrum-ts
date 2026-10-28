@@ -71,7 +71,14 @@ vi.doMock("@spectrum-ts/core", async (importOriginal) => {
   };
 });
 
-vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({ createGrpcClient }));
+class FakeAuthenticationError extends Error {}
+class FakeConnectionError extends Error {}
+const authRejection = () => new FakeAuthenticationError("Invalid credentials");
+
+vi.doMock("@photon-ai/advanced-imessage/grpc", () => ({
+  AuthenticationError: FakeAuthenticationError,
+  createGrpcClient,
+}));
 
 const { createCloudClients, disposeCloudAuth, getCloudRecover } = await import(
   "@/auth"
@@ -97,7 +104,7 @@ const startClients = async (initial: FakeTokenData) => {
   const refresh = async (next: FakeTokenData): Promise<void> => {
     issueImessageTokens.mockResolvedValueOnce(next);
     await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
-    await recover();
+    await recover(authRejection());
     // Settle the fire-and-forget retire of any removed line.
     await vi.advanceTimersByTimeAsync(0);
   };
@@ -225,7 +232,7 @@ describe("imessage cloud auth", () => {
     expect(issueImessageTokens.mock.calls[0]?.[2]).toBe(startup.signal);
     startup.abort();
     await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
-    await getCloudRecover(clients)?.();
+    await getCloudRecover(clients)?.(authRejection());
     const refreshSignal = issueImessageTokens.mock.calls[1]?.[2];
     expect(refreshSignal).toBeInstanceOf(AbortSignal);
     expect(refreshSignal).not.toBe(startup.signal);
@@ -247,7 +254,7 @@ describe("imessage cloud auth", () => {
         })
     );
     await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
-    const refresh = getCloudRecover(clients)?.().catch(
+    const refresh = getCloudRecover(clients)?.(authRejection()).catch(
       (error: unknown) => error
     );
     const signal = issueImessageTokens.mock.calls[1]?.[2];
@@ -335,8 +342,8 @@ describe("imessage cloud auth", () => {
     }
 
     await vi.advanceTimersByTimeAsync(5000);
-    const first = recover();
-    const second = recover();
+    const first = recover(authRejection());
+    const second = recover(authRejection());
     expect(issueImessageTokens).toHaveBeenCalledTimes(2);
 
     resolveRefresh?.({
@@ -353,6 +360,26 @@ describe("imessage cloud auth", () => {
 
     await disposeCloudAuth(clients);
     expect(getCloudRecover(clients)).toBeUndefined();
+  });
+
+  it("re-mints only when the stream failure is an auth rejection", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const clients = await createCloudClients("project-1", "secret-1");
+    const recover = getCloudRecover(clients);
+    if (!recover) {
+      throw new Error("expected cloud recovery hook");
+    }
+
+    await vi.advanceTimersByTimeAsync(FORCE_REFRESH_FLOOR_MS);
+    await recover(new FakeConnectionError("stream closed by transport"));
+    await recover(new Error("socket hang up"));
+    expect(issueImessageTokens).toHaveBeenCalledTimes(1);
+
+    await recover(authRejection());
+    expect(issueImessageTokens).toHaveBeenCalledTimes(2);
+
+    await disposeCloudAuth(clients);
   });
 
   it("attaches a line provisioned after startup", async () => {

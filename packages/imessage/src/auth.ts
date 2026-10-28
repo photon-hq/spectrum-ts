@@ -1,4 +1,7 @@
-import { createGrpcClient } from "@photon-ai/advanced-imessage/grpc";
+import {
+  AuthenticationError,
+  createGrpcClient,
+} from "@photon-ai/advanced-imessage/grpc";
 import {
   cloud,
   type DedicatedTokenData,
@@ -302,11 +305,21 @@ export async function disposeCloudAuth(clients: RemoteClient[]): Promise<void> {
 /**
  * The recover hook for a cloud-backed client array: forces a token re-mint so a
  * persistently-failing stream (server rejecting an unexpired token after a
- * restart) gets a fresh bearer on its next reconnect. Returns undefined for
+ * restart) gets a fresh bearer on its next reconnect. Other failures, such as a
+ * dropped transport, leave the token alone: a re-mint covers every line, so it
+ * must not run on routine disconnects. Returns undefined for
  * explicitly-configured (static-token) clients, which have nothing to re-mint.
  */
 export function getCloudRecover(
   clients: RemoteClient[]
-): (() => Promise<void>) | undefined {
-  return cloudAuthState.get(clients)?.forceRefresh;
+): ((error: unknown) => Promise<void>) | undefined {
+  const auth = cloudAuthState.get(clients);
+  if (!auth) {
+    return;
+  }
+  return async (error) => {
+    if (error instanceof AuthenticationError) {
+      await auth.forceRefresh();
+    }
+  };
 }

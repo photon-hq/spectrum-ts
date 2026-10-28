@@ -25,7 +25,7 @@ jobs:
       # Pin the Node that the build's smoke-import executes under.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 26
       - run: bun install --frozen-lockfile
       - run: bun run check # ultracite lint/format
       - run: bun run typecheck # per-package tsc --noEmit via turbo
@@ -59,6 +59,6 @@ jobs:
       - if: matrix.runtime == 'node'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24
+          node-version: 26
       - run: bun install --frozen-lockfile
       - run: bun run test:${{ matrix.runtime }} # turbo -> per-package vitest run

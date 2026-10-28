@@ -78,6 +78,8 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   recover?: (error: unknown, failureCount: number) => Promise<void> | void;
   /** Cap on how long a `recover` hook may run before it is abandoned; injectable for tests. */
   recoverTimeoutMs?: number;
+  /** Return false for failures `recover` cannot fix; they skip the hook without spending its window. */
+  shouldRecover?: (error: unknown) => boolean;
   subscribeLive: (
     cursor: string | undefined,
     signals: LiveSignals
@@ -251,14 +253,16 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     // Only the newest subscription may report liveness, and only once it has
-    // outlived a connect-then-drop flap.
-    const liveSignals = (): LiveSignals => {
+    // outlived a connect-then-drop flap. With a cursor, finishing catch-up is
+    // the recovery signal instead.
+    const liveSignals = (phase: StreamPhase): LiveSignals => {
       liveGeneration += 1;
       const generation = liveGeneration;
       const openedAt = Date.now();
       return {
         alive: () => {
           if (
+            phase === "live" &&
             !closed &&
             generation === liveGeneration &&
             Date.now() - openedAt >= liveHealthyAfterMs
@@ -461,6 +465,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     const maybeRecover = async (error: unknown): Promise<void> => {
       if (
         !options.recover ||
+        options.shouldRecover?.(error) === false ||
         failedAttempts < PERSISTENT_FAILURE_ERROR_THRESHOLD ||
         failedAttempts - lastRecoverAttempt < PERSISTENT_FAILURE_ERROR_THRESHOLD
       ) {
@@ -496,7 +501,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     const consumeLive = async (): Promise<void> => {
-      const live = options.subscribeLive(lastCursor, liveSignals());
+      const live = options.subscribeLive(lastCursor, liveSignals("live"));
       activeLive = live;
       try {
         for await (const event of live) {
@@ -625,7 +630,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     };
 
     const catchUpThenConsumeLive = async (cursor: string): Promise<void> => {
-      const live = options.subscribeLive(cursor, liveSignals());
+      const live = options.subscribeLive(cursor, liveSignals("catch-up"));
       activeLive = live;
 
       let buffering = true;

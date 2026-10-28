@@ -90,6 +90,7 @@ interface FixtureConfig {
   processMissed?: (event: Item) => Promise<Item>;
   recover?: (error: unknown, failureCount: number) => Promise<void> | void;
   recoverTimeoutMs?: number;
+  shouldRecover?: (error: unknown) => boolean;
 }
 
 const buildStream = (config: FixtureConfig) => {
@@ -121,6 +122,7 @@ const buildStream = (config: FixtureConfig) => {
     processMissed: config.processMissed ?? ((event) => Promise.resolve(event)),
     recover: config.recover,
     recoverTimeoutMs: config.recoverTimeoutMs,
+    shouldRecover: config.shouldRecover,
     subscribeLive: (cursor, signals) => {
       liveCalls.push(cursor);
       return config.live(liveCalls.length, cursor, signals);
@@ -498,6 +500,50 @@ describe("resumableOrderedStream", () => {
 
     await waitUntil(() => recoverAt.length >= 1);
     expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("does not count liveness during catch-up as recovery", async () => {
+    const recoverAt: number[] = [];
+    const fx = buildStream({
+      liveHealthyAfterMs: 0,
+      fetchMissed: () => failingSource(() => new Error("catch-up failed")),
+      live: (call, _cursor, signals) => {
+        if (call === 1) {
+          return liveSession([item("1", "v1")], "throw");
+        }
+        signals.alive();
+        return liveSession([], "pending");
+      },
+      recover: (_error, failureCount) => {
+        recoverAt.push(failureCount);
+      },
+    });
+
+    await waitUntil(() => recoverAt.length >= 1);
+    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("lets failures recover cannot fix pass without spending its window", async () => {
+    const recoverAt: number[] = [];
+    const fx = buildStream({
+      live: (call) =>
+        liveSession([], "throw", () =>
+          call <= PERSISTENT_FAILURE_ERROR_THRESHOLD
+            ? new Error("stream closed by transport")
+            : new FakeCursorError()
+        ),
+      shouldRecover: isFakeCursorError,
+      recover: (_error, failureCount) => {
+        recoverAt.push(failureCount);
+      },
+    });
+
+    await waitUntil(() => recoverAt.length >= 1);
+    expect(recoverAt[0]).toBe(PERSISTENT_FAILURE_ERROR_THRESHOLD + 1);
     await fx.close();
     expect(await fx.ended).toBe("done");
   });

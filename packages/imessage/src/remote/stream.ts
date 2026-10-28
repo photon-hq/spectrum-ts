@@ -23,7 +23,7 @@ import {
   type ResumableStreamItem,
   resumableOrderedStream,
 } from "@spectrum-ts/core/authoring";
-import { getCloudRecover } from "../auth";
+import { getCloudRecover, isCloudRecoverable } from "../auth";
 import { getMessageCache, getPollCache, type PollCache } from "../cache";
 import { addLineObserver, lineKey } from "../lines";
 import {
@@ -426,7 +426,7 @@ const messageStream = (
   phone: string,
   context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: (error: unknown) => Promise<void>
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -434,6 +434,7 @@ const messageStream = (
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("messages", phone),
     recover,
+    shouldRecover: isCloudRecoverable,
     processLive: (event) =>
       skipUnmappable(
         streamLabel("messages", phone),
@@ -471,7 +472,7 @@ const pollStream = (
   pollCache: PollCache,
   phone: string,
   context: SubscriptionContext,
-  recover?: (error: unknown) => Promise<void>
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -479,6 +480,7 @@ const pollStream = (
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("polls", phone),
     recover,
+    shouldRecover: isCloudRecoverable,
     processLive: (event) =>
       skipUnmappable(streamLabel("polls", phone), String(event.sequence), () =>
         toPollItem(client, pollCache, event, phone, String(event.sequence))
@@ -506,7 +508,7 @@ const groupStream = (
   client: AdvancedIMessage,
   phone: string,
   context: SubscriptionContext,
-  recover?: (error: unknown) => Promise<void>
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -514,6 +516,7 @@ const groupStream = (
     isCursorRejectedError: isCursorRejectedIMessageError,
     label: streamLabel("groups", phone),
     recover,
+    shouldRecover: isCloudRecoverable,
     processLive: (event) =>
       skipUnmappable(streamLabel("groups", phone), String(event.sequence), () =>
         toGroupItem(client, event, phone, String(event.sequence))
@@ -537,7 +540,7 @@ const clientStream = (
   includeGroupEvents: boolean,
   context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: (error: unknown) => Promise<void>
+  recover?: () => Promise<void>
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
     messageStream(client, phone, context, onInbound, recover),

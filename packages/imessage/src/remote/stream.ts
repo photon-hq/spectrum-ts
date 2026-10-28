@@ -369,7 +369,8 @@ const subscribeWithHeartbeat = <
   },
   stream: IMessageHeartbeat["stream"],
   cursor: string | undefined,
-  signals: LiveSignals,
+  // Undefined on cores that predate liveness signals.
+  signals: LiveSignals | undefined,
   context: SubscriptionContext
 ): CloseableAsyncIterable<T> => {
   let active = false;
@@ -380,7 +381,7 @@ const subscribeWithHeartbeat = <
     }
     // Servers send one heartbeat on subscribe and then every 30 s, so the
     // second one is the first to outlast LIVE_HEALTHY_AFTER_MS.
-    signals.alive();
+    signals?.alive();
     if (!context.onHeartbeat) {
       return;
     }
@@ -426,7 +427,7 @@ const messageStream = (
   phone: string,
   context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<MessageEvent, MessageCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -472,7 +473,7 @@ const pollStream = (
   pollCache: PollCache,
   phone: string,
   context: SubscriptionContext,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<PollEvent, PollCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -508,7 +509,7 @@ const groupStream = (
   client: AdvancedIMessage,
   phone: string,
   context: SubscriptionContext,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> =>
   resumableOrderedStream<GroupEvent, GroupCatchUpEvent, IMessageMessage>({
     eventDiagnosticAttrs,
@@ -540,7 +541,7 @@ const clientStream = (
   includeGroupEvents: boolean,
   context: SubscriptionContext,
   onInbound?: OnInboundMessage,
-  recover?: () => Promise<void>
+  recover?: (error: unknown) => Promise<void>
 ): ManagedStream<IMessageMessage> => {
   const streams: ManagedStream<IMessageMessage>[] = [
     messageStream(client, phone, context, onInbound, recover),

@@ -303,20 +303,30 @@ export async function disposeCloudAuth(clients: RemoteClient[]): Promise<void> {
 }
 
 /**
- * The recover hook for a cloud-backed client array: forces a token re-mint so a
- * persistently-failing stream (server rejecting an unexpired token after a
- * restart) gets a fresh bearer on its next reconnect. Returns undefined for
- * explicitly-configured (static-token) clients, which have nothing to re-mint.
- */
-export function getCloudRecover(
-  clients: RemoteClient[]
-): (() => Promise<void>) | undefined {
-  return cloudAuthState.get(clients)?.forceRefresh;
-}
-
-/**
  * Only an auth rejection is fixed by a re-mint, which covers every line, so a
  * dropped transport must not trigger one.
  */
 export const isCloudRecoverable = (error: unknown): boolean =>
   error instanceof AuthenticationError;
+
+/**
+ * The recover hook for a cloud-backed client array: forces a token re-mint so a
+ * persistently-failing stream (server rejecting an unexpired token after a
+ * restart) gets a fresh bearer on its next reconnect. It checks
+ * `isCloudRecoverable` itself because cores without `shouldRecover` call it for
+ * every persistent failure. Returns undefined for explicitly-configured
+ * (static-token) clients, which have nothing to re-mint.
+ */
+export function getCloudRecover(
+  clients: RemoteClient[]
+): ((error: unknown) => Promise<void>) | undefined {
+  const forceRefresh = cloudAuthState.get(clients)?.forceRefresh;
+  if (!forceRefresh) {
+    return;
+  }
+  return async (error) => {
+    if (isCloudRecoverable(error)) {
+      await forceRefresh();
+    }
+  };
+}

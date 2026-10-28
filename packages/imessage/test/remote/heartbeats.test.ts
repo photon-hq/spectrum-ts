@@ -291,6 +291,34 @@ describe("identified iMessage heartbeats", () => {
     });
   });
 
+  it("keeps streaming on a core that passes no liveness signals", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const actual = await vi.importActual<
+      typeof import("@spectrum-ts/core/authoring")
+    >("@spectrum-ts/core/authoring");
+    vi.mocked(resumableOrderedStream).mockImplementation((options) =>
+      actual.resumableOrderedStream({
+        ...options,
+        shouldRecover: undefined,
+        subscribeLive: (cursor) =>
+          options.subscribeLive(cursor, undefined as never),
+      })
+    );
+    onTestFinished(() => {
+      vi.mocked(resumableOrderedStream).mockImplementation(
+        actual.resumableOrderedStream
+      );
+    });
+    const remote = client();
+    await start([remote.entry]);
+
+    current(remote.polls).heartbeat();
+    await flush();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(remote.polls.subscribeEvents).toHaveBeenCalledTimes(1);
+  });
+
   it("assigns a new subscription identity on reconnect and rejects old callbacks", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const remote = client();

@@ -183,14 +183,13 @@ const advancedMessageFieldPolicy = {
   replyTargetGuid: "omit",
   sendErrorCode: "expose",
   sender: "omit",
-  senderDeviceId: "expose",
   shareDirection: "omit",
   shareStatus: "omit",
   subject: "expose",
   threadOriginatorGuid: "omit",
   threadOriginatorPart: "omit",
 } as const satisfies Record<
-  keyof AdvancedIMessageMessage | "senderDeviceId",
+  keyof AdvancedIMessageMessage,
   "expose" | "transform" | "omit"
 >;
 

@@ -24,6 +24,7 @@ const CREATED_AT = new Date("2026-02-03T04:05:06.000Z");
 const DELIVERED_AT = new Date("2026-02-03T04:05:07.000Z");
 const READ_AT = new Date("2026-02-03T04:05:08.000Z");
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
+const SENDER_DEVICE_ID = `pho_device_v1_${"a".repeat(64)}`;
 
 const nativeAttachment = (
   guid = "attachment-guid"
@@ -39,7 +40,9 @@ const nativeAttachment = (
   uti: "public.png",
 });
 
-const nativeMessage = (overrides: Partial<SDKMessage> = {}): SDKMessage => ({
+const nativeMessage = (
+  overrides: Partial<SDKMessage> & { senderDeviceId?: string } = {}
+): SDKMessage => ({
   appliedReactions: [],
   chatGuids: ["iMessage;+;chat-guid"],
   content: {
@@ -116,7 +119,7 @@ describe("curated metadata across native message paths", () => {
     const [message] = await toInboundMessages(
       remote,
       new MessageCache(),
-      receivedEvent(nativeMessage()),
+      receivedEvent(nativeMessage({ senderDeviceId: SENDER_DEVICE_ID })),
       "+15550000000"
     );
 
@@ -129,11 +132,14 @@ describe("curated metadata across native message paths", () => {
       mentions: [{ address: "+15551230002", length: 7, start: 6 }],
       nativeText: "Hello @Taylor",
       sendErrorCode: 0,
+      senderDeviceId: SENDER_DEVICE_ID,
     });
   });
 
   it("includes metadata on getMessage and reads the server every time", async () => {
-    const get = vi.fn(() => Promise.resolve(nativeMessage()));
+    const get = vi.fn(() =>
+      Promise.resolve(nativeMessage({ senderDeviceId: SENDER_DEVICE_ID }))
+    );
     const remote = {
       messages: { get },
     } as unknown as AdvancedIMessage;
@@ -154,6 +160,7 @@ describe("curated metadata across native message paths", () => {
     expect(get).toHaveBeenCalledTimes(2);
     expect(first?.dateDelivered).toEqual(DELIVERED_AT);
     expect(first?.nativeText).toBe("Hello @Taylor");
+    expect(first?.senderDeviceId).toBe(SENDER_DEVICE_ID);
     expect(second).toEqual(first);
   });
 
@@ -308,6 +315,7 @@ describe("curated metadata across native message paths", () => {
             text: `before ${ATTACHMENT_PLACEHOLDER} after`,
           },
           partCount: 3,
+          senderDeviceId: SENDER_DEVICE_ID,
         })
       ),
       "+15550000000"
@@ -319,6 +327,7 @@ describe("curated metadata across native message paths", () => {
     }
 
     expect(parent.partCount).toBe(3);
+    expect(parent.senderDeviceId).toBe(SENDER_DEVICE_ID);
     expect(parent.attachmentMetadata).toEqual([
       {
         companionKind: undefined,
@@ -338,6 +347,7 @@ describe("curated metadata across native message paths", () => {
       expect(child.parentId).toBe("message-guid");
       expect(child.partIndex).toBe(partIndex);
       expect(child.attachmentMetadata).toEqual(parent.attachmentMetadata);
+      expect(child.senderDeviceId).toBe(SENDER_DEVICE_ID);
     }
   });
 

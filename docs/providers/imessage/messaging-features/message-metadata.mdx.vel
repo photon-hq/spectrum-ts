@@ -17,6 +17,7 @@ lifecycle and formatting values no longer describe the edited message. Use
 
 | Use case | Fields |
 |---|---|
+| Sender device | Optional `senderDeviceId` for an inbound iMessage with verified device identity |
 | Delivery and lifecycle | `isSent`, `isDelivered`, `isDeliveredQuietly`, `didNotifyRecipient`, `isDelayed`, `sendErrorCode`, and the `dateDelivered`, `dateRead`, `datePlayed`, `dateEdited`, `dateRetracted`, and `dateExpressiveSendPlayed` timestamps |
 | Native text | `nativeText`, `formatting`, `mentions`, `subject`, `balloonBundleId`, and `expressiveSendStyleId` |
 | Attachments | `attachmentMetadata`, including transfer state, UTI, sticker/hidden status, original GUID, and Live Photo companion kind |
@@ -49,6 +50,19 @@ if (message && imessage.is(message)) {
 
 The same guard works inside `for await (const [, message] of
 spectrum.messages)`.
+
+`senderDeviceId` identifies the sender's verified signing identity. Dedicated
+and shared lines expose it on the message, including `space.getMessage()` and
+each part of a multipart message, when the server and underlying Advanced
+iMessage SDK support the field. Upgrading Spectrum alone cannot recover a field
+discarded by an older SDK decoder or shared-line proxy.
+
+Treat this ID as opaque. It can remain the same across sender phone/email aliases
+and push-token changes while the signing identity is unchanged. A signing-key
+change can change the ID; it is not a permanent hardware identifier or proof of
+customer authorization. Missing evidence, older servers, outbound messages, and
+SMS/RCS messages leave it undefined. An absent ID does not indicate a new device
+and does not prevent message delivery. No extra identity lookup is performed.
 
 `nativeText` preserves Apple's original text because formatting and mention
 ranges use UTF-16 offsets into that string. Spectrum can split native

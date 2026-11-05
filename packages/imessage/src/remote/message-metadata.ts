@@ -150,6 +150,11 @@ const toReactionRecord = (
 export const toMessageMetadata = (
   native: AdvancedIMessageMessage
 ): IMessageNativeMessageMetadata => ({
+  senderDeviceId:
+    "senderDeviceId" in native && typeof native.senderDeviceId === "string"
+      ? native.senderDeviceId || undefined
+      : undefined,
+
   dateDelivered: native.dateDelivered,
   dateEdited: native.dateEdited,
   dateExpressiveSendPlayed: native.dateExpressiveSendPlayed,

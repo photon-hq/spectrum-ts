@@ -1,12 +1,13 @@
-import type {
-  AdvancedIMessage,
-  MessageEvent,
-  Message as SDKMessage,
+import {
+  type AdvancedIMessage,
+  type MessageEvent,
+  NotFoundError,
+  type Message as SDKMessage,
 } from "@photon-ai/advanced-imessage/grpc";
 import type { Content, Message } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
-import { MessageCache } from "@/cache";
+import { getMessageCache, MessageCache } from "@/cache";
 import {
   getMessage,
   type ReceivedEvent,
@@ -91,6 +92,18 @@ const groupOf = (...contents: Content[]): Content =>
     ),
   });
 
+const sentRecord = (
+  overrides: Partial<IMessageMessage> = {}
+): IMessageMessage =>
+  ({
+    content: asText("Hello @Taylor"),
+    direction: "outbound",
+    id: "message-guid",
+    space: { id: "iMessage;+;chat-guid" },
+    timestamp: CREATED_AT,
+    ...overrides,
+  }) as IMessageMessage;
+
 describe("curated metadata across native message paths", () => {
   it("includes metadata on ordinary inbound messages without extra RPCs", async () => {
     const get = vi.fn();
@@ -115,7 +128,7 @@ describe("curated metadata across native message paths", () => {
     });
   });
 
-  it("includes metadata on getMessage and preserves cache-first behavior", async () => {
+  it("includes metadata on getMessage and reads the server every time", async () => {
     const get = vi.fn(() => Promise.resolve(nativeMessage()));
     const remote = {
       messages: { get },
@@ -134,10 +147,92 @@ describe("curated metadata across native message paths", () => {
       "+15550000000"
     );
 
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
     expect(first?.dateDelivered).toEqual(DELIVERED_AT);
     expect(first?.nativeText).toBe("Hello @Taylor");
-    expect(second).toBe(first);
+    expect(second).toEqual(first);
+  });
+
+  it("reads the current state from the server when the message is cached", async () => {
+    const get = vi.fn(() => Promise.resolve(nativeMessage({ isFromMe: true })));
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+    const sent = sentRecord({ isDelivered: false });
+    getMessageCache(remote).set("message-guid", sent);
+
+    const message = await getMessage(
+      remote,
+      "iMessage;+;chat-guid",
+      "message-guid",
+      "+15550000000"
+    );
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(message?.isDelivered).toBe(true);
+    expect(message?.dateDelivered).toEqual(DELIVERED_AT);
+    expect(message?.dateRead).toEqual(READ_AT);
+    expect(getMessageCache(remote).get("message-guid")).toBe(sent);
+  });
+
+  it("returns the cached message when the server does not have it", async () => {
+    const get = vi.fn(() =>
+      Promise.reject(
+        new NotFoundError("message not found", {
+          code: "messageNotFound",
+          grpcCode: 5,
+          retryable: false,
+        })
+      )
+    );
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+    const sent = sentRecord();
+    getMessageCache(remote).set("message-guid", sent);
+
+    const message = await getMessage(
+      remote,
+      "iMessage;+;chat-guid",
+      "message-guid",
+      "+15550000000"
+    );
+
+    expect(message).toBe(sent);
+  });
+
+  it("reads a cached multipart child from the server without overwriting it", async () => {
+    const get = vi.fn(() =>
+      Promise.resolve(
+        nativeMessage({
+          content: {
+            attachments: [nativeAttachment()],
+            formatting: [],
+            mentions: [],
+            text: `hello ${ATTACHMENT_PLACEHOLDER}`,
+          },
+          isFromMe: true,
+          partCount: 2,
+        })
+      )
+    );
+    const remote = {
+      messages: { get },
+    } as unknown as AdvancedIMessage;
+    const sent = sentRecord({ id: "p:0/message-guid", isDelivered: false });
+    getMessageCache(remote).set("p:0/message-guid", sent);
+
+    const message = await getMessage(
+      remote,
+      "iMessage;+;chat-guid",
+      "p:0/message-guid",
+      "+15550000000"
+    );
+
+    expect(get).toHaveBeenCalledWith("message-guid");
+    expect(message?.id).toBe("p:0/message-guid");
+    expect(message?.isDelivered).toBe(true);
+    expect(getMessageCache(remote).get("p:0/message-guid")).toBe(sent);
   });
 
   it("computes multipart metadata once and carries it to every child", async () => {

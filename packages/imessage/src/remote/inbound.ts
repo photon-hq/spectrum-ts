@@ -604,11 +604,12 @@ export const getMessage = async (
   msgId: string,
   phone: string
 ): Promise<IMessageMessage | undefined> => {
+  // Read the server so delivery and read state are current. Only fill the
+  // cache on a miss: a send-time entry holds what we sent, such as
+  // `miniAppCardSession`, which the server cannot rebuild. If the server no
+  // longer has the message, fall back to the cached copy as before.
   const cache = getMessageCache(remote);
   const cached = cache.get(msgId);
-  if (cached) {
-    return cached;
-  }
 
   const childRef = parseChildId(msgId);
   if (childRef) {
@@ -623,16 +624,18 @@ export const getMessage = async (
         spaceId,
         cache
       );
-      cacheMessage(cache, parent);
+      if (!cached) {
+        cacheMessage(cache, parent);
+      }
       const group = messageGroupContent(parent);
       if (!group) {
-        return;
+        return cached;
       }
       const item = group.items[childRef.partIndex];
-      return isIMessageMessage(item) ? item : undefined;
+      return isIMessageMessage(item) ? item : cached;
     } catch (err) {
       if (err instanceof NotFoundError) {
-        return;
+        return cached;
       }
       throw err;
     }
@@ -647,11 +650,13 @@ export const getMessage = async (
       spaceId,
       cache
     );
-    cacheMessage(cache, rebuilt);
+    if (!cached) {
+      cacheMessage(cache, rebuilt);
+    }
     return rebuilt;
   } catch (err) {
     if (err instanceof NotFoundError) {
-      return;
+      return cached;
     }
     throw err;
   }

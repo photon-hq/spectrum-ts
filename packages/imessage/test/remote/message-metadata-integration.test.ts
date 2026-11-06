@@ -1,6 +1,8 @@
 import {
   type AdvancedIMessage,
   type MessageEvent,
+  type MiniAppCardSession,
+  type MiniAppMessageResult,
   NotFoundError,
   type Message as SDKMessage,
 } from "@photon-ai/advanced-imessage/grpc";
@@ -8,13 +10,15 @@ import type { Content, Message } from "@spectrum-ts/core";
 import { asAttachment, asGroup, asText } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
 import { getMessageCache, MessageCache } from "@/cache";
+import { asCustomizedMiniApp } from "@/content/customized-mini-app";
+import { imessage } from "@/index";
 import {
   getMessage,
   type ReceivedEvent,
   toInboundMessages,
 } from "@/remote/inbound";
 import { send } from "@/remote/send";
-import type { IMessageMessage } from "@/types";
+import { type IMessageMessage, type RemoteClient, SHARED_PHONE } from "@/types";
 
 const CREATED_AT = new Date("2026-02-03T04:05:06.000Z");
 const DELIVERED_AT = new Date("2026-02-03T04:05:07.000Z");
@@ -172,7 +176,20 @@ describe("curated metadata across native message paths", () => {
     expect(message?.isDelivered).toBe(true);
     expect(message?.dateDelivered).toEqual(DELIVERED_AT);
     expect(message?.dateRead).toEqual(READ_AT);
+    expect(message?.content).toBe(sent.content);
     expect(getMessageCache(remote).get("message-guid")).toBe(sent);
+  });
+
+  it("throws server errors other than not found even when cached", async () => {
+    const failure = new Error("unavailable");
+    const remote = {
+      messages: { get: vi.fn(() => Promise.reject(failure)) },
+    } as unknown as AdvancedIMessage;
+    getMessageCache(remote).set("message-guid", sentRecord());
+
+    await expect(
+      getMessage(remote, "iMessage;+;chat-guid", "message-guid", "+15550000000")
+    ).rejects.toBe(failure);
   });
 
   it("returns the cached message when the server does not have it", async () => {
@@ -201,21 +218,62 @@ describe("curated metadata across native message paths", () => {
     expect(message).toBe(sent);
   });
 
-  it("reads a cached multipart child from the server without overwriting it", async () => {
-    const get = vi.fn(() =>
-      Promise.resolve(
-        nativeMessage({
-          content: {
-            attachments: [nativeAttachment()],
-            formatting: [],
-            mentions: [],
-            text: `hello ${ATTACHMENT_PLACEHOLDER}`,
-          },
-          isFromMe: true,
-          partCount: 2,
-        })
-      )
-    );
+  it("keeps the card session so a fetched card can still be edited", async () => {
+    const session: MiniAppCardSession = {
+      chatGuid: "iMessage;-;+15551230001",
+      messageGuid: "message-guid",
+      sessionId: "session-id",
+      targetMessageGuid: "message-guid",
+    };
+    const result = {
+      dateCreated: CREATED_AT,
+      guid: "message-guid",
+      miniAppCardSession: session,
+    } as MiniAppMessageResult;
+    const get = vi.fn(() => Promise.resolve(nativeMessage({ isFromMe: true })));
+    const sendCustomizedMiniApp = vi.fn(() => Promise.resolve(result));
+    const updateCustomizedMiniApp = vi.fn(() => Promise.resolve(result));
+    const client: RemoteClient[] = [
+      {
+        client: {
+          messages: { get, sendCustomizedMiniApp, updateCustomizedMiniApp },
+        } as unknown as AdvancedIMessage,
+        phone: SHARED_PHONE,
+      },
+    ];
+    const def = imessage.config({}).__definition;
+    const ctx = { client, config: {} as never, store: undefined as never };
+    const space = {
+      id: "iMessage;-;+15551230001",
+      phone: SHARED_PHONE,
+      type: "dm" as const,
+    };
+    const card = asCustomizedMiniApp({
+      appName: "Example",
+      extensionBundleId: "com.example.Messages",
+      layout: { caption: "Card" },
+      live: false,
+      teamId: "ABCDE12345",
+      url: "https://x.example/card",
+    });
+
+    await def.send({ ...ctx, content: card as never, space });
+    const fetched = await def.actions?.getMessage?.(ctx, space, "message-guid");
+    await def.send({
+      ...ctx,
+      content: { content: card, target: fetched, type: "edit" } as never,
+      space,
+    });
+
+    expect(fetched).toMatchObject({
+      dateDelivered: DELIVERED_AT,
+      isDelivered: true,
+    });
+    expect(updateCustomizedMiniApp).toHaveBeenCalledWith(session, card);
+  });
+
+  it("refreshes a cached multipart child from the server without overwriting it", async () => {
+    const get = vi.fn(() => Promise.resolve(nativeMessage({ isFromMe: true })));
     const remote = {
       messages: { get },
     } as unknown as AdvancedIMessage;
@@ -232,6 +290,7 @@ describe("curated metadata across native message paths", () => {
     expect(get).toHaveBeenCalledWith("message-guid");
     expect(message?.id).toBe("p:0/message-guid");
     expect(message?.isDelivered).toBe(true);
+    expect(message?.content).toBe(sent.content);
     expect(getMessageCache(remote).get("p:0/message-guid")).toBe(sent);
   });
 

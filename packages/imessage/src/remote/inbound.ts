@@ -604,10 +604,11 @@ export const getMessage = async (
   msgId: string,
   phone: string
 ): Promise<IMessageMessage | undefined> => {
-  // Read the server so delivery and read state are current. Only fill the
-  // cache on a miss: a send-time entry holds what we sent, such as
-  // `miniAppCardSession`, which the server cannot rebuild. If the server no
-  // longer has the message, fall back to the cached copy as before.
+  // Read the server so delivery and read state are current. A cached entry
+  // holds what we sent, such as `miniAppCardSession` and the latest card
+  // content, which the server cannot rebuild, so keep it and only refresh its
+  // native state. If the server no longer has the message, fall back to the
+  // cached copy as before.
   const cache = getMessageCache(remote);
   const cached = cache.get(msgId);
 
@@ -617,6 +618,9 @@ export const getMessage = async (
       const fetched = await remote.messages.get(
         toMessageGuid(childRef.parentGuid)
       );
+      if (cached) {
+        return { ...cached, ...toMessageMetadata(fetched) };
+      }
       const parent = await rebuildFromAppleMessage(
         remote,
         fetched,
@@ -624,9 +628,7 @@ export const getMessage = async (
         spaceId,
         cache
       );
-      if (!cached) {
-        cacheMessage(cache, parent);
-      }
+      cacheMessage(cache, parent);
       const group = messageGroupContent(parent);
       if (!group) {
         return;
@@ -643,6 +645,9 @@ export const getMessage = async (
 
   try {
     const fetched = await remote.messages.get(toMessageGuid(msgId));
+    if (cached) {
+      return { ...cached, ...toMessageMetadata(fetched) };
+    }
     const rebuilt = await rebuildFromAppleMessage(
       remote,
       fetched,
@@ -650,9 +655,7 @@ export const getMessage = async (
       spaceId,
       cache
     );
-    if (!cached) {
-      cacheMessage(cache, rebuilt);
-    }
+    cacheMessage(cache, rebuilt);
     return rebuilt;
   } catch (err) {
     if (err instanceof NotFoundError) {

@@ -629,10 +629,10 @@ export const getMessage = async (
       }
       const group = messageGroupContent(parent);
       if (!group) {
-        return cached;
+        return;
       }
       const item = group.items[childRef.partIndex];
-      return isIMessageMessage(item) ? item : cached;
+      return isIMessageMessage(item) ? item : undefined;
     } catch (err) {
       if (err instanceof NotFoundError) {
         return cached;

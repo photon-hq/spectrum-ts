@@ -25,7 +25,7 @@ describe("normalizePlatformKey", () => {
 });
 
 describe("officialProviderPackage", () => {
-  it("resolves all six official providers from any spelling", () => {
+  it("resolves all seven official providers from any spelling", () => {
     expect(officialProviderPackage("iMessage")).toBe("@spectrum-ts/imessage");
     expect(officialProviderPackage("local_imessage")).toBe(
       "@spectrum-ts/imessage-local"
@@ -34,6 +34,7 @@ describe("officialProviderPackage", () => {
       "@spectrum-ts/whatsapp-business"
     );
     expect(officialProviderPackage("telegram")).toBe("@spectrum-ts/telegram");
+    expect(officialProviderPackage("WeChat")).toBe("@spectrum-ts/wechat");
   });
 
   it("returns undefined for unknown/custom platforms", () => {

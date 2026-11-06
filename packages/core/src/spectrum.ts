@@ -519,12 +519,36 @@ export async function Spectrum<
     return adaptIterable<ProviderMessageRecord, [Space, Message]>(
       raw,
       async (record, emit) => {
-        const tuples = await resolveRecordToMessages(record, {
-          client,
-          config,
-          definition,
-          store,
-        });
+        let tuples: [Space, Message][];
+        try {
+          tuples = await resolveRecordToMessages(record, {
+            client,
+            config,
+            definition,
+            store,
+          });
+        } catch (error) {
+          // One inbound record that fails to build (for example extras that
+          // don't match the provider's declared message schema) is a problem
+          // with that single message, not a transport failure. Without this
+          // guard the throw propagates to `adaptIterable`'s `end(error)` and
+          // tears down this platform's stream; because the public `messages`
+          // stream merges every platform with `mergeStreams` (where one
+          // member's error ends the whole merge), a single malformed record
+          // would permanently end delivery for ALL platforms, silently. Log it
+          // and skip to the next record, mirroring how the webhook path logs a
+          // per-message build failure and keeps serving.
+          lifecycleLog.error(
+            "spectrum: dropped an inbound message that failed to build",
+            {
+              "spectrum.provider": definition.name,
+              "spectrum.message.id": record.id,
+              ...errorAttrs(error),
+            },
+            error
+          );
+          return;
+        }
         for (const tuple of tuples) {
           await emit(tuple);
         }

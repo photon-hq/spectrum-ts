@@ -888,23 +888,35 @@ describe("iMessage line reconciliation", () => {
     await settleSoon(iterator.next());
   });
 
-  it("ignores line notifications in shared mode", async () => {
+  it("subscribes a line attached to a shared-mode stream after a plan change", async () => {
     const shared = pushableClient(SHARED_PHONE);
     const extra = pushableClient("+15550100");
     const clients = [shared.entry];
 
     const stream = messages(clients);
     const iterator = stream[Symbol.asyncIterator]();
+    // Starts the group while the shared gateway is attached; this pending
+    // `next()` is the oldest parked resolver, so it receives the first
+    // post-transition event below.
     const pending = iterator.next();
     await flush();
 
+    // A shared→dedicated plan change retires the gateway entry and reconciles
+    // the new line; the observer must subscribe it so inbound resumes without
+    // a process restart.
+    await detachLine(clients, shared.entry);
     attachLine(clients, extra.entry);
-    await flush();
+    await vi.waitFor(() => {
+      expect(extra.subscribeToMessages).toHaveBeenCalledTimes(1);
+    });
 
-    expect(extra.subscribeToMessages).not.toHaveBeenCalled();
+    extra.push(inboundEvent(2, "chat-B"));
+    expect((await pending).value?.space).toMatchObject({
+      phone: "+15550100",
+    });
 
     await stream.close();
-    await settleSoon(pending);
+    await settleSoon(iterator.next());
   });
 
   it("disposes only the observer that registered it", () => {

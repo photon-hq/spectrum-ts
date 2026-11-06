@@ -77,6 +77,7 @@
     "@spectrum-ts/slack": "12.15.0",
     "@spectrum-ts/telegram": "12.15.0",
     "@spectrum-ts/terminal": "12.15.0",
+    "@spectrum-ts/wechat": "12.15.0",
     "@spectrum-ts/whatsapp-business": "12.15.0"
   },
   "devDependencies": {

@@ -10,6 +10,7 @@ import * as imessagePkg from "@spectrum-ts/imessage";
 import * as slackPkg from "@spectrum-ts/slack";
 import * as telegramPkg from "@spectrum-ts/telegram";
 import * as terminalPkg from "@spectrum-ts/terminal";
+import * as wechatPkg from "@spectrum-ts/wechat";
 import * as whatsappPkg from "@spectrum-ts/whatsapp-business";
 import { describe, expect, it } from "vitest";
 import * as imessageShim from "@/providers/imessage/index";
@@ -17,6 +18,7 @@ import * as barrel from "@/providers/index";
 import * as slackShim from "@/providers/slack/index";
 import * as telegramShim from "@/providers/telegram/index";
 import * as terminalShim from "@/providers/terminal/index";
+import * as wechatShim from "@/providers/wechat/index";
 import * as whatsappShim from "@/providers/whatsapp-business/index";
 
 const cases = [
@@ -24,6 +26,7 @@ const cases = [
   ["slack", slackShim, slackPkg],
   ["telegram", telegramShim, telegramPkg],
   ["terminal", terminalShim, terminalPkg],
+  ["wechat", wechatShim, wechatPkg],
   ["whatsapp-business", whatsappShim, whatsappPkg],
 ] as const;
 

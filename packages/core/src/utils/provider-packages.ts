@@ -17,6 +17,7 @@ const OFFICIAL_PROVIDER_PACKAGES: Readonly<Record<string, string>> = {
   slack: "@spectrum-ts/slack",
   telegram: "@spectrum-ts/telegram",
   terminal: "@spectrum-ts/terminal",
+  wechat: "@spectrum-ts/wechat",
   whatsapp_business: "@spectrum-ts/whatsapp-business",
 };
 

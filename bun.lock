@@ -24,6 +24,13 @@
         "spectrum-ts": "workspace:*",
       },
     },
+    "examples/wechat-echo": {
+      "name": "@spectrum-ts/example-wechat-echo",
+      "dependencies": {
+        "qrcode-terminal": "0.12.0",
+        "spectrum-ts": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@spectrum-ts/core",
       "version": "12.15.0",
@@ -200,6 +207,7 @@
         "@spectrum-ts/slack": "12.14.0",
         "@spectrum-ts/telegram": "12.14.0",
         "@spectrum-ts/terminal": "12.14.0",
+        "@spectrum-ts/wechat": "12.14.0",
         "@spectrum-ts/whatsapp-business": "12.14.0",
       },
       "devDependencies": {
@@ -261,6 +269,24 @@
       },
       "peerDependencies": {
         "@spectrum-ts/core": "*",
+      },
+    },
+    "packages/wechat": {
+      "name": "@spectrum-ts/wechat",
+      "version": "12.15.0",
+      "dependencies": {
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@spectrum-ts/core": "workspace:*",
+        "@spectrum-ts/test-support": "workspace:*",
+        "@types/bun": "1.4.3",
+        "tsdown": "^0.23.0",
+        "vitest": "^5.0.0",
+      },
+      "peerDependencies": {
+        "@spectrum-ts/core": "^12.0.0",
+        "typescript": "^5 || ^6.0.0",
       },
     },
     "packages/whatsapp-business": {
@@ -490,6 +516,8 @@
 
     "@spectrum-ts/example-basic": ["@spectrum-ts/example-basic@workspace:examples/basic"],
 
+    "@spectrum-ts/example-wechat-echo": ["@spectrum-ts/example-wechat-echo@workspace:examples/wechat-echo"],
+
     "@spectrum-ts/express": ["@spectrum-ts/express@workspace:packages/express"],
 
     "@spectrum-ts/fastify": ["@spectrum-ts/fastify@workspace:packages/fastify"],
@@ -507,6 +535,8 @@
     "@spectrum-ts/terminal": ["@spectrum-ts/terminal@workspace:packages/terminal"],
 
     "@spectrum-ts/test-support": ["@spectrum-ts/test-support@workspace:packages/test-support"],
+
+    "@spectrum-ts/wechat": ["@spectrum-ts/wechat@workspace:packages/wechat"],
 
     "@spectrum-ts/whatsapp-business": ["@spectrum-ts/whatsapp-business@workspace:packages/whatsapp-business"],
 
@@ -1051,6 +1081,8 @@
     "publint": ["publint@0.3.21", "", { "dependencies": { "@publint/pack": "^0.1.4", "package-manager-detector": "^1.6.0", "picocolors": "^1.1.1", "sade": "^1.8.1" }, "bin": { "publint": "src/cli.js" } }, "sha512-OqejcnMV6E9zel2oCrUOJEiiFkGiAAni0A6ibfQNh1k9Gu5z4F+Yso8lllam7AzmV6Do0vp7u3UpZNRBwuXaHQ=="],
 
     "pump": ["pump@3.0.4", "", { "dependencies": { "end-of-stream": "^1.1.0", "once": "^1.3.1" } }, "sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA=="],
+
+    "qrcode-terminal": ["qrcode-terminal@0.12.0", "", { "bin": { "qrcode-terminal": "./bin/qrcode-terminal.js" } }, "sha512-EXtzRZmC+YGmGlDFbXKxQiMZNwCLEO6BANKXG4iCtSIM0yqc/pappSx3RIKr4r0uh5JsBckOXeKrB3Iz7mdQpQ=="],
 
     "qs": ["qs@6.15.2", "", { "dependencies": { "side-channel": "^1.1.0" } }, "sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw=="],
 

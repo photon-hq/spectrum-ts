@@ -82,6 +82,7 @@ packages/
   telegram/              # @spectrum-ts/telegram
   slack/                 # @spectrum-ts/slack
   whatsapp-business/     # @spectrum-ts/whatsapp-business
+  wechat/                # @spectrum-ts/wechat
   terminal/              # @spectrum-ts/terminal
   test-support/          # Shared test fixtures/helpers (private, never published)
 examples/                # Example apps

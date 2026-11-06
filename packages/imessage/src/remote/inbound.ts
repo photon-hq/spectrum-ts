@@ -604,11 +604,13 @@ export const getMessage = async (
   msgId: string,
   phone: string
 ): Promise<IMessageMessage | undefined> => {
+  // Read the server so delivery and read state are current. A cached entry
+  // holds what we sent, such as `miniAppCardSession` and the latest card
+  // content, which the server cannot rebuild, so keep it and only refresh its
+  // native state. If the server no longer has the message, fall back to the
+  // cached copy as before.
   const cache = getMessageCache(remote);
   const cached = cache.get(msgId);
-  if (cached) {
-    return cached;
-  }
 
   const childRef = parseChildId(msgId);
   if (childRef) {
@@ -616,6 +618,9 @@ export const getMessage = async (
       const fetched = await remote.messages.get(
         toMessageGuid(childRef.parentGuid)
       );
+      if (cached) {
+        return { ...cached, ...toMessageMetadata(fetched) };
+      }
       const parent = await rebuildFromAppleMessage(
         remote,
         fetched,
@@ -632,7 +637,7 @@ export const getMessage = async (
       return isIMessageMessage(item) ? item : undefined;
     } catch (err) {
       if (err instanceof NotFoundError) {
-        return;
+        return cached;
       }
       throw err;
     }
@@ -640,6 +645,9 @@ export const getMessage = async (
 
   try {
     const fetched = await remote.messages.get(toMessageGuid(msgId));
+    if (cached) {
+      return { ...cached, ...toMessageMetadata(fetched) };
+    }
     const rebuilt = await rebuildFromAppleMessage(
       remote,
       fetched,
@@ -651,7 +659,7 @@ export const getMessage = async (
     return rebuilt;
   } catch (err) {
     if (err instanceof NotFoundError) {
-      return;
+      return cached;
     }
     throw err;
   }

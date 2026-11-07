@@ -1,6 +1,6 @@
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
 import { baseConfig, makeQueue } from "@spectrum-ts/test-support/platform";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import z from "zod";
 import { definePlatform } from "@/platform/define";
 import type { ProviderMessage } from "@/platform/types";
@@ -18,13 +18,13 @@ type ThreadedRecord = ProviderMessage<
   { threadId: string }
 >;
 
-const makeThreadedProvider = (name: string, records: readonly unknown[]) => {
-  const queue = makeQueue<ThreadedRecord>();
-  for (const item of records) {
-    queue.push(item as ThreadedRecord);
-  }
-  queue.close();
-  return definePlatform(name, {
+// Shared skeleton for a provider that declares the `threadId` extras schema; the
+// caller supplies the inbound message source.
+const threadedPlatform = (
+  name: string,
+  messages: () => AsyncIterable<ThreadedRecord>
+) =>
+  definePlatform(name, {
     config: z.object({}),
     message: { schema: z.object({ threadId: z.string() }) },
     lifecycle: {
@@ -35,10 +35,26 @@ const makeThreadedProvider = (name: string, records: readonly unknown[]) => {
       create: ({ input }) =>
         Promise.resolve({ id: input.users[0]?.id ?? "s1" }),
     },
-    messages: () => queue.iter,
+    messages,
     send: () => Promise.resolve(undefined),
   });
+
+const makeThreadedProvider = (name: string, records: readonly unknown[]) => {
+  const queue = makeQueue<ThreadedRecord>();
+  for (const item of records) {
+    queue.push(item as ThreadedRecord);
+  }
+  queue.close();
+  return threadedPlatform(name, () => queue.iter);
 };
+
+async function* yieldThenThrow(
+  record: ThreadedRecord,
+  error: Error
+): AsyncGenerator<ThreadedRecord> {
+  yield record;
+  throw error;
+}
 
 describe("inbound message stream isolation", () => {
   it("skips a record that fails to build and keeps delivering later messages", async () => {
@@ -63,6 +79,11 @@ describe("inbound message stream isolation", () => {
       badRecord,
       goodRecord,
     ]);
+    // The drop is logged via the lifecycle logger, which mirrors ERROR to
+    // `console.error`; capture it so the diagnostic can be asserted below.
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {
+      // swallow during the test
+    });
     const app = await Spectrum({
       ...baseConfig,
       providers: [provider.config({})],
@@ -83,6 +104,61 @@ describe("inbound message stream isolation", () => {
         }
         expect(message.id).toBe("good");
       }
+
+      // The drop is diagnosed, not silent. Removing the log would leave the skip
+      // working but unobservable, so assert the provider and the offending
+      // record id are recorded.
+      const dropCall = errorLog.mock.calls.find((args) =>
+        args.some(
+          (arg) =>
+            typeof arg === "string" &&
+            arg.includes("dropped an inbound message that failed to build")
+        )
+      );
+      expect(dropCall).toBeDefined();
+      const attrs = dropCall?.find(
+        (arg): arg is Record<string, unknown> =>
+          typeof arg === "object" && arg !== null && "spectrum.provider" in arg
+      );
+      expect(attrs?.["spectrum.provider"]).toBe("threaded_isolation");
+      expect(attrs?.["spectrum.message.id"]).toBe("bad");
+    } finally {
+      errorLog.mockRestore();
+      await app.stop();
+    }
+  });
+
+  it("still tears the stream down when the provider source itself errors", async () => {
+    // A rejection from the provider's own `messages()` iterator is a transport
+    // failure, not a single bad record. The per-record guard only isolates build
+    // failures, so this error stays terminal: it propagates and ends the merged
+    // `messages` stream after the valid record ahead of it is delivered.
+    const goodRecord = {
+      id: "g1",
+      content: { type: "text", text: "hi" },
+      space: { id: "s1" },
+      timestamp: new Date(0),
+      threadId: "t1",
+    } as unknown as ThreadedRecord;
+    const transportError = new Error("provider transport failed");
+    const provider = threadedPlatform("threaded_source_error", () =>
+      yieldThenThrow(goodRecord, transportError)
+    );
+    const app = await Spectrum({
+      ...baseConfig,
+      providers: [provider.config({})],
+    });
+
+    try {
+      const iterator = app.messages[Symbol.asyncIterator]();
+      const first = await iterator.next();
+      expect(first.done).toBe(false);
+      if (!first.done) {
+        expect(first.value[1].id).toBe("g1");
+      }
+      await expect(iterator.next()).rejects.toThrow(
+        "provider transport failed"
+      );
     } finally {
       await app.stop();
     }

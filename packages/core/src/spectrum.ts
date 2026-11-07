@@ -542,7 +542,10 @@ export async function Spectrum<
             "spectrum: dropped an inbound message that failed to build",
             {
               "spectrum.provider": definition.name,
-              "spectrum.message.id": record.id,
+              // `record` itself can be nullish (a provider can yield null/
+              // undefined), so read its id defensively: a throw here would
+              // escape the catch and tear down the stream, defeating the skip.
+              "spectrum.message.id": record?.id,
               ...errorAttrs(error),
             },
             error

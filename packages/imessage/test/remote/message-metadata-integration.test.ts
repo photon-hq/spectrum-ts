@@ -24,6 +24,8 @@ const CREATED_AT = new Date("2026-02-03T04:05:06.000Z");
 const DELIVERED_AT = new Date("2026-02-03T04:05:07.000Z");
 const READ_AT = new Date("2026-02-03T04:05:08.000Z");
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
+const SENDER_DEVICE_ID = `pho_device_v1_${"a".repeat(64)}`;
+const OTHER_DEVICE_ID = `pho_device_v1_${"b".repeat(64)}`;
 
 const nativeAttachment = (
   guid = "attachment-guid"
@@ -116,7 +118,7 @@ describe("curated metadata across native message paths", () => {
     const [message] = await toInboundMessages(
       remote,
       new MessageCache(),
-      receivedEvent(nativeMessage()),
+      receivedEvent(nativeMessage({ senderDeviceId: SENDER_DEVICE_ID })),
       "+15550000000"
     );
 
@@ -129,11 +131,14 @@ describe("curated metadata across native message paths", () => {
       mentions: [{ address: "+15551230002", length: 7, start: 6 }],
       nativeText: "Hello @Taylor",
       sendErrorCode: 0,
+      senderDeviceId: SENDER_DEVICE_ID,
     });
   });
 
   it("includes metadata on getMessage and reads the server every time", async () => {
-    const get = vi.fn(() => Promise.resolve(nativeMessage()));
+    const get = vi.fn(() =>
+      Promise.resolve(nativeMessage({ senderDeviceId: SENDER_DEVICE_ID }))
+    );
     const remote = {
       messages: { get },
     } as unknown as AdvancedIMessage;
@@ -154,6 +159,7 @@ describe("curated metadata across native message paths", () => {
     expect(get).toHaveBeenCalledTimes(2);
     expect(first?.dateDelivered).toEqual(DELIVERED_AT);
     expect(first?.nativeText).toBe("Hello @Taylor");
+    expect(first?.senderDeviceId).toBe(SENDER_DEVICE_ID);
     expect(second).toEqual(first);
   });
 
@@ -191,6 +197,67 @@ describe("curated metadata across native message paths", () => {
       getMessage(remote, "iMessage;+;chat-guid", "message-guid", "+15550000000")
     ).rejects.toBe(failure);
   });
+
+  for (const id of ["message-guid", "p:0/message-guid"]) {
+    it.each([
+      [
+        "preserves the cached ID when omitted",
+        SENDER_DEVICE_ID,
+        undefined,
+        SENDER_DEVICE_ID,
+      ],
+      [
+        "preserves the cached ID when empty",
+        SENDER_DEVICE_ID,
+        "",
+        SENDER_DEVICE_ID,
+      ],
+      [
+        "prefers the fetched ID",
+        SENDER_DEVICE_ID,
+        OTHER_DEVICE_ID,
+        OTHER_DEVICE_ID,
+      ],
+      [
+        "adds a previously missing ID",
+        undefined,
+        SENDER_DEVICE_ID,
+        SENDER_DEVICE_ID,
+      ],
+      ["does not invent a missing ID", undefined, undefined, undefined],
+    ])(`cached ${id}: %s`, async (_name, cachedId, fetchedId, expectedId) => {
+      const get = vi.fn(() =>
+        Promise.resolve(
+          nativeMessage(
+            fetchedId === undefined ? {} : { senderDeviceId: fetchedId }
+          )
+        )
+      );
+      const remote = { messages: { get } } as unknown as AdvancedIMessage;
+      const cached = sentRecord({
+        id,
+        isDelivered: false,
+        senderDeviceId: cachedId,
+      });
+      getMessageCache(remote).set(id, cached);
+
+      const message = await getMessage(
+        remote,
+        "iMessage;+;chat-guid",
+        id,
+        "+15550000000"
+      );
+
+      expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+      expect(message?.id).toBe(id);
+      expect(message?.senderDeviceId).toBe(expectedId);
+      expect(message?.isDelivered).toBe(true);
+      expect(message?.dateRead).toEqual(READ_AT);
+      expect(message?.content).toBe(cached.content);
+      expect(getMessageCache(remote).get(id)).toBe(cached);
+      expect(cached.senderDeviceId).toBe(cachedId);
+    });
+  }
 
   it("returns the cached message when the server does not have it", async () => {
     const get = vi.fn(() =>
@@ -308,6 +375,7 @@ describe("curated metadata across native message paths", () => {
             text: `before ${ATTACHMENT_PLACEHOLDER} after`,
           },
           partCount: 3,
+          senderDeviceId: SENDER_DEVICE_ID,
         })
       ),
       "+15550000000"
@@ -319,6 +387,7 @@ describe("curated metadata across native message paths", () => {
     }
 
     expect(parent.partCount).toBe(3);
+    expect(parent.senderDeviceId).toBe(SENDER_DEVICE_ID);
     expect(parent.attachmentMetadata).toEqual([
       {
         companionKind: undefined,
@@ -338,6 +407,7 @@ describe("curated metadata across native message paths", () => {
       expect(child.parentId).toBe("message-guid");
       expect(child.partIndex).toBe(partIndex);
       expect(child.attachmentMetadata).toEqual(parent.attachmentMetadata);
+      expect(child.senderDeviceId).toBe(SENDER_DEVICE_ID);
     }
   });
 

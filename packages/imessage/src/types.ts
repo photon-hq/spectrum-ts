@@ -219,6 +219,8 @@ const miniAppSchema = z
   .readonly();
 
 export const nativeMessageMetadataSchema = z.object({
+  senderDeviceId: z.string().optional(),
+
   dateDelivered: z.date().optional(),
   dateEdited: z.date().optional(),
   dateExpressiveSendPlayed: z.date().optional(),

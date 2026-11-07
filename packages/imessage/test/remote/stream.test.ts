@@ -249,6 +249,44 @@ const startAndClose = async (clients: RemoteClient[]): Promise<void> => {
   await settleSoon(pendingMessage);
 };
 
+describe("remote iMessage sender identity", () => {
+  it.each([
+    SHARED_PHONE,
+    "+15550100",
+  ])("preserves available identity and delivers messages without it for %s", async (phone) => {
+    const senderDeviceId = `pho_device_v1_${"a".repeat(64)}`;
+    const identified = inboundEvent(1, "s1");
+    const { entry, get } = readReceiptClient(phone, [
+      {
+        ...identified,
+        message: { ...identified.message, senderDeviceId },
+      },
+      inboundEvent(2, "s1"),
+    ]);
+    const stream = messages([entry]);
+    const iterator = stream[Symbol.asyncIterator]();
+    try {
+      const first = (await iterator.next()).value;
+      const second = (await iterator.next()).value;
+
+      expect(first).toMatchObject({
+        content: { type: "text", text: "hi" },
+        id: "msg-1",
+        senderDeviceId,
+      });
+      expect(second).toMatchObject({
+        content: { type: "text", text: "hi" },
+        id: "msg-2",
+      });
+      expect(second?.senderDeviceId).toBeUndefined();
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      await stream.close();
+      await settleSoon(iterator.next());
+    }
+  });
+});
+
 describe("remote iMessage poll stream", () => {
   it("delivers titleless created, voted, unvoted and optionAdded through the provider stream", async () => {
     const { entry, get } = pollClient([

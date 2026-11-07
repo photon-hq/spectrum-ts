@@ -619,7 +619,12 @@ export const getMessage = async (
         toMessageGuid(childRef.parentGuid)
       );
       if (cached) {
-        return { ...cached, ...toMessageMetadata(fetched) };
+        const metadata = toMessageMetadata(fetched);
+        return {
+          ...cached,
+          ...metadata,
+          senderDeviceId: metadata.senderDeviceId ?? cached.senderDeviceId,
+        };
       }
       const parent = await rebuildFromAppleMessage(
         remote,
@@ -646,7 +651,12 @@ export const getMessage = async (
   try {
     const fetched = await remote.messages.get(toMessageGuid(msgId));
     if (cached) {
-      return { ...cached, ...toMessageMetadata(fetched) };
+      const metadata = toMessageMetadata(fetched);
+      return {
+        ...cached,
+        ...metadata,
+        senderDeviceId: metadata.senderDeviceId ?? cached.senderDeviceId,
+      };
     }
     const rebuilt = await rebuildFromAppleMessage(
       remote,

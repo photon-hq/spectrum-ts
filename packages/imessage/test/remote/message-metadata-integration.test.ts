@@ -25,6 +25,7 @@ const DELIVERED_AT = new Date("2026-02-03T04:05:07.000Z");
 const READ_AT = new Date("2026-02-03T04:05:08.000Z");
 const ATTACHMENT_PLACEHOLDER = "\uFFFC";
 const SENDER_DEVICE_ID = `pho_device_v1_${"a".repeat(64)}`;
+const OTHER_DEVICE_ID = `pho_device_v1_${"b".repeat(64)}`;
 
 const nativeAttachment = (
   guid = "attachment-guid"
@@ -198,6 +199,67 @@ describe("curated metadata across native message paths", () => {
       getMessage(remote, "iMessage;+;chat-guid", "message-guid", "+15550000000")
     ).rejects.toBe(failure);
   });
+
+  for (const id of ["message-guid", "p:0/message-guid"]) {
+    it.each([
+      [
+        "preserves the cached ID when omitted",
+        SENDER_DEVICE_ID,
+        undefined,
+        SENDER_DEVICE_ID,
+      ],
+      [
+        "preserves the cached ID when empty",
+        SENDER_DEVICE_ID,
+        "",
+        SENDER_DEVICE_ID,
+      ],
+      [
+        "prefers the fetched ID",
+        SENDER_DEVICE_ID,
+        OTHER_DEVICE_ID,
+        OTHER_DEVICE_ID,
+      ],
+      [
+        "adds a previously missing ID",
+        undefined,
+        SENDER_DEVICE_ID,
+        SENDER_DEVICE_ID,
+      ],
+      ["does not invent a missing ID", undefined, undefined, undefined],
+    ])(`cached ${id}: %s`, async (_name, cachedId, fetchedId, expectedId) => {
+      const get = vi.fn(() =>
+        Promise.resolve(
+          nativeMessage(
+            fetchedId === undefined ? {} : { senderDeviceId: fetchedId }
+          )
+        )
+      );
+      const remote = { messages: { get } } as unknown as AdvancedIMessage;
+      const cached = sentRecord({
+        id,
+        isDelivered: false,
+        senderDeviceId: cachedId,
+      });
+      getMessageCache(remote).set(id, cached);
+
+      const message = await getMessage(
+        remote,
+        "iMessage;+;chat-guid",
+        id,
+        "+15550000000"
+      );
+
+      expect(get).toHaveBeenCalledExactlyOnceWith("message-guid");
+      expect(message?.id).toBe(id);
+      expect(message?.senderDeviceId).toBe(expectedId);
+      expect(message?.isDelivered).toBe(true);
+      expect(message?.dateRead).toEqual(READ_AT);
+      expect(message?.content).toBe(cached.content);
+      expect(getMessageCache(remote).get(id)).toBe(cached);
+      expect(cached.senderDeviceId).toBe(cachedId);
+    });
+  }
 
   it("returns the cached message when the server does not have it", async () => {
     const get = vi.fn(() =>

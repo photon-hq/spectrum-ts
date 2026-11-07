@@ -151,7 +151,7 @@ export const toMessageMetadata = (
   native: AdvancedIMessageMessage
 ): IMessageNativeMessageMetadata => ({
   senderDeviceId:
-    "senderDeviceId" in native && typeof native.senderDeviceId === "string"
+    typeof native.senderDeviceId === "string"
       ? native.senderDeviceId || undefined
       : undefined,
 

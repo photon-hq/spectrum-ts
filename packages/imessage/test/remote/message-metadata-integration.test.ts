@@ -41,9 +41,7 @@ const nativeAttachment = (
   uti: "public.png",
 });
 
-const nativeMessage = (
-  overrides: Partial<SDKMessage> & { senderDeviceId?: string } = {}
-): SDKMessage => ({
+const nativeMessage = (overrides: Partial<SDKMessage> = {}): SDKMessage => ({
   appliedReactions: [],
   chatGuids: ["iMessage;+;chat-guid"],
   content: {

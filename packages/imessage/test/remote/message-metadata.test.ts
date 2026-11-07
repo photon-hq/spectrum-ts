@@ -183,6 +183,7 @@ const advancedMessageFieldPolicy = {
   replyTargetGuid: "omit",
   sendErrorCode: "expose",
   sender: "omit",
+  senderDeviceId: "expose",
   shareDirection: "omit",
   shareStatus: "omit",
   subject: "expose",

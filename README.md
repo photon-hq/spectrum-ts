@@ -89,6 +89,7 @@ Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full docume
 | Local iMessage | [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) (explicit install only) |
 | WhatsApp Business | [`@spectrum-ts/whatsapp-business`](https://npmjs.com/package/@spectrum-ts/whatsapp-business) |
 | Telegram | [`@spectrum-ts/telegram`](https://npmjs.com/package/@spectrum-ts/telegram) |
+| WeChat | [`@spectrum-ts/wechat`](https://npmjs.com/package/@spectrum-ts/wechat) |
 | Slack | [`@spectrum-ts/slack`](https://npmjs.com/package/@spectrum-ts/slack) |
 | Terminal | [`@spectrum-ts/terminal`](https://npmjs.com/package/@spectrum-ts/terminal) |
 | Custom   | `definePlatform` from `spectrum-ts` |

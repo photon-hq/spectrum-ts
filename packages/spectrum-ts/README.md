@@ -40,6 +40,7 @@ import { imessage } from "@spectrum-ts/imessage";
 | Telegram | [`@spectrum-ts/telegram`](https://npmjs.com/package/@spectrum-ts/telegram) |
 | Slack | [`@spectrum-ts/slack`](https://npmjs.com/package/@spectrum-ts/slack) |
 | WhatsApp Business | [`@spectrum-ts/whatsapp-business`](https://npmjs.com/package/@spectrum-ts/whatsapp-business) |
+| WeChat | [`@spectrum-ts/wechat`](https://npmjs.com/package/@spectrum-ts/wechat) |
 | Terminal | [`@spectrum-ts/terminal`](https://npmjs.com/package/@spectrum-ts/terminal) |
 
 See the [documentation](https://photon.codes/spectrum) for the full guide.

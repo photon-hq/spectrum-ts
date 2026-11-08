@@ -1,0 +1,12 @@
+{
+  "name": "@spectrum-ts/example-wechat-echo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "qrcode-terminal": "0.12.0",
+    "spectrum-ts": "workspace:*"
+  }
+}

@@ -22,6 +22,7 @@ export const slack = definePlatform(PLATFORM_ID, {
       config,
       projectId,
       projectSecret,
+      signal,
     }): Promise<SlackClients> => {
       if (!isCloudConfig(config)) {
         return createClient({
@@ -44,7 +45,8 @@ export const slack = definePlatform(PLATFORM_ID, {
       return await createCloudClients(
         projectId,
         projectSecret,
-        process.env.SPECTRUM_SLACK_ENDPOINT
+        process.env.SPECTRUM_SLACK_ENDPOINT,
+        signal
       );
     },
 

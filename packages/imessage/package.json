@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/imessage",
-  "version": "12.10.1",
+  "version": "12.15.0",
   "description": "iMessage provider for spectrum-ts.",
   "repository": {
     "type": "git",
@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.4",
-    "@photon-ai/advanced-imessage": "^2.2.0",
+    "@photon-ai/advanced-imessage": "^2.4.0",
     "@photon-ai/otel": "^3.3.0",
     "lru-cache": "^11.0.0",
     "marked": "^18.0.5",
@@ -61,7 +61,7 @@
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
     "@spectrum-ts/test-support": "workspace:*",
-    "@types/bun": "latest",
+    "@types/bun": "1.4.3",
     "tsdown": "^0.23.0",
     "vitest": "^5.0.0"
   },

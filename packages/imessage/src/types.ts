@@ -22,8 +22,31 @@ const clientEntry = z.object({
   phone: z.string(),
 });
 
+/** A heartbeat observed while pulling one live SDK subscription, not a delivery acknowledgement. */
+export interface IMessageHeartbeat {
+  /** Cloud instance ID, or a process-local key for an explicitly configured line. */
+  readonly lineId: string;
+  readonly phone: string;
+  /** Undefined for explicit clients initialized without a Cloud project. */
+  readonly projectId: string | undefined;
+  readonly provider: "imessage";
+  /** Local observation time in Unix milliseconds, not a server timestamp. */
+  readonly receivedAt: number;
+  readonly stream: "messages" | "polls" | "groups";
+  /** Fresh for every live subscription, including reconnects. */
+  readonly subscriptionId: string;
+}
+
+/** Observer failures are logged; returned promises are not awaited. */
+export type IMessageHeartbeatHandler = (
+  heartbeat: IMessageHeartbeat
+) => void | Promise<void>;
+
 export const configSchema = z.strictObject({
   clients: clientEntry.or(z.array(clientEntry)).optional(),
+  onHeartbeat: z
+    .custom<IMessageHeartbeatHandler>((value) => typeof value === "function")
+    .optional(),
 });
 
 /**

@@ -48,9 +48,8 @@ export class MessageCache {
 
 /**
  * Bounded insertion-order cache of recently-seen iMessage polls, keyed by
- * poll message guid. The public poll shape deliberately hides provider ids;
- * `optionsByIdentifier` keeps the private lookup table needed to correlate
- * vote events back to public `PollChoice` objects.
+ * poll message guid. `optionsByIdentifier` maps each native option identifier
+ * to the same identified `PollChoice` exposed in the public snapshot.
  */
 export class PollCache {
   private readonly map = new Map<string, CachedPoll>();

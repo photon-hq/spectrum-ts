@@ -35,14 +35,23 @@ const toTeamMetadata = (
 export async function createCloudClients(
   projectId: string,
   projectSecret: string,
-  endpoint: string | undefined
+  endpoint: string | undefined,
+  signal?: AbortSignal
 ): Promise<SlackClient> {
-  let tokenData = await cloud.issueSlackTokens(projectId, projectSecret);
+  let tokenData = await cloud.issueSlackTokens(
+    projectId,
+    projectSecret,
+    signal
+  );
   const renewal = createTokenRenewal({
     expiresInSeconds: () => tokenData.expiresIn,
     name: "slack",
-    refresh: async () => {
-      tokenData = await cloud.issueSlackTokens(projectId, projectSecret);
+    refresh: async (refreshSignal) => {
+      tokenData = await cloud.issueSlackTokens(
+        projectId,
+        projectSecret,
+        refreshSignal
+      );
     },
   });
 
@@ -72,18 +81,17 @@ export async function createCloudClients(
     },
   };
 
-  const client = createClient({
-    spectrumSlackEndpoint: endpoint,
-    tokenProvider,
-  });
-
-  cloudAuthState.set(client, {
-    dispose: async () => {
-      renewal.dispose();
-    },
-  });
-
-  return client;
+  try {
+    const client = createClient({
+      spectrumSlackEndpoint: endpoint,
+      tokenProvider,
+    });
+    cloudAuthState.set(client, { dispose: renewal.dispose });
+    return client;
+  } catch (error) {
+    await renewal.dispose();
+    throw error;
+  }
 }
 
 export async function disposeCloudAuth(client: SlackClient): Promise<void> {

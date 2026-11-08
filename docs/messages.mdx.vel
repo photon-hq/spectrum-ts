@@ -63,7 +63,7 @@ for await (const [space, message] of app.messages) {
       console.log(`${message.content.emoji} on ${message.content.target.id}`);
       break;
     case "poll":
-      console.log(message.content.title, message.content.options);
+      console.log(message.content.pollMessageGuid ?? message.content.title, message.content.options);
       break;
     case "poll_option":
       console.log(`vote ${message.content.selected ? "+" : "-"}`, message.content.title);
@@ -92,7 +92,7 @@ for await (const [space, message] of app.messages) {
   | `"richlink"` | `url: string` |
   | `"effect"` | `content`, `effect: string` — iMessage effect wrapping text, markdown, or an attachment |
   | `"reaction"` | `emoji: string`, `target:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} /> |
-  | `"poll"` | `title: string`, `options: { title: string }[]` |
+  | `"poll"` | `title?: string` (omitted for native iMessage polls), `pollMessageGuid?: string`, `options: { title: string, optionIdentifier?: string }[]`, `change?: "created" \| "optionAdded"` |
   | `"poll_option"` | `option: { title }`, `poll:` <TypeTooltip name="Poll" type={`{{ poll.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />, `selected: boolean`, `title: string` — sent as a vote |
   | `"group"` | `items:` <TypeTooltip name="Message" type={`{{ message.signature | replace("\n", " ") | replace("|", "\\u007C") }}`} />`[]` — bundled multi-message unit |
   | `"rename"` | `displayName: string` — the chat was renamed |

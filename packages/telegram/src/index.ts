@@ -33,10 +33,11 @@ export const telegram = definePlatform(TELEGRAM_PLATFORM, {
     createClient: async ({
       config,
       projectConfig,
+      signal,
     }): Promise<FusorClient<TelegramPayload>> => {
       const slug = projectConfig?.slug;
       if (slug) {
-        await ensureWebhook(config, slug);
+        await ensureWebhook(config, slug, signal);
       }
       return fusor<TelegramPayload>(TELEGRAM_PLATFORM, verify(config));
     },

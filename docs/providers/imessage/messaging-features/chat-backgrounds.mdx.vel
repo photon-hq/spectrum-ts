@@ -1,13 +1,14 @@
 ---
 title: "iMessage chat backgrounds"
 sidebarTitle: "Chat backgrounds"
-description: "Set or clear an iMessage conversation background image."
+description: "Set an iMessage conversation background from an image or a built-in preset, or clear it."
 ---
 
 import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
-Set or clear the chat background image. Import `background` from the iMessage
-provider and use the sugar method on a narrowed space:
+Set the chat background from an image or one of Messages' built-in presets,
+or clear it. Import `background` from the iMessage provider and use the sugar
+method on a narrowed space:
 
 ```ts
 import { background, imessage } from "spectrum-ts/providers/imessage";
@@ -17,8 +18,14 @@ const im = imessage(space);
 // Set from a file path - MIME type inferred from the extension
 await im.background("./wallpaper.jpg");
 
+// Set from a URL - fetched in memory, MIME type inferred from the path
+await im.background(new URL("https://example.com/wallpaper.jpg"));
+
 // Set from a buffer - mimeType is required
 await im.background(buffer, { mimeType: "image/jpeg" });
+
+// Apply one of Messages' built-in backgrounds
+await im.background({ preset: "skyDusk" });
 
 // Clear the current background
 await im.background("clear");
@@ -29,8 +36,48 @@ canonical form works on any space reference:
 
 ```ts
 await space.send(background("./wallpaper.jpg"));
+await space.send(background({ preset: "skyDusk" }));
 await space.send(background("clear"));
 ```
+
+`{ preset }` accepts the name of one of Messages' built-in backgrounds. Names
+are type-checked; an unknown name passed at runtime is rejected before anything
+is sent, with an error listing the valid names.
+
+<AccordionGroup>
+  <Accordion title="Scenes" description="Sky, water, and aurora scenes.">
+    | Preset | Scene |
+    |---|---|
+    | `skyDusk` | Sky (clouds) |
+    | `skyHaze` | Sky (clouds) |
+    | `skySunset` | Sky (clouds) |
+    | `skyClear` | Sky (clouds) |
+    | `skySunrise` | Sky (clouds) |
+    | `skyDawn` | Sky (clouds) |
+    | `waterLight` | Water (ocean) |
+    | `waterDark` | Water (ocean) |
+    | `auroraGreen` | Aurora |
+    | `auroraPurple` | Aurora |
+    | `auroraPink` | Aurora |
+  </Accordion>
+  <Accordion title="Color gradients" description="Two-color gradients.">
+    | Preset | Gradient |
+    |---|---|
+    | `colorMango` | lavender → orange |
+    | `colorIce` | pale lilac → sky blue |
+    | `colorPlum` | deep violet → crimson |
+    | `colorDeepSea` | dark green → purple |
+    | `colorGreenApple` | grey-teal → yellow-green |
+    | `colorCherry` | pale blue → red |
+    | `colorBubblegum` | blue → hot pink |
+    | `colorTangerine` | red-orange → orange |
+    | `colorMagenta` | pink → magenta |
+    | `colorLime` | forest green → lime |
+    | `colorSilver` | slate → light blue-grey |
+    | `colorCarbon` | black → dark charcoal |
+    | `colorStone` | black → dark brown |
+  </Accordion>
+</AccordionGroup>
 
 After a successful set, the background usually syncs to other users' devices
 within `30s`. The background asset is uploaded to iCloud and then distributed

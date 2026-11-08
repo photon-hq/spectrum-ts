@@ -16,9 +16,9 @@
     "dev": "turbo dev",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "test": "turbo run test:node test:bun",
-    "test:node": "turbo run test:node",
-    "test:bun": "turbo run test:bun",
+    "test": "vitest run scripts/release && bun --bun vitest run scripts/release && turbo run test:node test:bun",
+    "test:node": "vitest run scripts/release && turbo run test:node",
+    "test:bun": "bun --bun vitest run scripts/release && turbo run test:bun",
     "typecheck": "turbo typecheck"
   },
   "workspaces": [

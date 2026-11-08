@@ -25,8 +25,10 @@ const FORCE_REFRESH_MIN_INTERVAL_MS = 5000;
 const authLog = createLogger("spectrum.imessage.auth");
 
 interface CloudAuth {
-  dispose: () => void;
+  dispose: () => Promise<void>;
   forceRefresh: () => Promise<void>;
+  retirementErrors: unknown[];
+  retirements: Set<Promise<void>>;
 }
 
 const cloudAuthState = new WeakMap<RemoteClient[], CloudAuth>();
@@ -37,9 +39,14 @@ const instanceAttrs = (instanceId: string) => ({
 
 export async function createCloudClients(
   projectId: string,
-  projectSecret: string
+  projectSecret: string,
+  signal?: AbortSignal
 ): Promise<RemoteClient[]> {
-  let tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+  let tokenData = await cloud.issueImessageTokens(
+    projectId,
+    projectSecret,
+    signal
+  );
   let lastRefreshAt = Date.now();
 
   // This array object is never replaced — only `push`/`splice`. Routing helpers
@@ -50,6 +57,9 @@ export async function createCloudClients(
   // instanceId -> entry, so a refresh can tell an existing line from a newly
   // provisioned one without leaking instanceId onto the public shape.
   const records = new Map<string, RemoteClient>();
+  // Removed lines still belong to this instance until their cleanup settles.
+  const retirements = new Set<Promise<void>>();
+  const retirementErrors: unknown[] = [];
 
   const buildEntry = (
     instanceId: string,
@@ -95,13 +105,17 @@ export async function createCloudClients(
         entries.splice(index, 1);
       }
       removed += 1;
-      retire(entry).catch((error: unknown) => {
-        authLog.warn(
-          "failed to retire imessage line",
-          { ...instanceAttrs(instanceId), ...errorAttrs(error) },
-          error instanceof Error ? error : undefined
-        );
-      });
+      const retirement = retire(entry)
+        .catch((error: unknown) => {
+          retirementErrors.push(error);
+          authLog.warn(
+            "failed to retire imessage line",
+            { ...instanceAttrs(instanceId), ...errorAttrs(error) },
+            error instanceof Error ? error : undefined
+          );
+        })
+        .finally(() => retirements.delete(retirement));
+      retirements.add(retirement);
     }
     return removed;
   };
@@ -175,8 +189,12 @@ export async function createCloudClients(
   const renewal = createTokenRenewal({
     expiresInSeconds: () => tokenData.expiresIn,
     name: "imessage",
-    refresh: async () => {
-      tokenData = await cloud.issueImessageTokens(projectId, projectSecret);
+    refresh: async (refreshSignal) => {
+      tokenData = await cloud.issueImessageTokens(
+        projectId,
+        projectSecret,
+        refreshSignal
+      );
       lastRefreshAt = Date.now();
       if (tokenData.type !== "dedicated") {
         return;
@@ -207,51 +225,78 @@ export async function createCloudClients(
     await renewal.forceRefresh();
   };
 
-  const cloudAuth: CloudAuth = { dispose: renewal.dispose, forceRefresh };
-
-  if (tokenData.type === "shared") {
-    const address =
-      process.env.SPECTRUM_IMESSAGE_ADDRESS ??
-      "imessage.spectrum.photon.codes:443";
-    entries.push({
-      phone: SHARED_PHONE,
-      client: createGrpcClient({
-        address,
-        // Auto-retry transient unary failures so a brief server blip during
-        // an outbound action (send/react/reply) doesn't surface as an
-        // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
-        // mutating RPCs so the retry can't double-apply.
-        autoIdempotency: true,
-        retry: true,
-        tls: true,
-        token: async () => {
-          await renewal.refreshIfNeeded();
-          return (tokenData as SharedTokenData).token;
-        },
-      }),
-    });
-
-    cloudAuthState.set(entries, cloudAuth);
-
-    return entries;
-  }
-
-  // Startup is the same reconcile against an empty set, so there is one code
-  // path building lines and one place that decides what a line needs.
-  reconcile(tokenData);
-
+  const cloudAuth: CloudAuth = {
+    dispose: renewal.dispose,
+    forceRefresh,
+    retirements,
+    retirementErrors,
+  };
   cloudAuthState.set(entries, cloudAuth);
 
-  return entries;
+  try {
+    if (tokenData.type === "shared") {
+      const address =
+        process.env.SPECTRUM_IMESSAGE_ADDRESS ??
+        "imessage.spectrum.photon.codes:443";
+      entries.push({
+        phone: SHARED_PHONE,
+        client: createGrpcClient({
+          address,
+          // Auto-retry transient unary failures so a brief server blip during
+          // an outbound action (send/react/reply) doesn't surface as an
+          // uncaught error. `autoIdempotency` attaches an x-idempotency-key to
+          // mutating RPCs so the retry can't double-apply.
+          autoIdempotency: true,
+          retry: true,
+          tls: true,
+          token: async () => {
+            await renewal.refreshIfNeeded();
+            return (tokenData as SharedTokenData).token;
+          },
+        }),
+      });
+
+      return entries;
+    }
+
+    // Startup is the same reconcile against an empty set, so there is one code
+    // path building lines and one place that decides what a line needs.
+    reconcile(tokenData);
+
+    return entries;
+  } catch (error) {
+    try {
+      await disposeCloudAuth(entries);
+    } catch (cleanupError) {
+      throw Object.assign(
+        new AggregateError([cleanupError], "Spectrum startup cleanup failed", {
+          cause: error,
+        }),
+        { name: "SpectrumStartupCleanupError" }
+      );
+    }
+    throw error;
+  }
 }
 
 export async function disposeCloudAuth(clients: RemoteClient[]): Promise<void> {
   clearLineObservers(clients);
   const auth = cloudAuthState.get(clients);
-  if (auth) {
-    auth.dispose();
-    cloudAuthState.delete(clients);
+  await auth?.dispose();
+  const results = await Promise.allSettled([
+    ...(auth?.retirements ?? []),
+    ...clients.map(async (entry) => await entry.client.close()),
+  ]);
+  const errors: unknown[] = [
+    ...(auth?.retirementErrors ?? []),
+    ...results
+      .filter((result) => result.status === "rejected")
+      .map((result) => result.reason),
+  ];
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "iMessage client cleanup failed");
   }
+  cloudAuthState.delete(clients);
 }
 
 /**

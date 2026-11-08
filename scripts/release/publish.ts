@@ -24,16 +24,18 @@
  * 3. Grep the captured output for npm errors even on exit 0 — clean-publish
  *    has historically swallowed npm publish failures (spectrum-ts
  *    1.10.0–1.11.1 silently never reached npm).
- * 4. Poll the registry until the exact version is visible.
+ * 4. Poll for up to 10 minutes until the exact version is visible; npm may
+ *    accept a publish several minutes before it becomes readable.
  *
  * Usage: publish.ts --tag <latest|beta> [--dry-run]
  */
 
-import { sleep, spawn } from "bun";
+import { spawn } from "bun";
 import { type PublishablePackage, publishablePackages } from "./packages";
+import { registryHas, verifyOnRegistry } from "./registry";
 
 const args = process.argv.slice(2);
-const tag = args[args.indexOf("--tag") + 1];
+const tag = args[args.indexOf("--tag") + 1] ?? "";
 const dryRun = args.includes("--dry-run");
 if (!tag || tag.startsWith("--")) {
   console.error("usage: publish.ts --tag <dist-tag> [--dry-run]");
@@ -47,48 +49,6 @@ const NPM_OIDC_LINE_RE = /^npm (verbose|silly|http) .*oidc/im;
 // Everything npm prints at levels below `notice` — dropped from a successful
 // verbose run so the happy path stays readable.
 const NPM_CHATTER_RE = /^npm (verbose|silly|http|info) /;
-const REGISTRY = "https://registry.npmjs.org";
-const REGISTRY_TIMEOUT_MS = 15_000;
-
-// Bounded registry probe. A timeout or transient network error reads as
-// "not present", which is safe at both call sites: the pre-publish skip
-// check falls through to a publish attempt (idempotent — an
-// already-published version is rejected by npm and surfaced), and the
-// post-publish verifier just keeps retrying.
-async function registryHas(name: string, version: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${REGISTRY}/${name}/${version}`, {
-      signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
-    });
-    return res.status === 200;
-  } catch (error) {
-    console.warn(
-      `  registry probe for ${name}@${version} failed: ${error instanceof Error ? error.message : error}`
-    );
-    return false;
-  }
-}
-
-// ~2min budget. The publish already succeeded, so a failure here only means
-// registry propagation is lagging — poll generously rather than abort an
-// otherwise-fine release. Core publishes first, so an early throw would leave
-// every provider and the metapackage unpublished.
-async function verifyOnRegistry(
-  name: string,
-  version: string,
-  attempts = 24,
-  delayMs = 5000
-): Promise<void> {
-  for (let i = 0; i < attempts; i++) {
-    if (await registryHas(name, version)) {
-      console.log(`  ✓ ${name}@${version} visible on registry`);
-      return;
-    }
-    await sleep(delayMs);
-  }
-  throw new Error(`${name}@${version} not visible on registry after publish`);
-}
-
 async function runPublishAttempt(
   pkg: PublishablePackage,
   oidc: boolean

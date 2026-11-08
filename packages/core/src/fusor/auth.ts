@@ -21,8 +21,12 @@ export function createFusorTokenProvider(
     const renewal = createTokenRenewal({
       expiresInSeconds: () => tokenData.expiresIn,
       name: "fusor",
-      refresh: async () => {
-        tokenData = await cloud.issueFusorToken(projectId, projectSecret);
+      refresh: async (signal) => {
+        tokenData = await cloud.issueFusorToken(
+          projectId,
+          projectSecret,
+          signal
+        );
       },
     });
 
@@ -35,7 +39,7 @@ export function createFusorTokenProvider(
         renewal.invalidate();
       },
       async dispose(): Promise<void> {
-        renewal.dispose();
+        await renewal.dispose();
       },
     };
   })();

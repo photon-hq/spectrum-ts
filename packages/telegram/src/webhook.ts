@@ -38,12 +38,15 @@ export const webhookUrl = (slug: string): string => {
  */
 export const ensureWebhook = async (
   config: TelegramConfig,
-  slug: string
+  slug: string,
+  signal?: AbortSignal
 ): Promise<void> => {
   const client = telegramClient(config);
   const url = webhookUrl(slug);
   try {
-    const info = await getWebhookInfo({ client, throwOnError: true });
+    signal?.throwIfAborted();
+    const info = await getWebhookInfo({ client, signal, throwOnError: true });
+    signal?.throwIfAborted();
     if (info.result?.url === url) {
       return;
     }
@@ -53,9 +56,12 @@ export const ensureWebhook = async (
         ...(config.webhookSecret ? { secret_token: config.webhookSecret } : {}),
       },
       client,
+      signal,
       throwOnError: true,
     });
+    signal?.throwIfAborted();
   } catch (error) {
+    signal?.throwIfAborted();
     throw new Error(`Telegram webhook registration failed for ${url}`, {
       cause: error,
     });

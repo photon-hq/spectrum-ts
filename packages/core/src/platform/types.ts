@@ -253,6 +253,8 @@ export interface CreateClientContext<_ConfigSchema extends z.ZodType<object>> {
   projectConfig: ProjectData | undefined;
   projectId: string | undefined;
   projectSecret: string | undefined;
+  /** Startup only: pass to initialization I/O, not to later client operations. */
+  signal?: AbortSignal;
   store: Store;
 }
 

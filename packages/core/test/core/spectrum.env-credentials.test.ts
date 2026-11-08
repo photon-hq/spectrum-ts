@@ -38,7 +38,7 @@ describe("Spectrum() project credential env fallback", () => {
     process.env[PROJECT_SECRET] = "env-secret";
 
     const app = await Spectrum({ providers: [provider()] });
-    expect(getProject).toHaveBeenCalledWith("env-id", "env-secret");
+    expect(getProject).toHaveBeenCalledWith("env-id", "env-secret", undefined);
     await app.stop();
   });
 
@@ -59,7 +59,11 @@ describe("Spectrum() project credential env fallback", () => {
       projectSecret: "explicit-secret",
       providers: [provider()],
     });
-    expect(getProject).toHaveBeenCalledWith("explicit-id", "explicit-secret");
+    expect(getProject).toHaveBeenCalledWith(
+      "explicit-id",
+      "explicit-secret",
+      undefined
+    );
     await app.stop();
   });
 
@@ -75,7 +79,11 @@ describe("Spectrum() project credential env fallback", () => {
     } as unknown as Parameters<typeof Spectrum>[0];
 
     const app = await Spectrum(options);
-    expect(getProject).toHaveBeenCalledWith("explicit-id", "env-secret");
+    expect(getProject).toHaveBeenCalledWith(
+      "explicit-id",
+      "env-secret",
+      undefined
+    );
     await app.stop();
   });
 

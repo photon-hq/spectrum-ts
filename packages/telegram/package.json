@@ -1,6 +1,6 @@
 {
   "name": "@spectrum-ts/telegram",
-  "version": "12.10.1",
+  "version": "12.15.0",
   "description": "Telegram provider for spectrum-ts.",
   "repository": {
     "type": "git",
@@ -56,7 +56,7 @@
   "devDependencies": {
     "@spectrum-ts/core": "workspace:*",
     "@spectrum-ts/test-support": "workspace:*",
-    "@types/bun": "latest",
+    "@types/bun": "1.4.3",
     "tsdown": "^0.23.0",
     "vitest": "^5.0.0"
   },

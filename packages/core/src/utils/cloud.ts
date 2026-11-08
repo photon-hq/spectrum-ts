@@ -126,39 +126,47 @@ interface ErrorBody {
 const cloudFetch = tracedFetch("spectrum-cloud");
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await cloudFetch(`${SPECTRUM_CLOUD_URL}${path}`, init);
+  try {
+    init?.signal?.throwIfAborted();
+    const response = await cloudFetch(`${SPECTRUM_CLOUD_URL}${path}`, init);
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    try {
-      const parsed = JSON.parse(body) as ErrorBody;
-      throw new SpectrumCloudError(
-        response.status,
-        parsed.code,
-        parsed.message
-      );
-    } catch (error) {
-      if (error instanceof SpectrumCloudError) {
-        throw error;
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      init?.signal?.throwIfAborted();
+      try {
+        const parsed = JSON.parse(body) as ErrorBody;
+        throw new SpectrumCloudError(
+          response.status,
+          parsed.code,
+          parsed.message
+        );
+      } catch (error) {
+        if (error instanceof SpectrumCloudError) {
+          throw error;
+        }
+        throw new SpectrumCloudError(
+          response.status,
+          "UNKNOWN",
+          body || response.statusText
+        );
       }
+    }
+
+    const json = (await response.json()) as SuccessResponse<T>;
+    init?.signal?.throwIfAborted();
+    if (!json.succeed) {
       throw new SpectrumCloudError(
         response.status,
         "UNKNOWN",
-        body || response.statusText
+        "Server returned succeed=false"
       );
     }
+    return json.data;
+  } catch (error) {
+    // Body cancellation may throw a generic AbortError; retain the caller's reason.
+    init?.signal?.throwIfAborted();
+    throw error;
   }
-
-  const json = (await response.json()) as SuccessResponse<T>;
-  if (!json.succeed) {
-    throw new SpectrumCloudError(
-      response.status,
-      "UNKNOWN",
-      "Server returned succeed=false"
-    );
-  }
-
-  return json.data;
 };
 
 const basicAuth = (projectId: string, projectSecret: string): string =>
@@ -171,9 +179,11 @@ const basicAuth = (projectId: string, projectSecret: string): string =>
 export const cloud = {
   getProject: (
     projectId: string,
-    projectSecret: string
+    projectSecret: string,
+    signal?: AbortSignal
   ): Promise<ProjectData> =>
     request(`/projects/${projectId}/`, {
+      signal,
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
@@ -182,9 +192,11 @@ export const cloud = {
 
   issueImessageTokens: (
     projectId: string,
-    projectSecret: string
+    projectSecret: string,
+    signal?: AbortSignal
   ): Promise<TokenData> =>
     request(`/projects/${projectId}/imessage/tokens`, {
+      signal,
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
@@ -194,27 +206,33 @@ export const cloud = {
 
   issueWhatsappBusinessTokens: (
     projectId: string,
-    projectSecret: string
+    projectSecret: string,
+    signal?: AbortSignal
   ): Promise<WhatsappBusinessTokenData> =>
     request(`/projects/${projectId}/whatsapp-business/tokens`, {
+      signal,
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
   issueSlackTokens: (
     projectId: string,
-    projectSecret: string
+    projectSecret: string,
+    signal?: AbortSignal
   ): Promise<SlackTokenData> =>
     request(`/projects/${projectId}/slack/tokens`, {
+      signal,
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),
 
   issueFusorToken: (
     projectId: string,
-    projectSecret: string
+    projectSecret: string,
+    signal?: AbortSignal
   ): Promise<FusorTokenData> =>
     request(`/projects/${projectId}/fusor/token`, {
+      signal,
       method: "POST",
       headers: { Authorization: basicAuth(projectId, projectSecret) },
     }),

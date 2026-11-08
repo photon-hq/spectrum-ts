@@ -54,6 +54,29 @@ The fastest way to ship is with **Spectrum Cloud** — hosted infrastructure for
 
 Spectrum also runs fully standalone — you can connect to a local iMessage database with the separate [`@spectrum-ts/imessage-local`](https://npmjs.com/package/@spectrum-ts/imessage-local) package, bring your own gRPC endpoints, or build your own platform provider. See the [docs](https://docs.photon.codes) for self-hosted setups.
 
+## Startup cancellation
+
+Pass an `AbortSignal` to cancel initialization. The signal applies only until `Spectrum()` returns. It does not stop a successfully initialized instance.
+
+```typescript
+const app = await Spectrum({
+  projectId,
+  projectSecret,
+  providers: [imessage.config()],
+  signal: AbortSignal.timeout(10_000),
+});
+```
+
+Project lookup and cloud iMessage, WhatsApp Business, and Slack token requests use this signal through response-body reads. Telegram webhook registration also receives it. No startup deadline applies unless the caller supplies one.
+
+If initialization fails, Spectrum destroys providers that already returned a client and awaits their cleanup before rejecting. If a provider ignores cancellation, startup still waits for that provider to settle. Cleanup that never settles also keeps startup pending. This option does not interrupt imports, Terminal startup, local iMessage startup, or the later lazy Fusor connection.
+
+If cleanup fails, the factory throws `SpectrumStartupCleanupError`. Its `cause` is the startup error, and its `errors` contain the cleanup failures. Do not automatically start a replacement after this error because resources can remain active.
+
+Provider authors receive `signal` in `lifecycle.createClient`. Pass it to startup I/O, but do not keep it for later client operations. If `createClient` fails before returning, the provider must clean up its own partial resources. Cloud token renewals use a separate lifetime signal, and `await renewal.dispose()` cancels and settles an active refresh before teardown. Later calls to `forceRefresh()` or `refreshIfNeeded()` reject after disposal. Update core and provider packages together to enable startup cancellation.
+
+Cancellation does not prove that the server rolled back a request that it already received. It does not replay messages or change delivery guarantees.
+
 ## Documentation
 
 Visit **[docs.photon.codes](https://docs.photon.codes)** to view the full documentation.

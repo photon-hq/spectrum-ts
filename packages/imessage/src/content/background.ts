@@ -6,6 +6,43 @@ import {
 } from "@spectrum-ts/core/authoring";
 import z from "zod";
 
+// Mirrors the SDK's `BackgroundPreset`. Kept local because `imessage-local`
+// shares this file without depending on the SDK; `test/background.test.ts`
+// fails typecheck if the two lists drift.
+const BACKGROUND_PRESETS = [
+  "skyDusk",
+  "skyHaze",
+  "skySunset",
+  "skyClear",
+  "skySunrise",
+  "skyDawn",
+  "waterLight",
+  "waterDark",
+  "auroraGreen",
+  "auroraPurple",
+  "auroraPink",
+  "colorMango",
+  "colorIce",
+  "colorPlum",
+  "colorDeepSea",
+  "colorGreenApple",
+  "colorCherry",
+  "colorBubblegum",
+  "colorTangerine",
+  "colorMagenta",
+  "colorLime",
+  "colorSilver",
+  "colorCarbon",
+  "colorStone",
+] as const;
+
+export type BackgroundPreset = (typeof BACKGROUND_PRESETS)[number];
+
+const presetActionSchema = z.object({
+  kind: z.literal("preset"),
+  preset: z.enum(BACKGROUND_PRESETS),
+});
+
 /**
  * iMessage-only chat background content. Lives entirely under the iMessage
  * provider — never enters the universal `Content` discriminated union. The
@@ -25,7 +62,7 @@ export const backgroundSchema = z.object({
   type: z.literal("background"),
   __platform: z.literal("imessage"),
   __fireAndForget: z.literal(true),
-  action: photoActionSchema,
+  action: z.discriminatedUnion("kind", [photoActionSchema, presetActionSchema]),
 });
 
 export type Background = z.infer<typeof backgroundSchema>;
@@ -33,7 +70,36 @@ export type Background = z.infer<typeof backgroundSchema>;
 export const isBackground = (v: unknown): v is Background =>
   backgroundSchema.safeParse(v).success;
 
-export type BackgroundInput = PhotoInput;
+export interface PresetBackground {
+  /**
+   * One of Messages' built-in backgrounds.
+   *
+   * Sky (clouds): `skyDusk`, `skyHaze`, `skySunset`, `skyClear`, `skySunrise`,
+   * `skyDawn`
+   *
+   * Water (ocean): `waterLight`, `waterDark`
+   *
+   * Aurora: `auroraGreen`, `auroraPurple`, `auroraPink`
+   *
+   * Color (two-color gradient):
+   * - `colorMango` — lavender → orange
+   * - `colorIce` — pale lilac → sky blue
+   * - `colorPlum` — deep violet → crimson
+   * - `colorDeepSea` — dark green → purple
+   * - `colorGreenApple` — grey-teal → yellow-green
+   * - `colorCherry` — pale blue → red
+   * - `colorBubblegum` — blue → hot pink
+   * - `colorTangerine` — red-orange → orange
+   * - `colorMagenta` — pink → magenta
+   * - `colorLime` — forest green → lime
+   * - `colorSilver` — slate → light blue-grey
+   * - `colorCarbon` — black → dark charcoal
+   * - `colorStone` — black → dark brown
+   */
+  preset: BackgroundPreset;
+}
+
+export type BackgroundInput = PhotoInput | PresetBackground;
 
 /**
  * Set or clear the chat background. iMessage-only, remote-only.
@@ -47,6 +113,8 @@ export type BackgroundInput = PhotoInput;
  *   override with `options.mimeType` when the URL has no usable extension.
  * - `background(buffer, { mimeType })` — set background from in-memory bytes.
  *   `options.mimeType` is required.
+ * - `background({ preset: "skyDusk" })` — apply one of Messages' built-in
+ *   backgrounds (clouds, ocean, aurora, or a two-color gradient).
  *
  * `"clear"` is a reserved string-literal sentinel. If you have a file literally
  * named `clear` with no extension, pass `"./clear"` or load it as a Buffer.
@@ -60,7 +128,7 @@ export type BackgroundInput = PhotoInput;
  * with the framework's `ContentBuilder.build(): Promise<Content>` signature.
  * The framework treats it as a fire-and-forget control signal at runtime.
  */
-export function background(input: "clear"): ContentBuilder;
+export function background(input: "clear" | PresetBackground): ContentBuilder;
 export function background(
   input: string | Buffer | URL,
   options?: { mimeType?: string }
@@ -71,7 +139,10 @@ export function background(
 ): ContentBuilder {
   // Snapshot the action at builder construction so (a) a missing MIME type
   // fails fast and (b) the read is cached across repeated `build()` calls.
-  const action = buildPhotoAction(input, options, "background");
+  const action =
+    typeof input === "object" && "preset" in input
+      ? { kind: "preset" as const, preset: input.preset }
+      : buildPhotoAction(input, options, "background");
   return {
     build: async () =>
       backgroundSchema.parse({

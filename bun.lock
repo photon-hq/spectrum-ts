@@ -26,7 +26,7 @@
     },
     "packages/core": {
       "name": "@spectrum-ts/core",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "@photon-ai/otel": "^3.3.0",
         "@photon-ai/proto": "^0.2.4",
@@ -40,7 +40,7 @@
       },
       "devDependencies": {
         "@opentelemetry/api": "^1.9.1",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "@types/mime-types": "^3.0.1",
         "@types/vcf": "^2.0.7",
         "@types/ws": "^8",
@@ -61,11 +61,11 @@
     },
     "packages/elysia": {
       "name": "@spectrum-ts/elysia",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "elysia": "^1",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
@@ -78,11 +78,11 @@
     },
     "packages/express": {
       "name": "@spectrum-ts/express",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "@types/express": "^5",
         "express": "^5",
         "tsdown": "^0.23.0",
@@ -96,11 +96,11 @@
     },
     "packages/fastify": {
       "name": "@spectrum-ts/fastify",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "fastify": "^5",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
@@ -113,11 +113,11 @@
     },
     "packages/hono": {
       "name": "@spectrum-ts/hono",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "hono": "^4",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
@@ -130,10 +130,10 @@
     },
     "packages/imessage": {
       "name": "@spectrum-ts/imessage",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "@grpc/grpc-js": "^1.14.4",
-        "@photon-ai/advanced-imessage": "^2.2.0",
+        "@photon-ai/advanced-imessage": "^2.4.0",
         "@photon-ai/otel": "^3.3.0",
         "lru-cache": "^11.0.0",
         "marked": "^18.0.5",
@@ -144,7 +144,7 @@
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
       },
@@ -155,7 +155,7 @@
     },
     "packages/imessage-local": {
       "name": "@spectrum-ts/imessage-local",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "@photon-ai/imessage-kit": "^3.0.0",
         "zod": "^4.2.1",
@@ -163,7 +163,7 @@
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
       },
@@ -174,7 +174,7 @@
     },
     "packages/slack": {
       "name": "@spectrum-ts/slack",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "@photon-ai/slack": "^0.2.0",
         "zod": "^4.2.1",
@@ -182,7 +182,7 @@
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
       },
@@ -193,25 +193,25 @@
     },
     "packages/spectrum-ts": {
       "name": "spectrum-ts",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
-        "@spectrum-ts/core": "12.9.1",
-        "@spectrum-ts/imessage": "12.9.1",
-        "@spectrum-ts/slack": "12.9.1",
-        "@spectrum-ts/telegram": "12.9.1",
-        "@spectrum-ts/terminal": "12.9.1",
-        "@spectrum-ts/whatsapp-business": "12.9.1",
+        "@spectrum-ts/core": "12.14.0",
+        "@spectrum-ts/imessage": "12.14.0",
+        "@spectrum-ts/slack": "12.14.0",
+        "@spectrum-ts/telegram": "12.14.0",
+        "@spectrum-ts/terminal": "12.14.0",
+        "@spectrum-ts/whatsapp-business": "12.14.0",
       },
       "devDependencies": {
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
       },
     },
     "packages/telegram": {
       "name": "@spectrum-ts/telegram",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "@photon-ai/telegram-ts": "10.0.0",
         "marked": "^18.0.5",
@@ -220,7 +220,7 @@
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
       },
@@ -231,14 +231,14 @@
     },
     "packages/terminal": {
       "name": "@spectrum-ts/terminal",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "zod": "^4.2.1",
       },
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
       },
@@ -256,7 +256,7 @@
       },
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "vitest": "^5.0.0",
       },
       "peerDependencies": {
@@ -265,7 +265,7 @@
     },
     "packages/whatsapp-business": {
       "name": "@spectrum-ts/whatsapp-business",
-      "version": "12.10.1",
+      "version": "12.15.0",
       "dependencies": {
         "@photon-ai/whatsapp-business": "^0.3.0",
         "mime-types": "^3.0.1",
@@ -274,7 +274,7 @@
       "devDependencies": {
         "@spectrum-ts/core": "workspace:*",
         "@spectrum-ts/test-support": "workspace:*",
-        "@types/bun": "latest",
+        "@types/bun": "1.4.3",
         "@types/mime-types": "^3.0.1",
         "tsdown": "^0.23.0",
         "vitest": "^5.0.0",
@@ -404,7 +404,7 @@
 
     "@parseaple/typedstream": ["@parseaple/typedstream@2.0.2", "", { "dependencies": { "@parseaple/bplist": "1.0.1" } }, "sha512-bzKNZjiBtZN2T2U7Nqq/hhv+EezkPnaWoB5WvPuBwNpQvOr3EI0XrDTkFnAzsA9DKdu57es/gcb1d2ctd1u8xw=="],
 
-    "@photon-ai/advanced-imessage": ["@photon-ai/advanced-imessage@2.2.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "peerDependencies": { "@grpc/grpc-js": "^1.12.6", "nice-grpc": "^2.1.11", "nice-grpc-common": "^2.0.2" }, "optionalPeers": ["@grpc/grpc-js", "nice-grpc", "nice-grpc-common"] }, "sha512-WpRU/dAfPwZo6OZAwdKJ6YTmrJZAbhAVlO2skRucMmgyGHrhpyHt3p7ZJKvlkT900Fx7bFMN1VxheuV+jNh2KQ=="],
+    "@photon-ai/advanced-imessage": ["@photon-ai/advanced-imessage@2.4.0", "", { "dependencies": { "@bufbuild/protobuf": "^2.11.0" }, "peerDependencies": { "@grpc/grpc-js": "^1.12.6", "nice-grpc": "^2.1.11", "nice-grpc-common": "^2.0.2" }, "optionalPeers": ["@grpc/grpc-js", "nice-grpc", "nice-grpc-common"] }, "sha512-Z9L+YwmGwH/Wspsc6pp7z7s91uZLWsUj07NdzJ/9vhQmd36kR22NIZmyzzdpn6kXbw2faLZbaJdujDOuOjF57A=="],
 
     "@photon-ai/imessage-kit": ["@photon-ai/imessage-kit@3.0.0", "", { "dependencies": { "@parseaple/typedstream": "^2.0.0" }, "optionalDependencies": { "better-sqlite3": "^12.5.0" } }, "sha512-GGDETlRbrPXP5eaRvswaead7MCBGQkm8f7d3aVbx8+rXhB4GEyPiw7Q1/yz5ix53rmxqKRevWywOfG7n+kZDBw=="],
 
@@ -530,7 +530,7 @@
 
     "@types/body-parser": ["@types/body-parser@1.19.6", "", { "dependencies": { "@types/connect": "*", "@types/node": "*" } }, "sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g=="],
 
-    "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
     "@types/chai": ["@types/chai@5.2.3", "", { "dependencies": { "@types/deep-eql": "*", "assertion-error": "^2.0.1" } }, "sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA=="],
 
@@ -670,7 +670,7 @@
 
     "buffer": ["buffer@5.7.1", "", { "dependencies": { "base64-js": "^1.3.1", "ieee754": "^1.1.13" } }, "sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ=="],
 
-    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
 

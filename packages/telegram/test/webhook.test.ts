@@ -1,5 +1,7 @@
+import { cloud, Spectrum } from "@spectrum-ts/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configSchema } from "@/config";
+import { telegram } from "@/index";
 import { ensureWebhook, webhookUrl } from "@/webhook";
 
 const SLUG = "what-c62a6";
@@ -74,6 +76,7 @@ afterEach(() => {
   } else {
     process.env.SPECTRUM_SUPER_WEBHOOK = originalSuperWebhook;
   }
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -91,6 +94,134 @@ describe("webhookUrl", () => {
 });
 
 describe("ensureWebhook", () => {
+  it("forwards lifecycle cancellation to webhook registration without returning a client", async () => {
+    vi.useFakeTimers();
+    const started = Promise.withResolvers<AbortSignal>();
+    vi.mocked(globalThis.fetch).mockImplementationOnce((input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input.toString(), init);
+      started.resolve(request.signal);
+      return new Promise<Response>((_resolve, reject) => {
+        request.signal.addEventListener(
+          "abort",
+          () => reject(request.signal.reason),
+          { once: true }
+        );
+      });
+    });
+    const startup = new AbortController();
+    const reason = new DOMException("startup deadline", "TimeoutError");
+    const projectLookup = vi.spyOn(cloud, "getProject").mockResolvedValue({
+      id: "project-1",
+      name: "Test project",
+      profile: {},
+      slug: SLUG,
+    });
+    const platformsLookup = vi.spyOn(cloud, "getPlatforms").mockResolvedValue({
+      imessage: { enabled: false },
+      slack: { enabled: false },
+      whatsapp_business: { enabled: false },
+    });
+    try {
+      const pending = Spectrum({
+        projectId: "project-1",
+        projectSecret: "secret-1",
+        providers: [telegram.config({ botToken: BOT_TOKEN })],
+        signal: startup.signal,
+      });
+      const rejection = expect(pending).rejects.toBe(reason);
+      const received = await started.promise;
+      expect(received.aborted).toBe(false);
+      startup.abort(reason);
+      await rejection;
+      expect(received.aborted).toBe(true);
+      expect(received.reason).toBe(reason);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      startup.abort(reason);
+      projectLookup.mockRestore();
+      platformsLookup.mockRestore();
+    }
+  });
+
+  it("rejects an already-aborted signal without making any requests", async () => {
+    const reason = new DOMException("startup deadline", "TimeoutError");
+    await expect(
+      ensureWebhook(config(), SLUG, AbortSignal.abort(reason))
+    ).rejects.toBe(reason);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "getWebhookInfo",
+    "setWebhook",
+  ])("rejects a late successful %s response after cancellation", async (method) => {
+    const existing = vi.mocked(globalThis.fetch).getMockImplementation();
+    if (!existing) {
+      throw new Error("missing test fetch");
+    }
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input.toString(), init);
+      const response = await existing(input, init);
+      if (request.url.endsWith(`/${method}`)) {
+        started.resolve();
+        await release.promise;
+      }
+      return response;
+    });
+    const startup = new AbortController();
+    const reason = new DOMException("startup deadline", "TimeoutError");
+    const pending = ensureWebhook(config(), SLUG, startup.signal);
+    const rejection = expect(pending).rejects.toBe(reason);
+    await started.promise;
+    startup.abort(reason);
+    release.resolve();
+    await rejection;
+    expect(calls.map((call) => call.method)).toEqual(
+      method === "getWebhookInfo"
+        ? ["getWebhookInfo"]
+        : ["getWebhookInfo", "setWebhook"]
+    );
+    expect(globalThis.fetch).toHaveBeenCalledTimes(calls.length);
+  });
+
+  it.each([
+    "getWebhookInfo",
+    "setWebhook",
+  ])("cancels %s with the startup signal", async (method) => {
+    const existing = vi.mocked(globalThis.fetch).getMockImplementation();
+    if (!existing) {
+      throw new Error("missing test fetch");
+    }
+    const started = Promise.withResolvers<AbortSignal>();
+    vi.mocked(globalThis.fetch).mockImplementation((input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input.toString(), init);
+      if (request.url.endsWith(`/${method}`)) {
+        started.resolve(request.signal);
+        return new Promise<Response>((_resolve, reject) => {
+          request.signal.addEventListener(
+            "abort",
+            () => reject(request.signal.reason),
+            { once: true }
+          );
+        });
+      }
+      return existing(input, init);
+    });
+    const controller = new AbortController();
+    const pending = ensureWebhook(config(), SLUG, controller.signal);
+    const received = await started.promise;
+    const reason = new DOMException("startup deadline", "TimeoutError");
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    expect(received.aborted).toBe(true);
+  });
+
   it("skips setWebhook when the webhook URL is already registered", async () => {
     currentUrl = EXPECTED_URL;
     await ensureWebhook(config(), SLUG);

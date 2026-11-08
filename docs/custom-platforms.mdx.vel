@@ -113,8 +113,8 @@ Return a <TypeTooltip name="ProviderMessageRecord" type={`{{ providerMessageReco
     | `space.schema` | No | Adds provider-specific properties to resolved spaces with a Zod schema. |
     | `space.params` | No | Adds provider-specific parameters to `platform(app).space.create()` and `platform(app).space.get()` with a Zod schema. |
     | `space.actions` | No | Adds async methods to resolved spaces. Spectrum binds each method's first parameter to the space, so callers pass only the remaining arguments. Reserved universal method names are skipped with a warning. |
-    | `lifecycle.createClient` | Yes | Creates the provider client. Receives `config`, `projectConfig`, `projectId`, `projectSecret`, and `store`. |
-    | `lifecycle.destroyClient` | No | Tears down the client on shutdown. Omit it when the client needs no cleanup. |
+    | `lifecycle.createClient` | Yes | Creates the provider client. Receives `config`, `projectConfig`, `projectId`, `projectSecret`, `store`, and an optional startup `signal`. Pass the signal to initialization I/O, not to later client operations. Clean up partial resources if creation fails before returning. |
+    | `lifecycle.destroyClient` | No | Tears down a returned client on shutdown or failed initialization of another provider. Spectrum awaits cleanup before rejecting startup. Throw if cleanup fails. Omit this hook only when the client needs no cleanup. |
     | `message.schema` | No | Adds provider-specific properties to incoming messages with a Zod schema. |
     | `message.actions` | No | Adds async methods to narrowed messages. Spectrum binds each method's first parameter to the message, so callers pass only the remaining arguments. |
     | `actions.getMessage` | No | Fetches a message by ID and powers `space.getMessage(id)`. Spectrum injects `{ client, config, store }` as the first argument. |

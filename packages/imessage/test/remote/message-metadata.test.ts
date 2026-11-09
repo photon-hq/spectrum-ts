@@ -16,6 +16,7 @@ const EDITED_AT = new Date("2026-01-02T03:04:08.000Z");
 const PLAYED_AT = new Date("2026-01-02T03:04:09.000Z");
 const EXPRESSIVE_PLAYED_AT = new Date("2026-01-02T03:04:10.000Z");
 const RETRACTED_AT = new Date("2026-01-02T03:04:11.000Z");
+const SENDER_DEVICE_ID = `pho_device_v1_${"a".repeat(64)}`;
 
 const completeAdvancedMessage = (): AdvancedIMessageMessage => ({
   appliedReactions: [
@@ -182,6 +183,7 @@ const advancedMessageFieldPolicy = {
   replyTargetGuid: "omit",
   sendErrorCode: "expose",
   sender: "omit",
+  senderDeviceId: "expose",
   shareDirection: "omit",
   shareStatus: "omit",
   subject: "expose",
@@ -193,6 +195,41 @@ const advancedMessageFieldPolicy = {
 >;
 
 describe("curated Advanced iMessage metadata", () => {
+  it("preserves sender identity through metadata validation and JSON", () => {
+    const native = {
+      ...completeAdvancedMessage(),
+      isFromMe: false,
+      senderDeviceId: SENDER_DEVICE_ID,
+    };
+    const metadata = toMessageMetadata(native);
+
+    expect(metadata.senderDeviceId).toBe(SENDER_DEVICE_ID);
+    expect(messageSchema.parse(metadata).senderDeviceId).toBe(SENDER_DEVICE_ID);
+    expect(JSON.parse(JSON.stringify(metadata)).senderDeviceId).toBe(
+      SENDER_DEVICE_ID
+    );
+  });
+
+  it.each([
+    undefined,
+    null,
+    "",
+    42,
+    {},
+  ])("omits unavailable sender identity (%j) without losing message metadata", (senderDeviceId) => {
+    const native = completeAdvancedMessage();
+    Reflect.set(native, "senderDeviceId", senderDeviceId);
+    const metadata = toMessageMetadata(native);
+
+    expect(metadata.senderDeviceId).toBeUndefined();
+    expect(metadata.nativeText).toBe("Hello @Taylor");
+    expect(metadata.attachmentMetadata).toHaveLength(1);
+    expect(messageSchema.parse(metadata)).toEqual(metadata);
+    expect(JSON.parse(JSON.stringify(metadata))).not.toHaveProperty(
+      "senderDeviceId"
+    );
+  });
+
   it("maps delivery and lifecycle diagnostics", () => {
     const metadata = toMessageMetadata(completeAdvancedMessage());
 
@@ -396,6 +433,9 @@ describe("curated Advanced iMessage metadata", () => {
 
     const assertNarrowedMetadata = (message: Message): void => {
       if (imessage.is(message)) {
+        expectTypeOf(message.senderDeviceId).toEqualTypeOf<
+          string | undefined
+        >();
         expectTypeOf(message.dateDelivered).toEqualTypeOf<Date | undefined>();
         expectTypeOf(message.attachmentMetadata).toEqualTypeOf<
           IMessageMessage["attachmentMetadata"]

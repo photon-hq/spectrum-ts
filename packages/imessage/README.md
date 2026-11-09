@@ -74,7 +74,7 @@ synchronous callback or a promise; promises are not awaited and may finish out o
 order. Throws and rejections are logged without interrupting the stream. Stopping
 does not cancel or wait for asynchronous work an observer has already started.
 The option is off by default; existing configurations and message payloads are
-unchanged. This provider requires `@photon-ai/advanced-imessage` 2.4.0 or newer.
+unchanged. This provider requires `@photon-ai/advanced-imessage` 2.5.0 or newer.
 
 ## Pending processing diagnostics
 

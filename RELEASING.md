@@ -17,7 +17,9 @@ committed package versions do not authorize or name a release.
 
 Do not merge until package maintainers and repository administrators verify
 these separately. This migration does not configure them or establish release
-acceptance.
+acceptance. Passing CI or marking the PR ready for review does not complete
+this checklist. Record administrator confirmation before merging, not in a
+post-merge follow-up.
 
 1. On **every package below**, create a staging npm trusted publisher for
    GitHub Actions, owner `photon-hq`, repository `spectrum-ts`, workflow
@@ -45,8 +47,23 @@ acceptance.
    Buildspace uses npm 11.21.1, OIDC, and provenance, without token fallback.
 
 The exact selection is identical in stage and promote. Private test support
-and examples are excluded. A new publishable package requires a selection
-update in both workflows and its own trusted publishers before staging.
+and examples are excluded. Both `package-selection` values are explicit;
+adding a public workspace does not update either caller automatically.
+
+When changing the public package set, update `.github/workflows/release.yaml`
+and `.github/workflows/promote.yaml` in the same PR. Update the package table
+below and the expected count in `scripts/release/workflows.test.ts` too.
+Keep its equality checks against the discovered publishable workspaces: CI
+runs them under both runtimes and rejects drift in either caller. Run them
+locally before requesting review:
+
+```sh
+bun x vitest run scripts/release/workflows.test.ts
+bun --bun vitest run scripts/release/workflows.test.ts
+```
+
+Every new package also needs its own staging trusted publisher before staging
+and a separate production publisher before promotion, as described above.
 
 | Package | Publication order |
 | --- | --- |

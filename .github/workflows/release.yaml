@@ -1,364 +1,44 @@
-# Lockstep monorepo release: one version across spectrum-ts (core) and every
-# @photon-ai/spectrum-provider-* package, published sequentially core-first.
-#
-# Replaces the single-package buildspace typescript-service-release call (it
-# bumps/publishes exactly one working-directory) while reusing its composite
-# blocks for the label gate, AI release notes, and the GitHub release. The
-# notify job is inlined because the shared workflow's allow-list lives
-# upstream and is keyed to this repo anyway.
-#
-# Launch/rehearsal/resume via workflow_dispatch:
-#   { version: 5.0.0, dry-run: true }    -> full rehearsal, nothing pushed
-#   { version: 5.0.0 }                   -> exact-version release (skips AI)
-#   { publish-only: true }               -> resume a partially failed publish
-#   { …, skip-oidc-preflight: true }     -> knowingly release via NPM_TOKEN
-#
-# npm auth: publishing is tokenless via npm Trusted Publishing (OIDC). Every
-# publishable package (scripts/release/packages.ts) needs a trusted publisher
-# on npmjs.com — package → Settings → Trusted Publisher → GitHub Actions:
-#   Organization or user: photon-hq
-#   Repository:           spectrum-ts
-#   Workflow filename:    release.yaml   (this file's basename — keep it)
-#   Environment name:     (empty — the publish job sets no `environment:`)
-# The oidc-preflight job proves the exchange works for every package BEFORE
-# anything is bumped or tagged, and prints exactly those values on failure.
-# NPM_TOKEN is a fallback only: npm is removing direct publish for 2FA-bypass
-# tokens (~Jan 2027), and it is the only path that works for the FIRST
-# publish of a brand-new package name (no trusted publisher can exist yet).
-
-name: Release
+name: Stage
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
     inputs:
-      version:
-        type: string
-        default: ""
-        description: "Exact semver to release; skips AI versioning"
-      publish-only:
-        type: boolean
-        default: false
-        description: "Skip bump/release; (re)publish versions already in package.json"
       dry-run:
+        description: "Build and validate both channels without publishing"
         type: boolean
-        default: false
-        description: "Build and clean, but do not push, release, or publish"
-      skip-oidc-preflight:
-        type: boolean
-        default: false
-        description: "Proceed even if npm trusted publishing (OIDC) is not verified — publish will fall back to NPM_TOKEN"
+        default: true
 
 permissions:
-  contents: write
-  pull-requests: read
-  id-token: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: spectrum-stage
   cancel-in-progress: false
 
 jobs:
-  check-labels:
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-      contents: read
-    outputs:
-      release: ${{ steps.gate.outputs.release }}
-      prerelease: ${{ steps.gate.outputs.prerelease }}
-    steps:
-      - name: Check PR labels
-        id: check
-        uses: photon-hq/buildspace/.github/blocks/check-pr-label@main
-        with:
-          labels: '["release", "prerelease"]'
-      - name: Resolve gate (labels OR manual dispatch)
-        id: gate
-        env:
-          LABELS: ${{ steps.check.outputs.labels }}
-        run: |
-          release=$(jq -r '.release' <<<"$LABELS")
-          prerelease=$(jq -r '.prerelease' <<<"$LABELS")
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            release=true
-          fi
-          echo "release=$release" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-
-  # Fail fast, before bump-version pushes a release commit and github-release
-  # cuts a tag, if npm would reject our OIDC token for any package. Runs in
-  # this workflow file on purpose: the ID token's workflow_ref claim is what
-  # npm matches the trusted publisher against, so a check from anywhere else
-  # would prove nothing.
-  oidc-preflight:
-    needs: check-labels
-    if: needs.check-labels.outputs.release == 'true' && inputs.skip-oidc-preflight != true
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - name: Verify npm trusted publishing for every package
-        run: bun scripts/release/oidc-preflight.ts
-
-  release-info:
-    needs: check-labels
-    if: needs.check-labels.outputs.release == 'true' && inputs.publish-only != true
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      version: ${{ steps.resolve.outputs.version }}
-      release_notes: ${{ steps.resolve.outputs.release_notes }}
-      release_type: ${{ steps.resolve.outputs.release_type }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Generate release info (AI)
-        id: ai
-        if: inputs.version == ''
-        uses: photon-hq/buildspace/.github/blocks/generate-release-info@main
-        with:
-          service-name: spectrum-ts
-          prerelease: ${{ needs.check-labels.outputs.prerelease == 'true' }}
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-      - name: Resolve version (dispatch input overrides AI)
-        id: resolve
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-          AI_VERSION: ${{ steps.ai.outputs.version }}
-          AI_NOTES: ${{ steps.ai.outputs.release_notes }}
-          AI_TYPE: ${{ steps.ai.outputs.release_type }}
-        run: |
-          version="${INPUT_VERSION:-$AI_VERSION}"
-          if [ -z "$version" ]; then
-            echo "::error::no version resolved" && exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "release_type=${AI_TYPE:-major}" >> "$GITHUB_OUTPUT"
-          {
-            echo "release_notes<<NOTES_EOF"
-            echo "${AI_NOTES:-Manual release $version}"
-            echo "NOTES_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-  bump-version:
-    needs: [check-labels, release-info, oidc-preflight]
-    # always(): oidc-preflight is legitimately `skipped` when bypassed via the
-    # dispatch input; a `failure` there must still block the bump.
-    if: >-
-      always() &&
-      needs.release-info.result == 'success' &&
-      (needs.oidc-preflight.result == 'success' || needs.oidc-preflight.result == 'skipped') &&
-      inputs.dry-run != true
-    runs-on: ubuntu-latest
+  stage:
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.dry-run)
     permissions:
       contents: write
-    outputs:
-      sha: ${{ steps.push.outputs.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.ref }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - name: Bump all packages (lockstep)
-        run: |
-          bun scripts/release/bump-version.ts "${{ needs.release-info.outputs.version }}"
-          bun install
-      - name: Generate App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          # Least privilege: this token only commits/pushes the bump.
-          permission-contents: write
-      - name: Commit and push bump
-        id: push
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          git config user.name "photon-release[bot]"
-          git config user.email "photon-release[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git add -A
-          git commit -m "chore: release v${{ needs.release-info.outputs.version }}"
-          git pull --rebase origin ${{ github.ref_name }}
-          git push origin HEAD:${{ github.ref_name }}
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-  github-release:
-    needs: [check-labels, release-info, bump-version]
-    if: needs.bump-version.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Create GitHub release
-        uses: photon-hq/buildspace/.github/blocks/create-github-release@main
-        with:
-          version: ${{ needs.release-info.outputs.version }}
-          title: "spectrum-ts v${{ needs.release-info.outputs.version }}"
-          notes: ${{ needs.release-info.outputs.release_notes }}
-          prerelease: ${{ needs.check-labels.outputs.prerelease == 'true' }}
-          app-id: ${{ secrets.APP_ID }}
-          app-private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-  npm-publish:
-    needs: [check-labels, release-info, oidc-preflight, bump-version]
-    if: >-
-      always() &&
-      needs.check-labels.outputs.release == 'true' &&
-      (needs.oidc-preflight.result == 'success' || needs.oidc-preflight.result == 'skipped') &&
-      (needs.bump-version.result == 'success' ||
-       (inputs.publish-only == true && needs.bump-version.result == 'skipped') ||
-       (inputs.dry-run == true && needs.bump-version.result == 'skipped'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # Build EXACTLY the bump commit; on publish-only/dry-run, branch head.
-          ref: ${{ needs.bump-version.outputs.sha || github.ref_name }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          registry-url: "https://registry.npmjs.org"
-      # npm OIDC trusted publishing needs npm >= 11.5.1
-      - run: npm install -g npm@latest
-      - run: bun install --frozen-lockfile
-      - name: Build (publish mode)
-        run: bun run build
-        env:
-          SPECTRUM_PUBLISH: "1"
-      - name: Verify lockstep versions and ranges
-        # Skip on dry-run too: bump-version is skipped there, so the checked-out
-        # tree still carries the committed version while `version` is the
-        # rehearsed (bumped) one — verify-versions would always fail the mismatch.
-        if: inputs.publish-only != true && inputs.dry-run != true
-        run: bun scripts/release/verify-versions.ts "${{ needs.release-info.outputs.version }}"
-      - name: Verify artifacts (publint + attw on cleaned output)
-        run: bun scripts/release/check-artifacts.ts
-        env:
-          SPECTRUM_PUBLISH: "1"
-      - name: Prepare packages (LICENSE/README)
-        run: bun scripts/release/prepare-packages.ts
-      - name: Publish (core first, idempotent)
-        run: >-
-          bun scripts/release/publish.ts
-          --tag ${{ needs.check-labels.outputs.prerelease == 'true' && 'beta' || 'latest' }}
-          ${{ inputs.dry-run == true && '--dry-run' || '' }}
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  # Inlined from buildspace typescript-service-release (its allow-list is
-  # keyed to this repo). POSTs release metadata to email-monkey over Tailscale.
-  notify:
-    needs: [check-labels, release-info, github-release, npm-publish]
-    if: >-
-      always() &&
-      needs.release-info.result == 'success' &&
-      needs.github-release.result == 'success' &&
-      needs.npm-publish.result == 'success' &&
-      inputs.dry-run != true &&
-      contains(fromJSON('["major","minor","patch"]'), needs.release-info.outputs.release_type)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Join Tailnet
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:infra
-          version: latest
-      - name: POST to email-monkey
-        env:
-          SERVICE_NAME: spectrum-ts
-          REPO: ${{ github.repository }}
-          VERSION: ${{ needs.release-info.outputs.version }}
-          RELEASE_NOTES: ${{ needs.release-info.outputs.release_notes }}
-          RELEASE_TYPE: ${{ needs.release-info.outputs.release_type }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          BODY="$(jq -nc \
-            --arg repo "$REPO" \
-            --arg version "$VERSION" \
-            --arg releaseNotes "$RELEASE_NOTES" \
-            --arg releaseType "$RELEASE_TYPE" \
-            --arg serviceName "$SERVICE_NAME" \
-            '{repo:$repo, version:$version, releaseNotes:$releaseNotes, releaseType:$releaseType, serviceName:$serviceName}')"
-
-          HTTP_CODE="$(curl --silent --show-error \
-            --output /tmp/email-monkey.out \
-            --write-out '%{http_code}' \
-            --max-time 60 \
-            --request POST "http://email-monkey/campaigns/spectrum-release/trigger" \
-            --header "Content-Type: application/json" \
-            --data "$BODY")"
-
-          echo "email-monkey response ($HTTP_CODE):"
-          cat /tmp/email-monkey.out || true
-          echo
-
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::email-monkey returned HTTP $HTTP_CODE"
-            exit 1
-          fi
-
-  # After a real publish, poke spectrum-webhook's self-hosted Renovate so it
-  # picks up the new version within seconds instead of its hourly cron.
-  bump-webhook:
-    needs: [check-labels, npm-publish]
-    if: >-
-      always() &&
-      needs.npm-publish.result == 'success' &&
-      inputs.dry-run != true
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
       pull-requests: read
-    steps:
-      # repository_dispatch to another repo needs a token with contents:write on
-      # the target; the default GITHUB_TOKEN can't reach spectrum-webhook.
-      - name: Generate App token for spectrum-webhook
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: photon-hq
-          repositories: spectrum-webhook
-          # Least privilege: repository_dispatch needs contents:write + metadata:read.
-          permission-contents: write
-          permission-metadata: read
-      - name: Dispatch Renovate run on spectrum-webhook
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          gh api repos/photon-hq/spectrum-webhook/dispatches \
-            --method POST \
-            -f event_type=spectrum-ts-released
-          echo "Dispatched spectrum-ts-released -> photon-hq/spectrum-webhook"
+      packages: write
+      actions: read
+      attestations: write
+      id-token: write
+    uses: photon-hq/buildspace/.github/workflows/package-stage.yml@cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d
+    with:
+      package: spectrum-ts
+      package-selection: spectrum-ts @spectrum-ts/core @spectrum-ts/elysia @spectrum-ts/express @spectrum-ts/fastify @spectrum-ts/hono @spectrum-ts/imessage @spectrum-ts/imessage-local @spectrum-ts/slack @spectrum-ts/telegram @spectrum-ts/terminal @spectrum-ts/whatsapp-business
+      registry: https://registry.npmjs.org
+      tag-prefix: spectrum-ts-staging-
+      production-tag-prefix: v
+      environment: staging
+      ci-workflow: ci.yaml
+      bun-version: '1.3.14'
+      setup-pnpm: false
+      install: bun install --frozen-lockfile
+      verify: bun run check && bun run typecheck && bun run test
+      pack: bun scripts/release/pack.ts
+      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

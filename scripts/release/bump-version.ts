@@ -10,8 +10,8 @@
  * - The `spectrum-ts` metapackage's regular `dependencies` on `@spectrum-ts/*`
  *   are pinned to the exact release version (it ships those exact siblings).
  *
- * Run `bun install` afterwards (the release workflow does) — bun.lock records
- * workspace versions and dependency ranges.
+ * pack.ts uses this only after installation, then restores the manifests.
+ * A permanent version edit also needs `bun install` to update bun.lock.
  */
 
 import { writeFile } from "node:fs/promises";

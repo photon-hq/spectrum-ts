@@ -102,6 +102,9 @@ Providers import the core through its public entries (`@spectrum-ts/core`, `@spe
 
 CI runs `check`, `typecheck`, `test`, and `build` on every pull request.
 
+Releases stage from `main` and promote stored candidates after approval. See
+[Staging and promoting Spectrum](./RELEASING.md) for prerequisites and recovery.
+
 ### Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):

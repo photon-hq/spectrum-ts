@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 /**
- * Pre-publish invariants, run by the release workflow after the bump commit
- * is checked out:
+ * Pre-pack invariants, run after pack.ts applies the channel's version:
  *
  * 1. Lockstep: every publishable package.json#version equals the release
- *    version (argv[2], optional — skipped for publish-only resumes).
+ *    version (argv[2], optional for local checks).
  * 2. No `workspace:` or `catalog:` ranges outside devDependencies in any
  *    publishable package: clean-publish/npm do not rewrite them (only
  *    `bun publish` does, which we don't use), so they must never reach a

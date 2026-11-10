@@ -65,8 +65,10 @@ update in both workflows and its own trusted publishers before staging.
 
 ## Build and inspect a candidate
 
-The read-only build runs lint, typecheck and tests under Node and Bun. The pack
-adapter reuses the existing lockstep bump and validation scripts, builds with
+Main-push staging waits for the exact commit's CI, which owns lint, typecheck
+and tests under Node and Bun. Manual dispatches run those checks directly;
+build-only rehearsals do not wait for push CI. The pack adapter reuses the
+existing lockstep bump and validation scripts, builds with
 `SPECTRUM_PUBLISH=1`, checks cleaned output with publint and attw, and packs
 each package with npm. It checks each archive's name, version and dependencies.
 Both staging and production packs restore temporary package manifests and the

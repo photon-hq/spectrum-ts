@@ -1,4 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { parse } from "yaml";
@@ -34,13 +37,41 @@ it("stages only main pushes without a label gate and requires real CI and verifi
   expect(stage.jobs.stage.with).toMatchObject({
     "ci-workflow": "ci.yaml",
     install: "bun install --frozen-lockfile",
-    verify: "bun run check && bun run typecheck && bun run test",
     pack: "bun scripts/release/pack.ts",
     environment: "staging",
     "bun-version": readFileSync(join(REPO_ROOT, ".bun-version"), "utf8").trim(),
     "setup-pnpm": false,
   });
   expect(stage.concurrency["cancel-in-progress"]).toBe(false);
+});
+
+it("reuses push CI checks and verifies manual rehearsals without repeating push tests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spectrum-release-verification-"));
+  try {
+    const bun = join(root, "bun");
+    await writeFile(bun, '#!/bin/sh\nprintf "%s\\n" "$*"\n');
+    await chmod(bun, 0o755);
+    for (const event of ["push", "workflow_dispatch"]) {
+      const result = spawnSync(
+        "bash",
+        ["-euo", "pipefail", "-c", stage.jobs.stage.with.verify],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${root}:${process.env.PATH}`,
+            GITHUB_EVENT_NAME: event,
+          },
+        }
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(
+        event === "push" ? "" : "run check\nrun typecheck\nrun test\n"
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 it("selects exactly the same twelve identities in both channels with npm OIDC", async () => {

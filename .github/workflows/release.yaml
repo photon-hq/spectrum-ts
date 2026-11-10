@@ -39,6 +39,11 @@ jobs:
       bun-version: '1.3.14'
       setup-pnpm: false
       install: bun install --frozen-lockfile
-      verify: bun run check && bun run typecheck && bun run test
+      verify: |
+        if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+          bun run check
+          bun run typecheck
+          bun run test
+        fi
       pack: bun scripts/release/pack.ts
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

@@ -84,15 +84,16 @@ export type WebhookHandler = (
 /**
  * Raw webhook input for HTTP servers without Web `Request`/`Response` (Express,
  * raw Node). `body` MUST be the exact bytes POSTed — never a re-encoded
- * JSON/text body — so both the protobuf decode (fusor) and the HMAC
- * verification (native Spectrum webhook) work.
+ * JSON/text body — native Spectrum HMAC verification is over those bytes, and
+ * Fusor validates its versioned JSON envelope from them.
  *
- * `headers` ARE read for **native Spectrum webhooks**: `X-Spectrum-Signature` /
- * `X-Spectrum-Timestamp` carry the HMAC verified against
- * `Spectrum({ webhookSecret })`, and the signature header also selects the
- * native path. For **fusor** envelopes they are ignored (authenticity is the
- * per-platform `verify()` reading the inner reconstructed request). The natural
- * `{ headers: req.headers, body: req.body }` shape works for both.
+ * `headers` is optional on this raw-input type; omitted headers are treated as
+ * an empty record. Routing and verification still depend on them: Fusor
+ * deliveries carry `ce-type: dev.spctrm.fusor.delivery`; every other request is
+ * treated as a native Spectrum webhook, whose `X-Spectrum-Signature` /
+ * `X-Spectrum-Timestamp` are verified against `Spectrum({ webhookSecret })` and
+ * rejected when missing. The natural `{ headers: req.headers, body: req.body }`
+ * shape works for both.
  */
 export interface WebhookRawRequest {
   body: Uint8Array | ArrayBuffer;

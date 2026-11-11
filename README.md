@@ -105,4 +105,4 @@ Contributions are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for 
 
 ## License
 
-[MIT](./LICENSE) © [Photon](https://photon.codes)
+[Apache-2.0](./LICENSE) © [Photon](https://photon.codes)

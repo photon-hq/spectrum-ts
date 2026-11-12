@@ -65,5 +65,5 @@
     "tsdown": "^0.23.0",
     "vitest": "^5.0.0"
   },
-  "license": "MIT"
+  "license": "Apache-2.0"
 }

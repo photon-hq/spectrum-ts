@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
 /**
  * Single source of truth for "what do we publish" — shared by bump-version,
- * verify-versions, prepare-packages, publish, and check-artifacts.
+ * verify-versions, prepare-packages, pack, and check-artifacts.
  *
  * Publishable = every workspace package under packages/ without
  * `"private": true` (excludes examples/ and @spectrum-ts/test-support).
- * Topologically ordered: the core (`spectrum-ts`) publishes first so the
- * providers' `spectrum-ts@^N` peer range is satisfiable the moment each
- * provider lands on the registry; providers follow alphabetically.
+ * Topologically ordered: the runtime publishes first, providers follow
+ * alphabetically, and the metapackage publishes last.
  */
 
 import { readdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // The runtime publishes first (every provider peer-deps it); the `spectrum-ts`
 // metapackage publishes last (it depends on the runtime and its standard
@@ -37,7 +37,7 @@ export interface PublishablePackage {
   path: string;
 }
 
-export const REPO_ROOT = resolve(import.meta.dir, "..", "..");
+export const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 export async function publishablePackages(): Promise<PublishablePackage[]> {
   const packagesDir = join(REPO_ROOT, "packages");

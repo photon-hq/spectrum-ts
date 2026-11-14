@@ -1,0 +1,157 @@
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      staging-version:
+        description: "Exact staged version to promote (X.Y.Z-staging.<run>.<attempt>)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spectrum-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+      attestations: read
+      id-token: write
+    uses: photon-hq/buildspace/.github/workflows/package-promote.yml@cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d
+    with:
+      staging-version: ${{ inputs.staging-version }}
+      package: spectrum-ts
+      package-selection: spectrum-ts @spectrum-ts/core @spectrum-ts/elysia @spectrum-ts/express @spectrum-ts/fastify @spectrum-ts/hono @spectrum-ts/imessage @spectrum-ts/imessage-local @spectrum-ts/slack @spectrum-ts/telegram @spectrum-ts/terminal @spectrum-ts/whatsapp-business
+      registry: https://registry.npmjs.org
+      tag-prefix: spectrum-ts-staging-
+      production-tag-prefix: v
+      environment: production
+
+  release-info:
+    needs: promote
+    if: needs.promote.outputs.pending == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      release-notes: ${{ steps.release.outputs.release-notes }}
+      release-type: ${{ steps.release.outputs.release-type }}
+      previous-tag: ${{ steps.release.outputs.previous-tag }}
+    steps:
+      - name: Read the production release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.promote.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isPrerelease,body > "$RUNNER_TEMP/production-release.json"
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern release-manifest.json --dir "$RUNNER_TEMP"
+          python3 <<'PY'
+          import json, os, pathlib, re, uuid
+
+          temp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          release = json.loads((temp / 'production-release.json').read_text())
+          manifest = json.loads((temp / 'release-manifest.json').read_text())
+          version = os.environ['VERSION']
+          tag = f'v{version}'
+          assert release['tagName'] == tag and release['isPrerelease'] is False
+          assert manifest['productionTag'] == tag and manifest['package'] == 'spectrum-ts'
+          assert manifest['bump']['version'] == version
+          level = manifest['bump']['level']
+          assert level in ('none', 'patch', 'minor', 'major')
+          previous = manifest['bump']['from'] or ''
+          assert not previous or re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', previous)
+          values = {'release-notes': release['body'], 'release-type': level, 'previous-tag': previous}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, value in values.items():
+                  delimiter = f'RELEASE_{uuid.uuid4().hex}'
+                  output.write(f'{key}<<{delimiter}\n{value}\n{delimiter}\n')
+          PY
+
+  notify:
+    needs: [promote, release-info]
+    if: contains(fromJSON('["major","minor","patch"]'), needs.release-info.outputs.release-type)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Join Tailnet
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:infra
+          version: latest
+      - name: POST to email-monkey
+        env:
+          SERVICE_NAME: spectrum-ts
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.promote.outputs.version }}
+          RELEASE_NOTES: ${{ needs.release-info.outputs.release-notes }}
+          RELEASE_TYPE: ${{ needs.release-info.outputs.release-type }}
+        run: |
+          set -euo pipefail
+          BODY="$(jq -nc \
+            --arg repo "$REPO" \
+            --arg version "$VERSION" \
+            --arg releaseNotes "$RELEASE_NOTES" \
+            --arg releaseType "$RELEASE_TYPE" \
+            --arg serviceName "$SERVICE_NAME" \
+            '{repo:$repo, version:$version, releaseNotes:$releaseNotes, releaseType:$releaseType, serviceName:$serviceName}')"
+          HTTP_CODE="$(curl --silent --show-error \
+            --output /tmp/email-monkey.out \
+            --write-out '%{http_code}' \
+            --max-time 60 \
+            --request POST "http://email-monkey/campaigns/spectrum-release/trigger" \
+            --header "Content-Type: application/json" \
+            --data "$BODY")"
+          echo "email-monkey response ($HTTP_CODE):"
+          cat /tmp/email-monkey.out || true
+          echo
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::email-monkey returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+  bump-webhook:
+    needs: promote
+    if: needs.promote.outputs.pending == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate App token for spectrum-webhook
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: photon-hq
+          repositories: spectrum-webhook
+          permission-contents: write
+          permission-metadata: read
+      - name: Dispatch Renovate run on spectrum-webhook
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api repos/photon-hq/spectrum-webhook/dispatches \
+            --method POST \
+            -f event_type=spectrum-ts-released
+          echo "Dispatched spectrum-ts-released -> photon-hq/spectrum-webhook"
+
+  update-docs:
+    needs: [promote, release-info]
+    uses: ./.github/workflows/update-docs.yaml
+    with:
+      release-tag: v${{ needs.promote.outputs.version }}
+      release-notes: ${{ needs.release-info.outputs.release-notes }}
+      previous-tag: ${{ needs.release-info.outputs.previous-tag }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

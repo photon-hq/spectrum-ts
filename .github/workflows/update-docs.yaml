@@ -3,10 +3,85 @@ name: Update Docs on Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Published stable release tag to update docs for (vX.Y.Z)"
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      release-tag:
+        type: string
+        required: true
+      release-notes:
+        type: string
+        required: true
+      previous-tag:
+        type: string
+        required: true
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      APP_ID:
+        required: true
+      APP_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: read
 
 jobs:
   update-docs:
-    uses: photon-hq/buildspace/.github/workflows/update-docs.yaml@main
-    with:
-      docs-path: spectrum-ts
-    secrets: inherit
+    if: github.event_name != 'release' || (!github.event.release.prerelease && !github.event.release.draft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect production changes and reviewers
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag || github.event.release.tag_name }}
+          RELEASE_NOTES: ${{ inputs.release-notes }}
+          PREVIOUS_TAG: ${{ inputs.previous-tag }}
+        run: python3 scripts/release/docs-context.py
+      - name: Generate App token for docs
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: photon-hq
+          repositories: docs
+          permission-contents: write
+          permission-pull-requests: write
+          permission-metadata: read
+      - name: Update documentation from the production release
+        id: docs
+        uses: photon-hq/buildspace/.github/blocks/update-docs@cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d
+        with:
+          service-name: spectrum-ts
+          version: ${{ steps.context.outputs.version }}
+          release-tag: ${{ steps.context.outputs.release-tag }}
+          release-notes: ${{ steps.context.outputs.release-notes }}
+          changes-diff: ${{ steps.context.outputs.changes-diff }}
+          docs-path: spectrum-ts
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github-token: ${{ steps.app-token.outputs.token }}
+      - name: Request source reviewers
+        if: steps.docs.outputs.pr-url != '' && steps.context.outputs.reviewers != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ steps.docs.outputs.pr-url }}
+          REVIEWERS: ${{ steps.context.outputs.reviewers }}
+        run: |
+          IFS=',' read -ra reviewers <<< "$REVIEWERS"
+          for reviewer in "${reviewers[@]}"; do
+            if ! gh pr edit "$PR_URL" --add-reviewer "$reviewer"; then
+              echo "::warning::Could not request review from $reviewer"
+            fi
+          done

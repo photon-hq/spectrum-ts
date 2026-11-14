@@ -57,6 +57,16 @@ const firstMessage = async (app: Awaited<ReturnType<typeof Spectrum>>) => {
 };
 
 describe("reaction sends return a Message", () => {
+  it("preserves provider-supplied reaction removal state", () => {
+    const removed = asReaction({
+      emoji: "👍",
+      removed: true,
+      target: record("target") as unknown as Message,
+    });
+
+    expect(removed.removed).toBe(true);
+  });
+
   it("message.react resolves to the reaction Message with the built target", async () => {
     const provider = makeReactionProvider("react_ok", (content) =>
       Promise.resolve({

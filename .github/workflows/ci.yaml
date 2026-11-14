@@ -23,7 +23,7 @@ jobs:
         with:
           bun-version-file: .bun-version
       # Pin the Node that the build's smoke-import executes under.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
@@ -57,7 +57,7 @@ jobs:
       # The node leg pins the Node that `vitest run` executes under; the bun leg
       # forces bun via `bun --bun vitest run` and needs no Node setup.
       - if: matrix.runtime == 'node'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
       - run: bun install --frozen-lockfile

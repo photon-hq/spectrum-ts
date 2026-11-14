@@ -437,6 +437,65 @@ describe("iMessage remote toInboundMessages content", () => {
     expect(message.content.stream).toBeTypeOf("function");
   });
 
+  it("maps voice messages to voice content when CAF metadata is missing", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [
+            attachment(
+              "voice-att",
+              "Audio Message",
+              "application/octet-stream",
+              456
+            ),
+          ],
+          text: undefined,
+        },
+        { isAudioMessage: true, isExpirable: true }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content).toMatchObject({
+      id: "voice-att",
+      mimeType: "audio/x-caf",
+      name: "Audio Message",
+      size: 456,
+      type: "voice",
+    });
+    if (message?.content.type !== "voice") {
+      throw new Error("expected voice content");
+    }
+    expect(message.content.read).toBeTypeOf("function");
+    expect(message.content.stream).toBeTypeOf("function");
+  });
+
+  it("does not force voice content when a voice-flagged attachment declares a real MIME", async () => {
+    const [message] = await toInboundMessages(
+      client,
+      new MessageCache(),
+      receivedEvent(
+        { address: "+15551234567" },
+        {
+          attachments: [attachment("att-0", "photo.png", "image/png", 456)],
+          text: undefined,
+        },
+        { isAudioMessage: true, isExpirable: true }
+      ),
+      "+15550000000"
+    );
+
+    expect(message?.content).toMatchObject({
+      id: "att-0",
+      mimeType: "image/png",
+      name: "photo.png",
+      type: "attachment",
+    });
+  });
+
   it("normalizes ordinary CAF attachments without marking them as voice", async () => {
     const [message] = await toInboundMessages(
       client,

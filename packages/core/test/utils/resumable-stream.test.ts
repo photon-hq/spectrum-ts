@@ -76,6 +76,7 @@ const failingSource = (
 interface FixtureConfig {
   bufferLimit?: number;
   fetchMissed?: (call: number, cursor: string) => AsyncIterable<Item>;
+  initialCursor?: string;
   initialRetryDelayMs?: number;
   isCursorRejectedError?: (error: unknown) => boolean;
   jitter?: (delayMs: number) => number;
@@ -84,6 +85,8 @@ interface FixtureConfig {
     cursor: string | undefined
   ) => CloseableAsyncIterable<Item>;
   maxRetryDelayMs?: number;
+  onCursor?: (cursor: string) => void | Promise<void>;
+  onCursorRejected?: (cursor: string) => void | Promise<void>;
   processMissed?: (event: Item) => Promise<Item>;
   recover?: (error: unknown, failureCount: number) => Promise<void> | void;
   recoverTimeoutMs?: number;
@@ -104,6 +107,7 @@ const buildStream = (config: FixtureConfig) => {
         cursor
       );
     },
+    initialCursor: config.initialCursor,
     initialRetryDelayMs: config.initialRetryDelayMs ?? 1,
     isCursorRejectedError: config.isCursorRejectedError,
     jitter:
@@ -113,6 +117,8 @@ const buildStream = (config: FixtureConfig) => {
         return 0;
       }),
     maxRetryDelayMs: config.maxRetryDelayMs ?? 8,
+    onCursor: config.onCursor,
+    onCursorRejected: config.onCursorRejected,
     processLive: (event) => Promise.resolve(event),
     processMissed: config.processMissed ?? ((event) => Promise.resolve(event)),
     recover: config.recover,
@@ -203,6 +209,103 @@ describe("resumableOrderedStream", () => {
     expect(fx.received).toEqual(["v1", "v2", "v2-again"]);
     expect(fx.liveCalls).toEqual([undefined, "2", undefined]);
     expect(fx.fetchCalls).toEqual(["2"]);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("starts catch-up from initialCursor and reports cursor advances", async () => {
+    const seenCursors: string[] = [];
+    const fx = buildStream({
+      fetchMissed: () =>
+        (async function* (): AsyncGenerator<Item> {
+          yield item("1", "v1");
+        })(),
+      initialCursor: "0",
+      live: () => liveSession([], "pending"),
+      onCursor: (cursor) => {
+        seenCursors.push(cursor);
+        if (cursor === "1") {
+          throw new Error("persist boom");
+        }
+      },
+    });
+
+    await waitUntil(() => fx.received.includes("v1"));
+    // A throwing persistence callback must not break delivery.
+    expect(fx.received).toEqual(["v1"]);
+    expect(fx.fetchCalls).toEqual(["0"]);
+    expect(fx.liveCalls).toEqual(["0"]);
+    expect(seenCursors).toEqual(["1"]);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("reports the rejected cursor so callers can clear stored state", async () => {
+    const rejected: string[] = [];
+    const fx = buildStream({
+      fetchMissed: () => failingSource(() => new FakeCursorError()),
+      initialCursor: "stale",
+      isCursorRejectedError: isFakeCursorError,
+      live: (call) =>
+        call === 1 ? liveSession([], "pending") : liveSession([], "pending"),
+      onCursorRejected: (cursor) => {
+        rejected.push(cursor);
+      },
+    });
+
+    await waitUntil(() => fx.liveCalls.length >= 2);
+    expect(rejected).toEqual(["stale"]);
+    expect(fx.liveCalls).toEqual(["stale", undefined]);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("reports the supplied cursor when catch-up yields before rejecting it", async () => {
+    const rejected: string[] = [];
+    const fx = buildStream({
+      fetchMissed: () =>
+        (async function* (): AsyncGenerator<Item> {
+          yield item("1", "v1");
+          throw new FakeCursorError();
+        })(),
+      initialCursor: "stale",
+      isCursorRejectedError: isFakeCursorError,
+      live: () => liveSession([], "pending"),
+      onCursorRejected: (cursor) => {
+        rejected.push(cursor);
+      },
+    });
+
+    await waitUntil(() => fx.liveCalls.length >= 2);
+    // The yielded item advanced the cursor to "1"; the callback must still
+    // receive "stale", the cursor `fetchMissed` was actually called with,
+    // so callers clear the right stored cursor.
+    expect(rejected).toEqual(["stale"]);
+    expect(fx.received).toEqual(["v1"]);
+    expect(fx.liveCalls).toEqual(["stale", undefined]);
+    await fx.close();
+    expect(await fx.ended).toBe("done");
+  });
+
+  it("swallows an async cursor callback rejection without breaking delivery", async () => {
+    const fx = buildStream({
+      fetchMissed: () =>
+        (async function* (): AsyncGenerator<Item> {
+          yield item("1", "v1");
+        })(),
+      initialCursor: "0",
+      live: () => liveSession([], "pending"),
+      onCursor: async (cursor) => {
+        if (cursor === "1") {
+          throw new Error("async persist boom");
+        }
+      },
+    });
+
+    await waitUntil(() => fx.received.includes("v1"));
+    expect(fx.received).toEqual(["v1"]);
+    expect(fx.fetchCalls).toEqual(["0"]);
+    expect(fx.liveCalls).toEqual(["0"]);
     await fx.close();
     expect(await fx.ended).toBe("done");
   });

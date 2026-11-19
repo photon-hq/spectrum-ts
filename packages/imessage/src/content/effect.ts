@@ -7,8 +7,8 @@ import {
 import { messageEffectSchema } from "@spectrum-ts/core/authoring";
 
 export const messageEffects = {
-  balloons: "com.apple.messages.effect.CKBalloonEffect",
-  celebration: "com.apple.messages.effect.CKHappyBirthdayEffect",
+  balloons: "com.apple.messages.effect.CKHappyBirthdayEffect",
+  celebration: "com.apple.messages.effect.CKSparklesEffect",
   confetti: "com.apple.messages.effect.CKConfettiEffect",
   echo: "com.apple.messages.effect.CKEchoEffect",
   fireworks: "com.apple.messages.effect.CKFireworksEffect",

@@ -15,7 +15,7 @@ import {
   asText,
 } from "@spectrum-ts/core/authoring";
 import { describe, expect, it, vi } from "vitest";
-import { effect } from "@/content/effect";
+import { effect, messageEffects } from "@/content/effect";
 import { editMessage, replyToMessage, send } from "@/remote/send";
 
 const SENT_DATE = new Date(1_700_000_000_000);
@@ -53,6 +53,21 @@ const groupOf = (...contents: Content[]) =>
   });
 
 describe("send (markdown)", () => {
+  it.each([
+    ["balloons", "com.apple.messages.effect.CKHappyBirthdayEffect"],
+    ["celebration", "com.apple.messages.effect.CKSparklesEffect"],
+    ["sparkles", "com.apple.messages.effect.CKSparklesEffect"],
+  ] as const)("forwards the native %s effect identifier", async (name, identifier) => {
+    const { remote, sendText } = makeRemote();
+    const content = await effect("Hello", messageEffects[name]).build();
+
+    await send(remote, "chat", content);
+
+    expect(sendText).toHaveBeenCalledExactlyOnceWith("chat", "Hello", {
+      effect: identifier,
+    });
+  });
+
   it("sends rendered text with formatting ranges", async () => {
     const { remote, sendText } = makeRemote();
     const content = asMarkdown("# Hi\n\n**bold** move");

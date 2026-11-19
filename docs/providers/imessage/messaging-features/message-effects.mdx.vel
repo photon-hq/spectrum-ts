@@ -14,7 +14,7 @@ content with `effect()`:
 import { attachment } from "spectrum-ts";
 import { effect, imessage } from "spectrum-ts/providers/imessage";
 
-await space.send(effect("Happy birthday!", imessage.effect.message.celebration));
+await space.send(effect("Happy birthday!", imessage.effect.message.balloons));
 await space.send(
   effect(
     attachment("/path/to/photo.jpg"),

@@ -29,6 +29,7 @@ import {
 import { getMessageCache, type MessageCache } from "../cache";
 import {
   appleAudioMimeType,
+  appleVoiceMimeType,
   normalizeAppleAttachmentMimeType,
 } from "../shared/audio";
 import { type OrderedPart, toOrderedParts } from "../shared/inbound-parts";
@@ -194,7 +195,7 @@ const attachmentContent = async (
   if (isVCardAttachment(info.mimeType, info.fileName)) {
     return await toVCardContent(client, info);
   }
-  const audioMimeType = isVoice ? appleAudioMimeType(info) : undefined;
+  const audioMimeType = isVoice ? appleVoiceMimeType(info, isVoice) : undefined;
   return audioMimeType
     ? toVoiceContent(client, info, audioMimeType)
     : toAttachmentContent(client, info);
@@ -311,8 +312,14 @@ const buildUnwrappedContentMessage = async (
   messageGuidStr: string
 ): Promise<IMessageMessage> => {
   const attachments = messageAttachments(message);
+  // Prefer the attachment that actually looks like audio; fall back to the
+  // first voice-mappable one so a voice recording whose CAF metadata did not
+  // survive the provider layer still maps to voice content (#191).
   const voiceAttachmentGuid = message.isAudioMessage
-    ? attachments.find((attachment) => appleAudioMimeType(attachment))?.guid
+    ? (
+        attachments.find((attachment) => appleAudioMimeType(attachment)) ??
+        attachments.find((attachment) => appleVoiceMimeType(attachment, true))
+      )?.guid
     : undefined;
 
   if (attachments.length === 0) {

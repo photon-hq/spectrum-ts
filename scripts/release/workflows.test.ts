@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 import { parse } from "yaml";
 import { publishablePackages, REPO_ROOT } from "./packages";
 
-const RELEASE_PIN = "587dcfcb3399bbb7a99625a8a32df2b7a7f93396";
+const RELEASE_PIN = "51f7feed5cda1ec41b67a6fe7430b780b89e201d";
 const DOCS_PIN = "cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d";
 const TAILSCALE = /^tailscale\/github-action@/;
 const STAGING_INPUT = /^\$\{\{ inputs\.staging-version \}\}$/;

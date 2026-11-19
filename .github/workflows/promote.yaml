@@ -24,7 +24,7 @@ jobs:
       actions: read
       attestations: read
       id-token: write
-    uses: photon-hq/buildspace/.github/workflows/package-promote.yml@587dcfcb3399bbb7a99625a8a32df2b7a7f93396
+    uses: photon-hq/buildspace/.github/workflows/package-promote.yml@51f7feed5cda1ec41b67a6fe7430b780b89e201d
     with:
       staging-version: ${{ inputs.staging-version }}
       package: spectrum-ts

@@ -3,12 +3,21 @@ import type {
   IMessageSDK,
   Message as LocalIMessage,
 } from "@photon-ai/imessage-kit";
-import { type Content, type ManagedStream, stream } from "@spectrum-ts/core";
 import {
+  type Content,
+  type ManagedStream,
+  type Message,
+  stream,
+} from "@spectrum-ts/core";
+import {
+  addMemberSchema,
   asCustom,
+  asReaction,
   asReply,
   asText,
   type ProviderMessageRecord,
+  removeMemberSchema,
+  renameSchema,
 } from "@spectrum-ts/core/authoring";
 import { appleAudioMimeType } from "../../../imessage/src/shared/audio";
 import {
@@ -18,10 +27,20 @@ import {
 } from "../../../imessage/src/shared/inbound-parts";
 import type { IMessageMessage } from "../types";
 import { localAttachmentContent } from "./attachments";
+import { cacheLocalMessage, getLocalMessage } from "./lookup";
 
 const ATTACHMENT_JOIN_RETRY_DELAY_MS = 250;
 const ATTACHMENT_JOIN_RETRY_LIMIT = 8;
 const ATTACHMENT_JOIN_FETCH_LIMIT = 10;
+
+const TAPBACK_EMOJI: Readonly<Record<string, string>> = {
+  dislike: "👎",
+  emphasize: "‼️",
+  laugh: "😂",
+  like: "👍",
+  love: "❤️",
+  question: "❓",
+};
 
 const hasAttachmentPlaceholder = (message: LocalIMessage): boolean =>
   message.text?.includes(ATTACHMENT_PLACEHOLDER) ?? false;
@@ -76,6 +95,149 @@ const wrapReply = (
   }));
 };
 
+const messageBase = (
+  message: LocalIMessage,
+  chatId: string,
+  chatKind: Exclude<LocalIMessage["chatKind"], "unknown">
+): Omit<IMessageMessage, "id" | "content"> => ({
+  direction: message.isFromMe ? "outbound" : "inbound",
+  sender: {
+    id: message.participant ?? "",
+    ...(message.participant ? { address: message.participant } : {}),
+    ...(message.service ? { service: message.service } : {}),
+  },
+  space: {
+    id: chatId,
+    type: chatKind === "group" ? "group" : "dm",
+    phone: "",
+  },
+  timestamp: message.createdAt,
+});
+
+const stubReactionTarget = (
+  base: Omit<IMessageMessage, "id" | "content">,
+  targetId: string
+): IMessageMessage => ({
+  ...base,
+  id: targetId,
+  content: asCustom({ imessage_type: "reaction-target", stub: true }),
+});
+
+const reactionEmoji = (
+  reaction: NonNullable<LocalIMessage["reaction"]>
+): string | undefined =>
+  reaction.kind === "emoji"
+    ? (reaction.emoji ?? undefined)
+    : TAPBACK_EMOJI[reaction.kind];
+
+const toReactionMessage = async (
+  client: IMessageSDK | undefined,
+  message: LocalIMessage,
+  base: Omit<IMessageMessage, "id" | "content">
+): Promise<IMessageMessage | undefined> => {
+  const reaction = message.reaction;
+  if (!reaction?.targetMessageId) {
+    return;
+  }
+
+  if (reaction.kind === "pollVote") {
+    return {
+      ...base,
+      id: message.id,
+      content: asCustom({
+        imessage_type: "poll-vote",
+        targetMessageId: reaction.targetMessageId,
+      }),
+    };
+  }
+
+  const emoji = reactionEmoji(reaction);
+  if (!emoji) {
+    return {
+      ...base,
+      id: message.id,
+      content: asCustom({
+        imessage_type: "reaction",
+        kind: reaction.kind,
+        removed: reaction.isRemoved,
+        targetMessageId: reaction.targetMessageId,
+      }),
+    };
+  }
+
+  const target = client
+    ? await getLocalMessage(
+        client,
+        base.space.id,
+        reaction.targetMessageId,
+        toMessages
+      )
+    : undefined;
+  return {
+    ...base,
+    id: message.id,
+    content: asReaction({
+      emoji,
+      ...(reaction.isRemoved ? { removed: true } : {}),
+      target: (target ??
+        stubReactionTarget(
+          base,
+          reaction.targetMessageId
+        )) as unknown as Message,
+    }),
+  };
+};
+
+const toGroupChangeMessage = (
+  message: LocalIMessage,
+  base: Omit<IMessageMessage, "id" | "content">
+): IMessageMessage | undefined => {
+  let content: Content | undefined;
+  switch (message.kind) {
+    case "memberAdded":
+      content = message.affectedParticipant
+        ? addMemberSchema.parse({
+            members: [message.affectedParticipant],
+            type: "addMember",
+          })
+        : undefined;
+      break;
+    case "memberRemoved":
+      content = message.affectedParticipant
+        ? removeMemberSchema.parse({
+            members: [message.affectedParticipant],
+            type: "removeMember",
+          })
+        : undefined;
+      break;
+    case "nameChanged":
+      content = message.newGroupName
+        ? renameSchema.parse({
+            displayName: message.newGroupName,
+            type: "rename",
+          })
+        : undefined;
+      break;
+    default:
+      content = asCustom({
+        action: message.kind,
+        affectedParticipant: message.affectedParticipant,
+        imessage_type: "message-event",
+        newGroupName: message.newGroupName,
+      });
+  }
+
+  return content ? { ...base, content, id: message.id } : undefined;
+};
+
+const toGroupChangeMessages = (
+  message: LocalIMessage,
+  base: Omit<IMessageMessage, "id" | "content">
+): IMessageMessage[] => {
+  const event = toGroupChangeMessage(message, base);
+  return event ? [event] : [];
+};
+
 const refetchUntilAttachmentsSettle = async (
   client: IMessageSDK,
   message: LocalIMessage
@@ -106,21 +268,26 @@ const refetchUntilAttachmentsSettle = async (
 };
 
 export const toMessages = async (
-  message: LocalIMessage
+  message: LocalIMessage,
+  client?: IMessageSDK
 ): Promise<IMessageMessage[]> => {
   const { chatId, chatKind } = message;
   if (!chatId || chatKind === "unknown") {
     return [];
   }
 
-  // Drop rows spectrum's Content union cannot faithfully represent:
-  // reactions, group events, and retracts would collapse to empty or
-  // Apple-generated pseudo-text otherwise.
-  if (
-    message.reaction !== null ||
-    message.kind !== "text" ||
-    message.retractedAt !== null
-  ) {
+  const base = messageBase(message, chatId, chatKind);
+
+  if (message.reaction !== null) {
+    const reaction = await toReactionMessage(client, message, base);
+    return reaction ? [reaction] : [];
+  }
+
+  if (message.kind !== "text") {
+    return toGroupChangeMessages(message, base);
+  }
+
+  if (message.retractedAt !== null) {
     return [];
   }
 
@@ -128,20 +295,6 @@ export const toMessages = async (
     return [];
   }
 
-  const base: Omit<IMessageMessage, "id" | "content"> = {
-    // Local mode exposes only the participant address; no service/country.
-    sender: {
-      id: message.participant ?? "",
-      ...(message.participant ? { address: message.participant } : {}),
-    },
-    // Local mode has no concept of "which-of-my-phones"; phone is empty.
-    space: {
-      id: chatId,
-      type: chatKind === "group" ? "group" : "dm",
-      phone: "",
-    },
-    timestamp: message.createdAt,
-  };
   const targetId = replyTargetId(message);
   const audioAttachmentId = voiceAttachmentId(message);
 
@@ -212,7 +365,11 @@ export const messages = (client: IMessageSDK): ManagedStream<IMessageMessage> =>
       const stableMessage = isPendingAttachmentJoin(message)
         ? await refetchUntilAttachmentsSettle(client, message)
         : message;
-      const ms = await toMessages(stableMessage);
+      const ms = await cacheLocalMessage(
+        client,
+        stableMessage,
+        await toMessages(stableMessage, client)
+      );
       for (const m of ms) {
         await emit(m);
       }

@@ -42,6 +42,8 @@ import { isCustomizedMiniApp } from "../../imessage/src/content/customized-mini-
 import { messageEffects } from "../../imessage/src/content/effect";
 import { chatTypeFromGuid, dmChatGuid } from "./ids";
 import {
+  getAttachment as localGetAttachment,
+  getDisplayName as localGetDisplayName,
   getMessage as localGetMessage,
   messages as localMessages,
   send as localSend,
@@ -220,8 +222,8 @@ export const localIMessage = definePlatform(PLATFORM_ID, {
     handleLocalOnlySend(client, space.id, content),
 
   actions: {
-    getMessage: async ({ client }, _space, messageId) =>
-      localGetMessage(client, messageId),
+    getMessage: async ({ client }, space, messageId) =>
+      localGetMessage(client, space.id, messageId),
     getMembers: async () =>
       unsupportedAction(
         "getMembers",
@@ -232,15 +234,11 @@ export const localIMessage = definePlatform(PLATFORM_ID, {
         "getAvatar",
         "fetching group avatars requires remote iMessage"
       ),
-    getDisplayName: async () =>
-      unsupportedAction(
-        "getDisplayName",
-        "reading chat display names requires remote iMessage"
-      ),
-    getAttachment: async (): Promise<Attachment | undefined> =>
-      unsupportedAction(
-        "getAttachment",
-        "fetching attachments by GUID requires remote iMessage"
-      ),
+    getDisplayName: async ({ client }, space) =>
+      localGetDisplayName(client, space.id),
+    getAttachment: async (
+      { client }: { client: IMessageSDK },
+      guid: string
+    ): Promise<Attachment | undefined> => localGetAttachment(client, guid),
   },
 });

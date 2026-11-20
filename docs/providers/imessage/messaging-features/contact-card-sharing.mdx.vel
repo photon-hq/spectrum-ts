@@ -32,6 +32,14 @@ This shares the bot's own contact card as it appears in iMessage. Recipients
 can tap it to save the contact. Use it in onboarding flows where you want users
 to add your bot to their contacts.
 
+<Warning>
+  `nativeContactCard()` has no name or photo input. It always shares the sending
+  iMessage account's current Apple Name & Photo profile. To send an arbitrary
+  person's details, use [`contact()`](/spectrum-ts/content/contacts); any
+  embedded photo remains vCard data, and Apple Messages may render initials in
+  the attachment preview.
+</Warning>
+
 {% set unsupportedError = symbol("ts:spectrum-ts#UnsupportedError") %}
 <Note>
   Native contact card sharing requires `@spectrum-ts/imessage`. With

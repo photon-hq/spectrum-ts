@@ -1,5 +1,9 @@
 import { stubCloud } from "@spectrum-ts/test-support/cloud";
-import { encodeEvent, makeSlack } from "@spectrum-ts/test-support/fusor";
+import {
+  encodeEvent,
+  FUSOR_WEBHOOK_HEADERS,
+  makeSlack,
+} from "@spectrum-ts/test-support/fusor";
 import {
   baseConfig,
   makeManagedProvider,
@@ -241,7 +245,7 @@ describe("spectrum.webhook (native Spectrum webhook)", () => {
 });
 
 describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
-  it("routes a protobuf body (no signature header) to the fusor path", async () => {
+  it("routes a Fusor JSON envelope by CloudEvents type", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
       providers: [makeSlack().config({})],
@@ -252,7 +256,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
 
     const result = await spectrum.webhook(
       {
-        headers: { "content-type": "application/x-protobuf" },
+        headers: FUSOR_WEBHOOK_HEADERS,
         body: encodeEvent(
           "slack",
           JSON.stringify({ type: "message", text: "hello" })
@@ -271,9 +275,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     await spectrum.stop();
   });
 
-  it("routes a SIGNED protobuf body to the fusor path (header doesn't force native)", async () => {
-    // Spectrum signs fusor deliveries too, so an `x-spectrum-signature` header on
-    // a protobuf body must NOT be misrouted into the native JSON parser.
+  it("routes a signed Fusor JSON envelope by CloudEvents type", async () => {
     const spectrum = await Spectrum({
       ...baseConfig,
       providers: [makeSlack().config({})],
@@ -285,13 +287,13 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     const result = await spectrum.webhook(
       {
         headers: {
-          "content-type": "application/x-protobuf",
+          ...FUSOR_WEBHOOK_HEADERS,
           "x-spectrum-signature": "v0=deadbeef",
           "x-spectrum-timestamp": String(Math.floor(Date.now() / 1000)),
         },
         body: encodeEvent(
           "slack",
-          JSON.stringify({ type: "message", text: "signed-protobuf" })
+          JSON.stringify({ type: "message", text: "signed-fusor" })
         ),
       },
       (_space, message) => {
@@ -304,7 +306,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
     expect(result.status).toBe(200);
     expect(received[0]?.content).toEqual({
       type: "text",
-      text: "signed-protobuf",
+      text: "signed-fusor",
     });
 
     await spectrum.stop();
@@ -317,7 +319,7 @@ describe("spectrum.webhook (dispatch / fusor coexistence)", () => {
         await expect(
           spectrum.webhook(
             {
-              headers: { "content-type": "application/x-protobuf" },
+              headers: FUSOR_WEBHOOK_HEADERS,
               body: encodeEvent("slack", JSON.stringify({ type: "message" })),
             },
             () => {

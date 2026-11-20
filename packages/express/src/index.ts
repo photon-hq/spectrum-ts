@@ -7,7 +7,7 @@
 // mounts `express.raw({ type: "*/*" })` on its own route — Spectrum verifies the
 // native webhook's HMAC over the EXACT wire bytes
 // (`HMAC-SHA256(secret, "v0:<ts>:<rawBody>")`), so a parsed-and-re-encoded body
-// would break verification (and the fusor protobuf body would fail to decode).
+// would break native HMAC verification (and may corrupt the Fusor JSON bytes).
 //
 // ⚠️ Ordering hazard (the Express analog of Elysia's parse lifecycle): a global
 // `express.json()` mounted BEFORE this router consumes the request stream first,

@@ -15,11 +15,11 @@ import { TypeTooltip } from "/snippets/type-tooltip.mdx";
 
 | | Native Spectrum webhook | Fusor webhook |
 |---|---|---|
-| Body | HMAC-signed, normalized JSON | Protobuf envelope (raw provider request) |
+| Body | HMAC-signed, normalized JSON | Versioned JSON envelope (original provider request included) |
 | Auth | HMAC over body, verified with `webhookSecret` | Platform's own signature via provider `verify()` |
 | Requires a Fusor provider | No | Yes |
 
-Detection is by payload shape (JSON vs protobuf), not headers. Your handler receives the same `(space, message)` pair either way.
+Fusor deliveries are selected by the CloudEvents header `ce-type: dev.spctrm.fusor.delivery`; every other request follows the native signed-webhook path. Your handler receives the same `(space, message)` pair either way.
 
 ## Configuring a webhook secret
 
@@ -78,6 +78,19 @@ The handler is invoked **fire-and-forget** — it runs after the HTTP response i
 <Warning>
 Pass the raw body bytes. The HMAC is computed over the exact bytes on the wire. If your framework parses the body to JSON and you re-stringify it, the bytes change and verification fails.
 </Warning>
+
+Fusor's schema-version `1` envelope is plain JSON. It exposes the original request's `method`, path (including query string), lower-case headers, a normalized `body` arm, and `rawBodyBase64`. The SDK validates the envelope and always passes the bytes decoded from `rawBodyBase64` to the provider's `verify()` function, so signatures are checked against the exact provider payload rather than reserialized JSON.
+
+`request.bodyEncoding` describes the JSON-friendly `request.body` value:
+
+| `bodyEncoding` | `request.body` |
+|---|---|
+| `json` | Any JSON value |
+| `form` | An object of strings, with repeated form keys represented as ordered string arrays |
+| `text` | A UTF-8 string |
+| `base64` | A base64 string, identical to `rawBodyBase64` |
+
+Low-code consumers can work directly with `request.body`. Signature-aware provider code should use the bytes decoded from `rawBodyBase64`; the SDK does this automatically before calling `verify()`.
 
 ## Framework adapters
 
@@ -205,7 +218,7 @@ First-party adapters mount the endpoint for you and handle raw-body parsing corr
 - **Signature verification.** Native webhooks are verified with `HMAC-SHA256` over `v0:<timestamp>:<rawBody>`, with a 5-minute replay window. Bad signature returns `401`, missing headers return `400`.
 - **Payload deserialization.** Native webhook JSON is deserialized into normal <TypeTooltip name="Message" type={`{{ message.signature }}`} /> and <TypeTooltip name="Space" type={`{{ space.signature }}`} /> objects, including reactions and grouped items.
 - **Attachment rehydration.** Native webhooks carry attachment metadata only. `read()` and `stream()` fetch the bytes lazily via the platform.
-- **Format detection.** Native vs Fusor is detected per request by payload shape — JSON for native, protobuf for Fusor.
+- **Format detection.** `ce-type: dev.spctrm.fusor.delivery` selects the Fusor v1 JSON path; all other requests use native HMAC verification.
 
 ## Delivery semantics
 

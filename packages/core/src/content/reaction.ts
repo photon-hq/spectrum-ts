@@ -18,6 +18,8 @@ const isMessage = (v: unknown): v is Message =>
 export const reactionSchema = z.object({
   type: z.literal("reaction"),
   emoji: z.string().min(1),
+  /** True when this event removes a previously applied reaction. */
+  removed: z.boolean().optional(),
   target: z.custom<Message>(isMessage, {
     message: "reaction target must be a Message",
   }),
@@ -27,6 +29,7 @@ export type Reaction = z.infer<typeof reactionSchema>;
 
 export const asReaction = (input: {
   emoji: string;
+  removed?: boolean;
   target: Message;
 }): Reaction => reactionSchema.parse({ type: "reaction", ...input });
 

@@ -43,6 +43,17 @@ await message.react(Emoji.laugh);
 
 `reaction()` rejects reaction messages as targets — reacting to a reaction throws at build time.
 
+Inbound reaction removals use the same reaction content shape as additions,
+with `message.content.removed === true`. The field is omitted for additions,
+so existing consumers that only inspect `emoji` and `target` continue to work.
+
+```ts
+if (message.content.type === "reaction") {
+  const action = message.content.removed ? "removed" : "added";
+  console.log(action, message.content.emoji, message.content.target.id);
+}
+```
+
 The iMessage tapback aliases are:
 
 <Accordion title="Emoji" description="{{ emoji.doc.summary }}">

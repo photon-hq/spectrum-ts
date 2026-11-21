@@ -7,7 +7,8 @@ import { expect, it } from "vitest";
 import { parse } from "yaml";
 import { publishablePackages, REPO_ROOT } from "./packages";
 
-const PIN = "cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d";
+const RELEASE_PIN = "f0c7d5d2645c16e59516fe966b6aa096c29024f5";
+const DOCS_PIN = "cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d";
 const TAILSCALE = /^tailscale\/github-action@/;
 const STAGING_INPUT = /^\$\{\{ inputs\.staging-version \}\}$/;
 const RELEASE_TAG_CONTEXT =
@@ -32,7 +33,7 @@ it("stages only main pushes without a label gate and requires real CI and verifi
   );
   expect(stage.jobs.stage.with["dry-run"]).toMatch(DRY_RUN_INPUT);
   expect(stage.jobs.stage.uses).toBe(
-    `photon-hq/buildspace/.github/workflows/package-stage.yml@${PIN}`
+    `photon-hq/buildspace/.github/workflows/package-stage.yml@${RELEASE_PIN}`
   );
   expect(stage.jobs.stage.with).toMatchObject({
     "ci-workflow": "ci.yaml",
@@ -99,7 +100,7 @@ it("promotes only an explicit main dispatch through production approval without 
   });
   expect(promote.jobs.promote.if).toBe("github.ref == 'refs/heads/main'");
   expect(promote.jobs.promote.uses).toBe(
-    `photon-hq/buildspace/.github/workflows/package-promote.yml@${PIN}`
+    `photon-hq/buildspace/.github/workflows/package-promote.yml@${RELEASE_PIN}`
   );
   expect(promote.jobs.promote.with.environment).toBe("production");
   expect(promote.jobs.promote.with["staging-version"]).toMatch(STAGING_INPUT);
@@ -149,7 +150,7 @@ it("runs stable notifications and docs explicitly after a successful promotion, 
     (step: { id: string }) => step.id === "docs"
   );
   expect(update.uses).toBe(
-    `photon-hq/buildspace/.github/blocks/update-docs@${PIN}`
+    `photon-hq/buildspace/.github/blocks/update-docs@${DOCS_PIN}`
   );
   expect(update.with["docs-path"]).toBe("spectrum-ts");
   expect(update.with["release-tag"]).toMatch(RELEASE_TAG_CONTEXT);

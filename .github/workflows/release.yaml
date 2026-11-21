@@ -27,7 +27,7 @@ jobs:
       actions: read
       attestations: write
       id-token: write
-    uses: photon-hq/buildspace/.github/workflows/package-stage.yml@51f7feed5cda1ec41b67a6fe7430b780b89e201d
+    uses: photon-hq/buildspace/.github/workflows/package-stage.yml@f0c7d5d2645c16e59516fe966b6aa096c29024f5
     with:
       package: spectrum-ts
       package-selection: spectrum-ts @spectrum-ts/core @spectrum-ts/elysia @spectrum-ts/express @spectrum-ts/fastify @spectrum-ts/hono @spectrum-ts/imessage @spectrum-ts/imessage-local @spectrum-ts/slack @spectrum-ts/telegram @spectrum-ts/terminal @spectrum-ts/whatsapp-business

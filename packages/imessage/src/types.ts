@@ -44,6 +44,8 @@ export type IMessageHeartbeatHandler = (
 
 export const configSchema = z.strictObject({
   clients: clientEntry.or(z.array(clientEntry)).optional(),
+  /** Set false to consume the cursor without hydrating or emitting read receipts. */
+  includeReadReceipts: z.boolean().optional(),
   onHeartbeat: z
     .custom<IMessageHeartbeatHandler>((value) => typeof value === "function")
     .optional(),

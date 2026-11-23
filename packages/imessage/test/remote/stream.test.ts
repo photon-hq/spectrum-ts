@@ -682,6 +682,58 @@ describe("remote iMessage streams", () => {
     await settleSoon(iterator.next());
   }, 15_000);
 
+  it("skips opted-out live and replayed reads while keeping the cursor and quoted message", async () => {
+    const quoted = inboundEvent(4, "s2");
+    const quotedEvent = {
+      ...quoted,
+      message: { ...quoted.message, replyTargetGuid: "quoted-parent" },
+    };
+    const firstConnection = async function* () {
+      yield inboundEvent(1, "s2");
+      yield readEvent(2, "s1", "+15550111", "live-read");
+    };
+    const resume = vi.fn(async function* () {
+      yield readEvent(3, "s1", "+15550111", "missed-read");
+      yield quotedEvent;
+      yield { type: "catchup.complete", headSequence: 4 };
+    });
+    const get = vi.fn((id: string) => Promise.resolve(sentMessage(id)));
+    const subscribe = vi.fn(() =>
+      finiteEventStream([quotedEvent, inboundEvent(5, "s2")])
+    );
+    const entry: RemoteClient = {
+      phone: SHARED_PHONE,
+      client: {
+        events: { catchUp: resume },
+        messages: {
+          get,
+          subscribeEvents: vi
+            .fn()
+            .mockReturnValueOnce(firstConnection())
+            .mockImplementation(subscribe),
+        },
+        polls: { subscribeEvents: idleEventStream },
+      } as unknown as AdvancedIMessage,
+    };
+    const stream = messages([entry], undefined, undefined, undefined, false);
+    const it = stream[Symbol.asyncIterator]();
+    try {
+      expect((await it.next()).value?.id).toBe("msg-1");
+      expect((await it.next()).value).toMatchObject({
+        id: "msg-4",
+        content: {
+          type: "reply",
+          target: { id: "quoted-parent", content: { text: "from us" } },
+        },
+      });
+      expect((await it.next()).value?.id).toBe("msg-5");
+      expect(resume.mock.calls).toEqual([[2]]);
+      expect(get.mock.calls).toEqual([["quoted-parent"]]);
+    } finally {
+      await stream.close();
+    }
+  });
+
   it("surfaces an inbound read receipt", async () => {
     const { entry } = readReceiptClient("+15550100", [
       readEvent(1, "s1", "+15550111"),

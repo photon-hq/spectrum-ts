@@ -8,6 +8,19 @@ When someone reads a message the agent sent, it arrives on `app.messages` as a
 `read` message. Unlike group events this needs no dedicated line — receipts
 ride the message stream that every mode already consumes.
 
+If your app only needs messages and replies, you can skip incoming read
+receipts when you configure the provider:
+
+```ts
+const app = await Spectrum({
+  providers: [imessage.config({ includeReadReceipts: false })],
+});
+```
+
+The default is `true`. Setting it to `false` skips the original-message lookup
+for read receipts during live delivery and replay. Quoted replies and reactions
+can still resolve their targets. You can still send read receipts with `read()`.
+
 <Warning>
   Read receipts are high-volume. A group emits **one message per reader per
   message read**, and because marking a chat read clears *every* unread message

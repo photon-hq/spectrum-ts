@@ -63,9 +63,16 @@ export const messages = (
   clients: RemoteClient[],
   projectConfig: ProjectData | undefined,
   profileSyncGate?: ProfileSyncGate | undefined,
-  onHeartbeat?: IMessageHeartbeatHandler
+  onHeartbeat?: IMessageHeartbeatHandler,
+  includeReadReceipts = true
 ): ManagedStream<IMessageMessage> =>
-  remoteMessages(clients, projectConfig, profileSyncGate, onHeartbeat);
+  remoteMessages(
+    clients,
+    projectConfig,
+    profileSyncGate,
+    onHeartbeat,
+    includeReadReceipts
+  );
 
 export const setBackground = async (
   remote: AdvancedIMessage,

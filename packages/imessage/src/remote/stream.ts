@@ -131,6 +131,7 @@ const toMessageItem = async (
   event: MessageEvent,
   phone: string,
   cursor: string,
+  includeReadReceipts: boolean,
   onInbound?: OnInboundMessage
 ): Promise<ResumableStreamItem<IMessageMessage>> => {
   if (event.type === "message.received") {
@@ -171,9 +172,11 @@ const toMessageItem = async (
 
   if (event.type === "message.read") {
     const id = readReceiptMessageId(event);
-    // Logged before any filtering: if this never fires, the upstream stream is
-    // not delivering `message.read` at all and nothing downstream can be at
-    // fault. Every drop below logs its own reason.
+    if (!includeReadReceipts) {
+      return { cursor, id, values: [] };
+    }
+    // With receipts enabled, log raw receipt arrival before filtering.
+    // Every drop below logs its own reason.
     streamLog.debug("received a read event", {
       "spectrum.imessage.read.message_guid": event.messageGuid,
       "spectrum.imessage.read.sequence": event.sequence,
@@ -344,6 +347,7 @@ async function* afterCursor(
 }
 
 interface SubscriptionContext {
+  includeReadReceipts: boolean;
   lineId: string;
   onHeartbeat: IMessageHeartbeatHandler | undefined;
   phone: string;
@@ -433,7 +437,14 @@ const messageStream = (
         streamLabel("messages", phone),
         String(event.sequence),
         () =>
-          toMessageItem(client, event, phone, String(event.sequence), onInbound)
+          toMessageItem(
+            client,
+            event,
+            phone,
+            String(event.sequence),
+            context.includeReadReceipts,
+            onInbound
+          )
       ),
     processMissed: (event) =>
       event.type === "catchup.complete"
@@ -447,6 +458,7 @@ const messageStream = (
                 event,
                 phone,
                 String(event.sequence),
+                context.includeReadReceipts,
                 onInbound
               )
           ),
@@ -584,7 +596,8 @@ export const messages = (
   clients: RemoteClient[],
   projectConfig?: ProjectData | undefined,
   profileSyncGate?: ProfileSyncGate | undefined,
-  onHeartbeat?: IMessageHeartbeatHandler
+  onHeartbeat?: IMessageHeartbeatHandler,
+  includeReadReceipts = true
 ): ManagedStream<IMessageMessage> => {
   const pollCache = getPollCache(clients);
   // Direct callers retain the initialization-snapshot behavior. Cloud-backed
@@ -612,6 +625,7 @@ export const messages = (
       includeGroupEvents,
       {
         onHeartbeat,
+        includeReadReceipts,
         projectId: projectConfig?.id,
         lineId: lineKey(entry),
         phone: entry.phone,

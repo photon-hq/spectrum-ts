@@ -658,7 +658,8 @@ const definedIMessage = defineCorePlatform(IMESSAGE_PLATFORM, {
       client,
       projectConfig,
       getProfileSyncGate(client),
-      config.onHeartbeat
+      config.onHeartbeat,
+      config.includeReadReceipts
     ),
 
   send: async ({ space, content, client }) => {

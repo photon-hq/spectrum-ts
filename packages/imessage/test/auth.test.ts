@@ -539,6 +539,125 @@ describe("imessage cloud auth", () => {
     await disposeCloudAuth(clients);
   });
 
+  it("retires the shared gateway and subscribes new lines on a shared→dedicated plan change", async () => {
+    const shared: FakeSharedTokenData = {
+      expiresIn: 3600,
+      token: "shared-1",
+      type: "shared",
+    };
+    const { clients, refresh } = await startClients(shared);
+    expect(clients).toHaveLength(1);
+
+    const attached: string[] = [];
+    const detached: string[] = [];
+    addLineObserver(clients, {
+      attach: (entry) => {
+        attached.push(entry.phone);
+      },
+      detach: (entry) => {
+        detached.push(entry.phone);
+        return Promise.resolve();
+      },
+    });
+
+    await refresh(dedicated({ "instance-1": "+15550000001" }));
+
+    // The stale shared entry is gone and its channel closed: its token
+    // getter resolved `tokenData.token`, which a dedicated payload does not
+    // carry, so keeping it would route through `Bearer undefined`.
+    expect(clients).toHaveLength(1);
+    expect(clients[0]?.phone).toBe("+15550000001");
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
+    // The stream layer is told to drop the gateway and pick up the new line.
+    expect(detached).toEqual(["shared"]);
+    expect(attached).toEqual(["+15550000001"]);
+    // The new line authenticates with its own token, on the same array.
+    expect(await clientOptions[1]?.token()).toBe("token-instance-1");
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("keeps the shared gateway when a shared→dedicated refresh returns a dedicated payload without an auth map", async () => {
+    const shared: FakeSharedTokenData = {
+      expiresIn: 3600,
+      token: "shared-1",
+      type: "shared",
+    };
+    const { clients, refresh } = await startClients(shared);
+    expect(clients).toHaveLength(1);
+
+    // Malformed: type claims dedicated but there is no line inventory.
+    const malformed = {
+      expiresIn: 3600,
+      type: "dedicated",
+    } as unknown as FakeDedicatedTokenData;
+    await refresh(malformed);
+
+    // The shared gateway survives untouched: retiring it before discovering
+    // the missing `auth` map would leave the client set empty until the next
+    // refresh. The stale-but-working payload is kept, so the gateway still
+    // authenticates and the error stays contained in the refresh.
+    expect(clients).toHaveLength(1);
+    expect(clients[0]?.phone).toBe("shared");
+    expect(fakeClients[0]?.close).not.toHaveBeenCalled();
+    expect(await clientOptions[0]?.token()).toBe("shared-1");
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("keeps existing lines when a dedicated refresh returns a payload without an auth map", async () => {
+    const { clients, refresh } = await startClients(
+      dedicated({ "instance-1": "+15550000001" })
+    );
+    expect(clients).toHaveLength(1);
+
+    const malformed = {
+      expiresIn: 3600,
+      type: "dedicated",
+    } as unknown as FakeDedicatedTokenData;
+    await refresh(malformed);
+
+    expect(clients).toHaveLength(1);
+    expect(clients[0]?.phone).toBe("+15550000001");
+    expect(fakeClients[0]?.close).not.toHaveBeenCalled();
+    expect(await clientOptions[0]?.token()).toBe("token-instance-1");
+
+    await disposeCloudAuth(clients);
+  });
+
+  it("stands up the shared gateway and retires dedicated lines on a dedicated→shared plan change", async () => {
+    const { clients, refresh } = await startClients(
+      dedicated({ "instance-1": "+15550000001", "instance-2": "+15550000002" })
+    );
+    expect(clients).toHaveLength(2);
+
+    const attached: string[] = [];
+    const detached: string[] = [];
+    addLineObserver(clients, {
+      attach: (entry) => {
+        attached.push(entry.phone);
+      },
+      detach: (entry) => {
+        detached.push(entry.phone);
+        return Promise.resolve();
+      },
+    });
+
+    await refresh({ expiresIn: 3600, token: "shared-9", type: "shared" });
+
+    // Both dedicated lines are gone with their channels closed: their token
+    // getters resolved through `auth`, which a shared payload does not carry.
+    expect(clients).toHaveLength(1);
+    expect(clients[0]?.phone).toBe("shared");
+    expect(fakeClients[0]?.close).toHaveBeenCalledTimes(1);
+    expect(fakeClients[1]?.close).toHaveBeenCalledTimes(1);
+    expect(detached).toEqual(["+15550000001", "+15550000002"]);
+    expect(attached).toEqual(["shared"]);
+    expect(await clientOptions[2]?.token()).toBe("shared-9");
+
+    await disposeCloudAuth(clients);
+  });
+
   it("re-asserts every known line on refresh so a dropped stream revives", async () => {
     const { clients, refresh } = await startClients(
       dedicated({ "instance-1": "+15550000001" })

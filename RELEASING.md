@@ -8,7 +8,7 @@ is not private: it publishes all twelve existing package names under the
 It does not change `latest` or send production notifications.
 
 Both callers pin Buildspace to
-`cfaaa6a4c8870bc21ced10f732fbbc0f4d23384d`. Its version job computes the next
+`f0c7d5d2645c16e59516fe966b6aa096c29024f5`. Its version job computes the next
 shared version from merged PR titles and descriptions since the highest stable
 `vX.Y.Z` tag. Conventional Commits and `Release-As: X.Y.Z` determine the bump;
 committed package versions do not authorize or name a release.

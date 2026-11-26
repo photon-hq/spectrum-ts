@@ -41,6 +41,14 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
     cursor: string,
     options: FetchMissedOptions
   ) => AsyncIterable<TMissed>;
+  /**
+   * Cursor to resume from on start, e.g. one the caller persisted via
+   * `onCursor` before a restart. Without it the stream starts live-only
+   * and anything sent while no process was running is lost. When set, the
+   * first pass runs catch-up from this cursor instead of subscribing
+   * live-only.
+   */
+  initialCursor?: string;
   initialRetryDelayMs?: number;
   /**
    * Recognizes a `fetchMissed` failure that means the server rejected the
@@ -54,6 +62,20 @@ export interface ResumableOrderedStreamOptions<TLive, TMissed, TOutput> {
   /** Log provenance, e.g. "imessage.messages:+1555…". */
   label?: string;
   maxRetryDelayMs?: number;
+  /**
+   * Invoked each time the stream advances to a new cursor, so callers can
+   * persist it and resume from it after a restart. Errors thrown, and
+   * rejections from an async callback, are logged and swallowed;
+   * persistence must never break delivery.
+   */
+  onCursor?: (cursor: string) => void | Promise<void>;
+  /**
+   * Invoked with the rejected cursor when the server refuses it and the
+   * stream drops it, so callers can clear their stored cursor. Errors
+   * thrown, and rejections from an async callback, are logged and
+   * swallowed.
+   */
+  onCursorRejected?: (cursor: string) => void | Promise<void>;
   processLive: (event: TLive) => Promise<ResumableStreamItem<TOutput>>;
   processMissed: (event: TMissed) => Promise<ResumableStreamItem<TOutput>>;
   /**
@@ -87,10 +109,16 @@ class LiveBufferOverflowError extends RetryableStreamError {
 
 // Sentinel for a server-rejected resume cursor: the only recovery is to drop
 // the cursor, accept the event gap, and resume live.
+// Carries the cursor that was supplied to `fetchMissed`: items yielded
+// before the rejection can advance `lastCursor`, so the rejected cursor
+// cannot be recovered from stream state at handling time.
 class CursorRejectedError extends Error {
-  constructor(cause: unknown) {
+  readonly cursor: string;
+
+  constructor(cursor: string, cause: unknown) {
     super("Server rejected resume cursor", { cause });
     this.name = "CursorRejectedError";
+    this.cursor = cursor;
   }
 }
 
@@ -143,12 +171,15 @@ const jitterDelay = (delayMs: number): number =>
 // so a processMissed/live error can never masquerade as a cursor rejection.
 async function* throwOnCursorRejection<T>(
   source: AsyncIterable<T>,
+  cursor: string,
   isCursorRejected: (error: unknown) => boolean
 ): AsyncGenerator<T> {
   try {
     yield* source;
   } catch (error) {
-    throw isCursorRejected(error) ? new CursorRejectedError(error) : error;
+    throw isCursorRejected(error)
+      ? new CursorRejectedError(cursor, error)
+      : error;
   }
 }
 
@@ -200,7 +231,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     // at most once per `PERSISTENT_FAILURE_ERROR_THRESHOLD` window instead of on
     // every retry. Reset on recovery so a later outage triggers it again.
     let lastRecoverAttempt = 0;
-    let lastCursor: string | undefined;
+    let lastCursor: string | undefined = options.initialCursor;
     let retryDelayMs = initialRetryDelayMs;
     let sleepTimer: ReturnType<typeof setTimeout> | undefined;
     let pendingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -248,6 +279,33 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
       lastCursor = cursor;
       if (clearDelivered) {
         deliveredSinceCursor.clear();
+      }
+      try {
+        // Deliberately not awaited: delivery must not wait on persistence.
+        // A rejected promise is routed to the same log path as a sync
+        // throw so an async callback can never surface an unhandled
+        // rejection.
+        Promise.resolve(options.onCursor?.(cursor)).catch((error) => {
+          log.warn(
+            "cursor persistence callback failed",
+            {
+              "spectrum.stream.id": streamId,
+              "spectrum.stream.label": label,
+              "spectrum.stream.cursor": cursor,
+            },
+            error
+          );
+        });
+      } catch (error) {
+        log.warn(
+          "cursor persistence callback failed",
+          {
+            "spectrum.stream.id": streamId,
+            "spectrum.stream.label": label,
+            "spectrum.stream.cursor": cursor,
+          },
+          error
+        );
       }
     };
 
@@ -402,8 +460,36 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
         ),
       };
       if (error instanceof CursorRejectedError) {
+        const rejectedCursor = error.cursor;
         lastCursor = undefined;
         deliveredSinceCursor.clear();
+        try {
+          // Deliberately not awaited; a rejected promise is routed to the
+          // same log path as a sync throw (see advanceCursor).
+          Promise.resolve(options.onCursorRejected?.(rejectedCursor)).catch(
+            (callbackError) => {
+              log.warn(
+                "cursor rejection callback failed",
+                {
+                  "spectrum.stream.id": streamId,
+                  "spectrum.stream.label": label,
+                  "spectrum.stream.cursor": rejectedCursor,
+                },
+                callbackError
+              );
+            }
+          );
+        } catch (callbackError) {
+          log.warn(
+            "cursor rejection callback failed",
+            {
+              "spectrum.stream.id": streamId,
+              "spectrum.stream.label": label,
+              "spectrum.stream.cursor": rejectedCursor,
+            },
+            callbackError
+          );
+        }
         log.warn(
           "resume cursor rejected; accepting event gap and resuming live",
           attrs,
@@ -532,6 +618,7 @@ export const resumableOrderedStream = <TLive, TMissed, TOutput>(
     ) => {
       const missed = throwOnCursorRejection(
         options.fetchMissed(cursor, { limit: catchUpPageSize }),
+        cursor,
         isCursorRejected
       );
       for await (const event of missed) {

@@ -2,6 +2,20 @@
   "name": "spectrum-ts",
   "version": "12.16.0",
   "description": "Bring agents to any interface — unified messaging SDK for TypeScript.",
+  "keywords": [
+    "imessage",
+    "imessage-api",
+    "whatsapp",
+    "telegram",
+    "slack",
+    "ai-agent",
+    "agents",
+    "chatbot",
+    "messaging",
+    "sdk",
+    "typescript",
+    "photon"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/photon-hq/spectrum-ts.git",
